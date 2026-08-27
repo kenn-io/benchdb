@@ -62,7 +62,7 @@ UI instead of hand-picked local captures.
 
 | View | Route captured | What this screenshot proves |
 | --- | --- | --- |
-| Recent runs | `/` | Start from recent run activity and jump into CI, result, or series workflows. |
+| Benchmark runs | `/` | Start from recent benchmark activity and jump into report, result, or series workflows. |
 | Series browse | `/series?q=demo-benchmark` | Browse benchmark families, filters, status, and production-shaped identifiers. |
 | Trend detail | `/series/:fingerprint?range=all` | Inspect history, charted trends, and sample rows for one series. |
 | Result detail | `/results/:id` | Inspect one benchmark result, measurement, metadata, and read-only actions. |
@@ -73,11 +73,11 @@ UI instead of hand-picked local captures.
 | CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review PR/CI regression status, filters, investigation queue, and row verdicts. |
 | Account | `/account` | Reach session identity, login, API token management, and alert-rule management surfaces. |
 
-## Recent Runs
+## Benchmark Runs
 
-![Recent runs dashboard](assets/screenshots/dashboard-home-desktop.png)
+![Benchmark runs dashboard](assets/screenshots/dashboard-home-desktop.png)
 
-![Recent runs mobile dashboard](assets/screenshots/dashboard-home-mobile.png)
+![Benchmark runs mobile dashboard](assets/screenshots/dashboard-home-mobile.png)
 
 ## Series Browse
 
