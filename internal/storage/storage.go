@@ -106,9 +106,9 @@ type InsertCommitParams struct {
 	ForkPointSha *string
 }
 
-// UnknownCommitCandidateParams bounds the repair scan for commit rows that were
-// first inserted without Git metadata. Repository and cursor values are already
-// normalized by callers; the storage adapter matches stored values exactly.
+// UnknownCommitCandidateParams bounds the repair scan for commit rows with
+// incomplete Git metadata. Repository and cursor values are already normalized
+// by callers; the storage adapter matches stored values exactly.
 type UnknownCommitCandidateParams struct {
 	Repository      *string
 	AfterRepository *string
@@ -125,7 +125,7 @@ type UnknownCommitCandidate struct {
 }
 
 // UpdateUnknownCommitParams is the metadata payload for defensively filling an
-// unknown commit row. The adapter only updates rows that are still unknown.
+// incomplete commit row. The adapter only updates rows that remain incomplete.
 type UpdateUnknownCommitParams struct {
 	ID           string
 	Parent       *string

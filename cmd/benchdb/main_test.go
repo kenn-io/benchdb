@@ -244,7 +244,7 @@ func TestCobraHelpExitsZero(t *testing.T) {
 		{name: "auth token list leaf", args: []string{"auth", "token", "list", "--help"}, contains: []string{"List API tokens", "--server", "--token"}},
 		{name: "auth token revoke leaf", args: []string{"auth", "token", "revoke", "--help"}, contains: []string{"Revoke an API token", "--server", "--token"}},
 		{name: "admin tokens create leaf", args: []string{"admin", "tokens", "create", "--help"}, contains: []string{"Mint an API token", "--email", "--token-name"}},
-		{name: "admin repair leaf", args: []string{"admin", "repair-commits", "--help"}, contains: []string{"Repair stored unknown commit rows", "--repository", "--limit", "--dry-run", "--format"}},
+		{name: "admin repair leaf", args: []string{"admin", "repair-commits", "--help"}, contains: []string{"Repair stored incomplete commit rows", "--repository", "--limit", "--dry-run", "--format"}},
 		{name: "admin alerts evaluate leaf", args: []string{"admin", "alerts", "evaluate", "--help"}, contains: []string{"Evaluate server-side alert rules", "--format"}},
 	}
 	for _, tt := range tests {

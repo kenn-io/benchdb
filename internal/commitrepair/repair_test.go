@@ -292,23 +292,33 @@ func TestRunClassifiesGitHubAppTokenExchangeUnauthorizedFailure(t *testing.T) {
 	assert.Equal(t, 1, summary.AuthOrQuotaFailures)
 }
 
-func TestRunMissingForkPointFailsWithoutUpdating(t *testing.T) {
+func TestRunIncompleteMetadataFailsWithoutUpdating(t *testing.T) {
 	ts := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	info := commitInfo("https://github.com/org/repo", "abc123", ts, "fork")
-	info.ForkPointSha = nil
-	store := &fakeStore{candidates: []storage.UnknownCommitCandidate{
-		candidate("id-1", "https://github.com/org/repo", "abc123"),
-	}}
-	enricher := &fakeEnricher{infos: map[string]*commit.Info{"abc123": info}}
-	r := NewRepairer(store, enricher, nil)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*commit.Info)
+	}{
+		{name: "missing fork point", mutate: func(info *commit.Info) { info.ForkPointSha = nil }},
+		{name: "blank author", mutate: func(info *commit.Info) { info.AuthorName = " " }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := commitInfo("https://github.com/org/repo", "abc123", ts, "fork")
+			tc.mutate(info)
+			store := &fakeStore{candidates: []storage.UnknownCommitCandidate{
+				candidate("id-1", "https://github.com/org/repo", "abc123"),
+			}}
+			enricher := &fakeEnricher{infos: map[string]*commit.Info{"abc123": info}}
+			r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+			summary, err := r.Run(context.Background(), Options{Limit: 10})
 
-	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Failed)
-	assert.Empty(t, store.updates)
-	require.Len(t, summary.Failures, 1)
-	assert.Equal(t, "abc123", summary.Failures[0].Sha)
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Failed)
+			assert.Empty(t, store.updates)
+			require.Len(t, summary.Failures, 1)
+			assert.Equal(t, "abc123", summary.Failures[0].Sha)
+		})
+	}
 }
 
 func TestRunSuccessfulUpdateIncrementsRepaired(t *testing.T) {

@@ -178,7 +178,7 @@ Current first-party metrics are intentionally small:
 `benchdb_github_unknown_commits_total` is not a database backlog size. It resets
 when the process restarts and only counts degradations observed by that process.
 Use it as an ingestion-health signal; use the repair command below to inspect
-and repair persisted unknown commit rows.
+and repair persisted commit rows with incomplete metadata.
 
 The ServiceMonitor scrapes `/metrics` through the `benchdb-service-port`
 Service port when the cluster has the ServiceMonitor CRD. The legacy

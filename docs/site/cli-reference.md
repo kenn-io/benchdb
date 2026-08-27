@@ -140,7 +140,7 @@ Mint a reporter token from a server/admin environment:
 benchdb admin tokens create --email ci@example.com --token-name buildkite
 ```
 
-Repair unknown commit rows after GitHub metadata becomes available:
+Repair incomplete commit rows after GitHub metadata becomes available:
 
 ```bash
 benchdb admin repair-commits --format json

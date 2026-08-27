@@ -566,7 +566,8 @@ func (s *Store) GetCommitID(ctx context.Context, sha, repository string) (string
 }
 
 // SelectUnknownCommitRepairCandidates returns commit rows that still need Git
-// metadata repair. Repository and cursor values are matched exactly as supplied.
+// metadata repair, including partially enriched rows with no author name.
+// Repository and cursor values are matched exactly as supplied.
 func (s *Store) SelectUnknownCommitRepairCandidates(
 	ctx context.Context,
 	p storage.UnknownCommitCandidateParams,
@@ -591,7 +592,7 @@ func (s *Store) SelectUnknownCommitRepairCandidates(
 	return out, nil
 }
 
-// UpdateUnknownCommit fills metadata for one still-unknown commit row and
+// UpdateUnknownCommit fills metadata for one still-incomplete commit row and
 // returns the affected row count. A row repaired by another worker is left
 // untouched and reports zero rows affected.
 func (s *Store) UpdateUnknownCommit(ctx context.Context, p storage.UpdateUnknownCommitParams) (int64, error) {

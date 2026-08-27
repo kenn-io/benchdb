@@ -453,9 +453,10 @@ func TestGetCommitID(t *testing.T) {
 func TestUnknownCommitRepairCandidates(t *testing.T) {
 	store, _, ctx := newTestStore(t)
 
-	mk := func(sha, repository string, timestamp *time.Time, forkPointSha *string) string {
+	mk := func(sha, repository, authorName string, timestamp *time.Time, forkPointSha *string) string {
 		id, err := store.GetOrCreateCommit(ctx, storage.InsertCommitParams{
-			Sha: sha, Repository: repository, Timestamp: timestamp, ForkPointSha: forkPointSha,
+			Sha: sha, Repository: repository, AuthorName: authorName,
+			Timestamp: timestamp, ForkPointSha: forkPointSha,
 		})
 		require.NoError(t, err)
 		return id
@@ -464,21 +465,27 @@ func TestUnknownCommitRepairCandidates(t *testing.T) {
 	repoA := "https://github.com/org/a"
 	repoB := "https://github.com/org/b"
 	knownTS := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	idA2 := mk("a2", repoA, nil, nil)
-	idB1 := mk("b1", repoB, nil, nil)
-	idB2 := mk("b2", repoB, nil, nil)
-	mk("a1", repoA, &knownTS, nil)
-	mk("a3", repoA, nil, new(string))
-	mk("", repoA, nil, nil)
-	mk("a4", "", nil, nil)
+	knownFork := "known-fork"
+	idA0 := mk("a0", repoA, "", &knownTS, &knownFork)
+	idA1 := mk("a1", repoA, "Known", &knownTS, nil)
+	idA2 := mk("a2", repoA, "", nil, nil)
+	idA3 := mk("a3", repoA, "Known", nil, &knownFork)
+	idB1 := mk("b1", repoB, "", nil, nil)
+	idB2 := mk("b2", repoB, "", nil, nil)
+	mk("a5", repoA, "Known", &knownTS, &knownFork)
+	mk("", repoA, "", nil, nil)
+	mk("a4", "", "", nil, nil)
 
-	t.Run("selects unknown rows with nonempty keys ordered by repository then sha", func(t *testing.T) {
+	t.Run("selects incomplete rows with nonempty keys ordered by repository then sha", func(t *testing.T) {
 		rows, err := store.SelectUnknownCommitRepairCandidates(ctx, storage.UnknownCommitCandidateParams{
 			LimitPlusOne: 10,
 		})
 		require.NoError(t, err)
 		require.Equal(t, []storage.UnknownCommitCandidate{
+			{ID: idA0, Sha: "a0", Repository: repoA},
+			{ID: idA1, Sha: "a1", Repository: repoA},
 			{ID: idA2, Sha: "a2", Repository: repoA},
+			{ID: idA3, Sha: "a3", Repository: repoA},
 			{ID: idB1, Sha: "b1", Repository: repoB},
 			{ID: idB2, Sha: "b2", Repository: repoB},
 		}, rows)
@@ -512,6 +519,7 @@ func TestUnknownCommitRepairCandidates(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, []storage.UnknownCommitCandidate{
+			{ID: idA3, Sha: "a3", Repository: repoA},
 			{ID: idB1, Sha: "b1", Repository: repoB},
 			{ID: idB2, Sha: "b2", Repository: repoB},
 		}, rows)
@@ -596,6 +604,24 @@ func TestUpdateUnknownCommit(t *testing.T) {
 	assert.True(t, got.Timestamp.Equal(ts))
 	require.NotNil(t, got.ForkPointSha)
 	assert.Equal(t, forkPointSha, *got.ForkPointSha)
+
+	partialID, err := store.GetOrCreateCommit(ctx, storage.InsertCommitParams{
+		Sha: "partial-sha", Repository: "https://github.com/org/repo",
+		Timestamp: &ts, ForkPointSha: &forkPointSha,
+	})
+	require.NoError(t, err)
+	rows, err = store.UpdateUnknownCommit(ctx, storage.UpdateUnknownCommitParams{
+		ID: partialID, Parent: &parent, Message: "partial repaired", AuthorName: "Author",
+		AuthorLogin: &authorLogin, AuthorAvatar: &authorAvatar,
+		Timestamp: ts, Branch: &branch, ForkPointSha: &forkPointSha,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
+
+	var repairedAuthor string
+	err = pool.QueryRow(ctx, `SELECT author_name FROM commit WHERE id = $1`, partialID).Scan(&repairedAuthor)
+	require.NoError(t, err)
+	assert.Equal(t, "Author", repairedAuthor)
 }
 
 // TestAPITokenRoundTrip mints a token row and reads it back by hash, asserting

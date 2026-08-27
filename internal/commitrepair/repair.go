@@ -61,7 +61,7 @@ type Failure struct {
 	Error      string `json:"error"`
 }
 
-// Repairer repairs persisted unknown commit rows through narrow collaborators.
+// Repairer repairs persisted commit rows with incomplete metadata.
 type Repairer struct {
 	store    Store
 	enricher Enricher
@@ -73,7 +73,7 @@ func NewRepairer(store Store, enricher Enricher, backfill BackfillEnqueuer) *Rep
 	return &Repairer{store: store, enricher: enricher, backfill: backfill}
 }
 
-// Run scans and repairs at most opts.Limit unknown commit candidates.
+// Run scans and repairs at most opts.Limit incomplete commit candidates.
 func (r *Repairer) Run(ctx context.Context, opts Options) (Summary, error) {
 	var summary Summary
 	if opts.Limit <= 0 {
@@ -150,7 +150,7 @@ func (r *Repairer) Run(ctx context.Context, opts Options) (Summary, error) {
 			recordFailure(&summary, candidate, err)
 			continue
 		}
-		if info == nil || info.Timestamp == nil || info.ForkPointSha == nil {
+		if info == nil || info.Timestamp == nil || info.ForkPointSha == nil || strings.TrimSpace(info.AuthorName) == "" {
 			recordFailure(&summary, candidate, errors.New("enrichment returned incomplete commit metadata"))
 			continue
 		}

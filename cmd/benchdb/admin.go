@@ -712,7 +712,7 @@ func newAdminRepairCommand(
 	var cursorRaw string
 	cmd := configureCommand(&cobra.Command{
 		Use:   "repair-commits",
-		Short: "Repair stored unknown commit rows.",
+		Short: "Repair stored incomplete commit rows.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			switch {
 			case len(args) > 0:

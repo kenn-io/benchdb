@@ -30,8 +30,9 @@ ORDER BY max(timestamp) DESC NULLS LAST, repository ASC;
 -- name: SelectUnknownCommitRepairCandidates :many
 SELECT id, sha, repository
 FROM commit
-WHERE timestamp IS NULL
-  AND fork_point_sha IS NULL
+WHERE (timestamp IS NULL
+  OR fork_point_sha IS NULL
+  OR btrim(author_name) = '')
   AND sha <> ''
   AND repository <> ''
   AND (sqlc.narg('repository')::text IS NULL OR repository = sqlc.narg('repository')::text)
@@ -53,5 +54,6 @@ SET parent = sqlc.arg('parent'),
     branch = sqlc.arg('branch'),
     fork_point_sha = sqlc.arg('fork_point_sha')
 WHERE id = sqlc.arg('id')
-  AND timestamp IS NULL
-  AND fork_point_sha IS NULL;
+  AND (timestamp IS NULL
+    OR fork_point_sha IS NULL
+    OR btrim(author_name) = '');

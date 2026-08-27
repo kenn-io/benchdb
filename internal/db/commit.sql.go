@@ -124,8 +124,9 @@ func (q *Queries) SelectRecentRunRepositories(ctx context.Context) ([]string, er
 const selectUnknownCommitRepairCandidates = `-- name: SelectUnknownCommitRepairCandidates :many
 SELECT id, sha, repository
 FROM commit
-WHERE timestamp IS NULL
-  AND fork_point_sha IS NULL
+WHERE (timestamp IS NULL
+  OR fork_point_sha IS NULL
+  OR btrim(author_name) = '')
   AND sha <> ''
   AND repository <> ''
   AND ($1::text IS NULL OR repository = $1::text)
@@ -186,8 +187,9 @@ SET parent = $1,
     branch = $7,
     fork_point_sha = $8
 WHERE id = $9
-  AND timestamp IS NULL
-  AND fork_point_sha IS NULL
+  AND (timestamp IS NULL
+    OR fork_point_sha IS NULL
+    OR btrim(author_name) = '')
 `
 
 type UpdateUnknownCommitParams struct {
