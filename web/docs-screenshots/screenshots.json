@@ -12,9 +12,9 @@
   "screenshots": [
     {
       "id": "home",
-      "title": "Recent runs",
+      "title": "Benchmark runs",
       "path": "/",
-      "purpose": "Start from recent run activity and jump into CI, result, or series workflows."
+      "purpose": "Start from recent benchmark activity and jump into report, result, or series workflows."
     },
     {
       "id": "series",

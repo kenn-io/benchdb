@@ -83,7 +83,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
   const captured = new Set<string>();
 
   if (suffix === "desktop") {
-    await gotoReady(page, "/", /ci runs/i);
+    await gotoReady(page, "/", /benchmark runs/i);
     await expect(page.locator(".runs-table tbody tr").first()).toBeVisible();
     await expectNoDocumentOverflow(page);
     await screenshot(page, "home", suffix, captured);
@@ -121,7 +121,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await gotoAccount(page);
     await screenshot(page, "account", suffix, captured);
   } else {
-    await gotoReady(page, "/", /ci runs/i);
+    await gotoReady(page, "/", /benchmark runs/i);
     await expect(page.locator(".runs-table tbody tr").first()).toBeVisible();
     await expectPrimaryNavLinksInViewport(page);
     await expectNoDocumentOverflow(page);

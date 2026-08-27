@@ -131,22 +131,22 @@ describe("SeriesBrowse", () => {
     expect(window.location.search).toBe("?window=3mo");
   });
 
-  it("keeps exact metadata filters behind an explicit advanced control", async () => {
+  it("keeps machine filtering visible and repository filtering advanced", async () => {
     GET.mockResolvedValue({ data: { series: [], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series");
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByText(/no series match/i));
 
-    expect(screen.queryByLabelText(/^hardware name$/i)).toBeNull();
-    await fireEvent.click(screen.getByRole("button", { name: /exact metadata filters/i }));
-    await fireEvent.input(screen.getByLabelText(/^hardware name$/i), { target: { value: "m5 " } });
+    expect(screen.getByLabelText(/^machine$/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^repository url$/i)).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: /advanced filters/i }));
     await fireEvent.input(screen.getByLabelText(/^repository url$/i), {
       target: { value: "https://github.com/apache/arrow " },
     });
-    await fireEvent.submit(screen.getByRole("button", { name: /apply exact filters/i }).closest("form")!);
+    await fireEvent.submit(screen.getByRole("button", { name: /apply advanced filters/i }).closest("form")!);
 
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow");
+    expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow");
   });
 
   it("shows active filters and can clear them", async () => {
@@ -164,7 +164,7 @@ describe("SeriesBrowse", () => {
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
     expect(screen.getByRole("group", { name: /active filters/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /remove query filter demo/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /remove hardware filter m5/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove machine filter m5/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /remove window filter last 30 days/i })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
     expect(window.location.pathname).toBe("/series");
@@ -205,15 +205,15 @@ describe("SeriesBrowse", () => {
     const drilldown = await screen.findByRole("region", { name: /loaded benchmark family drilldown/i });
     expect(drilldown).toHaveTextContent("tpch");
     expect(drilldown).toHaveTextContent(/2\s*case variants/);
-    expect(drilldown).toHaveTextContent(/2\s*hardware targets/);
-    expect(drilldown).toHaveTextContent(/2\s*context shapes/);
+    expect(drilldown).toHaveTextContent(/2\s*machines/);
+    expect(drilldown).toHaveTextContent(/2\s*environments/);
     expect(drilldown).toHaveTextContent(/24\s*history points/);
     expect(drilldown).toHaveTextContent(/1\s*regressed/);
     expect(drilldown).toHaveTextContent(/1\s*improved/);
     const caseVariants = screen.getByRole("region", { name: /loaded case variants/i });
     expect(caseVariants).toHaveTextContent("scale=sf100");
     expect(caseVariants).toHaveTextContent("2 series");
-    expect(caseVariants).toHaveTextContent(/2\s*hardware/);
+    expect(caseVariants).toHaveTextContent(/2\s*machines/);
     const triage = screen.getByRole("region", { name: /loaded trend triage/i });
     expect(triage).toHaveTextContent("regressed");
     expect(within(caseVariants).getAllByRole("link").map((link) => link.getAttribute("href"))).toContain("/series/f1");
@@ -257,7 +257,7 @@ describe("SeriesBrowse", () => {
     });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
 
-    await fireEvent.click(screen.getByRole("button", { name: /remove hardware filter m5/i }));
+    await fireEvent.click(screen.getByRole("button", { name: /remove machine filter m5/i }));
 
     expect(window.location.pathname).toBe("/series");
     const params = new URLSearchParams(window.location.search);

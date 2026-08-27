@@ -92,7 +92,7 @@ describe("ResultPage", () => {
     expect(screen.getByRole("main")).toHaveClass("page");
     expect(screen.getByRole("region", { name: /result measurement/i })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /result facts/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /result metadata/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /technical details/i })).toBeInTheDocument();
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     // SVS, mean, and median all render "1.5 s"; scope to the SVS row so the
     // assertion targets the measured value specifically.
@@ -105,7 +105,10 @@ describe("ResultPage", () => {
       "/benchmarks/history/r1",
     );
     expect(screen.getByRole("link", { name: /export history json/i })).toHaveAttribute("href", "/api/history/r1");
-    expect(screen.getByText("hardware hash").nextElementSibling).toHaveTextContent("hw1");
+    expect(screen.getByRole("heading", { name: "Machine" })).toBeInTheDocument();
+    expect(screen.getAllByText("m5").length).toBeGreaterThan(0);
+    expect(screen.getByText("Environment details").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Identifiers").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("less is better").nextElementSibling).toHaveTextContent("true");
     expect(screen.getByText("raw data").nextElementSibling).toHaveTextContent("3 values");
     expect(screen.getByText("raw times").nextElementSibling).toHaveTextContent("3 values");

@@ -45,6 +45,7 @@
 
   const totalResults = $derived(runs.reduce((sum, run) => sum + run.resultCount, 0));
   const totalErrors = $derived(runs.reduce((sum, run) => sum + run.errorCount, 0));
+  const machineNames = $derived(Array.from(new Set(runs.flatMap((run) => run.machineNames))).sort());
   const repositoryLabels = $derived(uniqueRepositoryLabels(runs));
   const showReasonColumn = $derived(runs.some((run) => (run.runReason ?? "").trim() !== ""));
   const showRepositoryColumn = $derived(repositoryLabels.length > 1);
@@ -126,7 +127,8 @@
   <header class="page-header">
     <div>
       <p class="eyebrow">{selectedRepositoryLabel}</p>
-      <h1>CI runs</h1>
+      <h1>Benchmark runs</h1>
+      <p class="page-subtitle">Recent commits, the machines that measured them, and results needing attention.</p>
     </div>
     <div class="header-controls">
       {#if repositories.length > 0}
@@ -167,6 +169,7 @@
     <p class="summary-line" aria-label="Recent run summary">
       <span class="summary-item">{plural(runs.length, "run")}</span>
       <span class="summary-item">{plural(totalResults, "result")}</span>
+      {#if machineNames.length > 0}<span class="summary-item">{plural(machineNames.length, "machine")}</span>{/if}
       {#if totalErrors > 0}
         <span class="summary-item alert">{plural(totalErrors, "error")}</span>
       {/if}
@@ -199,11 +202,12 @@
       </section>
     {/if}
 
-    <section class="panel table-panel" aria-label="CI runs">
+    <section class="panel table-panel" aria-label="Benchmark runs">
       <table class="data-table stacked-table runs-table">
         <colgroup>
           <col class="time-col" />
           <col class="results-col" />
+          <col class="machine-col" />
           {#if showReasonColumn}
             <col class="reason-col" />
           {/if}
@@ -219,6 +223,7 @@
           <tr>
             <th>Time</th>
             <th>Results</th>
+            <th>Machine</th>
             {#if showReasonColumn}
               <th>Reason</th>
             {/if}
@@ -255,6 +260,12 @@
                     <span class={`attention-mini ${run.attention.status}`}>{run.attention.summaryText}</span>
                   {/if}
                 </div>
+              </td>
+              <td data-label="Machine">
+                <strong class="machine-name">{run.machineLabel}</strong>
+                {#if run.machineNames.length > 1}
+                  <div class="muted-detail">{run.machineNames.join(", ")}</div>
+                {/if}
               </td>
               {#if showReasonColumn}
                 <td data-label="Reason" class="wrap-anywhere">{run.runReason ?? "not set"}</td>
@@ -405,7 +416,10 @@
     width: 10%;
   }
   .runs-table .results-col {
-    width: 9%;
+    width: 8%;
+  }
+  .runs-table .machine-col {
+    width: 11%;
   }
   .runs-table .reason-col {
     width: 8%;
@@ -414,7 +428,7 @@
     width: 13%;
   }
   .runs-table .author-col {
-    width: 14%;
+    width: 12%;
   }
   .runs-table .commit-col {
     width: 8%;
@@ -423,7 +437,7 @@
     width: auto;
   }
   .runs-table .report-col {
-    width: 12%;
+    width: 10%;
   }
   .message-cell,
   .count-stack {
@@ -433,6 +447,9 @@
   }
   .count-stack strong {
     font-variant-numeric: tabular-nums;
+  }
+  .machine-name {
+    overflow-wrap: anywhere;
   }
   .count-stack span:not(.status-badge):not(.attention-mini) {
     color: var(--c-text-muted);

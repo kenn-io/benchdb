@@ -15,7 +15,7 @@ export interface ResultViewModel {
   displayResultId: string;
   name: string;
   paramsText: string;
-  contextText: string;
+  context: Record<string, unknown>;
   svsText: string;
   svsType: string;
   iterations: number | null;
@@ -87,7 +87,7 @@ export function resultViewModelFromDetail(
     displayResultId: compactIdentifier(d.id, 12, 8),
     name,
     paramsText: tagsText(tags),
-    contextText: tagsText(d.context),
+    context: d.context,
     svsText: svs === null ? "—" : `${formatSVS(svs)}${d.unit ? ` ${d.unit}` : ""}`,
     svsType: d.single_value_summary_type,
     iterations: d.iterations,
@@ -123,7 +123,6 @@ export function resultViewModelFromDetail(
     beginsDistributionChange: changeAnnotations["begins_distribution_change"] === true,
     jsonBlocks: [
       { label: "tags", value: jsonText(d.tags) },
-      { label: "context", value: jsonText(d.context) },
       { label: "info", value: jsonText(d.info) },
       { label: "optional info", value: jsonText(d.optional_benchmark_info) },
       { label: "validation", value: jsonText(d.validation) },

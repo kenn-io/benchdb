@@ -614,6 +614,7 @@ type RecentRunRow struct {
 	ErrorCount         int64
 	SeriesCount        int64
 	BatchCount         int64
+	MachineNames       []string
 	LatestResultID     string
 	RunReason          *string
 	RunTags            []byte

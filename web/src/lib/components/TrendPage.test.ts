@@ -95,12 +95,13 @@ describe("TrendPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
     expect(screen.getByText(/scale=sf10/)).toBeInTheDocument();
     expect(screen.getByText(/lower is better/)).toBeInTheDocument();
-    expect(screen.getByText("repo: benchdb/demo")).toHaveAttribute(
+    expect(screen.getByText("benchdb/demo")).toHaveAttribute(
       "title",
       "https://github.com/benchdb/demo",
     );
     expect(screen.getByText("series fp1")).toHaveAttribute("title", "fp1");
-    expect(screen.getByText("hardware hw1")).toHaveAttribute("title", "hw1");
+    expect(screen.getAllByText("machine m5").length).toBeGreaterThan(0);
+    expect(screen.getByText("Environment and configuration").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByLabelText(/range/i)).toHaveValue("all");
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
     expect(screen.getByLabelText(/x-axis/i)).toHaveValue("commit");

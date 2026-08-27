@@ -18,6 +18,8 @@ export interface RecentRunViewModel {
   secondaryLabel: string;
   runHref: string;
   runReason: string | null;
+  machineNames: string[];
+  machineLabel: string;
   batchCount: number;
   latestBatchId: string | null;
   displayLatestBatchId: string | null;
@@ -117,6 +119,8 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     secondaryLabel: `run ${displayRunId}`,
     runHref: `/runs/${encodeURIComponent(run.run_id)}`,
     runReason: run.run_reason ?? null,
+    machineNames: run.machine_names ?? [],
+    machineLabel: machineLabel(run.machine_names ?? []),
     batchCount: run.batch_count,
     latestBatchId: run.latest_batch_id ?? null,
     displayLatestBatchId: run.latest_batch_id === null
@@ -142,6 +146,12 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     ciReportHref: ciReportHref(run.repository, commitSha, run.run_id),
     attention: toRecentRunAttentionViewModel(run.attention ?? null),
   };
+}
+
+function machineLabel(names: string[]): string {
+  if (names.length === 0) return "machine not reported";
+  if (names.length === 1) return names[0]!;
+  return `${names.length.toLocaleString()} machines`;
 }
 
 function toRecentRunAttentionViewModel(

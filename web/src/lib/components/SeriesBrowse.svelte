@@ -26,7 +26,7 @@
   let errorMsg = $state<string | null>(null);
   let moreErrorMsg = $state<string | null>(null);
   let sort = $state<SortSpec | null>(null);
-  let hardwareFilter = $state("");
+  let machineFilter = $state("");
   let repositoryFilter = $state("");
   let exactFiltersOpen = $state(false);
   // Monotonic token: a stale response (filters changed mid-flight) must not
@@ -34,7 +34,7 @@
   let reqToken = 0;
 
   $effect(() => {
-    hardwareFilter = query.hardware;
+    machineFilter = query.hardware;
     repositoryFilter = query.repository;
     void load(query);
   });
@@ -92,9 +92,13 @@
   function submitExactFilters(e: SubmitEvent) {
     e.preventDefault();
     setFilter({
-      hardware: hardwareFilter.trim(),
       repository: repositoryFilter.trim(),
     });
+  }
+
+  function submitMachineFilter(e: SubmitEvent) {
+    e.preventDefault();
+    setFilter({ hardware: machineFilter.trim() });
   }
 
   function toggleSort(key: SortKey) {
@@ -135,7 +139,7 @@
       ? [{ label: "query", value: query.q, clear: { q: "" }, aria: `Remove query filter ${query.q}` }]
       : []),
     ...(query.hardware !== ""
-      ? [{ label: "hardware", value: query.hardware, clear: { hardware: "" }, aria: `Remove hardware filter ${query.hardware}` }]
+      ? [{ label: "machine", value: query.hardware, clear: { hardware: "" }, aria: `Remove machine filter ${query.hardware}` }]
       : []),
     ...(query.repository !== ""
       ? [{
@@ -270,20 +274,29 @@
   </header>
 
   <div class="panel browse-filters">
-    <div class="filter-row" role="group" aria-label="Series time window">
-      <span class="filter-row-label">Window</span>
-      <div class="segmented-control">
-        {#each windowOptions as option}
-          <button
-            type="button"
-            class:active={query.window === option.value}
-            aria-pressed={query.window === option.value}
-            onclick={() => setFilter({ window: option.value })}
-          >
-            {option.label}
-          </button>
-        {/each}
+    <div class="primary-filters">
+      <div class="filter-row" role="group" aria-label="Series time window">
+        <span class="filter-row-label">Window</span>
+        <div class="segmented-control">
+          {#each windowOptions as option}
+            <button
+              type="button"
+              class:active={query.window === option.value}
+              aria-pressed={query.window === option.value}
+              onclick={() => setFilter({ window: option.value })}
+            >
+              {option.label}
+            </button>
+          {/each}
+        </div>
       </div>
+      <form class="machine-filter-form" onsubmit={submitMachineFilter}>
+        <label class="filter-label">
+          Machine
+          <input type="text" bind:value={machineFilter} placeholder="benchmark-host-a" autocomplete="off" />
+        </label>
+        <button type="submit" class="button-pill">Apply</button>
+      </form>
     </div>
     {#if activeFilters.length > 0}
       <button type="button" class="button-pill secondary" onclick={() => navigate("/series")}>Clear filters</button>
@@ -297,22 +310,13 @@
       aria-expanded={exactFiltersOpen}
       onclick={() => (exactFiltersOpen = !exactFiltersOpen)}
     >
-      Exact metadata filters
+      Advanced filters
     </button>
   </div>
 
   {#if exactFiltersOpen}
-    <section class="panel filter-disclosure" aria-label="Exact metadata filters">
+    <section class="panel filter-disclosure" aria-label="Advanced series filters">
       <form class="exact-filter-form" onsubmit={submitExactFilters}>
-        <label class="filter-label">
-          Hardware name
-          <input
-            type="text"
-            bind:value={hardwareFilter}
-            placeholder="for example m5"
-            autocomplete="off"
-          />
-        </label>
         <label class="filter-label">
           Repository URL
           <input
@@ -323,7 +327,7 @@
           />
         </label>
         <div class="filter-actions">
-          <button type="submit" class="button-pill">Apply exact filters</button>
+          <button type="submit" class="button-pill">Apply advanced filters</button>
           <a class="button-pill secondary" href="/series" onclick={(e) => go(e, "/series")}>Clear</a>
         </div>
       </form>
@@ -358,11 +362,11 @@
         </div>
         <div>
           <strong>{familySummary.hardwareCount.toLocaleString()}</strong>
-          <span>hardware targets</span>
+          <span>machines</span>
         </div>
         <div>
           <strong>{familySummary.contextCount.toLocaleString()}</strong>
-          <span>context shapes</span>
+          <span>environments</span>
         </div>
         <div>
           <strong>{familySummary.totalPoints.toLocaleString()}</strong>
@@ -384,7 +388,7 @@
             {#each familySummary.cases as c (c.key)}
               <a href={`/series/${c.sampleFingerprint}`} onclick={(e) => go(e, `/series/${c.sampleFingerprint}`)}>
                 <strong>{c.paramsText}</strong>
-                <span>{c.seriesCount.toLocaleString()} series · {c.hardwareCount.toLocaleString()} hardware · {c.contextCount.toLocaleString()} context · {c.pointCount.toLocaleString()} points</span>
+                <span>{c.seriesCount.toLocaleString()} series · {c.hardwareCount.toLocaleString()} machines · {c.contextCount.toLocaleString()} environments · {c.pointCount.toLocaleString()} points</span>
                 <span>latest {c.latestDateText}</span>
               </a>
             {/each}
@@ -455,6 +459,24 @@
     justify-content: space-between;
     gap: 10px;
     padding: 10px 12px;
+  }
+
+  .primary-filters,
+  .machine-filter-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px;
+  }
+
+  .machine-filter-form input {
+    min-height: 30px;
+    width: 160px;
+    padding: 0 9px;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
   }
 
   .filter-row {

@@ -1231,6 +1231,12 @@ components:
             - "null"
         latest_result_id:
           type: string
+        machine_names:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
         repository:
           type: string
         result_count:
@@ -1257,6 +1263,7 @@ components:
         - result_count
         - error_count
         - series_count
+        - machine_names
         - latest_result_id
         - repository
         - commit_sha

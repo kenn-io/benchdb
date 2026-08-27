@@ -23,6 +23,7 @@
   } from "../router";
   import { tagsText } from "../browse/transform";
   import DetailTable from "./DetailTable.svelte";
+  import EnvironmentDetails from "./EnvironmentDetails.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -259,9 +260,8 @@
           <h1>{vm.identity.benchmarkName}</h1>
           <div class="ident page-subtitle">
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
-            {#if tagsText(vm.identity.context) !== ""}<span>{tagsText(vm.identity.context)}</span>{/if}
-            <span>hardware: {vm.identity.hardwareName}</span>
-            <span title={vm.identity.repository}>repo: {vm.identity.repositoryLabel}</span>
+            <span>machine {vm.identity.hardwareName}</span>
+            <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
             {#if vm.identity.unit !== null}
               <span>
                 unit: {vm.identity.unit}{orientation(vm.identity.lessIsBetter) !== null
@@ -272,8 +272,8 @@
           </div>
         </div>
         <div class="page-meta">
+          <span>{vm.identity.hardwareName}</span>
           <span title={vm.identity.fingerprint}>series {vm.identity.displayFingerprint}</span>
-          <span title={vm.identity.hardwareHash}>hardware {vm.identity.displayHardwareHash}</span>
         </div>
       </header>
       {#if !vm.unitConsistent}
@@ -282,6 +282,8 @@
           not directly comparable
         </div>
       {/if}
+
+      <EnvironmentDetails context={vm.identity.context} label="Environment and configuration" />
 
     {#if all.length > 0}
     <div class="toolbar controls">

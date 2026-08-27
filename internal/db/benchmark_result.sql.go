@@ -499,9 +499,11 @@ run_agg AS MATERIALIZED (
     count(*) AS result_count,
     count(*) FILTER (WHERE br.error IS NOT NULL) AS error_count,
     count(DISTINCT br.history_fingerprint) AS series_count,
-    count(DISTINCT br.batch_id) FILTER (WHERE br.batch_id IS NOT NULL) AS batch_count
+    count(DISTINCT br.batch_id) FILTER (WHERE br.batch_id IS NOT NULL) AS batch_count,
+    array_agg(DISTINCT h.name ORDER BY h.name)::text[] AS machine_names
   FROM benchmark_result br
   JOIN selected_runs sr ON sr.run_id = br.run_id
+  JOIN hardware h ON h.id = br.hardware_id
   WHERE ($1::text IS NULL OR br.commit_repo_url = $1::text)
   GROUP BY br.run_id
 )
@@ -513,6 +515,7 @@ SELECT
   a.error_count,
   a.series_count,
   a.batch_count,
+  a.machine_names,
   latest.id AS latest_result_id,
   latest.run_reason,
   latest.run_tags,
@@ -552,6 +555,7 @@ type SelectRecentRunsRow struct {
 	ErrorCount         int64
 	SeriesCount        int64
 	BatchCount         int64
+	MachineNames       []string
 	LatestResultID     string
 	RunReason          *string
 	RunTags            []byte
@@ -589,6 +593,7 @@ func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsPara
 			&i.ErrorCount,
 			&i.SeriesCount,
 			&i.BatchCount,
+			&i.MachineNames,
 			&i.LatestResultID,
 			&i.RunReason,
 			&i.RunTags,
