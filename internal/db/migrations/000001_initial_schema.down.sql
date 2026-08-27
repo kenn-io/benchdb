@@ -1,0 +1,12 @@
+DROP TABLE public.alert_delivery;
+DROP TABLE public.alert_event;
+DROP TABLE public.alert_rule;
+DROP TABLE public.api_token;
+DROP TABLE public.benchmark_result;
+DROP TABLE public.cli_login_code;
+DROP TABLE public."case";
+DROP TABLE public.commit;
+DROP TABLE public.context;
+DROP TABLE public.hardware;
+DROP TABLE public.info;
+DROP TABLE public."user";

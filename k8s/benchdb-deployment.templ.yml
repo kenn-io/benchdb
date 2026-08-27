@@ -1,0 +1,94 @@
+# Template for production-style Kubernetes deployments.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: benchdb-deployment
+spec:
+  selector:
+    matchLabels:
+      app: benchdb
+  replicas: 2
+  # Note(JP): give this 15 min instead of 10; the rollout does not need to be
+  # super fast and sometimes we want to manually fix a problem while the deploy
+  # pipeline keeps waiting -- "The number of seconds you want to wait for your
+  # Deployment to progress before the system reports back that the Deployment
+  # has failed progressing - surfaced as a condition with type: Progressing,
+  # status: "False" with reason: ProgressDeadlineExceeded in the status of the
+  # resource" Defaults to 600 (10 min).
+  progressDeadlineSeconds: 900
+  # Keep the Pod available only after it has stayed ready long enough for
+  # Service routing to converge during rolling deployments.
+  minReadySeconds: 15
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: benchdb
+    spec:
+      containers:
+      - name: benchdb
+        # Injected by deployment automation.
+        image: "{{BENCHDB_SERVER_IMAGE_SPEC}}"
+        imagePullPolicy: "Always"
+        ports:
+          - name: http
+            containerPort: 8080
+        # Inject environment information so each BenchDB container can report
+        # its runtime identity. This k8s API is documented here:
+        # https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/#the-downward-api
+        env:
+          - name: ENV_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: ENV_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        envFrom:
+          - configMapRef:
+              name: benchdb-config
+          - secretRef:
+              name: benchdb-secret
+        # {{BENCHDB_GITHUB_APP_VOLUME_MOUNTS}}
+        resources:
+          requests:
+            # Note(JP): these are so small to allow for deployment rollover on
+            # a too-busy k8s cluster (resource contention). Update: with
+            # somewhat more real mem resources on vd-2 we can bump this again.
+            memory: '2500Mi'
+            cpu: 0.5
+        # /api/ping is a process-health endpoint. It intentionally does not
+        # query Postgres, so liveness does not restart pods during transient DB
+        # pressure.
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /api/ping
+            port: http
+            scheme: HTTP
+          periodSeconds: 2
+          timeoutSeconds: 5
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/ping
+            port: http
+            scheme: HTTP
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/ping
+            port: http
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+      # {{BENCHDB_GITHUB_APP_VOLUMES}}
+      terminationGracePeriodSeconds: 60

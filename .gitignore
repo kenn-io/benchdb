@@ -1,0 +1,55 @@
+# BenchDB-generated files and local state.
+_build/
+_kpbuild/
+/var/
+/site/
+/.cache/
+.kata.local.toml
+.env
+*.DS_Store
+/.github/skills/
+/docs/site/assets/screenshots/*.png
+/docs/site/assets/screenshots/dashboard-screenshots-evidence.json
+
+# Python helper tooling: SDK packaging, schema authoring, and migration examples.
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+env/
+venv/
+build/
+dist/
+*.egg-info/
+*.egg
+*.dist-info/
+*.whl
+*.tar.gz
+.eggs/
+pip-wheel-metadata/
+
+# Go build and test outputs.
+/bin/
+*.test
+coverage.out
+
+# Svelte app dependencies and build output.
+/web/node_modules/
+/web/dist/
+
+# Track only a placeholder under web/dist so `//go:embed all:dist` compiles on a
+# clean checkout; the built SPA assets themselves stay ignored.
+!/web/dist/
+/web/dist/*
+!/web/dist/.gitkeep
+
+# Superpowers brainstorm companion local mockups.
+/.superpowers/

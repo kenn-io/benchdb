@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # Note(JP): we do not seem to use the k8s external DNS mechanism. Terraform
+  # logic looks for the corresponding ingress object with the filter
+  # `name=benchdb-ingress`, and then updates DNS records (via Route 53) behind
+  # the scenes to point to the load balancer (ALB) corresponding to this
+  # ingress object. That is, the mapping between a specific DNS name and the
+  # ALB happens in a different repository.
+  name: "benchdb-ingress"
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # Introduce the idea of IngressGroup (supported in
+    # aws-load-balancer-controller 2.x), via which multiple k8s ingress objects
+    # (also spread across multiple k8s namespaces) can configure the _same_ ALB
+    # in AWS.
+    alb.ingress.kubernetes.io/group.name: cb-alb-group
+    # Allow for higher-priority config elsewhere. This can be important for
+    # path evaluation rules that need to take precedence (injected in another
+    # namespace).
+    alb.ingress.kubernetes.io/group.order: "9"
+    # Configure health check against BenchDB containers.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /api/ping
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    # Configure exposure to Internet.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    # Docs about ssl-redirect: "Once enabled, every HTTP listener will be
+    # configured with a default action which redirects to HTTPS, other rules
+    # will be ignored." That is preclisely what we want, a no-brainer
+    # configuration parameter that disallows serving traffic via non-TLS.
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # ALB sends 504 Gateway Timeout if the backend does not return a response
+    # within this idle timeout window. Keep this longer than normal client
+    # request deadlines.
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=160
+    alb.ingress.kubernetes.io/certificate-arn: "{{CERTIFICATE_ARN}}"
+    alb.ingress.kubernetes.io/actions.benchdb-metrics-deny: '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"not found"}}'
+  labels:
+    app: benchdb-ingress
+spec:
+  rules:
+  - host: "{{BENCHDB_INTENDED_DNS_NAME}}"
+    http:
+      paths:
+      - path: /metrics
+        pathType: Exact
+        backend:
+          service:
+            name: benchdb-metrics-deny
+            port:
+              name: use-annotation
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: benchdb-service
+            port:
+              number: 80

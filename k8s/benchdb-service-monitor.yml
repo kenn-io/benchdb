@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+# This CRD is defined by the prometheus-operator/kube-prometheus project. It
+# scrapes the Go server / `benchdb serve` /metrics endpoint through the Service
+# port.
+kind: ServiceMonitor
+metadata:
+  name: benchdb-service-monitor
+spec:
+  selector:
+    matchLabels:
+      app: benchdb
+  endpoints:
+    # ServiceMonitor refers to the Service port by name, not the container port.
+    - port: benchdb-service-port
+      path: /metrics
+      scheme: http
+      interval: 30s

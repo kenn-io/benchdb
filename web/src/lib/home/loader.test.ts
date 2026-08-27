@@ -1,0 +1,212 @@
+import { describe, expect, it, vi } from "vitest";
+
+import type { createBenchDBClient } from "../api/client";
+import { listRecentRuns } from "./loader";
+
+type Client = ReturnType<typeof createBenchDBClient>;
+
+function fakeClient(page: unknown, error: false | { detail: string } = false): {
+  client: Client;
+  GET: ReturnType<typeof vi.fn>;
+} {
+  const GET = vi.fn(async () =>
+    error ? { error: { detail: error.detail } } : { data: page },
+  );
+  return { client: { GET } as unknown as Client, GET };
+}
+
+describe("listRecentRuns", () => {
+  it("loads a production-credible recent-run page", async () => {
+    const { client, GET } = fakeClient({
+      repositories: [
+        { repository: "https://github.com/apache/arrow" },
+        { repository: "https://github.com/apache/arrow-go" },
+      ],
+      runs: [
+        {
+          run_id: "run-a",
+          run_reason: "nightly",
+          run_tags: { arch: "x86" },
+          batch_count: 1,
+          latest_batch_id: "batch-a",
+          result_count: 180,
+          error_count: 1,
+          series_count: 90,
+          latest_result_id: "result-a",
+          repository: "https://github.com/apache/arrow",
+          commit_sha: "abcdef123456",
+          first_result_at: "2026-01-01T00:00:00Z",
+          last_result_at: "2026-01-02T00:00:00Z",
+          commit: {
+            hash: "abcdef123456",
+            repository: "https://github.com/apache/arrow",
+            message: "Improve vector kernel dispatch",
+            author_name: "Contributor A",
+            author_login: "contributor-a",
+            author_avatar: "https://avatars.githubusercontent.com/u/12345?v=4",
+            timestamp: "2026-01-02T00:00:00Z",
+          },
+          attention: {
+            status: "failure",
+            status_reason: "lookback regression detected",
+            report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+            summary: {
+              compared: 4,
+              regressions: 2,
+              benchmark_errors: 0,
+              missing_baseline: 0,
+              not_comparable: 0,
+            },
+          },
+        },
+      ],
+    });
+
+    const page = await listRecentRuns(client);
+
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", {
+      params: { query: { page_size: 25, include_attention: true } },
+    });
+    expect(page.runs).toHaveLength(1);
+    expect(page.repositories).toEqual([
+      { repository: "https://github.com/apache/arrow", label: "apache/arrow" },
+      { repository: "https://github.com/apache/arrow-go", label: "apache/arrow-go" },
+    ]);
+    expect(page.runs[0]).toMatchObject({
+      runId: "run-a",
+      runReason: "nightly",
+      resultCount: 180,
+      errorCount: 1,
+      seriesCount: 90,
+      runHref: "/runs/run-a",
+      latestBatchHref: "/batches/batch-a",
+      latestResultHref: "/results/result-a",
+      shortCommit: "abcdef12",
+      primaryLabel: "Improve vector kernel dispatch",
+      commitMessage: "Improve vector kernel dispatch",
+      authorLabel: "Contributor A",
+      authorLogin: "contributor-a",
+      authorAvatar: "https://avatars.githubusercontent.com/u/12345?v=4",
+      commitHref: "https://github.com/apache/arrow/commit/abcdef123456",
+    });
+    expect(page.runs[0]!.secondaryLabel).toContain("run");
+    expect(page.runs[0]!.errorCount).toBe(1);
+    expect(page.runs[0]!.attention).toMatchObject({
+      status: "failure",
+      statusReason: "lookback regression detected",
+      reportHref: "/ci/report?run_ids=run-a&baseline=fork_point",
+      summaryText: "2 regressions",
+    });
+    expect(page.runs[0]!.ciReportHref).toBe(
+      "/ci/report?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&commit_sha=abcdef123456&run_ids=run-a&baseline=fork_point",
+    );
+  });
+
+  it("passes the selected repository to the recent-runs endpoint", async () => {
+    const { client, GET } = fakeClient({
+      repositories: [{ repository: "https://github.com/apache/arrow-go" }],
+      runs: [
+        {
+          ...runPayload(),
+          run_id: "run-arrow-go",
+          repository: "https://github.com/apache/arrow-go",
+          commit: {
+            ...runPayload().commit,
+            repository: "https://github.com/apache/arrow-go",
+          },
+        },
+      ],
+    });
+
+    const page = await listRecentRuns(client, { repository: "https://github.com/apache/arrow-go" });
+
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", {
+      params: {
+        query: {
+          page_size: 25,
+          include_attention: true,
+          repository: "https://github.com/apache/arrow-go",
+        },
+      },
+    });
+    expect(page.runs.map((run) => run.repository)).toEqual(["https://github.com/apache/arrow-go"]);
+  });
+
+  it("falls back to stable run identity when commit metadata is sparse", async () => {
+    const { client } = fakeClient({
+      runs: [
+        {
+          run_id: "fff41571debd35f721110e6a7d99440a",
+          run_reason: null,
+          run_tags: {},
+          batch_count: 0,
+          latest_batch_id: null,
+          result_count: 1,
+          error_count: 0,
+          series_count: 1,
+          latest_result_id: "result-a",
+          repository: "https://example.com/custom/repo",
+          commit_sha: "abcdef123456",
+          first_result_at: "2026-01-01T00:00:00Z",
+          last_result_at: "2026-01-02T00:00:00Z",
+          commit: {
+            hash: "abcdef123456",
+            repository: "https://example.com/custom/repo",
+            message: "",
+            author_name: "",
+            author_login: "benchmark-bot",
+            author_avatar: "",
+            timestamp: "2026-01-02T00:00:00Z",
+          },
+        },
+      ],
+    });
+
+    const page = await listRecentRuns(client);
+
+    expect(page.runs[0]).toMatchObject({
+      primaryLabel: "abcdef12",
+      secondaryLabel: "run fff41571debd…7d99440a",
+      authorLabel: "benchmark-bot",
+      authorAvatar: null,
+      commitHref: null,
+    });
+  });
+
+  it("treats null runs as an empty page", async () => {
+    const { client } = fakeClient({ runs: null });
+    await expect(listRecentRuns(client)).resolves.toEqual({ runs: [], repositories: [] });
+  });
+
+  it("throws endpoint detail on failure", async () => {
+    const { client } = fakeClient(null, { detail: "statement timeout" });
+    await expect(listRecentRuns(client)).rejects.toThrow("statement timeout");
+  });
+});
+
+function runPayload() {
+  return {
+    run_id: "run-a",
+    run_reason: "nightly",
+    run_tags: { arch: "x86" },
+    batch_count: 1,
+    latest_batch_id: "batch-a",
+    result_count: 180,
+    error_count: 1,
+    series_count: 90,
+    latest_result_id: "result-a",
+    repository: "https://github.com/apache/arrow",
+    commit_sha: "abcdef123456",
+    first_result_at: "2026-01-01T00:00:00Z",
+    last_result_at: "2026-01-02T00:00:00Z",
+    commit: {
+      hash: "abcdef123456",
+      repository: "https://github.com/apache/arrow",
+      message: "Improve vector kernel dispatch",
+      author_name: "Contributor A",
+      author_login: "contributor-a",
+      author_avatar: "https://avatars.githubusercontent.com/u/12345?v=4",
+      timestamp: "2026-01-02T00:00:00Z",
+    },
+  };
+}

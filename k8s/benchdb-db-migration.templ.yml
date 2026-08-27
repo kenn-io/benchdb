@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchdb-migration
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+      - name: benchdb-migration
+        image: "{{BENCHDB_SERVER_IMAGE_SPEC}}"
+        command: ["/usr/local/bin/benchdb", "migrate"]
+        envFrom:
+          - configMapRef:
+              name: benchdb-config
+          - secretRef:
+              name: benchdb-secret
+        resources:
+          requests:
+            # Pretend that we don't need resources, so that node placement
+            # succeeds even on small-resource k8s clusters.
+            memory: '1Mi'
+            cpu: 1m
+      restartPolicy: Never
