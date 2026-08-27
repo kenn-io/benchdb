@@ -28,10 +28,10 @@ describe("TopBar", () => {
     render(TopBar, { props: { routeName: "compare" } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-    expect(within(nav).getByRole("link", { name: "Browse" })).toHaveAttribute("href", "/series");
+    expect(within(nav).getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/series");
     expect(within(nav).getByRole("link", { name: "Results" })).toHaveAttribute("href", "/results");
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("href", "/compare");
-    expect(within(nav).getByRole("link", { name: "CI Reports" })).toHaveAttribute("href", "/ci/report");
+    expect(within(nav).getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/ci/report");
     expect(within(nav).getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
     expect(within(nav).getByRole("link", { name: "API Docs" })).toHaveAttribute("href", "/docs");
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("aria-current", "page");
@@ -70,10 +70,10 @@ describe("TopBar", () => {
   it("marks active deep-route navigation as a current location, not the current page", () => {
     render(TopBar, { props: { routeName: "series-leaf" } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
-    const activeLink = within(nav).getByRole("link", { name: "Browse", current: "location" });
+    const activeLink = within(nav).getByRole("link", { name: "Benchmarks", current: "location" });
     expect(activeLink).toHaveAttribute("href", "/series");
-    expect(activeLink).toHaveTextContent("Browse");
-    expect(within(nav).queryByRole("link", { name: "Browse", current: "page" })).not.toBeInTheDocument();
+    expect(activeLink).toHaveTextContent("Benchmarks");
+    expect(within(nav).queryByRole("link", { name: "Benchmarks", current: "page" })).not.toBeInTheDocument();
   });
 
   it("leaves modified brand clicks to the browser", async () => {

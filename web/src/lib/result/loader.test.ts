@@ -48,7 +48,7 @@ describe("loadResult", () => {
       id: "r1",
       name: "demo-benchmark",
       paramsText: "scale=sf10",
-      contextText: "compiler=gcc",
+      context: { compiler: "gcc" },
       svsText: "1.235 s",
       svsType: "min",
       iterations: 3,

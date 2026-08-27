@@ -18,10 +18,9 @@
 
   const HEADERS: { key: SortKey | null; label: string }[] = [
     { key: "name", label: "benchmark" },
-    { key: null, label: "context" },
-    { key: null, label: "hardware" },
+    { key: null, label: "machine" },
     { key: "svs", label: "last value" },
-    { key: "points", label: "points" },
+    { key: "points", label: "history" },
     { key: null, label: "trend" },
     { key: null, label: "status" },
     { key: "commit", label: "last commit" },
@@ -43,8 +42,7 @@
   <table class="data-table stacked-table browse-table">
     <colgroup>
       <col class="benchmark-col" />
-      <col class="context-col" />
-      <col class="hardware-col" />
+      <col class="machine-col" />
       <col class="value-col" />
       <col class="points-col" />
       <col class="trend-col" />
@@ -98,10 +96,9 @@
               {#if row.paramsText}<span class="metadata-line">{row.paramsText}</span>{/if}
             </span>
           </td>
-          <td class="muted wrap-anywhere" data-label="context">{row.contextText}</td>
-          <td class="wrap-anywhere" data-label="hardware">{row.hardwareName}</td>
+          <td class="machine-cell" data-label="machine">{row.hardwareName}</td>
           <td class="num-cell" data-label="last value">{row.svsText}</td>
-          <td class="num-cell" data-label="points">{row.pointCount}</td>
+          <td class="num-cell" data-label="history">{row.pointCount} points</td>
           <td class="trend-cell" data-label="trend"><Sparkline values={row.sparkline} /></td>
           <td class="status-cell" data-label="status"><StatusBadge status={row.status} /></td>
           <td class="muted commit-cell" data-label="last commit">{row.commitSha} · {row.commitDateText}</td>
@@ -117,19 +114,15 @@
   }
 
   .browse-table {
-    min-width: 980px;
+    min-width: 820px;
   }
 
   .benchmark-col {
-    width: 27%;
+    width: 31%;
   }
 
-  .context-col {
-    width: 17%;
-  }
-
-  .hardware-col {
-    width: 15%;
+  .machine-col {
+    width: 16%;
   }
 
   .value-col {
@@ -149,7 +142,7 @@
   }
 
   .commit-col {
-    width: 9%;
+    width: 13%;
   }
 
   .browse-table tbody tr {
@@ -177,6 +170,12 @@
 
   .muted {
     color: var(--c-text-muted);
+  }
+
+  .machine-cell {
+    color: var(--c-text);
+    font-weight: 650;
+    overflow-wrap: anywhere;
   }
 
   .num-cell,

@@ -12,6 +12,7 @@ const run = (overrides: Record<string, unknown> = {}) => ({
   run_id: "run-a",
   run_reason: "nightly",
   run_tags: { arch: "x86" },
+  machine_names: ["m5"],
   batch_count: 1,
   latest_batch_id: "batch-a",
   result_count: 180,
@@ -40,7 +41,7 @@ beforeEach(() => {
 });
 
 describe("RecentRunsHome", () => {
-  it("renders CI run triage rows around commit and author identity", async () => {
+  it("renders benchmark run triage around commit, author, and machine identity", async () => {
     GET.mockResolvedValueOnce({
       data: {
         repositories: [
@@ -70,11 +71,12 @@ describe("RecentRunsHome", () => {
     render(RecentRunsHome, { props: {} });
 
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^ci runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
 
     expect(screen.getByText(/2 runs/i)).toBeInTheDocument();
     expect(screen.getByText(/360 results/i)).toBeInTheDocument();
     expect(screen.getAllByText(/1 error/i)).not.toHaveLength(0);
+    expect(screen.getByText(/1 machine/i)).toBeInTheDocument();
     expect(screen.getByText(/attention checked: newest 5 runs/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /needs attention/i })).toHaveTextContent(/newest 5/i);
     expect(screen.getByRole("link", { name: /review ci report for run run-a/i })).toHaveAttribute(
@@ -125,7 +127,7 @@ describe("RecentRunsHome", () => {
       props: { query: { repository: "https://github.com/apache/arrow-go" } },
     });
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^ci runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
     const selector = screen.getByLabelText("Project");
     expect(selector).toHaveValue("https://github.com/apache/arrow-go");
     expect(screen.getByRole("option", { name: "All projects" })).toHaveValue("");
@@ -162,7 +164,7 @@ describe("RecentRunsHome", () => {
 
     render(RecentRunsHome, { props: {} });
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^ci runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
     expect(screen.getAllByText("run 66f230370652…ea96d29b")).not.toHaveLength(0);
     expect(screen.getByText("batch 66f230370652…29b-1p")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: `Open run ${longRunID}` })).toHaveAttribute(
@@ -187,7 +189,7 @@ describe("RecentRunsHome", () => {
 
     const { container } = render(RecentRunsHome, { props: {} });
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^ci runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
     expect(screen.queryByRole("columnheader", { name: "Reason" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Repository" })).not.toBeInTheDocument();
     expect(screen.queryByText("0 errors")).not.toBeInTheDocument();

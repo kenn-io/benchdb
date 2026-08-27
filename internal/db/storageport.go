@@ -447,6 +447,7 @@ func recentRunRowsFromRows(rows []SelectRecentRunsRow) []storage.RecentRunRow {
 			ErrorCount:         r.ErrorCount,
 			SeriesCount:        r.SeriesCount,
 			BatchCount:         r.BatchCount,
+			MachineNames:       r.MachineNames,
 			LatestResultID:     r.LatestResultID,
 			RunReason:          r.RunReason,
 			RunTags:            r.RunTags,

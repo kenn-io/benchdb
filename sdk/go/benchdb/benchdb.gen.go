@@ -608,6 +608,7 @@ type RecentRunListItem struct {
 	LastResultAt   time.Time              `json:"last_result_at"`
 	LatestBatchId  *string                `json:"latest_batch_id"`
 	LatestResultId string                 `json:"latest_result_id"`
+	MachineNames   *[]string              `json:"machine_names"`
 	Repository     string                 `json:"repository"`
 	ResultCount    int64                  `json:"result_count"`
 	RunId          string                 `json:"run_id"`

@@ -55,6 +55,7 @@ type RecentRunListItem struct {
 	ResultCount   int64               `json:"result_count"`
 	ErrorCount    int64               `json:"error_count"`
 	SeriesCount   int64               `json:"series_count"`
+	MachineNames  []string            `json:"machine_names"`
 	LatestResult  string              `json:"latest_result_id"`
 	Repository    string              `json:"repository"`
 	CommitSHA     *string             `json:"commit_sha"`
@@ -213,6 +214,7 @@ func recentRunListItem(row storage.RecentRunRow) (RecentRunListItem, error) {
 		ResultCount:   row.ResultCount,
 		ErrorCount:    row.ErrorCount,
 		SeriesCount:   row.SeriesCount,
+		MachineNames:  row.MachineNames,
 		LatestResult:  row.LatestResultID,
 		Repository:    row.Repository,
 		CommitSHA:     row.CommitSha,

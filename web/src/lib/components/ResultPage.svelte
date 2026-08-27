@@ -4,6 +4,7 @@
   import { createBenchDBClient } from "../api/client";
   import { loadResult, resultViewModelFromDetail, type ResultViewModel } from "../result/loader";
   import { interceptNavClick, navigate } from "../router";
+  import EnvironmentDetails from "./EnvironmentDetails.svelte";
 
   let {
     resultId,
@@ -138,13 +139,12 @@
         <h1>{vm.name}</h1>
         <p class="page-subtitle result-subtitle">
           {#if vm.paramsText}<span>{vm.paramsText}</span>{:else}<span>No benchmark parameters</span>{/if}
-          {#if vm.contextText}<span>{vm.contextText}</span>{/if}
         </p>
       </div>
       <div class="header-actions">
         <div class="page-meta">
           <span>SVS <span class="numeric-text">{vm.svsText}</span></span>
-          <span>{vm.hardwareName} ({vm.hardwareType})</span>
+          <span>machine {vm.hardwareName}</span>
           <span title={vm.runId}>run {vm.displayRunId}</span>
         </div>
         <div class="action-row">
@@ -268,23 +268,34 @@
       </div>
 
       <div class="panel result-section">
-        <h2>Hardware</h2>
+        <h2>Machine</h2>
         <dl class="compact-dl">
           <dt>name</dt>
-          <dd>{vm.hardwareName} ({vm.hardwareType})</dd>
-          <dt>hardware hash</dt>
-          <dd class="mono" title={vm.hardwareHash}>{vm.displayHardwareHash}</dd>
-          <dt>history fingerprint</dt>
-          <dd class="mono" title={vm.fingerprint}>{vm.displayFingerprint}</dd>
+          <dd>{vm.hardwareName}</dd>
+          <dt>kind</dt>
+          <dd>{vm.hardwareType}</dd>
         </dl>
       </div>
     </section>
 
-    <section class="result-metadata" aria-label="Result metadata">
-      <h2>Metadata</h2>
+    <section class="result-metadata" aria-label="Technical details">
+      <div class="technical-heading">
+        <h2>Technical details</h2>
+        <p>Environment, identifiers, and submitted payloads are available for diagnosis.</p>
+      </div>
       <div class="json-grid">
+        <EnvironmentDetails context={vm.context} />
+        <details class="json-panel">
+          <summary>Identifiers</summary>
+          <dl class="compact-dl identifier-list">
+            <dt>machine identity</dt>
+            <dd class="mono" title={vm.hardwareHash}>{vm.displayHardwareHash}</dd>
+            <dt>series</dt>
+            <dd class="mono" title={vm.fingerprint}>{vm.displayFingerprint}</dd>
+          </dl>
+        </details>
         {#each vm.jsonBlocks as block (block.label)}
-          <details class="json-panel" open>
+          <details class="json-panel">
             <summary>{block.label}</summary>
             <pre>{block.value}</pre>
           </details>
@@ -318,6 +329,20 @@
   .result-metadata h2 {
     margin: 0 0 8px;
     font-size: 0.95rem;
+  }
+  .technical-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .technical-heading p {
+    margin: 0 0 8px;
+    color: var(--c-text-muted);
+    font-size: 0.78rem;
+  }
+  .identifier-list {
+    padding: 10px;
   }
   .result-facts {
     display: grid;

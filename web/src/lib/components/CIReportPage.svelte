@@ -370,18 +370,18 @@
             aria-label="Search comparisons"
             type="search"
             value={searchText}
-            placeholder="benchmark, fingerprint, run, hardware"
+            placeholder="benchmark, fingerprint, run, machine"
             oninput={(e) => setSearchText(e.currentTarget.value)}
           />
         </label>
         <label>
-          Hardware
+          Machine
           <select
-            aria-label="Hardware"
+            aria-label="Machine"
             value={hardwareFilter}
             onchange={(e) => setHardwareFilter(e.currentTarget.value)}
           >
-            <option value="all">All hardware</option>
+            <option value="all">All machines</option>
             {#each hardwareOptions as hardware}
               <option value={hardware}>{hardware}</option>
             {/each}
@@ -461,7 +461,7 @@
                   <tr>
                     <th>Status</th>
                     <th>Benchmark</th>
-                    <th>Hardware</th>
+                    <th>Machine</th>
                     <th>Unit</th>
                     <th>Delta</th>
                     <th>Z</th>
@@ -478,7 +478,7 @@
                         <div class="bench-name">{row.name}</div>
                         <div class="fingerprint">{row.history_fingerprint}</div>
                       </td>
-                      <td data-label="Hardware">{row.hardware.name}</td>
+                      <td data-label="Machine">{row.hardware.name}</td>
                       <td data-label="Unit">{unitText(row.unit)}</td>
                       <td data-label="Delta" class="num">{percentText(row)}</td>
                       <td data-label="Z" class="num">{zText(row)}</td>

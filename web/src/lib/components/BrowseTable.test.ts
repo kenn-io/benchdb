@@ -73,7 +73,7 @@ describe("BrowseTable", () => {
     expect(nameCell?.querySelector(".identity-stack .metadata-line")).toHaveTextContent("scale=sf10");
   });
 
-  it("keeps production-shaped long metadata in wrapped value stacks with compact signal cells", () => {
+  it("keeps long machine names readable without exposing environment payloads", () => {
     const longRows = toBrowseRows(
       [
         {
@@ -115,8 +115,8 @@ describe("BrowseTable", () => {
     render(BrowseTable, { props: { rows: longRows } });
 
     expect(screen.getByRole("link", { name: /^benchmark-with-a-very-long-name/ })).toHaveClass("row-primary-link");
-    expect(screen.getByText(/compiler_flags=/).closest("td")).toHaveClass("wrap-anywhere");
-    expect(screen.getByText(/production-runner-us-east-1/).closest("td")).toHaveClass("wrap-anywhere");
+    expect(screen.queryByText(/compiler_flags=/)).toBeNull();
+    expect(screen.getByText(/production-runner-us-east-1/).closest("td")).toHaveClass("machine-cell");
     expect(screen.getByLabelText("sparkline of 3 points").closest("td")).toHaveClass("trend-cell");
     expect(screen.getByText("stable").closest("td")).toHaveClass("status-cell");
   });

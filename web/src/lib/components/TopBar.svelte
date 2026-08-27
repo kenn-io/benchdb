@@ -24,10 +24,10 @@
 
   const nav: Array<{ label: string; href: string; route: Route["name"]; active: Array<Route["name"]> }> = [
     { label: "Home", href: "/", route: "home", active: ["home", "run", "batch"] },
-    { label: "Browse", href: "/series", route: "browse", active: ["browse", "trend", "series-leaf"] },
+    { label: "Benchmarks", href: "/series", route: "browse", active: ["browse", "trend", "series-leaf"] },
     { label: "Results", href: "/results", route: "results-list", active: ["results-list", "result"] },
     { label: "Compare", href: "/compare", route: "compare", active: ["compare"] },
-    { label: "CI Reports", href: "/ci/report", route: "ci-report", active: ["ci-report"] },
+    { label: "Reports", href: "/ci/report", route: "ci-report", active: ["ci-report"] },
     { label: "Account", href: "/account", route: "account", active: ["account"] },
   ];
 
@@ -49,7 +49,7 @@
 
 <header class="topbar">
   <a class="brand" href="/" onclick={(e) => go(e, "/")}>
-    <span class="brand-mark" aria-hidden="true">C</span>
+    <span class="brand-mark" aria-hidden="true">B</span>
     <span class="brand-name">BenchDB</span>
   </a>
   <nav class="primary-nav" aria-label="Primary navigation">
@@ -72,7 +72,7 @@
         <input
           id="topbar-series-search"
           type="search"
-          placeholder="name, tag, context"
+          placeholder="benchmark, machine, tag"
           autocomplete="off"
           spellcheck="false"
           bind:value={term}

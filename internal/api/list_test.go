@@ -174,6 +174,7 @@ func TestListRecentRunsGroupsResultsByRun(t *testing.T) {
 		runReason: "pull-request",
 		batchID:   "batch-b",
 		name:      "bench-c",
+		machine:   "benchmark-host-a",
 		repo:      "https://github.com/org/other",
 	})
 	authorLogin := "contributor-a"
@@ -190,16 +191,17 @@ func TestListRecentRunsGroupsResultsByRun(t *testing.T) {
 
 	var page struct {
 		Runs []struct {
-			RunID         string  `json:"run_id"`
-			RunReason     *string `json:"run_reason"`
-			ResultCount   int     `json:"result_count"`
-			ErrorCount    int     `json:"error_count"`
-			SeriesCount   int     `json:"series_count"`
-			BatchCount    int     `json:"batch_count"`
-			LatestBatchID *string `json:"latest_batch_id"`
-			LatestResult  string  `json:"latest_result_id"`
-			Repository    string  `json:"repository"`
-			CommitSHA     string  `json:"commit_sha"`
+			RunID         string   `json:"run_id"`
+			RunReason     *string  `json:"run_reason"`
+			ResultCount   int      `json:"result_count"`
+			ErrorCount    int      `json:"error_count"`
+			SeriesCount   int      `json:"series_count"`
+			MachineNames  []string `json:"machine_names"`
+			BatchCount    int      `json:"batch_count"`
+			LatestBatchID *string  `json:"latest_batch_id"`
+			LatestResult  string   `json:"latest_result_id"`
+			Repository    string   `json:"repository"`
+			CommitSHA     string   `json:"commit_sha"`
 			Commit        struct {
 				Hash         string  `json:"hash"`
 				Repository   string  `json:"repository"`
@@ -223,6 +225,7 @@ func TestListRecentRunsGroupsResultsByRun(t *testing.T) {
 	assert.Equal(t, 2, page.Runs[0].ResultCount)
 	assert.Equal(t, 0, page.Runs[0].ErrorCount)
 	assert.Equal(t, 2, page.Runs[0].SeriesCount)
+	assert.Equal(t, []string{"m1"}, page.Runs[0].MachineNames)
 	assert.Equal(t, 2, page.Runs[0].BatchCount)
 	assert.Equal(t, "batch-c", *page.Runs[0].LatestBatchID)
 	assert.Equal(t, newerA, page.Runs[0].LatestResult)
@@ -232,6 +235,7 @@ func TestListRecentRunsGroupsResultsByRun(t *testing.T) {
 	assert.Equal(t, day(3).Format(time.RFC3339), page.Runs[0].LastResultAt)
 
 	assert.Equal(t, "run-b", page.Runs[1].RunID)
+	assert.Equal(t, []string{"benchmark-host-a"}, page.Runs[1].MachineNames)
 	assert.Equal(t, latestB, page.Runs[1].LatestResult)
 	assert.Equal(t, "https://github.com/org/other", page.Runs[1].Repository)
 	assert.Equal(t, "c2", page.Runs[0].Commit.Hash)

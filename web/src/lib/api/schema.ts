@@ -929,6 +929,7 @@ export interface components {
             last_result_at: string;
             latest_batch_id: string | null;
             latest_result_id: string;
+            machine_names: string[] | null;
             repository: string;
             /** Format: int64 */
             result_count: number;

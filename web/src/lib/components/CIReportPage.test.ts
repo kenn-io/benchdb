@@ -287,7 +287,7 @@ describe("CIReportPage", () => {
     await waitFor(() => screen.getByRole("button", { name: /all 4/i }));
 
     expect(screen.getByLabelText(/search comparisons/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/hardware/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/machine/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /regressed 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /errored 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /missing baseline 1/i })).toBeInTheDocument();
@@ -315,7 +315,7 @@ describe("CIReportPage", () => {
     expect(screen.getByText(/1 missing baseline/i)).toBeInTheDocument();
   });
 
-  it("filters comparisons by status, hardware, and search text", async () => {
+  it("filters comparisons by status, machine, and search text", async () => {
     GET.mockResolvedValue({ data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
     await waitFor(() => screen.getAllByText("regress-bench"));
@@ -326,11 +326,11 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("stable-bench")).toBeNull();
 
     await fireEvent.click(screen.getByRole("button", { name: /all 4/i }));
-    await fireEvent.change(screen.getByLabelText(/hardware/i), { target: { value: "m6" } });
+    await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "m6" } });
     expect(screen.getAllByText("missing-bench").length).toBeGreaterThan(0);
     expect(screen.queryByText("errored-bench")).toBeNull();
 
-    await fireEvent.change(screen.getByLabelText(/hardware/i), { target: { value: "all" } });
+    await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "all" } });
     await fireEvent.input(screen.getByLabelText(/search comparisons/i), { target: { value: "stable" } });
     expect(screen.getAllByText("stable-bench").length).toBeGreaterThan(0);
     expect(screen.queryByText("missing-bench")).toBeNull();
