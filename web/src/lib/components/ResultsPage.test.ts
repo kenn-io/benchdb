@@ -57,6 +57,7 @@ describe("ResultsPage", () => {
 
     await waitFor(() => screen.getByRole("heading", { name: /benchmark results/i }));
     expect(screen.getAllByText(/2 results\+?/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: /series explorer/i })).toHaveAttribute("href", "/series");
     expect(screen.getByText(/^2 runs$/i)).toBeInTheDocument();
     expect(screen.getByText(/^1 error$/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /tpch/i })[0]).toHaveAttribute("href", "/results/r2");

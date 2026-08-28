@@ -43,6 +43,7 @@ describe("SeriesBrowse", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: /benchmark series/i })).toBeInTheDocument();
     expect(screen.getByText(/showing 1 loaded series/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /result explorer/i })).toHaveAttribute("href", "/results");
     expect(screen.getByRole("group", { name: /series time window/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
   });
@@ -277,7 +278,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByText(/sorting applies to loaded rows/i)).toBeInTheDocument();
     // BrowseTable marks each whole row as role="link" too; scope to the name
     // anchors so the assertion reads the sorted benchmark labels alone.
-    const links = screen
+    const links = within(screen.getByRole("table"))
       .getAllByRole("link")
       .filter((el) => el.tagName === "A")
       .map((a) => a.textContent);

@@ -267,9 +267,12 @@
         Scan benchmark families, current status, recent history, and default-branch coverage.
       </p>
     </div>
-    <div class="page-meta">
-      <span>{loadedSummary}</span>
-      {#if nextCursor !== null}<span>More available</span>{/if}
+    <div class="header-actions">
+      <div class="page-meta">
+        <span>{loadedSummary}</span>
+        {#if nextCursor !== null}<span>More available</span>{/if}
+      </div>
+      <a class="button-pill secondary" href="/results" onclick={(e) => go(e, "/results")}>Result explorer</a>
     </div>
   </header>
 
@@ -452,6 +455,14 @@
 <style>
   .series-page {
     gap: 12px;
+  }
+  .header-actions {
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+  }
+  @media (max-width: 760px) {
+    .header-actions { justify-items: start; }
   }
   .browse-filters {
     display: flex;

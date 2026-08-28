@@ -203,12 +203,15 @@
         Browse submitted benchmark measurements by case, commit, run, or exact IDs when needed.
       </p>
     </div>
-    {#if vm !== null}
-      <div class="page-meta">
-        <span>{plural(vm.loadedResults, "loaded result")}</span>
-        {#if vm.nextCursor !== null}<span>More available</span>{/if}
-      </div>
-    {/if}
+    <div class="header-actions">
+      {#if vm !== null}
+        <div class="page-meta">
+          <span>{plural(vm.loadedResults, "loaded result")}</span>
+          {#if vm.nextCursor !== null}<span>More available</span>{/if}
+        </div>
+      {/if}
+      <a class="button-pill secondary" href="/series" onclick={(e) => go(e, "/series")}>Series explorer</a>
+    </div>
   </header>
 
   <div class="filter-toolbar">
@@ -414,6 +417,14 @@
 </main>
 
 <style>
+  .header-actions {
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+  }
+  @media (max-width: 760px) {
+    .header-actions { justify-items: start; }
+  }
   .results-page {
     gap: 12px;
   }

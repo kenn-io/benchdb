@@ -27,7 +27,7 @@ describe("TopBar", () => {
   it("exposes primary product navigation", () => {
     render(TopBar, { props: { routeName: "compare" } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
-    expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(within(nav).getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/");
     expect(within(nav).getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/series");
     expect(within(nav).queryByRole("link", { name: "Results" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("href", "/compare");
@@ -82,6 +82,15 @@ describe("TopBar", () => {
     expect(within(nav).getByRole("link", { name: "Benchmarks", current: "location" })).toHaveAttribute(
       "href",
       "/series",
+    );
+  });
+
+  it("keeps run records inside the Runs navigation hierarchy", () => {
+    render(TopBar, { props: { routeName: "run" } });
+    const nav = screen.getByRole("navigation", { name: "Primary navigation" });
+    expect(within(nav).getByRole("link", { name: "Runs", current: "location" })).toHaveAttribute(
+      "href",
+      "/",
     );
   });
 

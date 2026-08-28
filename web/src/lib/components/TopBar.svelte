@@ -23,7 +23,7 @@
   }
 
   const nav: Array<{ label: string; href: string; route: Route["name"]; active: Array<Route["name"]> }> = [
-    { label: "Home", href: "/", route: "home", active: ["home", "run", "batch"] },
+    { label: "Runs", href: "/", route: "home", active: ["home", "run", "batch"] },
     {
       label: "Benchmarks",
       href: "/series",
