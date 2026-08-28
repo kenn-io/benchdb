@@ -13,6 +13,7 @@ export interface BrowseRow {
   paramsText: string;
   machineNames: string[];
   latestSVS: number | null;
+  unit: string | null;
   svsText: string;
   pointCount: number;
   status: SeriesStatus;
@@ -54,6 +55,7 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
       paramsText: tagsText(item.tags, ["name"]),
       machineNames: item.machine_names ?? [],
       latestSVS: svs,
+      unit: item.unit,
       svsText: formatMeasurement(svs, item.unit),
       pointCount: item.point_count,
       status: item.status,

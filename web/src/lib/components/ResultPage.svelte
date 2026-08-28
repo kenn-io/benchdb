@@ -12,6 +12,7 @@
   import { interceptNavClick, navigate } from "../router";
   import { flagsText, type SeriesPoint } from "../series/transform";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
+  import MeasurementValue from "./MeasurementValue.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -134,10 +135,9 @@
     navigate(href);
   }
 
-  function openHistoryPoint(index: number) {
-    const point = historyPoints[index];
-    if (point !== undefined && point.resultId !== resultId) {
-      navigate(`/results/${point.resultId}`);
+  function openHistoryResult(historyResultId: string) {
+    if (historyResultId !== resultId) {
+      navigate(`/results/${historyResultId}`);
     }
   }
 
@@ -216,7 +216,7 @@
       </div>
       <div class="header-actions">
         <div class="page-meta">
-          <span>SVS <span class="numeric-text">{vm.svsText}</span></span>
+          <span>result value <span class="numeric-text"><MeasurementValue value={vm.svs} unit={vm.unit} /></span></span>
           <span>machine {vm.hardwareName}</span>
           {#if vm.commitSha !== null}<span title={vm.commitSha}>commit {vm.shortCommit}</span>{/if}
         </div>
@@ -255,12 +255,12 @@
           sigma={2}
           height={320}
           currentResultId={resultId}
-          onselect={openHistoryPoint}
+          onopen={openHistoryResult}
         />
         <div class="trend-foot">
           <span>{historyPoints.length} {historyPoints.length === 1 ? "result" : "results"} in this series</span>
           {#if currentPoint !== null}
-            <span>{currentPoint.commitHash.slice(0, 8)} · {formatMeasurement(currentPoint.svs, currentPoint.unit)}</span>
+            <span>{currentPoint.commitHash.slice(0, 8)} · <MeasurementValue value={currentPoint.svs} unit={currentPoint.unit} /></span>
             {#if flagsText(currentPoint.stats) !== ""}<span class="flag">{flagsText(currentPoint.stats)}</span>{/if}
           {/if}
         </div>

@@ -1,6 +1,7 @@
 import type { createBenchDBClient } from "../api/client";
 import type { components } from "../api/schema";
-import { formatDate, formatSVS, tagsText } from "../browse/transform";
+import { formatDate, tagsText } from "../browse/transform";
+import { formatMeasurement } from "../format";
 import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../series/transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
@@ -17,6 +18,7 @@ export interface ResultViewModel {
   name: string;
   paramsText: string;
   context: Record<string, unknown>;
+  svs: number | null;
   svsText: string;
   svsType: string;
   iterations: number | null;
@@ -62,7 +64,7 @@ function toAggregates(
 ): { label: string; value: string }[] {
   return AGGREGATE_LABELS.flatMap((label) => {
     const v = stats[label];
-    return v === null ? [] : [{ label, value: `${formatSVS(v)}${unit ? ` ${unit}` : ""}` }];
+    return v === null ? [] : [{ label, value: formatMeasurement(v, unit) }];
   });
 }
 
@@ -93,7 +95,8 @@ export function resultViewModelFromDetail(
     name,
     paramsText: tagsText(tags),
     context: d.context,
-    svsText: svs === null ? "—" : `${formatSVS(svs)}${d.unit ? ` ${d.unit}` : ""}`,
+    svs,
+    svsText: formatMeasurement(svs, d.unit),
     svsType: d.single_value_summary_type,
     iterations: d.iterations,
     aggregates: toAggregates(d.stats, d.unit),

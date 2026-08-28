@@ -1,4 +1,5 @@
-import { formatDate, formatSVS } from "../browse/transform";
+import { formatDate } from "../browse/transform";
+import { formatMeasurement } from "../format";
 import type { SeriesPoint } from "../series/transform";
 
 /** CommitChoice is one selectable row in the benchmark-first compare picker:
@@ -29,7 +30,7 @@ export function toCommitChoices(
       shortCommit: p.commitHash === "" ? "—" : p.commitHash.slice(0, 7),
       commitMessage: p.commitMessage,
       dateText: p.commitTimestampMs === null ? "—" : formatDate(new Date(p.commitTimestampMs).toISOString(), locale),
-      svsText: `${formatSVS(p.svs)}${unit === null ? "" : ` ${unit}`}`,
+      svsText: formatMeasurement(p.svs, unit),
     }));
 }
 

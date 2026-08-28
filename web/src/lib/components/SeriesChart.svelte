@@ -7,10 +7,10 @@
   import {
     closestIndexForSortedValueOffset,
     indexForCursorOffset,
-    paddedValueRange,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
+    zeroBasedValueRange,
   } from "../series/chart-geometry";
   import {
     pointTooltip,
@@ -22,6 +22,7 @@
     type TrendTooltip,
   } from "../series/transform";
   import { compactAxisValue } from "../series/chart-format";
+  import { formatMeasurement } from "../format";
   import { resolvedTheme } from "../theme.svelte";
 
   let {
@@ -33,6 +34,7 @@
     currentResultId = null,
     markedIndices = [],
     onselect,
+    onopen,
   }: {
     points: SeriesPoint[];
     axis?: TrendAxis;
@@ -42,6 +44,7 @@
     currentResultId?: string | null;
     markedIndices?: number[];
     onselect?: (index: number) => void;
+    onopen?: (resultId: string) => void;
   } = $props();
 
   let chartWrap: HTMLDivElement;
@@ -158,9 +161,9 @@
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }
 
-  // Cache the padded Y range so hover movement does not re-scan the whole
+  // Cache the zero-based Y range so hover movement does not re-scan the whole
   // history on every cursor change; it only recomputes when points/sigma change.
-  let overlayRange = $derived(paddedValueRange(trendYRangeValues(points, sigma)));
+  let overlayRange = $derived(zeroBasedValueRange(trendYRangeValues(points, sigma)));
 
   function overlayX(point: SeriesPoint, index: number): number {
     if (axis === "commit") {
@@ -391,7 +394,7 @@
       },
       series: [
         {},
-        { label: "SVS", stroke: accent, width: 2, points: { show: false } },
+        { label: "result value", stroke: accent, width: 2, points: { show: false } },
         { label: "rolling mean", stroke: meanColor, width: 1.5, dash: [6, 4], points: { show: false } },
         { label: "hi", stroke: "transparent", points: { show: false } },
         { label: "lo", stroke: "transparent", points: { show: false } },
@@ -402,7 +405,11 @@
           size: 76,
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
-          values: (_u, ticks) => ticks.map((t) => compactAxisValue(Number(t))),
+          values: (_u, ticks) => ticks.map((t) =>
+            points[0]?.unit === "B"
+              ? formatMeasurement(Number(t), "B")
+              : compactAxisValue(Number(t)),
+          ),
         },
       ],
       hooks: {
@@ -482,6 +489,7 @@
   function selectAtCursor() {
     if (hoverIndex != null) {
       onselect?.(hoverIndex);
+      onopen?.(points[hoverIndex]!.resultId);
     }
   }
 </script>
@@ -489,9 +497,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <!-- The chart is a pointer-driven visualization; keyboard-accessible selection and
      navigation are provided by the DetailTable rows/links that share state. -->
-<div class="chart-wrap" bind:this={chartWrap} onclick={selectAtCursor}>
+<div class="chart-wrap" class:clickable={onopen !== undefined} bind:this={chartWrap} onclick={selectAtCursor}>
   <div class="legend" aria-hidden="true">
-    <span><i class="svs"></i>SVS</span>
+    <span><i class="svs"></i>result value</span>
     <span><i class="raw"></i>repetitions</span>
     <span><i class="inlier"></i>inlier</span>
     <span><i class="outlier"></i>outlier</span>
@@ -558,6 +566,7 @@
       {#each tip.vm.metadata as line, i (i)}
         <div class="tip-metadata">{line}</div>
       {/each}
+      {#if onopen !== undefined}<div class="tip-action">click to open result</div>{/if}
     </div>
   {/if}
 </div>
@@ -571,6 +580,7 @@
     background: var(--c-chart-bg);
     min-width: 0;
   }
+  .chart-wrap.clickable { cursor: pointer; }
   .chart-wrap :global(.uplot) {
     width: 100% !important;
   }
@@ -717,4 +727,5 @@
     overflow-wrap: anywhere;
     z-index: 3;
   }
+  .tip-action { margin-top: 0.2rem; color: #cbd5e1; font-weight: 650; }
 </style>

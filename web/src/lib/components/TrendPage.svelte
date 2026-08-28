@@ -25,6 +25,7 @@
   import DetailTable from "./DetailTable.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
   import FleetSeriesChart from "./FleetSeriesChart.svelte";
+  import MeasurementValue from "./MeasurementValue.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -440,7 +441,12 @@
       </p>
     {:else}
       {#if machineFilter === "all" && visibleTracks.length > 1}
-        <FleetSeriesChart tracks={visibleTracks} axis={query.axis} />
+        <FleetSeriesChart
+          tracks={visibleTracks}
+          axis={query.axis}
+          sigma={query.sigma}
+          onopen={openResult}
+        />
       {:else}
         <SeriesChart
           points={visible}
@@ -449,6 +455,7 @@
           {selectedIndex}
           {currentResultId}
           onselect={select}
+          onopen={openResult}
         />
       {/if}
       {#if selected !== null}
@@ -459,7 +466,7 @@
           <div>
             <span class="eyebrow">selected point</span>
             <strong>{sel.commitHash}</strong>
-            <span class="faint numeric-text">{formatMeasurement(sel.svs, sel.unit)}</span>
+            <span class="faint numeric-text"><MeasurementValue value={sel.svs} unit={sel.unit} /></span>
           </div>
           <dl class="point-meta">
             <div>

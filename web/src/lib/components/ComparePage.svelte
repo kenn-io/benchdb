@@ -292,7 +292,7 @@
                   <th scope="col">contender</th>
                   <th scope="col">commit</th>
                   <th scope="col">date</th>
-                  <th scope="col" class="num">SVS</th>
+                  <th scope="col" class="num">result value</th>
                 </tr>
               </thead>
               <tbody>
@@ -323,7 +323,7 @@
                       {#if c.commitMessage !== ""}<span class="msg">{c.commitMessage}</span>{/if}
                     </td>
                     <td data-label="date">{c.dateText}</td>
-                    <td data-label="SVS" class="num">{c.svsText}</td>
+                    <td data-label="result value" class="num">{c.svsText}</td>
                   </tr>
                 {/each}
               </tbody>
@@ -471,7 +471,7 @@
           </thead>
           <tbody>
             <tr>
-              <th>SVS</th>
+              <th>result value</th>
               <td class="num" data-label="baseline">{m.baseline.svsText}</td>
               <td class="num" data-label="contender">{m.contender.svsText}</td>
             </tr>

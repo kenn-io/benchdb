@@ -100,15 +100,12 @@ export function tooltipTopForCursor(
   };
 }
 
-export function paddedValueRange(
+export function zeroBasedValueRange(
   values: readonly number[],
   padFraction = 0.05,
 ): ValueRange | null {
   const finite = values.filter(Number.isFinite);
   if (finite.length === 0) return null;
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
-  const span = max - min || 1;
-  const pad = span * padFraction;
-  return { min: min - pad, max: max + pad };
+  const max = Math.max(0, ...finite);
+  return { min: 0, max: max === 0 ? 1 : max * (1 + padFraction) };
 }

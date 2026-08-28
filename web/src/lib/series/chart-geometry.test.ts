@@ -5,9 +5,9 @@ import {
   closestIndexForValue,
   indexForCursorOffset,
   indexForCursorValue,
-  paddedValueRange,
   tooltipLeftForCursor,
   tooltipTopForCursor,
+  zeroBasedValueRange,
 } from "./chart-geometry";
 
 describe("chart geometry", () => {
@@ -45,10 +45,11 @@ describe("chart geometry", () => {
     expect(closestIndexForSortedValueOffset(10, 100, [])).toBeNull();
   });
 
-  it("computes one padded numeric range for chart and overlay y scales", () => {
-    expect(paddedValueRange([10, 20], 0.1)).toEqual({ min: 9, max: 21 });
-    expect(paddedValueRange([5], 0.05)).toEqual({ min: 4.95, max: 5.05 });
-    expect(paddedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
+  it("starts non-negative chart and overlay ranges at zero", () => {
+    expect(zeroBasedValueRange([10, 20], 0.1)).toEqual({ min: 0, max: 22 });
+    expect(zeroBasedValueRange([5], 0.05)).toEqual({ min: 0, max: 5.25 });
+    expect(zeroBasedValueRange([-5, 10], 0.1)).toEqual({ min: 0, max: 11 });
+    expect(zeroBasedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
   });
 
   it("clamps tooltip left positions inside narrow chart bounds", () => {

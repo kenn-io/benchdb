@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatMeasurement } from "../format";
   import { interceptNavClick } from "../router";
   import type { TableRow } from "../series/transform";
+  import MeasurementValue from "./MeasurementValue.svelte";
 
   let {
     rows,
@@ -26,7 +26,7 @@
       <tr>
         <th>commit</th>
         {#if rows.some((row) => row.machineName)}<th>machine</th>{/if}
-        <th>SVS</th>
+        <th>result value</th>
         <th>z</th>
         <th>flags</th>
       </tr>
@@ -53,7 +53,7 @@
           {#if rows.some((candidate) => candidate.machineName)}
             <td data-label="machine">{row.machineName}</td>
           {/if}
-          <td class="num" data-label="SVS">{formatMeasurement(row.svs, row.unit)}</td>
+          <td class="num" data-label="result value"><MeasurementValue value={row.svs} unit={row.unit} /></td>
           <td class="num" data-label="z">{z(row.z)}</td>
           <td class="flags" data-label="flags">{row.flags}</td>
         </tr>

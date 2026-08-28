@@ -1,6 +1,6 @@
 import type { components } from "../api/schema";
-import { formatDate, formatSVS, windowStartIso } from "../browse/transform";
-import { formatMeasurement } from "../format";
+import { formatDate, windowStartIso } from "../browse/transform";
+import { exactMeasurement, formatMeasurement } from "../format";
 import type { BrowseWindow, TrendAxis } from "../router";
 
 type HistorySample = components["schemas"]["HistorySample"];
@@ -272,11 +272,16 @@ function boundaryMetadata(p: SeriesPoint): string[] {
  * stats, omitting whatever is unavailable rather than printing nulls. */
 export function pointTooltip(p: SeriesPoint, locale?: string): TrendTooltip {
   const lines: string[] = [];
+  const formatted = formatMeasurement(p.svs, p.unit);
+  const exact = exactMeasurement(p.svs, p.unit);
+  if (formatted !== exact) {
+    lines.push(`exact ${exact}`);
+  }
   if (p.stats.z !== null) {
     lines.push(`z ${p.stats.z.toFixed(2)}`);
   }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
-    lines.push(`mean ${formatSVS(p.stats.rollingMean)} · sd ${formatSVS(p.stats.rollingStddev)}`);
+    lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);
   }
   lines.push(formatDate(new Date(p.chartMs).toISOString(), locale));
   const flags = flagsText(p.stats);
@@ -287,7 +292,7 @@ export function pointTooltip(p: SeriesPoint, locale?: string): TrendTooltip {
     lines.push(p.commitMessage.length > 80 ? `${p.commitMessage.slice(0, 79)}…` : p.commitMessage);
   }
   return {
-    title: `${p.commitHash} · ${formatMeasurement(p.svs, p.unit)}`,
+    title: `${p.commitHash} · ${formatted}`,
     lines,
     metadata: boundaryMetadata(p),
   };

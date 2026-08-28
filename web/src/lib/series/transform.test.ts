@@ -259,7 +259,7 @@ describe("pointTooltip", () => {
     const tip = pointTooltip(p!, "en-US");
     expect(tip.title).toBe("abc1234 · 1.1 s");
     expect(tip.lines).toContain("z 4.00");
-    expect(tip.lines).toContain("mean 1 · sd 0.05");
+    expect(tip.lines).toContain("mean 1 s · standard deviation 0.05 s");
     expect(tip.lines).toContain("step");
     expect(tip.lines.some((l) => l.includes("Jan 7, 2024"))).toBe(true);
     expect(tip.lines).toContain("tune the flux capacitor");

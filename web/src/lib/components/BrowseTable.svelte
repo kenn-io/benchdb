@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BrowseRow, SortKey, SortSpec } from "../browse/transform";
   import { interceptNavClick } from "../router";
+  import MeasurementValue from "./MeasurementValue.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
   let {
@@ -91,7 +92,7 @@
               {#if row.paramsText}<span class="metadata-line">{row.paramsText}</span>{/if}
             </span>
           </td>
-          <td class="num-cell" data-label="last value">{row.svsText}</td>
+          <td class="num-cell" data-label="last value"><MeasurementValue value={row.latestSVS} unit={row.unit} /></td>
           <td class="history-cell" data-label="history">
             <span>{row.pointCount} points</span>
             <span class="metadata-line">{row.machineNames.length} {row.machineNames.length === 1 ? "machine" : "machines"}</span>

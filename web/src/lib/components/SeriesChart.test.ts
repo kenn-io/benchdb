@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ import type { SeriesPoint } from "../series/transform";
 const plotState = vi.hoisted(() => ({
   cursorHook: undefined as ((plot: unknown) => void) | undefined,
   instance: undefined as unknown,
+  options: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock("uplot", () => {
@@ -17,6 +18,7 @@ vi.mock("uplot", () => {
 
     constructor(options: { hooks?: { setCursor?: ((plot: unknown) => void)[] } }, data: unknown) {
       this.data = data;
+      plotState.options = options;
       plotState.cursorHook = options.hooks?.setCursor?.[0];
       plotState.instance = this;
     }
@@ -81,5 +83,15 @@ describe("SeriesChart", () => {
     expect(screen.getByText("run: channel=nightly")).toBeInTheDocument();
     expect(container.querySelector(".tip")).toHaveStyle({ top: "102px", visibility: "visible" });
     rect.mockRestore();
+  });
+
+  it("starts at zero and opens the hovered result on click", async () => {
+    const onopen = vi.fn();
+    const { container } = render(SeriesChart, { props: { points: [boundaryPoint], onopen } });
+    const options = plotState.options as { scales: { y: { range: () => number[] } } };
+    expect(options.scales.y.range()[0]).toBe(0);
+    plotState.cursorHook?.(plotState.instance);
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+    expect(onopen).toHaveBeenCalledWith("r1");
   });
 });
