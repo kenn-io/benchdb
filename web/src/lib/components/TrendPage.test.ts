@@ -136,11 +136,11 @@ describe("TrendPage", () => {
       },
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
-    expect(screen.getByLabelText(/^machine$/i)).toHaveValue("all");
+    expect(screen.getByRole("button", { name: /^all machines/i })).toHaveClass("active");
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-tracks", "2");
     expect(screen.getByRole("columnheader", { name: "machine" })).toBeInTheDocument();
 
-    await fireEvent.change(screen.getByLabelText(/^machine$/i), { target: { value: "m7" } });
+    await fireEvent.click(screen.getByRole("button", { name: /^m7/i }));
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-points", "1");
     expect(screen.getByText("Selected machine environment")).toBeInTheDocument();
   });
@@ -196,9 +196,10 @@ describe("TrendPage", () => {
     expect(context.querySelector(".page-header")).not.toBeNull();
     expect(context.querySelector(".summary-line")).not.toBeNull();
     const summary = context.querySelector(".summary-line") as HTMLElement;
-    expect(summary.querySelectorAll(".summary-item")).toHaveLength(4);
+    expect(summary.querySelectorAll(".summary-item")).toHaveLength(6);
     expect(screen.getByLabelText("Trend point filters").querySelectorAll(".button-pill")).toHaveLength(3);
-    expect(within(summary).getByText(/^\d+ results? in range$/)).toBeInTheDocument();
+    expect(within(summary).getByText(/^\d+ machine results?$/)).toBeInTheDocument();
+    expect(within(summary).getByText(/^\d+ commits?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ outliers?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ steps?$/)).toBeInTheDocument();
   });
@@ -227,11 +228,12 @@ describe("TrendPage", () => {
       },
     });
 
-    await waitFor(() => expect(screen.getByText(/^1 result in range$/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^1 machine result$/i)).toBeInTheDocument());
     await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() => expect(screen.getByText("1 new result")).toBeInTheDocument());
-    expect(within(screen.getByLabelText("Trend summary")).getByText("2 results in range")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Trend summary")).getByText("2 machine results")).toBeInTheDocument();
+    expect(screen.getByText(/m5 · sha-r2 · Jan 8, 2024/)).toBeInTheDocument();
     const historyRows = within(screen.getByRole("region", { name: "Trend history" }))
       .getAllByRole("row")
       .slice(1);
@@ -249,7 +251,7 @@ describe("TrendPage", () => {
   it("anchors the default range at the newest series result instead of wall-clock today", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
-    await waitFor(() => expect(screen.getByText(/^1 result in range$/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^1 machine result$/i)).toBeInTheDocument());
     expect(screen.queryByText(/no points in the selected range/i)).not.toBeInTheDocument();
   });
 
@@ -312,7 +314,7 @@ describe("TrendPage", () => {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
-    await waitFor(() => screen.getByText(/^250 results in range$/i));
+    await waitFor(() => screen.getByText(/^250 machine results$/i));
     const summary = screen.getByLabelText(/trend summary/i);
     expect(within(summary).getByText(/^1 outlier$/i)).toBeInTheDocument();
     expect(within(summary).getByText(/^1 step$/i)).toBeInTheDocument();

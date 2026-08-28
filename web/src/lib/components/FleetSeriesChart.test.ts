@@ -105,6 +105,33 @@ describe("FleetSeriesChart", () => {
     expect(xs[2]! - xs[1]!).toBe(9 * 24 * 60 * 60);
   });
 
+  it("redraws when a live refresh adds a result", async () => {
+    const { rerender } = render(FleetSeriesChart, {
+      props: {
+        tracks: [{
+          machineName: "machine-a",
+          segments: [],
+          points: [point("day-1", 1, "2026-01-01T00:00:00Z")],
+        }],
+      },
+    });
+    expect((plotState.data as [number[]])[0]).toHaveLength(1);
+
+    await rerender({
+      tracks: [{
+        machineName: "machine-a",
+        segments: [],
+        points: [
+          point("day-1", 1, "2026-01-01T00:00:00Z"),
+          point("day-2", 2, "2026-01-02T00:00:00Z"),
+        ],
+      }],
+    });
+    await tick();
+
+    expect((plotState.data as [number[]])[0]).toHaveLength(2);
+  });
+
   it("shows the nearest machine point and opens its result on click", async () => {
     const onopen = vi.fn();
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({

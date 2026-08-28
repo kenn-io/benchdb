@@ -63,9 +63,20 @@
   let refreshError = $state(false);
   let lastCheckedAt = $state<number | null>(null);
   let newPointCount = $state(0);
+  let latestArrival = $state<{ machineName: string; point: SeriesPoint } | null>(null);
 
-  function totalPointCount(value: TrendViewModel): number {
-    return value.tracks.reduce((sum, track) => sum + track.points.length, 0);
+  function addedResults(
+    previous: TrendViewModel,
+    next: TrendViewModel,
+  ): { machineName: string; point: SeriesPoint }[] {
+    const previousIDs = new Set(
+      previous.tracks.flatMap((track) => track.points.map((point) => point.resultId)),
+    );
+    return next.tracks.flatMap((track) =>
+      track.points
+        .filter((point) => !previousIDs.has(point.resultId))
+        .map((point) => ({ machineName: track.machineName, point })),
+    );
   }
 
   async function refreshTrend(initial = false) {
@@ -74,7 +85,9 @@
     try {
       const next = await loadTrend(createBenchDBClient(baseUrl), source);
       if (vm !== null) {
-        newPointCount += Math.max(0, totalPointCount(next) - totalPointCount(vm));
+        const arrivals = addedResults(vm, next);
+        newPointCount += arrivals.length;
+        latestArrival = arrivals[arrivals.length - 1] ?? latestArrival;
       }
       vm = next;
       errorMsg = null;
@@ -108,6 +121,7 @@
       latest: track.points[track.points.length - 1] ?? null,
     })),
   );
+  let fleetCommitCount = $derived(new Set(fleetPoints.map((point) => point.commitHash)).size);
   let activeTrack = $derived(
     machineFilter === "all"
       ? (tracks.length === 1 ? tracks[0]! : null)
@@ -130,6 +144,7 @@
       : `${formatDate(new Date(fleetPoints[0]!.chartMs).toISOString())} – ${formatDate(new Date(fleetPoints[fleetPoints.length - 1]!.chartMs).toISOString())}`,
   );
   let visible = $derived(windowPoints(all, query.range, rangeAnchor));
+  let visibleCommitCount = $derived(new Set(visible.map((point) => point.commitHash)).size);
   let visibleTracks = $derived(
     tracks
       .filter((track) => machineFilter === "all" || track.machineName === machineFilter)
@@ -363,6 +378,12 @@
         <div class="live-status" class:warning={refreshError} aria-live="polite">
           <span class="live-dot"></span>
           <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
+          {#if latestArrival !== null}
+            <span class="arrival-detail">
+              {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
+              {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
+            </span>
+          {/if}
           <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
@@ -384,8 +405,7 @@
         onclick={() => (machineFilter = "all")}
       >
         <span>All machines</span>
-        <strong>{resultCountText(fleetPoints.length)}</strong>
-        <small>{fleetCoverageText}</small>
+        <strong>{resultCountText(fleetPoints.length)} · {fleetCommitCount} {fleetCommitCount === 1 ? "commit" : "commits"}</strong>
       </button>
       {#each machineSummaries as summary (summary.machineName)}
         <button
@@ -396,21 +416,12 @@
         >
           <span>{summary.machineName}</span>
           <strong>{summary.latest === null ? "—" : formatMeasurement(summary.latest.svs, summary.latest.unit)}</strong>
-          <small>{resultCountText(summary.pointCount)}{summary.latest === null ? "" : ` · latest ${formatDate(new Date(summary.latest.chartMs).toISOString())}`}</small>
+          <small>{resultCountText(summary.pointCount)}</small>
         </button>
       {/each}
     </div>
 
     <div class="toolbar controls">
-      <label class="filter-label">
-        machine
-        <select bind:value={machineFilter}>
-          <option value="all">all machines</option>
-          {#each vm.tracks as track (track.machineName)}
-            <option value={track.machineName}>{track.machineName}</option>
-          {/each}
-        </select>
-      </label>
       <div class="filter-label range-control">
         <span>range</span>
         <DateRangePicker
@@ -435,10 +446,16 @@
     </div>
 
     <p class="summary-line" aria-label="Trend summary">
-      <span class="summary-item">{visible.length} {visible.length === 1 ? "result" : "results"} in range</span>
+      <span class="summary-item">{visible.length} machine {visible.length === 1 ? "result" : "results"}</span>
+      <span class="summary-item">{visibleCommitCount} {visibleCommitCount === 1 ? "commit" : "commits"}</span>
+      <span class="summary-item">{fleetCoverageText}</span>
       <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
       <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
       <span class="summary-item" title={vm.identity.benchmarkId}>id {vm.identity.displayBenchmarkId}</span>
+    </p>
+    <p class="chronology-note">
+      The x-axis is commit time. Historical backfill results appear at the commit's date,
+      so new results may be added in the middle of the chart.
     </p>
 
     {#if flagTargets.length > 0}
@@ -656,15 +673,17 @@
     min-width: 120px;
   }
   .machine-overview {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 8px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
   }
   .machine-card {
-    display: grid;
-    gap: 2px;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    flex: 0 0 auto;
     min-width: 0;
-    padding: 9px 10px;
+    padding: 6px 9px;
     border: 1px solid var(--c-border-muted);
     border-radius: var(--radius-sm);
     background: var(--c-surface-subtle);
@@ -675,11 +694,11 @@
   .machine-card:hover { border-color: var(--c-accent); }
   .machine-card.active {
     border-color: var(--c-accent);
-    box-shadow: inset 3px 0 0 var(--c-accent);
+    box-shadow: inset 0 -2px 0 var(--c-accent);
     background: var(--c-accent-soft);
   }
   .machine-card span { font-size: 0.75rem; font-weight: 700; }
-  .machine-card strong { color: var(--c-text); font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .machine-card strong { color: var(--c-text); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
   .machine-card small { color: var(--c-text-muted); font-size: 0.72rem; }
   .live-status {
     display: flex;
@@ -691,6 +710,15 @@
   }
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-success); }
   .live-status.warning .live-dot { background: var(--c-error); }
+  .arrival-detail {
+    color: var(--c-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .chronology-note {
+    margin: -2px 0 0;
+    color: var(--c-text-muted);
+    font-size: 0.74rem;
+  }
   .refresh-button {
     padding: 3px 7px;
     border: 1px solid var(--c-border-muted);
