@@ -21,7 +21,7 @@ describe("MeasurementValue", () => {
     expect(value).toHaveAttribute("title", "12,263,215,104 B — click to copy the exact number");
     await fireEvent.click(value);
     expect(writeText).toHaveBeenCalledWith("12263215104");
-    expect(screen.getByText("Exact value copied")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Copied");
   });
 
   it("copies from the direct HTTP dashboard when the Clipboard API is unavailable", async () => {
@@ -32,6 +32,6 @@ describe("MeasurementValue", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /12\.263 GB/i }));
     expect(execCommand).toHaveBeenCalledWith("copy");
-    expect(screen.getByText("Exact value copied")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Copied");
   });
 });
