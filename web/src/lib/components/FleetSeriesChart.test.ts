@@ -34,14 +34,18 @@ vi.mock("uplot", () => {
 
 import FleetSeriesChart from "./FleetSeriesChart.svelte";
 
-function point(resultId: string, machineValue: number): SeriesPoint {
+function point(
+  resultId: string,
+  machineValue: number,
+  timestamp = "2026-01-01T00:00:00Z",
+): SeriesPoint {
   return {
     resultId,
-    commitHash: "abc1234",
+    commitHash: `sha-${resultId}`,
     commitMessage: "tune benchmark",
-    commitTimestampMs: Date.parse("2026-01-01T00:00:00Z"),
+    commitTimestampMs: Date.parse(timestamp),
     resultTimestampMs: Date.parse("2026-01-01T00:01:00Z"),
-    chartMs: Date.parse("2026-01-01T00:00:00Z"),
+    chartMs: Date.parse(timestamp),
     measurements: [machineValue],
     svs: machineValue,
     unit: "s",
@@ -69,16 +73,36 @@ describe("FleetSeriesChart", () => {
   it("renders a zero-based scale with a rolling mean and range for each machine", () => {
     render(FleetSeriesChart, { props: { tracks, sigma: 2 } });
     const options = plotState.options as {
-      scales: { y: { range: () => number[] } };
+      scales: { x: { time: boolean }; y: { range: () => number[] } };
       series: { label?: string }[];
       bands: unknown[];
     };
     expect(options.scales.y.range()[0]).toBe(0);
+    expect(options.scales.x.time).toBe(true);
     expect(options.series.map((series) => series.label)).toContain("machine-a rolling mean");
     expect(options.series.map((series) => series.label)).toContain("machine-b rolling mean");
     expect(options.bands).toHaveLength(2);
     expect(screen.getByText("rolling mean")).toBeInTheDocument();
     expect(screen.getByText("2σ range")).toBeInTheDocument();
+  });
+
+  it("spaces fleet points by elapsed calendar time", () => {
+    render(FleetSeriesChart, {
+      props: {
+        tracks: [{
+          machineName: "machine-a",
+          segments: [],
+          points: [
+            point("day-1", 1, "2026-01-01T00:00:00Z"),
+            point("day-2", 2, "2026-01-02T00:00:00Z"),
+            point("day-11", 3, "2026-01-11T00:00:00Z"),
+          ],
+        }],
+      },
+    });
+    const [xs] = plotState.data as [number[]];
+    expect(xs[1]! - xs[0]!).toBe(24 * 60 * 60);
+    expect(xs[2]! - xs[1]!).toBe(9 * 24 * 60 * 60);
   });
 
   it("shows the nearest machine point and opens its result on click", async () => {
@@ -95,7 +119,7 @@ describe("FleetSeriesChart", () => {
     await tick();
     await tick();
     expect(screen.getByText("machine-a", { selector: ".tip strong" })).toBeInTheDocument();
-    expect(screen.getByText(/abc1234 · 1\.1 s/)).toBeInTheDocument();
+    expect(screen.getByText(/sha-result-a · 1\.1 s/)).toBeInTheDocument();
     await fireEvent.click(chart);
     expect(onopen).toHaveBeenCalledWith("result-a");
     rect.mockRestore();

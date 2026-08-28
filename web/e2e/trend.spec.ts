@@ -56,10 +56,6 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await page.getByLabel(/band/i).selectOption("5");
   await expect(page).toHaveURL(/sigma=5/);
   await expect(page.locator(".chart-wrap canvas")).toBeVisible();
-  await page.getByLabel(/x-axis/i).selectOption("time");
-  await expect(page).toHaveURL(/axis=time/);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
-
   // A commit link in the table opens the light result detail.
   await page.locator("table.detail tbody tr a").first().click();
   await expect(page).toHaveURL(/\/results\//);
@@ -67,7 +63,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
 
   // Deep-link reload survives (SPA fallback) with controls intact.
-  await page.goto(`${baseURL}/series/${fp}?range=all&axis=time&sigma=3`);
+  await page.goto(`${baseURL}/series/${fp}?range=all&sigma=3`);
   await expect(page.locator(".chart-wrap canvas")).toBeVisible();
   await expect(page.getByLabel(/band/i)).toHaveValue("3");
 });

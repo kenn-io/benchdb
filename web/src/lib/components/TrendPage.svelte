@@ -17,7 +17,6 @@
     interceptNavClick,
     navigate,
     type BrowseWindow,
-    type TrendAxis,
     type TrendQuery,
     type TrendSigma,
   } from "../router";
@@ -132,8 +131,8 @@
   }
 
   // Range and table-filter changes re-window the selectable row set, so stale
-  // indices would point at the wrong commit: reset the selection. Axis/sigma
-  // keep indices stable.
+  // indices would point at the wrong commit: reset the selection. Sigma keeps
+  // indices stable.
   $effect(() => {
     void query.range;
     void trendFilter;
@@ -345,16 +344,6 @@
           <option value="5">±5σ</option>
         </select>
       </label>
-      <label class="filter-label">
-        x-axis
-        <select
-          value={query.axis}
-          onchange={(e) => setControl({ axis: e.currentTarget.value as TrendAxis })}
-        >
-          <option value="commit">commit order</option>
-          <option value="time">time</option>
-        </select>
-      </label>
     </div>
 
     <p class="summary-line" aria-label="Trend summary">
@@ -443,14 +432,12 @@
       {#if machineFilter === "all" && visibleTracks.length > 1}
         <FleetSeriesChart
           tracks={visibleTracks}
-          axis={query.axis}
           sigma={query.sigma}
           onopen={openResult}
         />
       {:else}
         <SeriesChart
           points={visible}
-          axis={query.axis}
           sigma={query.sigma}
           {selectedIndex}
           {currentResultId}

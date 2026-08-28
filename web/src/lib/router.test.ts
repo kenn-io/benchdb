@@ -112,15 +112,15 @@ describe("trend route", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { axis: "commit", range: "3mo", sigma: 2 },
+      query: { range: "3mo", sigma: 2 },
     });
   });
 
   it("parses controls from the search string", () => {
-    expect(matchRoute("/series/abc123", "?axis=time&range=all&sigma=5")).toEqual({
+    expect(matchRoute("/series/abc123", "?range=all&sigma=5")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { axis: "time", range: "all", sigma: 5 },
+      query: { range: "all", sigma: 5 },
     });
   });
 
@@ -133,22 +133,19 @@ describe("trend route", () => {
   });
 
   it("is total over junk control values", () => {
-    expect(parseTrendQuery("?axis=bogus&range=2026&sigma=4")).toEqual({
-      axis: "commit",
+    expect(parseTrendQuery("?range=2026&sigma=4")).toEqual({
       range: "3mo",
       sigma: 2,
     });
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatTrendQuery({ axis: "commit", range: "3mo", sigma: 2 })).toBe("");
-    expect(formatTrendQuery({ axis: "time", range: "all", sigma: 3 })).toBe(
-      "?axis=time&range=all&sigma=3",
-    );
+    expect(formatTrendQuery({ range: "3mo", sigma: 2 })).toBe("");
+    expect(formatTrendQuery({ range: "all", sigma: 3 })).toBe("?range=all&sigma=3");
   });
 
   it("round-trips parse(format(q))", () => {
-    const q = { axis: "time", range: "30d", sigma: 1 } as const;
+    const q = { range: "30d", sigma: 1 } as const;
     expect(parseTrendQuery(formatTrendQuery(q))).toEqual(q);
   });
 });

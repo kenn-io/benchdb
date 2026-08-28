@@ -1,7 +1,7 @@
 import type { components } from "../api/schema";
 import { formatDate, windowStartIso } from "../browse/transform";
 import { exactMeasurement, formatMeasurement } from "../format";
-import type { BrowseWindow, TrendAxis } from "../router";
+import type { BrowseWindow } from "../router";
 
 type HistorySample = components["schemas"]["HistorySample"];
 type ZScoreStats = components["schemas"]["ZScoreStats"];
@@ -143,8 +143,8 @@ export function windowAnchorDate(points: SeriesPoint[], now: Date): Date {
 }
 
 /** windowPoints filters to the rolling benchmark-activity window ending at
- * anchor; "all" keeps everything. The x-axis can use commit order/time, but
- * range membership is about when benchmark results were produced. */
+ * anchor; "all" keeps everything. Range membership is about when benchmark
+ * results were produced. */
 export function windowPoints(points: SeriesPoint[], range: BrowseWindow, anchor: Date): SeriesPoint[] {
   const startIso = windowStartIso(range, anchor);
   if (startIso === null) {
@@ -162,17 +162,17 @@ export type TrendChartData = [
   (number | null)[],
 ];
 
-/** trendChartData builds the uPlot-aligned rows [x, svs, mean, hi, lo]: x is the
- * point index in commit mode or unix seconds in time mode; hi/lo are
- * rolling_mean ± sigma · rolling_stddev with null gaps wherever the engine has
- * no stats (series start, outliers, fresh segments) — the band re-centers per
- * segment because the underlying rolling stats do. */
+/** trendChartData builds the uPlot-aligned rows [x, svs, mean, hi, lo]. The x
+ * values are Unix seconds so horizontal distance always represents elapsed
+ * calendar time. The hi/lo rows are rolling_mean ± sigma · rolling_stddev with
+ * null gaps wherever the engine has no stats (series start, outliers, fresh
+ * segments) — the band re-centers per segment because the underlying rolling
+ * stats do. */
 export function trendChartData(
   points: SeriesPoint[],
-  axis: TrendAxis,
   sigma: number,
 ): TrendChartData {
-  const xs = points.map((p, i) => (axis === "time" ? p.chartMs / 1000 : i));
+  const xs = points.map((p) => p.chartMs / 1000);
   const svs = points.map((p): number | null => p.svs);
   const mean = points.map((p) => p.stats.rollingMean);
   const hi = points.map((p) =>

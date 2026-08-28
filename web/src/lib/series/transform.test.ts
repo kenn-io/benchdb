@@ -144,11 +144,9 @@ describe("trendChartData", () => {
     sample({ commit_timestamp: "2024-01-09T12:00:00Z", single_value_summary: 3.0, zscorestats: null }),
   ]);
 
-  it("uses indices in commit mode and unix seconds in time mode", () => {
-    const [xsCommit] = trendChartData(points, "commit", 2);
-    expect(xsCommit).toEqual([0, 1, 2]);
-    const [xsTime] = trendChartData(points, "time", 2);
-    expect(xsTime).toEqual([
+  it("uses Unix seconds so horizontal spacing represents elapsed time", () => {
+    const [xs] = trendChartData(points, 2);
+    expect(xs).toEqual([
       Date.parse("2024-01-07T12:00:00Z") / 1000,
       Date.parse("2024-01-08T12:00:00Z") / 1000,
       Date.parse("2024-01-09T12:00:00Z") / 1000,
@@ -156,7 +154,7 @@ describe("trendChartData", () => {
   });
 
   it("builds mean and sigma-scaled band rows with null gaps", () => {
-    const [, svs, mean, hi, lo] = trendChartData(points, "commit", 2);
+    const [, svs, mean, hi, lo] = trendChartData(points, 2);
     expect(svs).toEqual([1.0, 2.0, 3.0]);
     expect(mean).toEqual([1.0, 1.5, null]);
     expect(hi).toEqual([1.1, 2.5, null]);

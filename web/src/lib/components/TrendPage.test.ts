@@ -158,7 +158,6 @@ describe("TrendPage", () => {
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByLabelText(/range/i)).toHaveValue("all");
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
-    expect(screen.getByLabelText(/x-axis/i)).toHaveValue("commit");
     expect(screen.getByRole("link", { name: "sha-r1" })).toBeInTheDocument();
   });
 

@@ -251,7 +251,6 @@
       {:else}
         <SeriesChart
           points={historyPoints}
-          axis="commit"
           sigma={2}
           height={320}
           currentResultId={resultId}

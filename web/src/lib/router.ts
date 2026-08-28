@@ -100,30 +100,25 @@ export type Route =
   | CIReportRoute
   | NotFoundRoute;
 
-export type TrendAxis = "commit" | "time";
 export type TrendSigma = 1 | 2 | 3 | 5;
 
 export interface TrendQuery {
-  axis: TrendAxis;
   range: BrowseWindow;
   sigma: TrendSigma;
 }
 
-export const DEFAULT_TREND_QUERY: TrendQuery = { axis: "commit", range: "3mo", sigma: 2 };
+export const DEFAULT_TREND_QUERY: TrendQuery = { range: "3mo", sigma: 2 };
 
-const TREND_AXES: readonly TrendAxis[] = ["commit", "time"];
 const TREND_SIGMAS: readonly TrendSigma[] = [1, 2, 3, 5];
 
 /** parseTrendQuery is total: absent params and unknown values fall back to the
- * spec defaults (commit-order axis, 3mo range, 2 sigma band). The range presets
- * reuse BrowseWindow — one rolling-window vocabulary across browse and trend. */
+ * defaults (3mo range, 2 sigma band). The range presets reuse BrowseWindow —
+ * one rolling-window vocabulary across browse and trend. */
 export function parseTrendQuery(search: string): TrendQuery {
   const params = new URLSearchParams(search);
-  const axis = params.get("axis");
   const range = params.get("range");
   const sigma = Number(params.get("sigma"));
   return {
-    axis: TREND_AXES.includes(axis as TrendAxis) ? (axis as TrendAxis) : "commit",
     range: BROWSE_WINDOWS.includes(range as BrowseWindow) ? (range as BrowseWindow) : "3mo",
     sigma: TREND_SIGMAS.includes(sigma as TrendSigma) ? (sigma as TrendSigma) : 2,
   };
@@ -133,7 +128,6 @@ export function parseTrendQuery(search: string): TrendQuery {
  * pristine trend URL stays bare and shared links carry only changed controls. */
 export function formatTrendQuery(query: TrendQuery): string {
   const params = new URLSearchParams();
-  if (query.axis !== "commit") params.set("axis", query.axis);
   if (query.range !== "3mo") params.set("range", query.range);
   if (query.sigma !== 2) params.set("sigma", String(query.sigma));
   const s = params.toString();

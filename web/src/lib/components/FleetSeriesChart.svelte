@@ -4,7 +4,6 @@
   import { onDestroy, tick, untrack } from "svelte";
 
   import { formatMeasurement } from "../format";
-  import type { TrendAxis } from "../router";
   import { compactAxisValue } from "../series/chart-format";
   import {
     tooltipLeftForCursor,
@@ -17,13 +16,11 @@
 
   let {
     tracks,
-    axis = "commit",
     sigma = 2,
     height = 320,
     onopen,
   }: {
     tracks: MachineTrack[];
-    axis?: TrendAxis;
     sigma?: number;
     height?: number;
     onopen?: (resultId: string) => void;
@@ -49,12 +46,11 @@
 
   interface FleetData {
     aligned: uPlot.AlignedData;
-    dates: number[];
     points: (SeriesPoint | null)[][];
   }
 
   function pointKey(point: SeriesPoint): string {
-    return axis === "commit" ? `${point.commitHash}\u0000${point.chartMs}` : String(point.chartMs);
+    return `${point.commitHash}\u0000${point.chartMs}`;
   }
 
   function fleetData(): FleetData {
@@ -64,7 +60,7 @@
     }
     const ordered = [...keys.entries()].sort((a, b) => a[1].ms - b[1].ms || a[0].localeCompare(b[0]));
     const index = new Map(ordered.map(([key], i) => [key, i]));
-    const xs = ordered.map(([, value], i) => axis === "time" ? value.ms / 1000 : i);
+    const xs = ordered.map(([, value]) => value.ms / 1000);
     const pointRows: (SeriesPoint | null)[][] = [];
     const values: (number | null)[][] = [];
 
@@ -92,7 +88,6 @@
     }
     return {
       aligned: [xs, ...values] as uPlot.AlignedData,
-      dates: ordered.map(([, value]) => value.ms),
       points: pointRows,
     };
   }
@@ -100,10 +95,6 @@
   function cssVar(name: string, fallback: string): string {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return value === "" ? fallback : value;
-  }
-
-  function shortDate(ms: number): string {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(ms));
   }
 
   function closestPoint(u: uPlot, data: FleetData): { point: SeriesPoint; machineName: string } | null {
@@ -191,19 +182,13 @@
       height,
       legend: { show: false },
       scales: {
-        x: { time: axis === "time" },
+        x: { time: true },
         y: range === null ? {} : { range: () => [range.min, range.max] },
       },
       series,
       bands,
       axes: [
-        axis === "commit"
-          ? {
-              stroke: axisColor,
-              grid: { stroke: gridColor, width: 1 },
-              values: (_u, ticks) => ticks.map((tick) => Number.isInteger(tick) && data.dates[tick] !== undefined ? shortDate(data.dates[tick]!) : ""),
-            }
-          : { stroke: axisColor, grid: { stroke: gridColor, width: 1 } },
+        { stroke: axisColor, grid: { stroke: gridColor, width: 1 } },
         {
           size: unit === "B" ? 92 : 76,
           stroke: axisColor,

@@ -3,10 +3,8 @@
   import "uplot/dist/uPlot.min.css";
   import { onDestroy, tick, untrack } from "svelte";
 
-  import type { TrendAxis } from "../router";
   import {
     closestIndexForSortedValueOffset,
-    indexForCursorOffset,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
@@ -27,7 +25,6 @@
 
   let {
     points,
-    axis = "commit",
     sigma = 2,
     height = 280,
     selectedIndex = null,
@@ -37,7 +34,6 @@
     onopen,
   }: {
     points: SeriesPoint[];
-    axis?: TrendAxis;
     sigma?: number;
     height?: number;
     selectedIndex?: number | null;
@@ -70,12 +66,6 @@
   function cssVar(name: string, fallback: string): string {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v === "" ? fallback : v;
-  }
-
-  function shortDate(ms: number): string {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-      new Date(ms),
-    );
   }
 
   function drawSegments(u: uPlot): void {
@@ -165,10 +155,8 @@
   // history on every cursor change; it only recomputes when points/sigma change.
   let overlayRange = $derived(zeroBasedValueRange(trendYRangeValues(points, sigma)));
 
-  function overlayX(point: SeriesPoint, index: number): number {
-    if (axis === "commit") {
-      return points.length === 1 ? plotBox.width / 2 : (index / (points.length - 1)) * plotBox.width;
-    }
+  function overlayX(point: SeriesPoint): number {
+    if (points.length === 1) return plotBox.width / 2;
     const first = points[0]?.chartMs ?? point.chartMs;
     const last = points[points.length - 1]?.chartMs ?? point.chartMs;
     const span = last - first || 1;
@@ -189,7 +177,7 @@
     if (range === null) return "";
     return points
       .map((p, i) => {
-        const x = overlayX(p, i);
+        const x = overlayX(p);
         const y = overlayY(p.svs, range);
         return `${i === 0 ? "M" : "L"}${pathPoint(x, y)}`;
       })
@@ -224,7 +212,7 @@
         flush();
         continue;
       }
-      const x = overlayX(p, i);
+      const x = overlayX(p);
       const hi = p.stats.rollingMean + sigma * p.stats.rollingStddev;
       const lo = p.stats.rollingMean - sigma * p.stats.rollingStddev;
       upper.push(pathPoint(x, overlayY(hi, range)));
@@ -242,7 +230,7 @@
     const range = overlayRange;
     if (range === null) return null;
     return {
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
     };
   }
@@ -260,10 +248,10 @@
     if (width <= 0 || height <= 0) return [];
     const range = overlayRange;
     if (range === null) return [];
-    return points.flatMap((p, i) =>
+    return points.flatMap((p) =>
       p.measurements.map((value, j) => ({
         key: `${p.resultId}-raw-${j}`,
-        x: overlayX(p, i),
+        x: overlayX(p),
         y: overlayY(value, range),
         current: currentResultId !== null && p.resultId === currentResultId,
         outlier: false,
@@ -276,9 +264,9 @@
     if (width <= 0 || height <= 0) return [];
     const range = overlayRange;
     if (range === null) return [];
-    return points.map((p, i) => ({
+    return points.map((p) => ({
       key: p.resultId,
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
       current: currentResultId !== null && p.resultId === currentResultId,
       outlier: p.stats.isOutlier,
@@ -293,7 +281,7 @@
     const range = overlayRange;
     if (range === null) return null;
     return {
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
     };
   }
@@ -318,9 +306,6 @@
     if (left == null || left < 0 || points.length === 0) return null;
     const dpr = window.devicePixelRatio || 1;
     const width = u.bbox.width / dpr;
-    if (axis === "commit") {
-      return indexForCursorOffset(left, width, points.length);
-    }
     return closestIndexForSortedValueOffset(
       left,
       width,
@@ -368,28 +353,16 @@
     const axisColor = cssVar("--c-text-muted", "#57606a");
     const gridColor = cssVar("--c-border-muted", "#e4e6ec");
     const yRange = overlayRange;
-    const xAxis: uPlot.Axis =
-      axis === "commit"
-        ? {
-            stroke: axisColor,
-            grid: { stroke: gridColor, width: 1 },
-            values: (_u, ticks) =>
-              ticks.map((t) =>
-                Number.isInteger(t) && points[t as number]
-                  ? shortDate(points[t as number]!.chartMs)
-                  : "",
-              ),
-          }
-        : {
-            stroke: axisColor,
-            grid: { stroke: gridColor, width: 1 },
-          };
+    const xAxis: uPlot.Axis = {
+      stroke: axisColor,
+      grid: { stroke: gridColor, width: 1 },
+    };
     return {
       width,
       height,
       legend: { show: false },
       scales: {
-        x: { time: axis === "time" },
+        x: { time: true },
         y: yRange === null ? {} : { range: () => [yRange.min, yRange.max] },
       },
       series: [
@@ -436,13 +409,12 @@
     };
   }
 
-  // Rebuild on data/axis/sigma changes: axis mode alters scale config, so a
-  // setData-only update is not sufficient; series are small, rebuilds are cheap.
+  // Rebuild on data/sigma changes; series are small, so rebuilds are cheap.
   // The constructor is untracked so reads inside uPlot-invoked hooks (the draw
   // closures read selectedIndex) can never become dependencies of this effect —
   // selection changes must only trigger the redraw effect below, not a rebuild.
   $effect(() => {
-    const data = trendChartData(points, axis, sigma);
+    const data = trendChartData(points, sigma);
     // height is otherwise only read inside the untracked constructor; track it
     // here so a caller-driven height change rebuilds instead of being ignored.
     void height;
