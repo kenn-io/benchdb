@@ -538,8 +538,7 @@
     display: grid;
     gap: 10px;
     padding: 12px;
-    background: color-mix(in srgb, var(--c-surface) 94%, transparent);
-    backdrop-filter: blur(8px);
+    background: var(--c-surface);
   }
   .ident {
     display: flex;

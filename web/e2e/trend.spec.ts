@@ -53,7 +53,17 @@ test("trend deep link renders overlays and controls and opens a result", async (
     .toBe(true);
 
   // Controls re-render the chart and write the URL.
-  await page.getByRole("button", { name: "All time" }).click();
+  const rangeTrigger = page.getByRole("button", { name: "All time" });
+  await rangeTrigger.click();
+  const rangePanel = page.getByRole("dialog", { name: "Select date range" });
+  await expect(rangePanel).toBeVisible();
+  const triggerBox = await rangeTrigger.boundingBox();
+  const panelBox = await rangePanel.boundingBox();
+  expect(triggerBox).not.toBeNull();
+  expect(panelBox).not.toBeNull();
+  expect(Math.abs(panelBox!.x - triggerBox!.x)).toBeLessThanOrEqual(8);
+  expect(panelBox!.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height);
+  expect(panelBox!.y - (triggerBox!.y + triggerBox!.height)).toBeLessThanOrEqual(8);
   await page.getByRole("button", { name: "30d" }).click();
   await expect(page).toHaveURL(/range=30d/);
   await page.getByLabel(/band/i).selectOption("5");
