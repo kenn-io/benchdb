@@ -112,7 +112,7 @@ describe("trend route", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { range: "3mo", sigma: 2 },
+      query: { range: { mode: "relative", days: 90 }, sigma: 2 },
     });
   });
 
@@ -120,7 +120,20 @@ describe("trend route", () => {
     expect(matchRoute("/series/abc123", "?range=all&sigma=5")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { range: "all", sigma: 5 },
+      query: { range: { mode: "relative", days: 0 }, sigma: 5 },
+    });
+  });
+
+  it("parses calendar and custom ranges from shareable URLs", () => {
+    expect(parseTrendQuery("?range=week&date=2026-08-24").range).toEqual({
+      mode: "calendar",
+      unit: "week",
+      anchor: "2026-08-24",
+    });
+    expect(parseTrendQuery("?range=custom&from=2026-08-01&to=2026-08-28").range).toEqual({
+      mode: "custom",
+      from: "2026-08-01",
+      to: "2026-08-28",
     });
   });
 
@@ -134,19 +147,31 @@ describe("trend route", () => {
 
   it("is total over junk control values", () => {
     expect(parseTrendQuery("?range=2026&sigma=4")).toEqual({
-      range: "3mo",
+      range: { mode: "relative", days: 90 },
       sigma: 2,
+    });
+    expect(parseTrendQuery("?range=custom&from=2026-08-30&to=2026-08-01").range).toEqual({
+      mode: "relative",
+      days: 90,
     });
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatTrendQuery({ range: "3mo", sigma: 2 })).toBe("");
-    expect(formatTrendQuery({ range: "all", sigma: 3 })).toBe("?range=all&sigma=3");
+    expect(formatTrendQuery(DEFAULT_TREND_QUERY)).toBe("");
+    expect(formatTrendQuery({ range: { mode: "relative", days: 0 }, sigma: 3 })).toBe(
+      "?range=all&sigma=3",
+    );
   });
 
   it("round-trips parse(format(q))", () => {
-    const q = { range: "30d", sigma: 1 } as const;
-    expect(parseTrendQuery(formatTrendQuery(q))).toEqual(q);
+    const queries = [
+      { range: { mode: "relative", days: 30 }, sigma: 1 },
+      { range: { mode: "calendar", unit: "month", anchor: "2026-08-10" }, sigma: 2 },
+      { range: { mode: "custom", from: "2026-08-01", to: "2026-08-28" }, sigma: 5 },
+    ] as const;
+    for (const query of queries) {
+      expect(parseTrendQuery(formatTrendQuery(query))).toEqual(query);
+    }
   });
 });
 

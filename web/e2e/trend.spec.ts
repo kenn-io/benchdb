@@ -53,6 +53,9 @@ test("trend deep link renders overlays and controls and opens a result", async (
     .toBe(true);
 
   // Controls re-render the chart and write the URL.
+  await page.getByRole("button", { name: "All time" }).click();
+  await page.getByRole("button", { name: "30d" }).click();
+  await expect(page).toHaveURL(/range=30d/);
   await page.getByLabel(/band/i).selectOption("5");
   await expect(page).toHaveURL(/sigma=5/);
   await expect(page.locator(".chart-wrap canvas")).toBeVisible();

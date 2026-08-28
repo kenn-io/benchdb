@@ -1,4 +1,9 @@
 <script lang="ts">
+  import {
+    DateRangePicker,
+    localDateStr,
+    type RangeSelection,
+  } from "@kenn-io/kit-ui/date-range-picker";
   import { onMount, tick } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -16,7 +21,6 @@
     formatTrendQuery,
     interceptNavClick,
     navigate,
-    type BrowseWindow,
     type TrendQuery,
     type TrendSigma,
   } from "../router";
@@ -37,12 +41,6 @@
     baseUrl?: string;
   } = $props();
 
-  const RANGE_LABEL: Record<BrowseWindow, string> = {
-    all: "all time",
-    "30d": "30 days",
-    "3mo": "3 months",
-    "1y": "year",
-  };
   const TREND_TABLE_INITIAL_ROWS = 200;
   const TREND_TABLE_ROW_CHUNK = 200;
   type TrendFilter = "all" | "outliers" | "steps";
@@ -82,6 +80,11 @@
       : activeTrack.points,
   );
   let rangeAnchor = $derived(windowAnchorDate(all, new Date()));
+  let earliestDate = $derived.by(() => {
+    if (all.length === 0) return null;
+    return localDateStr(new Date(Math.min(...all.map((point) => point.chartMs))));
+  });
+  let latestDate = $derived(localDateStr(rangeAnchor));
   let visible = $derived(windowPoints(all, query.range, rangeAnchor));
   let visibleTracks = $derived(
     tracks
@@ -155,6 +158,10 @@
 
   function setControl(patch: Partial<TrendQuery>) {
     navigate(`${basePath()}${formatTrendQuery({ ...query, ...patch })}`);
+  }
+
+  function setRange(range: RangeSelection) {
+    setControl({ range });
   }
 
   function select(index: number) {
@@ -320,18 +327,15 @@
           {/each}
         </select>
       </label>
-      <label class="filter-label">
-        range
-        <select
-          value={query.range}
-          onchange={(e) => setControl({ range: e.currentTarget.value as BrowseWindow })}
-        >
-          <option value="30d">last 30 days</option>
-          <option value="3mo">last 3 months</option>
-          <option value="1y">last year</option>
-          <option value="all">all time</option>
-        </select>
-      </label>
+      <div class="filter-label range-control">
+        <span>range</span>
+        <DateRangePicker
+          selection={query.range}
+          onSelect={setRange}
+          {earliestDate}
+          maxDate={latestDate}
+        />
+      </div>
       <label class="filter-label">
         band
         <select
@@ -423,8 +427,12 @@
   {:else}
     {#if visible.length === 0}
       <p class="empty">
-        No points in the last {RANGE_LABEL[query.range]} —
-        <button type="button" class="link" onclick={() => setControl({ range: "all" })}>
+        No points in the selected range —
+        <button
+          type="button"
+          class="link"
+          onclick={() => setRange({ mode: "relative", days: 0 })}
+        >
           show all {all.length} points
         </button>
       </p>
@@ -553,7 +561,7 @@
   .controls {
     align-items: end;
   }
-  .controls label {
+  .controls .filter-label {
     min-width: 120px;
   }
   .flag-queue {

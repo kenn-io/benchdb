@@ -2,10 +2,14 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { components } from "../api/schema";
-import { DEFAULT_TREND_QUERY } from "../router";
+import { DEFAULT_TREND_QUERY, type TrendQuery } from "../router";
 import TrendPage from "./TrendPage.svelte";
 
 const GET = vi.fn();
+const ALL_TREND_QUERY = {
+  ...DEFAULT_TREND_QUERY,
+  range: { mode: "relative", days: 0 },
+} satisfies TrendQuery;
 vi.mock("../api/client", () => ({
   createBenchDBClient: () => ({ GET }),
 }));
@@ -128,7 +132,7 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },
-        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+        query: ALL_TREND_QUERY,
       },
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
@@ -144,7 +148,7 @@ describe("TrendPage", () => {
   it("renders header identity, orientation, controls, and the table", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
     expect(screen.getByText(/scale=sf10/)).toBeInTheDocument();
@@ -156,7 +160,7 @@ describe("TrendPage", () => {
     expect(screen.getByText("benchmark b1")).toHaveAttribute("title", "b1");
     expect(screen.getByText("1 machine")).toBeInTheDocument();
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByLabelText(/range/i)).toHaveValue("all");
+    expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
     expect(screen.getByRole("link", { name: "sha-r1" })).toBeInTheDocument();
   });
@@ -167,7 +171,7 @@ describe("TrendPage", () => {
       sample("r1", "2024-01-07T12:00:00Z"),
     ]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByRole("link", { name: "sha-r1" }));
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
@@ -184,7 +188,7 @@ describe("TrendPage", () => {
       }),
     ]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
@@ -217,13 +221,13 @@ describe("TrendPage", () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
     await waitFor(() => expect(screen.getByText(/^1 point$/i)).toBeInTheDocument());
-    expect(screen.queryByText(/no points in the last/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no points in the selected range/i)).not.toBeInTheDocument();
   });
 
   it("writes control changes to the URL, preserving the entry path", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByLabelText(/band/i));
     await fireEvent.change(screen.getByLabelText(/band/i), { target: { value: "5" } });
@@ -237,7 +241,7 @@ describe("TrendPage", () => {
       sample("r2", "2024-01-08T12:00:00Z"),
     ]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByRole("link", { name: "sha-r2" }));
     await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
@@ -252,7 +256,7 @@ describe("TrendPage", () => {
   it("renders a capped history table with progressive reveal", async () => {
     mockResultEntry(manySamples(250));
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
     await waitFor(() => screen.getByText(/showing 200 of 250 points/i));
@@ -276,7 +280,7 @@ describe("TrendPage", () => {
     });
     mockResultEntry(samples);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
     await waitFor(() => screen.getByText(/^250 points$/i));
@@ -305,7 +309,7 @@ describe("TrendPage", () => {
       sample("r2", "2024-01-08T12:00:00Z"),
     ]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
@@ -313,7 +317,7 @@ describe("TrendPage", () => {
     const context = screen.getByRole("region", { name: /trend context/i });
     expect(context).toHaveClass("trend-context");
     expect(within(context).getByRole("heading", { name: "demo-benchmark" })).toBeInTheDocument();
-    expect(within(context).getByLabelText(/range/i)).toHaveValue("all");
+    expect(within(context).getByRole("button", { name: "All time" })).toBeInTheDocument();
     expect(within(context).getByRole("button", { name: /all 2/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
@@ -332,7 +336,7 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: {
         source: RESULT_SOURCE,
-        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+        query: ALL_TREND_QUERY,
         baseUrl: "https://benchdb.example",
       },
     });
@@ -374,7 +378,7 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: {
         source: RESULT_SOURCE,
-        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+        query: ALL_TREND_QUERY,
         baseUrl: "https://benchdb.example",
       },
     });
@@ -413,7 +417,7 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: {
         source: RESULT_SOURCE,
-        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+        query: ALL_TREND_QUERY,
         baseUrl: "https://benchdb.example",
       },
     });
@@ -440,7 +444,7 @@ describe("TrendPage", () => {
       sample("r2", "2024-01-08T12:00:00Z"),
     ]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByText("sha-r1"));
     await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
@@ -457,7 +461,7 @@ describe("TrendPage", () => {
   it("clears the compare picks", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByText("sha-r1"));
     await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
@@ -469,13 +473,15 @@ describe("TrendPage", () => {
   it("keeps the compare bar across range changes", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     const { rerender } = render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: { ...DEFAULT_TREND_QUERY, range: "all" } },
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
     await waitFor(() => screen.getByText("sha-r1"));
     await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
     await fireEvent.click(screen.getByRole("button", { name: "set baseline" }));
-    await rerender({ query: { ...DEFAULT_TREND_QUERY, range: "30d" } });
-    expect(screen.queryByText(/no points in the last/i)).not.toBeInTheDocument();
+    await rerender({
+      query: { ...DEFAULT_TREND_QUERY, range: { mode: "relative", days: 30 } },
+    });
+    expect(screen.queryByText(/no points in the selected range/i)).not.toBeInTheDocument();
     expect(screen.getByText(/pick both points to compare/i)).toBeInTheDocument();
   });
 
@@ -493,7 +499,7 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },
-        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+        query: ALL_TREND_QUERY,
       },
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));

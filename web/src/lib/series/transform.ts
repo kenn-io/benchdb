@@ -1,7 +1,12 @@
+import {
+  localDateStr,
+  resolveRange,
+  type RangeSelection,
+} from "@kenn-io/kit-ui/date-range-picker";
+
 import type { components } from "../api/schema";
-import { formatDate, windowStartIso } from "../browse/transform";
+import { formatDate } from "../browse/transform";
 import { exactMeasurement, formatMeasurement } from "../format";
-import type { BrowseWindow } from "../router";
 
 type HistorySample = components["schemas"]["HistorySample"];
 type ZScoreStats = components["schemas"]["ZScoreStats"];
@@ -133,25 +138,42 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
   }));
 }
 
-/** windowAnchorDate anchors a trend range at the newest result in that series,
+/** windowAnchorDate anchors a trend range at the newest plotted point,
  * falling back to caller-provided now only for empty data. Trend pages are often
  * opened on historical production series; anchoring to wall-clock today makes
  * those pages appear empty even when the series has useful history. */
 export function windowAnchorDate(points: SeriesPoint[], now: Date): Date {
-  const latest = Math.max(Number.NEGATIVE_INFINITY, ...points.map((p) => p.resultTimestampMs));
+  const latest = Math.max(Number.NEGATIVE_INFINITY, ...points.map((p) => p.chartMs));
   return Number.isFinite(latest) ? new Date(latest) : now;
 }
 
-/** windowPoints filters to the rolling benchmark-activity window ending at
- * anchor; "all" keeps everything. Range membership is about when benchmark
- * results were produced. */
-export function windowPoints(points: SeriesPoint[], range: BrowseWindow, anchor: Date): SeriesPoint[] {
-  const startIso = windowStartIso(range, anchor);
-  if (startIso === null) {
+/** windowPoints filters the chart's time axis by local calendar date. Relative
+ * windows end at the newest plotted point rather than wall-clock today so
+ * historical series remain useful. Calendar and custom selections use Kit
+ * UI's inclusive date-range contract. */
+export function windowPoints(
+  points: SeriesPoint[],
+  selection: RangeSelection,
+  anchor: Date,
+): SeriesPoint[] {
+  if (selection.mode === "relative" && selection.days <= 0) {
     return points;
   }
-  const startMs = Date.parse(startIso);
-  return points.filter((p) => p.resultTimestampMs >= startMs);
+  const range =
+    selection.mode === "relative"
+      ? relativeRange(selection.days, anchor)
+      : resolveRange(selection);
+  if (range.from === "" || range.to === "") return [];
+  return points.filter((point) => {
+    const date = localDateStr(new Date(point.chartMs));
+    return date >= range.from && date <= range.to;
+  });
+}
+
+function relativeRange(days: number, anchor: Date): { from: string; to: string } {
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  start.setDate(start.getDate() - (days - 1));
+  return { from: localDateStr(start), to: localDateStr(anchor) };
 }
 
 export type TrendChartData = [

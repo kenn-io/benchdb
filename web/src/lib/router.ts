@@ -1,3 +1,5 @@
+import type { RangeSelection } from "@kenn-io/kit-ui/date-range-picker";
+
 export interface LeafRoute {
   name: "series-leaf";
   resultId: string;
@@ -103,23 +105,25 @@ export type Route =
 export type TrendSigma = 1 | 2 | 3 | 5;
 
 export interface TrendQuery {
-  range: BrowseWindow;
+  range: RangeSelection;
   sigma: TrendSigma;
 }
 
-export const DEFAULT_TREND_QUERY: TrendQuery = { range: "3mo", sigma: 2 };
+export const DEFAULT_TREND_QUERY: TrendQuery = {
+  range: { mode: "relative", days: 90 },
+  sigma: 2,
+};
 
 const TREND_SIGMAS: readonly TrendSigma[] = [1, 2, 3, 5];
+const TREND_CALENDAR_UNITS = ["day", "week", "month"] as const;
 
 /** parseTrendQuery is total: absent params and unknown values fall back to the
- * defaults (3mo range, 2 sigma band). The range presets reuse BrowseWindow —
- * one rolling-window vocabulary across browse and trend. */
+ * defaults (90-day range, 2 sigma band). */
 export function parseTrendQuery(search: string): TrendQuery {
   const params = new URLSearchParams(search);
-  const range = params.get("range");
   const sigma = Number(params.get("sigma"));
   return {
-    range: BROWSE_WINDOWS.includes(range as BrowseWindow) ? (range as BrowseWindow) : "3mo",
+    range: parseTrendRange(params),
     sigma: TREND_SIGMAS.includes(sigma as TrendSigma) ? (sigma as TrendSigma) : 2,
   };
 }
@@ -128,10 +132,71 @@ export function parseTrendQuery(search: string): TrendQuery {
  * pristine trend URL stays bare and shared links carry only changed controls. */
 export function formatTrendQuery(query: TrendQuery): string {
   const params = new URLSearchParams();
-  if (query.range !== "3mo") params.set("range", query.range);
+  const { range } = query;
+  if (range.mode === "relative") {
+    if (range.days !== 90) {
+      params.set("range", relativeRangeParam(range.days));
+    }
+  } else if (range.mode === "calendar") {
+    params.set("range", range.unit);
+    params.set("date", range.anchor);
+  } else {
+    params.set("range", "custom");
+    params.set("from", range.from);
+    params.set("to", range.to);
+  }
   if (query.sigma !== 2) params.set("sigma", String(query.sigma));
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
+}
+
+function parseTrendRange(params: URLSearchParams): RangeSelection {
+  const value = params.get("range");
+  if (value === null) return DEFAULT_TREND_QUERY.range;
+  if (value === "all") return { mode: "relative", days: 0 };
+  if (value === "1y") return { mode: "relative", days: 365 };
+
+  const relative = /^(\d+)d$/.exec(value);
+  if (relative !== null) {
+    const days = Number(relative[1]);
+    if (Number.isSafeInteger(days) && days > 0) {
+      return { mode: "relative", days };
+    }
+    return DEFAULT_TREND_QUERY.range;
+  }
+
+  if (TREND_CALENDAR_UNITS.includes(value as (typeof TREND_CALENDAR_UNITS)[number])) {
+    const anchor = params.get("date");
+    if (isISODate(anchor)) {
+      return {
+        mode: "calendar",
+        unit: value as (typeof TREND_CALENDAR_UNITS)[number],
+        anchor,
+      };
+    }
+    return DEFAULT_TREND_QUERY.range;
+  }
+
+  if (value === "custom") {
+    const from = params.get("from");
+    const to = params.get("to");
+    if (isISODate(from) && isISODate(to) && from <= to) {
+      return { mode: "custom", from, to };
+    }
+  }
+  return DEFAULT_TREND_QUERY.range;
+}
+
+function relativeRangeParam(days: number): string {
+  if (days === 0) return "all";
+  if (days === 365) return "1y";
+  return `${days}d`;
+}
+
+function isISODate(value: string | null): value is string {
+  if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export interface CompareQuery {

@@ -98,38 +98,56 @@ describe("windowPoints", () => {
   const points = toSeriesPoints([
     sample({
       benchmark_result_id: "recent-run",
-      commit_timestamp: "2022-03-01T00:00:00Z",
-      result_timestamp: "2026-06-01T00:00:00Z",
+      commit_timestamp: "2026-06-01T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
     sample({
       benchmark_result_id: "older-run",
-      commit_timestamp: "2022-02-01T00:00:00Z",
-      result_timestamp: "2026-04-15T00:00:00Z",
+      commit_timestamp: "2026-04-15T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
     sample({
       benchmark_result_id: "ancient-run",
-      commit_timestamp: "2022-01-01T00:00:00Z",
-      result_timestamp: "2025-01-07T12:00:00Z",
+      commit_timestamp: "2025-01-07T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
   ]);
-  const anchor = new Date("2026-06-01T00:00:00Z");
+  const anchor = new Date("2026-06-01T12:00:00Z");
 
-  it("anchors trend windows at the newest result by default", () => {
+  it("anchors trend windows at the newest plotted point", () => {
     expect(windowAnchorDate(points, new Date("2026-06-11T00:00:00Z")).toISOString()).toBe(
-      "2026-06-01T00:00:00.000Z",
+      "2026-06-01T12:00:00.000Z",
     );
     expect(windowAnchorDate([], new Date("2026-06-11T00:00:00Z")).toISOString()).toBe(
       "2026-06-11T00:00:00.000Z",
     );
   });
 
-  it("keeps everything for all and filters by benchmark result activity", () => {
-    expect(windowPoints(points, "all", anchor)).toHaveLength(3);
-    expect(windowPoints(points, "30d", anchor).map((p) => p.resultId)).toEqual(["recent-run"]);
-    expect(windowPoints(points, "1y", anchor).map((p) => p.resultId)).toEqual([
-      "recent-run",
-      "older-run",
-    ]);
+  it("keeps everything for all and filters by plotted time", () => {
+    expect(windowPoints(points, { mode: "relative", days: 0 }, anchor)).toHaveLength(3);
+    expect(
+      windowPoints(points, { mode: "relative", days: 30 }, anchor).map((p) => p.resultId),
+    ).toEqual(["recent-run"]);
+    expect(
+      windowPoints(points, { mode: "relative", days: 365 }, anchor).map((p) => p.resultId),
+    ).toEqual(["recent-run", "older-run"]);
+  });
+
+  it("filters calendar periods and explicit custom ranges", () => {
+    expect(
+      windowPoints(
+        points,
+        { mode: "calendar", unit: "month", anchor: "2026-04-15" },
+        anchor,
+      ).map((point) => point.resultId),
+    ).toEqual(["older-run"]);
+    expect(
+      windowPoints(
+        points,
+        { mode: "custom", from: "2025-01-01", to: "2026-04-30" },
+        anchor,
+      ).map((point) => point.resultId),
+    ).toEqual(["older-run", "ancient-run"]);
   });
 });
 

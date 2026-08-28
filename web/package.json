@@ -15,6 +15,8 @@
     "codegen": "openapi-typescript ../api/openapi.yaml --output src/lib/api/schema.ts"
   },
   "dependencies": {
+    "@kenn-io/kit-ui": "github:kenn-io/kit-ui#914466e7108efe20db2274867b8fd3f6801935fb",
+    "@lucide/svelte": "1.21.0",
     "openapi-fetch": "0.17.0",
     "uplot": "1.6.32"
   },
