@@ -5,10 +5,10 @@ const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
 test("browse lists the seeded series, searches, and opens its trend", async ({ page }) => {
   await page.goto(`${baseURL}/series`);
 
-  // The seeded demo series appears as a row with its identity and a sparkline.
+  // The seeded demo series appears as one fleet-level row with history status.
   const row = page.locator("table.browse-table tbody tr", { hasText: "demo-benchmark" });
   await expect(row).toBeVisible();
-  await expect(row.locator("svg")).toBeVisible();
+  await expect(row.locator(".history-cell")).toContainText(/points/);
   await expect(row.locator(".badge")).toBeVisible();
 
   // The top-bar search narrows server-side via ?q= and survives reload (URL state).
@@ -19,7 +19,7 @@ test("browse lists the seeded series, searches, and opens its trend", async ({ p
   await page.reload();
   await expect(page.locator("table.browse-table tbody tr")).toHaveCount(1);
 
-  // Row click opens the fingerprint trend via SPA navigation. The default range
+  // Row click opens the benchmark trend via SPA navigation. The default range
   // is anchored at the newest series point, so the seeded history renders.
   await page.locator("table.browse-table tbody tr a").first().click();
   await expect(page).toHaveURL(/\/series\//);

@@ -157,7 +157,7 @@ describe("TrendPage", () => {
       "title",
       "https://github.com/benchdb/demo",
     );
-    expect(screen.getByText("benchmark b1")).toHaveAttribute("title", "b1");
+    expect(screen.getByText("id b1")).toHaveAttribute("title", "b1");
     expect(screen.getByText("1 machine")).toBeInTheDocument();
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
@@ -196,9 +196,9 @@ describe("TrendPage", () => {
     expect(context.querySelector(".page-header")).not.toBeNull();
     expect(context.querySelector(".summary-line")).not.toBeNull();
     const summary = context.querySelector(".summary-line") as HTMLElement;
-    expect(summary.querySelectorAll(".summary-item")).toHaveLength(3);
-    expect(context.querySelector(".filter-bar")?.querySelectorAll(".button-pill")).toHaveLength(3);
-    expect(within(summary).getByText(/^\d+ points?$/)).toBeInTheDocument();
+    expect(summary.querySelectorAll(".summary-item")).toHaveLength(4);
+    expect(screen.getByLabelText("Trend point filters").querySelectorAll(".button-pill")).toHaveLength(3);
+    expect(within(summary).getByText(/^\d+ results? in range$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ outliers?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ steps?$/)).toBeInTheDocument();
   });
@@ -207,6 +207,35 @@ describe("TrendPage", () => {
     GET.mockResolvedValue({ error: { detail: "boom" } });
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
+  });
+
+  it("refreshes the trend and calls out newly arrived results", async () => {
+    GET
+      .mockResolvedValueOnce({
+        data: benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]),
+      })
+      .mockResolvedValueOnce({
+        data: benchmarkHistory([
+          sample("r1", "2024-01-07T12:00:00Z"),
+          sample("r2", "2024-01-08T12:00:00Z"),
+        ]),
+      });
+    render(TrendPage, {
+      props: {
+        source: { kind: "benchmark", benchmarkId: "b1" },
+        query: ALL_TREND_QUERY,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/^1 result in range$/i)).toBeInTheDocument());
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(screen.getByText("1 new result")).toBeInTheDocument());
+    expect(within(screen.getByLabelText("Trend summary")).getByText("2 results in range")).toBeInTheDocument();
+    const historyRows = within(screen.getByRole("region", { name: "Trend history" }))
+      .getAllByRole("row")
+      .slice(1);
+    expect(historyRows[0]).toHaveTextContent("sha-r2");
   });
 
   it("shows the no-history state for an empty series", async () => {
@@ -220,7 +249,7 @@ describe("TrendPage", () => {
   it("anchors the default range at the newest series result instead of wall-clock today", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
-    await waitFor(() => expect(screen.getByText(/^1 point$/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^1 result in range$/i)).toBeInTheDocument());
     expect(screen.queryByText(/no points in the selected range/i)).not.toBeInTheDocument();
   });
 
@@ -283,7 +312,7 @@ describe("TrendPage", () => {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
 
-    await waitFor(() => screen.getByText(/^250 points$/i));
+    await waitFor(() => screen.getByText(/^250 results in range$/i));
     const summary = screen.getByLabelText(/trend summary/i);
     expect(within(summary).getByText(/^1 outlier$/i)).toBeInTheDocument();
     expect(within(summary).getByText(/^1 step$/i)).toBeInTheDocument();
@@ -303,7 +332,7 @@ describe("TrendPage", () => {
     expect(screen.queryByText("sha-r249")).not.toBeInTheDocument();
   });
 
-  it("keeps trend identity, filters, and compare state in one sticky context", async () => {
+  it("keeps trend identity and compare state in a compact context", async () => {
     mockResultEntry([
       sample("r1", "2024-01-07T12:00:00Z"),
       sample("r2", "2024-01-08T12:00:00Z"),
@@ -318,7 +347,7 @@ describe("TrendPage", () => {
     expect(context).toHaveClass("trend-context");
     expect(within(context).getByRole("heading", { name: "demo-benchmark" })).toBeInTheDocument();
     expect(within(context).getByRole("button", { name: "All time" })).toBeInTheDocument();
-    expect(within(context).getByRole("button", { name: /all 2/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /all 2/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
     await fireEvent.click(screen.getByRole("button", { name: "set baseline" }));

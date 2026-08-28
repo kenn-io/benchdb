@@ -104,6 +104,7 @@ export interface TableRow {
   resultId: string;
   commitHash: string;
   commitMessage: string;
+  chartMs: number;
   svs: number;
   unit: string | null;
   z: number | null;
@@ -131,6 +132,7 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
     resultId: p.resultId,
     commitHash: p.commitHash,
     commitMessage: p.commitMessage,
+    chartMs: p.chartMs,
     svs: p.svs,
     unit: p.unit,
     z: p.stats.z,

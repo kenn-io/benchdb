@@ -24,7 +24,7 @@
     type TrendQuery,
     type TrendSigma,
   } from "../router";
-  import { tagsText } from "../browse/transform";
+  import { formatDate, tagsText } from "../browse/transform";
   import DetailTable from "./DetailTable.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
   import FleetSeriesChart from "./FleetSeriesChart.svelte";
@@ -59,16 +59,55 @@
   let trendFilter = $state<TrendFilter>("all");
   let exportCopied = $state(false);
   let machineFilter = $state("all");
+  let refreshing = $state(false);
+  let refreshError = $state(false);
+  let lastCheckedAt = $state<number | null>(null);
+  let newPointCount = $state(0);
 
-  onMount(async () => {
+  function totalPointCount(value: TrendViewModel): number {
+    return value.tracks.reduce((sum, track) => sum + track.points.length, 0);
+  }
+
+  async function refreshTrend(initial = false) {
+    if (refreshing) return;
+    refreshing = true;
     try {
-      vm = await loadTrend(createBenchDBClient(baseUrl), source);
+      const next = await loadTrend(createBenchDBClient(baseUrl), source);
+      if (vm !== null) {
+        newPointCount += Math.max(0, totalPointCount(next) - totalPointCount(vm));
+      }
+      vm = next;
+      errorMsg = null;
+      lastCheckedAt = Date.now();
+      refreshError = false;
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+      if (initial || vm === null) {
+        errorMsg = err instanceof Error ? err.message : String(err);
+      } else {
+        refreshError = true;
+      }
+    } finally {
+      refreshing = false;
     }
+  }
+
+  onMount(() => {
+    void refreshTrend(true);
+    const interval = window.setInterval(() => void refreshTrend(), 30_000);
+    return () => window.clearInterval(interval);
   });
 
   let tracks = $derived(vm?.tracks ?? []);
+  let fleetPoints = $derived(
+    tracks.flatMap((track) => track.points).sort((a, b) => a.chartMs - b.chartMs),
+  );
+  let machineSummaries = $derived(
+    tracks.map((track) => ({
+      machineName: track.machineName,
+      pointCount: track.points.length,
+      latest: track.points[track.points.length - 1] ?? null,
+    })),
+  );
   let activeTrack = $derived(
     machineFilter === "all"
       ? (tracks.length === 1 ? tracks[0]! : null)
@@ -85,6 +124,11 @@
     return localDateStr(new Date(Math.min(...all.map((point) => point.chartMs))));
   });
   let latestDate = $derived(localDateStr(rangeAnchor));
+  let fleetCoverageText = $derived(
+    fleetPoints.length === 0
+      ? "no results"
+      : `${formatDate(new Date(fleetPoints[0]!.chartMs).toISOString())} – ${formatDate(new Date(fleetPoints[fleetPoints.length - 1]!.chartMs).toISOString())}`,
+  );
   let visible = $derived(windowPoints(all, query.range, rangeAnchor));
   let visibleTracks = $derived(
     tracks
@@ -97,7 +141,7 @@
   let stepCount = $derived(visible.filter((p) => p.stats.isStep || p.stats.beginsChange).length);
   let flagTargets = $derived(flaggedPointTargets(visible));
   let rows = $derived(filteredTableRows(visibleTracks, trendFilter));
-  let displayedRows = $derived(rows.slice(Math.max(0, rows.length - rowLimit)));
+  let displayedRows = $derived(rows.slice(0, rowLimit));
   let hiddenRowCount = $derived(Math.max(0, rows.length - displayedRows.length));
   let selected = $derived(selectedIndex === null ? null : (visible[selectedIndex] ?? null));
   let exportResultID = $derived(
@@ -195,6 +239,7 @@
             resultId: point.resultId,
             commitHash: point.commitHash,
             commitMessage: point.commitMessage,
+            chartMs: point.chartMs,
             svs: point.svs,
             unit: point.unit,
             z: point.stats.z,
@@ -202,7 +247,8 @@
             machineName,
           },
         ];
-      });
+      })
+      .sort((a, b) => b.chartMs - a.chartMs || b.resultId.localeCompare(a.resultId));
   }
 
   function flaggedPointTargets(points: SeriesPoint[]): FlagTarget[] {
@@ -237,6 +283,19 @@
       return `showing ${displayedRows.length} of ${rows.length} points`;
     }
     return `showing ${displayedRows.length} of ${rows.length} filtered points`;
+  }
+
+  function checkedAtText(): string {
+    if (lastCheckedAt === null) return "connecting";
+    return `checked ${new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(new Date(lastCheckedAt))}`;
+  }
+
+  function resultCountText(count: number): string {
+    return `${count} ${count === 1 ? "result" : "results"}`;
   }
 
   async function copyExportCommand() {
@@ -286,7 +345,7 @@
     <section class="trend-context panel" aria-label="Trend context">
       <header class="page-header">
         <div>
-          <p class="eyebrow">Trend detail</p>
+          <p class="eyebrow">Benchmark trend</p>
           <h1>{vm.identity.benchmarkName}</h1>
           <div class="ident page-subtitle">
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
@@ -301,8 +360,12 @@
             {/if}
           </div>
         </div>
-        <div class="page-meta">
-          <span title={vm.identity.benchmarkId}>benchmark {vm.identity.displayBenchmarkId}</span>
+        <div class="live-status" class:warning={refreshError} aria-live="polite">
+          <span class="live-dot"></span>
+          <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
+          <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </header>
       {#if !vm.unitConsistent}
@@ -312,11 +375,32 @@
         </div>
       {/if}
 
-      {#if activeTrack !== null && activeTrack.segments.length > 0}
-        <EnvironmentDetails context={activeTrack.segments[activeTrack.segments.length - 1]!.context} label="Selected machine environment" />
-      {/if}
-
     {#if all.length > 0}
+    <div class="machine-overview" aria-label="Machine summaries">
+      <button
+        type="button"
+        class="machine-card"
+        class:active={machineFilter === "all"}
+        onclick={() => (machineFilter = "all")}
+      >
+        <span>All machines</span>
+        <strong>{resultCountText(fleetPoints.length)}</strong>
+        <small>{fleetCoverageText}</small>
+      </button>
+      {#each machineSummaries as summary (summary.machineName)}
+        <button
+          type="button"
+          class="machine-card"
+          class:active={machineFilter === summary.machineName}
+          onclick={() => (machineFilter = summary.machineName)}
+        >
+          <span>{summary.machineName}</span>
+          <strong>{summary.latest === null ? "—" : formatMeasurement(summary.latest.svs, summary.latest.unit)}</strong>
+          <small>{resultCountText(summary.pointCount)}{summary.latest === null ? "" : ` · latest ${formatDate(new Date(summary.latest.chartMs).toISOString())}`}</small>
+        </button>
+      {/each}
+    </div>
+
     <div class="toolbar controls">
       <label class="filter-label">
         machine
@@ -351,9 +435,10 @@
     </div>
 
     <p class="summary-line" aria-label="Trend summary">
-      <span class="summary-item">{visible.length} {visible.length === 1 ? "point" : "points"}</span>
+      <span class="summary-item">{visible.length} {visible.length === 1 ? "result" : "results"} in range</span>
       <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
       <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+      <span class="summary-item" title={vm.identity.benchmarkId}>id {vm.identity.displayBenchmarkId}</span>
     </p>
 
     {#if flagTargets.length > 0}
@@ -394,31 +479,6 @@
       </div>
     {/if}
 
-      {#if visible.length > 0}
-        <div class="filter-bar" aria-label="Trend point filters">
-          <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "all"}
-          aria-pressed={trendFilter === "all"}
-          onclick={() => (trendFilter = "all")}
-        >All {visible.length}</button>
-        <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "outliers"}
-          aria-pressed={trendFilter === "outliers"}
-          onclick={() => (trendFilter = "outliers")}
-        >Outliers {outlierCount}</button>
-        <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "steps"}
-          aria-pressed={trendFilter === "steps"}
-          onclick={() => (trendFilter = "steps")}
-        >Steps {stepCount}</button>
-        </div>
-      {/if}
     {/if}
   </section>
 
@@ -500,16 +560,36 @@
           </div>
         </section>
       {/if}
-      {#if exportCommand !== null}
-        <section class="export-panel panel" aria-label="History export">
-          <span class="eyebrow">history export</span>
-          <code>{exportCommand}</code>
-          <button type="button" class="button-pill" onclick={copyExportCommand}>Copy export command</button>
-          {#if exportCopied}<span class="copied">copied</span>{/if}
-        </section>
-      {/if}
       <section class="panel table-panel history-table-panel" aria-label="Trend history">
-        <p class="row-count">{rowCountText()}</p>
+        <header class="history-heading">
+          <div>
+            <h2>Results</h2>
+            <p class="row-count">{rowCountText()} · newest first</p>
+          </div>
+          <div class="filter-bar" aria-label="Trend point filters">
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "all"}
+              aria-pressed={trendFilter === "all"}
+              onclick={() => (trendFilter = "all")}
+            >All {visible.length}</button>
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "outliers"}
+              aria-pressed={trendFilter === "outliers"}
+              onclick={() => (trendFilter = "outliers")}
+            >Outliers {outlierCount}</button>
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "steps"}
+              aria-pressed={trendFilter === "steps"}
+              onclick={() => (trendFilter = "steps")}
+            >Steps {stepCount}</button>
+          </div>
+        </header>
         <DetailTable
           rows={displayedRows}
           {selectedIndex}
@@ -522,6 +602,21 @@
           Show more
         </button>
       {/if}
+      <section class="secondary-tools">
+        {#if activeTrack !== null && activeTrack.segments.length > 0}
+          <EnvironmentDetails context={activeTrack.segments[activeTrack.segments.length - 1]!.context} label="Selected machine environment" />
+        {/if}
+        {#if exportCommand !== null}
+          <details class="export-panel panel" role="region" aria-label="History export">
+            <summary>Export history</summary>
+            <div class="export-content">
+              <code>{exportCommand}</code>
+              <button type="button" class="button-pill" onclick={copyExportCommand}>Copy export command</button>
+              {#if exportCopied}<span class="copied">copied</span>{/if}
+            </div>
+          </details>
+        {/if}
+      </section>
     {/if}
   {/if}
   </main>
@@ -532,9 +627,6 @@
     max-width: 1600px;
   }
   .trend-context {
-    position: sticky;
-    top: 0;
-    z-index: 4;
     display: grid;
     gap: 10px;
     padding: 12px;
@@ -563,6 +655,51 @@
   .controls .filter-label {
     min-width: 120px;
   }
+  .machine-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+  }
+  .machine-card {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface-subtle);
+    color: var(--c-text-muted);
+    cursor: pointer;
+    text-align: left;
+  }
+  .machine-card:hover { border-color: var(--c-accent); }
+  .machine-card.active {
+    border-color: var(--c-accent);
+    box-shadow: inset 3px 0 0 var(--c-accent);
+    background: var(--c-accent-soft);
+  }
+  .machine-card span { font-size: 0.75rem; font-weight: 700; }
+  .machine-card strong { color: var(--c-text); font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .machine-card small { color: var(--c-text-muted); font-size: 0.72rem; }
+  .live-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--c-text-muted);
+    font-size: 0.76rem;
+    white-space: nowrap;
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-success); }
+  .live-status.warning .live-dot { background: var(--c-error); }
+  .refresh-button {
+    padding: 3px 7px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+  }
+  .refresh-button:disabled { cursor: wait; opacity: 0.65; }
   .flag-queue {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -595,8 +732,8 @@
     color: var(--c-accent);
     font-weight: 700;
   }
-  .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; margin: 0.25rem 0 0.6rem; }
-  .selected-panel, .export-panel {
+  .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+  .selected-panel {
     margin: 0.65rem 0;
     padding: 0.65rem 0.75rem;
   }
@@ -630,7 +767,10 @@
   }
   .point-meta dd { margin: 0.08rem 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .actions { display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-  .export-panel { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+  .secondary-tools { display: grid; gap: 8px; }
+  .export-panel { padding: 0.65rem 0.75rem; }
+  .export-panel summary { cursor: pointer; color: var(--c-text-muted); font-weight: 650; }
+  .export-content { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; margin-top: 0.6rem; }
   .export-panel code {
     overflow-wrap: anywhere;
     font-size: 0.78rem;
@@ -654,25 +794,20 @@
   .history-table-panel {
     overflow: hidden;
   }
-  .row-count { color: var(--c-text-muted); font-size: 0.8rem; margin: 0; padding: 9px 10px; }
+  .history-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px; border-bottom: 1px solid var(--c-border-muted); }
+  .history-heading h2 { margin: 0; font-size: 0.95rem; }
+  .row-count { color: var(--c-text-muted); font-size: 0.76rem; margin: 2px 0 0; }
   .more {
     margin-top: 0.6rem;
   }
   .link { background: none; border: none; padding: 0; font: inherit;
           color: var(--c-accent); cursor: pointer; text-decoration: underline; }
-  @media (max-width: 1120px) {
-    .trend-context {
-      position: static;
-      top: auto;
-    }
-  }
   @media (max-width: 760px) {
     .page-header {
       display: grid;
     }
-    .page-meta {
-      justify-content: flex-start;
-    }
+    .live-status { flex-wrap: wrap; white-space: normal; }
+    .history-heading { align-items: flex-start; flex-direction: column; }
     .flag-queue { grid-template-columns: 1fr; }
     .selected-panel { grid-template-columns: 1fr; align-items: start; }
     .point-meta { grid-template-columns: 1fr; }

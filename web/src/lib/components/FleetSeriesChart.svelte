@@ -245,13 +245,19 @@
   function openHoveredPoint() {
     if (hovered !== null) onopen?.(hovered.point.resultId);
   }
+
+  function trackSummary(track: MachineTrack): string {
+    const latest = track.points[track.points.length - 1];
+    const count = `${track.points.length} ${track.points.length === 1 ? "result" : "results"}`;
+    return latest === undefined ? count : `${count} · ${formatMeasurement(latest.svs, latest.unit)}`;
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="fleet-chart" aria-label="Fleet benchmark trend" bind:this={chartWrap} onclick={openHoveredPoint}>
   <div class="legend" aria-hidden="true">
     {#each tracks as track, i (track.machineName)}
-      <span><i class="machine" style={`background:${palette[i % palette.length]}`}></i>{track.machineName}</span>
+      <span><i class="machine" style={`background:${palette[i % palette.length]}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
     {/each}
     <span><i class="mean"></i>rolling mean</span>
     <span><i class="band"></i>{sigma}σ range</span>
@@ -293,6 +299,7 @@
     font-size: 0.72rem;
   }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend strong { color: var(--c-text); font-weight: 650; }
   .legend i { display: inline-block; width: 14px; height: 2px; border-radius: 999px; }
   .legend .mean { border-top: 2px dashed var(--c-text-muted); height: 0; }
   .legend .band { height: 8px; background: color-mix(in srgb, var(--c-accent) 18%, transparent); }

@@ -4,7 +4,7 @@ import { resolveResultTarget } from "./targets";
 const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
 
 interface SeriesIdentity {
-  series: { name: string; less_is_better: boolean | null }[] | null;
+  series: { benchmark_id: string; name: string; less_is_better: boolean | null }[] | null;
 }
 
 test("trend deep link renders overlays and controls and opens a result", async ({
@@ -13,7 +13,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
 }) => {
   const target = await resolveResultTarget(request, baseURL);
 
-  // Resolve the seeded series' fingerprint from the result's history payload.
+  // Resolve the seeded benchmark identity from the result's history payload.
   const api = await request.get(`${baseURL}/api/history/${target.resultId}`);
   expect(api.status()).toBe(200);
   const fp = ((await api.json()) as { history_fingerprint: string }).history_fingerprint;
@@ -22,7 +22,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   const series = ((await seriesAPI.json()) as SeriesIdentity).series?.[0];
   expect(series, "series identity must be available").toBeDefined();
 
-  await page.goto(`${baseURL}/series/${fp}?range=all`);
+  await page.goto(`${baseURL}/series/${series!.benchmark_id}?range=all`);
   await expect(page.locator(".chart-wrap canvas")).toBeVisible();
   // Identity header from /api/series?fingerprint=, including orientation.
   await expect(page.getByRole("heading", { name: series!.name })).toBeVisible();
@@ -76,7 +76,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
 
   // Deep-link reload survives (SPA fallback) with controls intact.
-  await page.goto(`${baseURL}/series/${fp}?range=all&sigma=3`);
+  await page.goto(`${baseURL}/series/${series!.benchmark_id}?range=all&sigma=3`);
   await expect(page.locator(".chart-wrap canvas")).toBeVisible();
   await expect(page.getByLabel(/band/i)).toHaveValue("3");
 });

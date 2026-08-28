@@ -112,6 +112,7 @@ function assemble(history: BenchmarkHistory): TrendViewModel {
 async function loadByBenchmark(client: Client, benchmarkId: string): Promise<TrendViewModel> {
   const res = await client.GET("/api/benchmarks/{benchmark_id}", {
     params: { path: { benchmark_id: benchmarkId } },
+    cache: "no-store",
   });
   if (res.error || !res.data) {
     throw new Error(`failed to load benchmark ${benchmarkId}`);

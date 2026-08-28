@@ -11,6 +11,7 @@ const screenshotManifest = JSON.parse(
 ) as ScreenshotManifest;
 
 interface SeriesListItem {
+  benchmark_id: string;
   history_fingerprint: string;
   latest_result_id: string;
 }
@@ -39,7 +40,7 @@ interface RecentRunsPage {
 }
 
 interface DemoTargets {
-  fingerprint: string;
+  benchmarkID: string;
   latestResultID: string;
   baselineResultID: string;
   contenderResultID: string;
@@ -93,7 +94,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectNoDocumentOverflow(page);
     await screenshot(page, "series", suffix, captured);
 
-    await gotoTrend(page, targets.fingerprint);
+    await gotoTrend(page, targets.benchmarkID);
     await screenshot(page, "trend", suffix, captured);
 
     await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /demo-benchmark/i);
@@ -135,7 +136,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectNoDocumentOverflow(page);
     await screenshot(page, "series", suffix, captured);
 
-    await gotoTrend(page, targets.fingerprint);
+    await gotoTrend(page, targets.benchmarkID);
     await expectPrimaryNavLinksInViewport(page);
     await screenshot(page, "trend", suffix, captured);
 
@@ -209,7 +210,7 @@ async function discoverTargets(request: APIRequestContext): Promise<DemoTargets>
   expect(ciRun, "seeded run-commit-05 must be available for CI report screenshots").toBeTruthy();
 
   return {
-    fingerprint: series!.history_fingerprint,
+    benchmarkID: series!.benchmark_id,
     latestResultID: series!.latest_result_id,
     baselineResultID: samples[0]!.benchmark_result_id,
     contenderResultID: samples[samples.length - 1]!.benchmark_result_id,
@@ -231,8 +232,8 @@ async function gotoReady(page: Page, url: string, heading: RegExp) {
   await expect(page.getByRole("heading", { name: heading })).toBeVisible();
 }
 
-async function gotoTrend(page: Page, fingerprint: string) {
-  await gotoReady(page, `/series/${encodeURIComponent(fingerprint)}?range=all`, /demo-benchmark/i);
+async function gotoTrend(page: Page, benchmarkID: string) {
+  await gotoReady(page, `/series/${encodeURIComponent(benchmarkID)}?range=all`, /demo-benchmark/i);
   await expectPaintedCanvas(page.locator(".chart-wrap canvas").first());
   await expect(page.locator("table.detail tbody tr").first()).toBeVisible();
   await expectNoDocumentOverflow(page);
