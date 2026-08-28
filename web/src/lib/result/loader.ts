@@ -1,6 +1,7 @@
 import type { createBenchDBClient } from "../api/client";
 import type { components } from "../api/schema";
 import { formatDate, formatSVS, tagsText } from "../browse/transform";
+import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../series/transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 export type ResultDetail = components["schemas"]["ResultDetail"];
@@ -40,6 +41,8 @@ export interface ResultViewModel {
   resultDateText: string;
   fingerprint: string;
   displayFingerprint: string;
+  unit: string | null;
+  lessIsBetter: boolean | null;
   lessIsBetterText: string;
   timeUnitText: string;
   dataCountText: string;
@@ -115,6 +118,8 @@ export function resultViewModelFromDetail(
     resultDateText: formatDate(d.timestamp, locale),
     fingerprint: d.history_fingerprint,
     displayFingerprint: compactIdentifier(d.history_fingerprint, 12, 8),
+    unit: d.unit,
+    lessIsBetter: d.less_is_better,
     lessIsBetterText: d.less_is_better === null ? "not set" : String(d.less_is_better),
     timeUnitText: d.time_unit ?? "not set",
     dataCountText: valueCountText(d.data),
@@ -176,4 +181,17 @@ export async function loadResult(
     throw new Error(`failed to load benchmark result ${id}`);
   }
   return resultViewModelFromDetail(res.data, locale);
+}
+
+/** loadResultHistory loads the series containing a result. Result pages use
+ * this to present the selected measurement in its historical context instead
+ * of making the reader navigate to a separate trend page first. */
+export async function loadResultHistory(client: Client, id: string): Promise<SeriesPoint[]> {
+  const res = await client.GET("/api/history/{benchmark_result_id}", {
+    params: { path: { benchmark_result_id: id } },
+  });
+  if (res.error || !res.data) {
+    throw new Error(`failed to load history for benchmark result ${id}`);
+  }
+  return toSeriesPoints(orderSamplesForChart(res.data.samples ?? []));
 }

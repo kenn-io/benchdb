@@ -97,7 +97,8 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await screenshot(page, "trend", suffix, captured);
 
     await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /demo-benchmark/i);
-    await expect(page.getByRole("link", { name: /view trend/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
+    await expectPaintedCanvas(page.locator(".trend-hero canvas").first());
     await expect(page.getByRole("button", { name: /mark distribution change/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /delete result/i })).toHaveCount(0);
     await expectNoDocumentOverflow(page);
@@ -139,7 +140,8 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await screenshot(page, "trend", suffix, captured);
 
     await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /demo-benchmark/i);
-    await expect(page.getByRole("link", { name: /view trend/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
+    await expectPaintedCanvas(page.locator(".trend-hero canvas").first());
     await expectPrimaryNavLinksInViewport(page);
     await expectNoDocumentOverflow(page);
     await expectDefinitionListRows(page.locator('[aria-label="Result measurement"] .compact-dl'));

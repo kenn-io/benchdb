@@ -10,8 +10,10 @@ const DELETE = vi.fn();
 vi.mock("../api/client", () => ({
   createBenchDBClient: () => ({ GET, PUT, DELETE }),
 }));
+vi.mock("./SeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
 
 type ResultDetail = components["schemas"]["ResultDetail"];
+type HistorySample = components["schemas"]["HistorySample"];
 
 const detail: ResultDetail = {
   id: "r1",
@@ -66,13 +68,46 @@ const authDisabledCapabilities = {
   can_write_results: true,
 };
 
+const historySample = (
+  id: string,
+  sha: string,
+  timestamp: string,
+  value: number,
+): HistorySample => ({
+  benchmark_result_id: id,
+  commit_hash: sha,
+  commit_message: id === "r1" ? "tune" : "before",
+  commit_repository: "https://github.com/benchdb/demo",
+  commit_timestamp: timestamp,
+  data: null,
+  hardware_hash: "hw1",
+  mean: value,
+  result_timestamp: timestamp,
+  single_value_summary: value,
+  single_value_summary_type: "min",
+  unit: "s",
+  run_tags: {},
+  info: {},
+  change_annotations: {},
+  zscorestats: null,
+});
+
+const history = [
+  historySample("r0", "abc0000", "2024-01-06T12:00:00Z", 2),
+  historySample("r1", "abc1234def", "2024-01-07T12:00:00Z", 1.5),
+];
+
 beforeEach(() => {
   GET.mockReset();
   PUT.mockReset();
   DELETE.mockReset();
 });
 
-function mockPage(result: ResultDetail = detail, capabilities = readOnlyCapabilities) {
+function mockPage(
+  result: ResultDetail = detail,
+  capabilities = readOnlyCapabilities,
+  samples: HistorySample[] = history,
+) {
   GET.mockImplementation((path: string) => {
     if (path === "/api/benchmark-results/{id}") {
       return Promise.resolve({ data: result });
@@ -80,36 +115,42 @@ function mockPage(result: ResultDetail = detail, capabilities = readOnlyCapabili
     if (path === "/api/auth/capabilities") {
       return Promise.resolve({ data: capabilities });
     }
+    if (path === "/api/history/{benchmark_result_id}") {
+      return Promise.resolve({ data: { history_fingerprint: "fp1", samples } });
+    }
     return Promise.resolve({ error: { detail: `unexpected GET ${path}` } });
   });
 }
 
 describe("ResultPage", () => {
-  it("renders identity, measurement, commit, and run sections with a trend link", async () => {
+  it("presents the selected result inside its series trend before record details", async () => {
     mockPage();
     render(ResultPage, { props: { resultId: "r1" } });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
     expect(screen.getByRole("main")).toHaveClass("page");
-    expect(screen.getByRole("region", { name: /result measurement/i })).toBeInTheDocument();
+    const measurement = screen.getByRole("region", { name: /result measurement/i });
+    expect(measurement).toHaveTextContent("1.5 s");
+    expect(measurement).toHaveTextContent("Lower is better");
     expect(screen.getByRole("region", { name: /result facts/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /technical details/i })).toBeInTheDocument();
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
-    // SVS, mean, and median all render "1.5 s"; scope to the SVS row so the
-    // assertion targets the measured value specifically.
-    expect(screen.getByText("SVS (min)").nextElementSibling).toHaveTextContent("1.5 s");
     expect(screen.getByText("sha").nextElementSibling).toHaveTextContent("abc1234d");
     expect(screen.getByText("sha").nextElementSibling).toHaveAttribute("title", "abc1234def");
     expect(screen.getByText("run1")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view trend/i })).toHaveAttribute(
+    const trend = screen.getByRole("region", { name: /result in series trend/i });
+    expect(trend.compareDocumentPosition(screen.getByRole("region", { name: /result measurement/i })))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(trend).toHaveTextContent(/25\.0% better than previous/i);
+    expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
+    expect(screen.getByRole("link", { name: /explore full series/i })).toHaveAttribute(
       "href",
-      "/benchmarks/history/r1",
+      "/series/fp1",
     );
     expect(screen.getByRole("link", { name: /export history json/i })).toHaveAttribute("href", "/api/history/r1");
     expect(screen.getByRole("heading", { name: "Machine" })).toBeInTheDocument();
     expect(screen.getAllByText("m5").length).toBeGreaterThan(0);
+    expect(screen.getByRole("group", { name: /technical details/i })).not.toHaveAttribute("open");
     expect(screen.getByText("Environment details").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Identifiers").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("less is better").nextElementSibling).toHaveTextContent("true");
     expect(screen.getByText("raw data").nextElementSibling).toHaveTextContent("3 values");
     expect(screen.getByText("raw times").nextElementSibling).toHaveTextContent("3 values");
     expect(screen.getAllByText(/"suite": "arrow"/).length).toBeGreaterThan(0);
@@ -190,7 +231,7 @@ describe("ResultPage", () => {
     mockPage({ ...detail, single_value_summary: null, error: { stack: "trace" } });
     render(ResultPage, { props: { resultId: "r1" } });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
-    expect(screen.getByText("SVS (min)").nextElementSibling).toHaveTextContent("—");
+    expect(screen.getByRole("region", { name: /result measurement/i })).toHaveTextContent("—");
     expect(screen.getAllByText(/"stack"/).length).toBeGreaterThan(0);
   });
 

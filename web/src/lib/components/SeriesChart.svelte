@@ -579,6 +579,7 @@
   }
   .legend {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     margin-bottom: 6px;

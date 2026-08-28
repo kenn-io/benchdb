@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
-import { loadResult } from "./loader";
+import { loadResult, loadResultHistory } from "./loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 
@@ -116,5 +116,58 @@ describe("loadResult", () => {
 
   it("throws when the endpoint errors", async () => {
     await expect(loadResult(fakeClient(null, true), "rX")).rejects.toThrow("rX");
+  });
+});
+
+describe("loadResultHistory", () => {
+  it("orders the result's series for an in-context trend", async () => {
+    const samples = [
+      {
+        benchmark_result_id: "r2",
+        commit_hash: "def5678",
+        commit_message: "after",
+        commit_repository: "https://github.com/benchdb/demo",
+        commit_timestamp: "2024-01-08T12:00:00Z",
+        data: null,
+        hardware_hash: "hw1",
+        mean: 1.1,
+        result_timestamp: "2024-01-08T13:00:00Z",
+        single_value_summary: 1.1,
+        single_value_summary_type: "min",
+        unit: "s",
+        run_tags: {},
+        info: {},
+        change_annotations: {},
+        zscorestats: null,
+      },
+      {
+        benchmark_result_id: "r1",
+        commit_hash: "abc1234",
+        commit_message: "before",
+        commit_repository: "https://github.com/benchdb/demo",
+        commit_timestamp: "2024-01-07T12:00:00Z",
+        data: null,
+        hardware_hash: "hw1",
+        mean: 1.2,
+        result_timestamp: "2024-01-07T13:00:00Z",
+        single_value_summary: 1.2,
+        single_value_summary_type: "min",
+        unit: "s",
+        run_tags: {},
+        info: {},
+        change_annotations: {},
+        zscorestats: null,
+      },
+    ];
+    const client = {
+      GET: vi.fn(async () => ({ data: { history_fingerprint: "fp1", samples } })),
+    } as unknown as Client;
+
+    const points = await loadResultHistory(client, "r1");
+
+    expect(points.map((point) => point.resultId)).toEqual(["r1", "r2"]);
+    expect(client.GET).toHaveBeenCalledWith("/api/history/{benchmark_result_id}", {
+      params: { path: { benchmark_result_id: "r1" } },
+    });
   });
 });
