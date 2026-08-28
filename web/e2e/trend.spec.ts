@@ -64,7 +64,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await page.locator("table.detail tbody tr a").first().click();
   await expect(page).toHaveURL(/\/results\//);
   await expect(page.getByRole("heading", { name: series!.name })).toBeVisible();
-  await expect(page.getByRole("link", { name: /view trend/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
 
   // Deep-link reload survives (SPA fallback) with controls intact.
   await page.goto(`${baseURL}/series/${fp}?range=all&axis=time&sigma=3`);
