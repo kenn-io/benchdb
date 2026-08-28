@@ -538,7 +538,7 @@
   }
   .trend-context {
     position: sticky;
-    top: var(--app-header-height);
+    top: 0;
     z-index: 4;
     display: grid;
     gap: 10px;
