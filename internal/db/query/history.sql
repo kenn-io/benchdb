@@ -35,6 +35,45 @@ WHERE br.error IS NULL
   AND c."timestamp" IS NOT NULL
 ORDER BY c."timestamp", br.id;
 
+-- name: SelectHistoryForBenchmark :many
+-- All directly comparable fingerprint segments for one logical benchmark.
+-- Rolling statistics remain fingerprint-local in the service; this query only
+-- brings those segments together for fleet presentation.
+SELECT
+  br.id,
+  md5(br.case_id || br.commit_repo_url) AS benchmark_id,
+  br.history_fingerprint,
+  br."timestamp",
+  br.unit,
+  br.mean,
+  br.data,
+  br.run_tags,
+  i.tags AS info_tags,
+  br.change_annotations,
+  cs.name AS case_name,
+  cs.tags AS case_tags,
+  ctx.tags AS context_tags,
+  hw.id AS hardware_id,
+  hw.type AS hardware_type,
+  hw.name AS hardware_name,
+  hw.hash AS hardware_hash,
+  br.commit_repo_url,
+  c.sha AS commit_sha,
+  c.repository AS commit_repository,
+  c.message AS commit_message,
+  c."timestamp" AS commit_timestamp
+FROM benchmark_result br
+JOIN "case" cs ON cs.id = br.case_id
+JOIN context ctx ON ctx.id = br.context_id
+JOIN info i ON i.id = br.info_id
+JOIN hardware hw ON hw.id = br.hardware_id
+JOIN commit c ON c.id = br.commit_id
+WHERE md5(br.case_id || br.commit_repo_url) = sqlc.arg('benchmark_id')
+  AND br.error IS NULL
+  AND c.sha = c.fork_point_sha
+  AND c."timestamp" IS NOT NULL
+ORDER BY hw.name, br.history_fingerprint, c."timestamp", br.id;
+
 -- name: SelectHistoryForFingerprintAsOf :many
 -- The baseline-distribution window for compare: the same default-branch
 -- membership as SelectHistoryForFingerprint, restricted to commits at or before

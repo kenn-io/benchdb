@@ -48,6 +48,7 @@ type Store interface {
 	GetBenchmarkResultByID(ctx context.Context, id string) (BenchmarkResult, error)
 	GetBenchmarkResultDetail(ctx context.Context, id string) (ResultDetailRow, error)
 	SelectHistoryForFingerprint(ctx context.Context, fingerprint string) ([]HistoryRow, error)
+	SelectHistoryForBenchmark(ctx context.Context, benchmarkID string) ([]BenchmarkHistoryRow, error)
 	SelectHistoryForFingerprintAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]HistoryRow, error)
 	GetResultForCompare(ctx context.Context, id string) (CompareResultRow, error)
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
@@ -55,6 +56,7 @@ type Store interface {
 	SelectRecentRunRepositories(ctx context.Context) ([]RecentRunRepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, fingerprints []string) ([]HistoryRow, error)
+	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
 	SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]CIReportRunRow, error)
 	SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]CIReportRunRow, error)
 	GetCIReportCommit(ctx context.Context, repository, sha string) (CIReportCommitRow, error)
@@ -499,6 +501,7 @@ type ResultDetailRow struct {
 	Validation            []byte
 	OptionalBenchmarkInfo []byte
 	ChangeAnnotations     []byte
+	CaseID                string
 	CaseName              string
 	CaseTags              []byte
 	ContextTags           []byte
@@ -512,6 +515,20 @@ type ResultDetailRow struct {
 	CommitRepository      *string
 	CommitMessage         *string
 	CommitTimestamp       *time.Time
+}
+
+// BenchmarkHistoryRow is one fingerprint-local history member with the
+// logical benchmark and fleet identity needed to group it for presentation.
+type BenchmarkHistoryRow struct {
+	HistoryRow
+	BenchmarkID  string
+	CaseName     string
+	CaseTags     []byte
+	ContextTags  []byte
+	HardwareID   string
+	HardwareType string
+	HardwareName string
+	Repository   string
 }
 
 // HistoryRow is one member of a fingerprint's history series: a non-errored,
@@ -670,6 +687,39 @@ type SeriesPageRow struct {
 	HardwareName          string
 	HardwareType          string
 	HardwareHash          string
+}
+
+// BenchmarkListParams filters and paginates logical benchmarks. BenchmarkID
+// is the exact stable identity filter; cursor order is latest commit then ID.
+type BenchmarkListParams struct {
+	Q           *string
+	Hardware    *string
+	Repository  *string
+	BenchmarkID *string
+	ActiveSince *time.Time
+	ActiveUntil *time.Time
+	CursorTs    *time.Time
+	CursorID    *string
+	PageSize    int32
+}
+
+// BenchmarkPageRow is one logical benchmark (case + repository), with the
+// latest result and aggregate fleet coverage across all fingerprint segments.
+type BenchmarkPageRow struct {
+	BenchmarkID              string
+	LatestHistoryFingerprint string
+	LatestResultID           string
+	LatestResultTimestamp    time.Time
+	LatestCommitSha          string
+	LatestCommitTimestamp    time.Time
+	CommitRepoURL            string
+	LatestUnit               *string
+	LatestData               []float64
+	PointCount               int64
+	HistoryFingerprints      []string
+	MachineNames             []string
+	CaseName                 string
+	CaseTags                 []byte
 }
 
 // CIReportRunRow is one distinct benchmark run selected for PR/CI reporting,

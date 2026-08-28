@@ -10,6 +10,7 @@ vi.mock("../api/client", () => ({
   createBenchDBClient: () => ({ GET }),
 }));
 vi.mock("./SeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
+vi.mock("./FleetSeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
 
 type HistorySample = components["schemas"]["HistorySample"];
 type ZScoreStats = components["schemas"]["ZScoreStats"];
@@ -60,6 +61,7 @@ const manySamples = (n: number) =>
 
 const detail = {
   id: "r1",
+  benchmark_id: "b1",
   tags: { name: "demo-benchmark", scale: "sf10" },
   context: { compiler: "gcc" },
   hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
@@ -69,11 +71,35 @@ const detail = {
   history_fingerprint: "fp1",
 };
 
+function benchmarkHistory(samples: unknown[], unit: string | null = "s") {
+  return {
+    benchmark_id: "b1",
+    name: "demo-benchmark",
+    tags: { name: "demo-benchmark", scale: "sf10" },
+    repository: "https://github.com/benchdb/demo",
+    unit,
+    less_is_better: unit === null ? null : true,
+    tracks: [
+      {
+        machine_name: "m5",
+        segments: [
+          {
+            history_fingerprint: "fp1",
+            context: { compiler: "gcc" },
+            hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
+            samples,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function mockResultEntry(samples: unknown[]) {
   GET.mockImplementation(async (url: string) => {
     if (url === "/api/benchmark-results/{id}") return { data: detail };
-    if (url === "/api/history/{benchmark_result_id}") {
-      return { data: { history_fingerprint: "fp1", samples } };
+    if (url === "/api/benchmarks/{benchmark_id}") {
+      return { data: benchmarkHistory(samples) };
     }
     throw new Error(`unexpected ${url}`);
   });
@@ -87,6 +113,34 @@ beforeEach(() => {
 const RESULT_SOURCE = { kind: "result", resultId: "r1" } as const;
 
 describe("TrendPage", () => {
+  it("shows all fleet machines by default and filters to one machine", async () => {
+    const fleet = benchmarkHistory([sample("m5-r1", "2024-01-07T12:00:00Z")]);
+    fleet.tracks.push({
+      machine_name: "m7",
+      segments: [{
+        history_fingerprint: "fp2",
+        context: { compiler: "clang" },
+        hardware: { id: "h2", type: "machine", name: "m7", hash: "hw2" },
+        samples: [sample("m7-r1", "2024-01-07T12:00:00Z", 2.1)],
+      }],
+    });
+    GET.mockResolvedValue({ data: fleet });
+    render(TrendPage, {
+      props: {
+        source: { kind: "benchmark", benchmarkId: "b1" },
+        query: { ...DEFAULT_TREND_QUERY, range: "all" },
+      },
+    });
+    await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
+    expect(screen.getByLabelText(/^machine$/i)).toHaveValue("all");
+    expect(document.querySelector(".chart-stub")).toHaveAttribute("data-tracks", "2");
+    expect(screen.getByRole("columnheader", { name: "machine" })).toBeInTheDocument();
+
+    await fireEvent.change(screen.getByLabelText(/^machine$/i), { target: { value: "m7" } });
+    expect(document.querySelector(".chart-stub")).toHaveAttribute("data-points", "1");
+    expect(screen.getByText("Selected machine environment")).toBeInTheDocument();
+  });
+
   it("renders header identity, orientation, controls, and the table", async () => {
     mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
     render(TrendPage, {
@@ -99,9 +153,9 @@ describe("TrendPage", () => {
       "title",
       "https://github.com/benchdb/demo",
     );
-    expect(screen.getByText("series fp1")).toHaveAttribute("title", "fp1");
-    expect(screen.getAllByText("machine m5").length).toBeGreaterThan(0);
-    expect(screen.getByText("Environment and configuration").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("benchmark b1")).toHaveAttribute("title", "b1");
+    expect(screen.getByText("1 machine")).toBeInTheDocument();
+    expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByLabelText(/range/i)).toHaveValue("all");
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
     expect(screen.getByLabelText(/x-axis/i)).toHaveValue("commit");
@@ -188,7 +242,7 @@ describe("TrendPage", () => {
     });
     await waitFor(() => screen.getByRole("link", { name: "sha-r2" }));
     await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
-    const strip = screen.getByText(/selected/i).closest("div");
+    const strip = screen.getByText("selected point").closest("div");
     expect(strip).not.toBeNull();
     expect(screen.getByRole("link", { name: /open result/i })).toHaveAttribute(
       "href",
@@ -428,51 +482,18 @@ describe("TrendPage", () => {
 
   it("loads by fingerprint and surfaces the mixed-unit banner", async () => {
     GET.mockImplementation(async (url: string) => {
-      if (url === "/api/history") {
-        return {
-          data: {
-            history_fingerprint: "fp1",
-            samples: [
-              sample("r1", "2024-01-07T12:00:00Z"),
-              { ...sample("r2", "2024-01-08T12:00:00Z"), unit: "ms" },
-            ],
-          },
-        };
-      }
-      if (url === "/api/series") {
-        return {
-          data: {
-            series: [
-              {
-                history_fingerprint: "fp1",
-                name: "demo-benchmark",
-                tags: { name: "demo-benchmark" },
-                context: {},
-                hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
-                repository: "https://github.com/benchdb/demo",
-                unit: null,
-                less_is_better: null,
-                status: "insufficient",
-                latest_result_id: "r2",
-                latest_single_value_summary: null,
-                latest_single_value_summary_type: null,
-                latest_commit_sha: "sha-r2",
-                latest_commit_timestamp: "2024-01-08T12:00:00Z",
-                latest_result_timestamp: "2024-01-08T12:00:00Z",
-                point_count: 2,
-                sparkline: null,
-              },
-            ],
-            next_page_cursor: null,
-          },
-        };
+      if (url === "/api/benchmarks/{benchmark_id}") {
+        return { data: benchmarkHistory([
+          sample("r1", "2024-01-07T12:00:00Z"),
+          { ...sample("r2", "2024-01-08T12:00:00Z"), unit: "ms" },
+        ], null) };
       }
       throw new Error(`unexpected ${url}`);
     });
-    window.history.replaceState(null, "", "/series/fp1");
+    window.history.replaceState(null, "", "/series/b1");
     render(TrendPage, {
       props: {
-        source: { kind: "fingerprint", fingerprint: "fp1" },
+        source: { kind: "benchmark", benchmarkId: "b1" },
         query: { ...DEFAULT_TREND_QUERY, range: "all" },
       },
     });

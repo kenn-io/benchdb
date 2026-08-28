@@ -24,3 +24,15 @@ func HistoryFingerprint(caseID, contextID, hardwareHash, repoURL string) string 
 	h.Write([]byte(repoURL))
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// BenchmarkID returns the stable identifier used to navigate a logical
+// benchmark across machines and environment epochs. Case IDs have a fixed
+// 32-byte representation, so concatenating the repository URL is unambiguous.
+// MD5 keeps the identifier compact and deterministic; it is not a security
+// boundary.
+func BenchmarkID(caseID, repoURL string) string {
+	h := md5.New()
+	h.Write([]byte(caseID))
+	h.Write([]byte(repoURL))
+	return hex.EncodeToString(h.Sum(nil))
+}

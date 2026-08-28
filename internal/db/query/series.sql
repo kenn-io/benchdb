@@ -534,3 +534,88 @@ SELECT
   commit_timestamp
 FROM members
 ORDER BY history_fingerprint, commit_timestamp, id;
+
+-- name: SelectBenchmarkPage :many
+-- One row per logical benchmark (case + repository), independent of machine
+-- and environment context. Fingerprints remain the directly-comparable
+-- statistical segments beneath each benchmark.
+WITH members AS MATERIALIZED (
+  SELECT
+    md5(br.case_id || br.commit_repo_url) AS benchmark_id,
+    br.history_fingerprint,
+    br.id,
+    br."timestamp" AS result_timestamp,
+    br.unit,
+    br.data,
+    br.case_id,
+    br.hardware_id,
+    br.commit_repo_url,
+    c.sha AS commit_sha,
+    c."timestamp" AS commit_timestamp
+  FROM benchmark_result br
+  JOIN commit c ON c.id = br.commit_id
+  JOIN hardware hw ON hw.id = br.hardware_id
+  JOIN "case" cs ON cs.id = br.case_id
+  WHERE br.error IS NULL
+    AND c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND (sqlc.narg('q')::text IS NULL OR cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')
+    AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
+    AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
+    AND (sqlc.narg('benchmark_id')::text IS NULL OR md5(br.case_id || br.commit_repo_url) = sqlc.narg('benchmark_id'))
+    AND (sqlc.narg('active_since')::timestamp IS NULL OR c."timestamp" >= sqlc.narg('active_since')::timestamp)
+    AND (sqlc.narg('active_until')::timestamp IS NULL OR c."timestamp" <= sqlc.narg('active_until')::timestamp)
+),
+latest AS (
+  SELECT DISTINCT ON (benchmark_id)
+    benchmark_id,
+    history_fingerprint AS latest_history_fingerprint,
+    id AS latest_result_id,
+    result_timestamp AS latest_result_timestamp,
+    commit_sha AS latest_commit_sha,
+    commit_timestamp AS latest_commit_timestamp,
+    commit_repo_url,
+    unit AS latest_unit,
+    data AS latest_data,
+    case_id
+  FROM members
+  ORDER BY benchmark_id, commit_timestamp DESC, id DESC
+),
+counts AS (
+  SELECT
+    m.benchmark_id,
+    count(*)::bigint AS point_count,
+    array_agg(DISTINCT m.history_fingerprint ORDER BY m.history_fingerprint)::text[] AS history_fingerprints,
+    array_agg(DISTINCT hw.name ORDER BY hw.name)::text[] AS machine_names
+  FROM members m
+  JOIN hardware hw ON hw.id = m.hardware_id
+  GROUP BY m.benchmark_id
+),
+page AS (
+  SELECT l.*
+  FROM latest l
+  WHERE sqlc.narg('cursor_ts')::timestamp IS NULL
+     OR (l.latest_commit_timestamp, l.benchmark_id)
+        < (sqlc.narg('cursor_ts')::timestamp, sqlc.narg('cursor_id')::text)
+  ORDER BY l.latest_commit_timestamp DESC, l.benchmark_id DESC
+  LIMIT sqlc.arg('page_size')
+)
+SELECT
+  p.benchmark_id,
+  p.latest_history_fingerprint,
+  p.latest_result_id,
+  p.latest_result_timestamp,
+  p.latest_commit_sha,
+  p.latest_commit_timestamp,
+  p.commit_repo_url,
+  p.latest_unit,
+  p.latest_data,
+  cnt.point_count,
+  cnt.history_fingerprints,
+  cnt.machine_names,
+  cs.name AS case_name,
+  cs.tags AS case_tags
+FROM page p
+JOIN counts cnt ON cnt.benchmark_id = p.benchmark_id
+JOIN "case" cs ON cs.id = p.case_id
+ORDER BY p.latest_commit_timestamp DESC, p.benchmark_id DESC;

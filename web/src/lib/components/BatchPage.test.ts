@@ -73,7 +73,7 @@ describe("BatchPage", () => {
     expect(screen.getByText("result r3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /trend for tpch result r3/i })).toHaveAttribute(
       "href",
-      "/series/fp-r3",
+      "/benchmarks/history/r3",
     );
   });
 

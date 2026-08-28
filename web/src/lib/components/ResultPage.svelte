@@ -204,7 +204,7 @@
     </section>
   </main>
 {:else}
-  {@const seriesHref = `/series/${vm.fingerprint}`}
+  {@const seriesHref = `/series/${vm.benchmarkId}`}
   <main class="page result-page">
     <header class="page-header">
       <div>
@@ -403,6 +403,8 @@
               <dd class="mono" title={vm.hardwareHash}>{vm.displayHardwareHash}</dd>
               <dt>series</dt>
               <dd class="mono" title={vm.fingerprint}>{vm.displayFingerprint}</dd>
+              <dt>benchmark</dt>
+              <dd class="mono" title={vm.benchmarkId}>{vm.displayBenchmarkId}</dd>
             </dl>
           </details>
           {#each vm.jsonBlocks as block (block.label)}

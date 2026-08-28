@@ -6,7 +6,7 @@ export interface LeafRoute {
 
 export interface TrendRoute {
   name: "trend";
-  fingerprint: string;
+  benchmarkId: string;
   query: TrendQuery;
 }
 
@@ -291,7 +291,7 @@ export function interceptNavClick(e: MouseEvent): boolean {
 }
 
 // Result-entry leaf aliases. Their two-segment paths can never collide with the
-// single-segment fingerprint trend route ([^/]+ cannot span "by-result/<id>"),
+// single-segment benchmark trend route ([^/]+ cannot span "by-result/<id>"),
 // so the by-result alias is preserved by shape, not by match order.
 const LEAF_PATTERNS: RegExp[] = [
   /^\/benchmarks\/history\/([^/]+)\/?$/,
@@ -355,10 +355,10 @@ export function matchRoute(pathname: string, search = ""): Route {
   }
   const trend = TREND_PATTERN.exec(pathname);
   if (trend) {
-    const fingerprint = decodePathSegment(trend[1]!);
-    return fingerprint === null
+    const benchmarkId = decodePathSegment(trend[1]!);
+    return benchmarkId === null
       ? { name: "not-found" }
-      : { name: "trend", fingerprint, query: parseTrendQuery(search) };
+      : { name: "trend", benchmarkId, query: parseTrendQuery(search) };
   }
   const result = RESULT_PATTERN.exec(pathname) ?? RESULT_ALIAS_PATTERN.exec(pathname);
   if (result) {

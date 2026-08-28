@@ -73,6 +73,7 @@ type Aggregates struct {
 // result with its related entities and the computed single value summary.
 type ResultDetail struct {
 	ID                 string         `json:"id"`
+	BenchmarkID        string         `json:"benchmark_id"`
 	RunID              string         `json:"run_id"`
 	RunTags            map[string]any `json:"run_tags"`
 	RunReason          *string        `json:"run_reason"`
@@ -266,6 +267,7 @@ func (r *Reader) ResultDetail(ctx context.Context, id string) (*ResultDetail, er
 
 	return &ResultDetail{
 		ID:                 row.ID,
+		BenchmarkID:        stats.BenchmarkID(row.CaseID, row.CommitRepoUrl),
 		RunID:              row.RunID,
 		RunTags:            runTags,
 		RunReason:          row.RunReason,
@@ -311,6 +313,14 @@ func (r *Reader) History(ctx context.Context, fingerprint string) (*HistorySerie
 	if err != nil {
 		return nil, fmt.Errorf("select history: %w", err)
 	}
+	samples, err := historySamples(rows)
+	if err != nil {
+		return nil, err
+	}
+	return &HistorySeries{HistoryFingerprint: fingerprint, Samples: samples}, nil
+}
+
+func historySamples(rows []storage.HistoryRow) ([]HistorySample, error) {
 	samples := make([]HistorySample, 0, len(rows))
 	points := make([]stats.SeriesPoint, 0, len(rows))
 	singleUnit := true
@@ -375,7 +385,7 @@ func (r *Reader) History(ctx context.Context, fingerprint string) (*HistorySerie
 			samples[i].ZScoreStats = zscoreStatsFrom(rolling[i])
 		}
 	}
-	return &HistorySeries{HistoryFingerprint: fingerprint, Samples: samples}, nil
+	return samples, nil
 }
 
 // HistoryForResult loads a result, then returns the history series for its

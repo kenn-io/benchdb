@@ -7,6 +7,7 @@ type Client = ReturnType<typeof createBenchDBClient>;
 
 const detail = {
   id: "r1",
+  benchmark_id: "benchmark-1",
   batch_id: "b1",
   run_id: "run1",
   run_reason: "commit",
@@ -61,6 +62,7 @@ describe("loadResult", () => {
       runReason: "commit",
       batchId: "b1",
       fingerprint: "fp1",
+      benchmarkId: "benchmark-1",
       error: null,
     });
     expect(vm.aggregates).toContainEqual({ label: "mean", value: "1.25 s" });

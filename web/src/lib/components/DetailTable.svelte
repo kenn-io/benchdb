@@ -25,6 +25,7 @@
     <thead>
       <tr>
         <th>commit</th>
+        {#if rows.some((row) => row.machineName)}<th>machine</th>{/if}
         <th>SVS</th>
         <th>z</th>
         <th>flags</th>
@@ -49,6 +50,9 @@
               <span class="msg">{row.commitMessage}</span>
             </span>
           </td>
+          {#if rows.some((candidate) => candidate.machineName)}
+            <td data-label="machine">{row.machineName}</td>
+          {/if}
           <td class="num" data-label="SVS">{formatMeasurement(row.svs, row.unit)}</td>
           <td class="num" data-label="z">{z(row.z)}</td>
           <td class="flags" data-label="flags">{row.flags}</td>

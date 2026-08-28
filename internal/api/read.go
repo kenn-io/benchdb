@@ -74,6 +74,20 @@ func (h *ReadHandler) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        "/api/series",
 	}, h.getSeries)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-benchmarks",
+		Summary:     "List logical benchmarks across the fleet",
+		Method:      http.MethodGet,
+		Path:        "/api/benchmarks",
+	}, h.getBenchmarks)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-benchmark-history",
+		Summary:     "Get all machine tracks for a logical benchmark",
+		Method:      http.MethodGet,
+		Path:        "/api/benchmarks/{benchmark_id}",
+	}, h.getBenchmarkHistory)
 }
 
 // ResultPathInput is the {id} path parameter for result detail.

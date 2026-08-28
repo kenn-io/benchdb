@@ -17,6 +17,7 @@ type HistorySample = components["schemas"]["HistorySample"];
 
 const detail: ResultDetail = {
   id: "r1",
+  benchmark_id: "b1",
   batch_id: null,
   run_id: "run1",
   run_reason: "commit",
@@ -143,7 +144,7 @@ describe("ResultPage", () => {
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
     expect(screen.getByRole("link", { name: /explore full series/i })).toHaveAttribute(
       "href",
-      "/series/fp1",
+      "/series/b1",
     );
     expect(screen.getByRole("link", { name: /export history json/i })).toHaveAttribute("href", "/api/history/r1");
     expect(screen.getByRole("heading", { name: "Machine" })).toBeInTheDocument();

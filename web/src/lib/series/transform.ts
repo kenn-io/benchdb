@@ -103,6 +103,7 @@ export interface TableRow {
   unit: string | null;
   z: number | null;
   flags: string;
+  machineName?: string;
 }
 
 /** flagsText renders the engine's point flags for compact display. "step"

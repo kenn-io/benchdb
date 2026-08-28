@@ -196,6 +196,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List logical benchmarks across the fleet */
+        get: operations["list-benchmarks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/benchmarks/{benchmark_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get all machine tracks for a logical benchmark */
+        get: operations["get-benchmark-history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ci/report": {
         parameters: {
             query?: never;
@@ -462,6 +496,69 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             user_id: string;
+        };
+        BenchmarkHistory: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BenchmarkHistory.json
+             */
+            readonly $schema?: string;
+            benchmark_id: string;
+            less_is_better: boolean | null;
+            name: string;
+            repository: string;
+            tags: {
+                [key: string]: unknown;
+            };
+            tracks: components["schemas"]["BenchmarkTrack"][] | null;
+            unit: string | null;
+        };
+        BenchmarkListItem: {
+            benchmark_id: string;
+            latest_commit_sha: string;
+            /** Format: date-time */
+            latest_commit_timestamp: string;
+            latest_result_id: string;
+            /** Format: date-time */
+            latest_result_timestamp: string;
+            /** Format: double */
+            latest_single_value_summary: number | null;
+            latest_single_value_summary_type: string | null;
+            less_is_better: boolean | null;
+            machine_names: string[] | null;
+            name: string;
+            /** Format: int64 */
+            point_count: number;
+            repository: string;
+            /** @enum {string} */
+            status: "regressed" | "improved" | "stable" | "insufficient";
+            tags: {
+                [key: string]: unknown;
+            };
+            unit: string | null;
+        };
+        BenchmarkPage: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BenchmarkPage.json
+             */
+            readonly $schema?: string;
+            benchmarks: components["schemas"]["BenchmarkListItem"][] | null;
+            next_page_cursor: string | null;
+        };
+        BenchmarkSegment: {
+            context: {
+                [key: string]: unknown;
+            };
+            hardware: components["schemas"]["Hardware"];
+            history_fingerprint: string;
+            samples: components["schemas"]["HistorySample"][] | null;
+        };
+        BenchmarkTrack: {
+            machine_name: string;
+            segments: components["schemas"]["BenchmarkSegment"][] | null;
         };
         CIReport: {
             /**
@@ -962,6 +1059,7 @@ export interface components {
              */
             readonly $schema?: string;
             batch_id: string | null;
+            benchmark_id: string;
             change_annotations: {
                 [key: string]: unknown;
             };
@@ -1749,6 +1847,84 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-benchmarks": {
+        parameters: {
+            query?: {
+                /** @description Substring match on benchmark name and tags. */
+                q?: string;
+                /** @description Only benchmarks with results from this machine name. */
+                hardware?: string;
+                /** @description Filter by repository URL. */
+                repository?: string;
+                /** @description Filter by stable benchmark identifier. */
+                benchmark_id?: string;
+                /** @description Latest commit at or after this instant, RFC3339. */
+                active_since?: string;
+                /** @description Latest commit at or before this instant, RFC3339. */
+                active_until?: string;
+                /** @description Pagination cursor from a previous page. */
+                cursor?: string;
+                /** @description Page size (max 1000). */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-benchmark-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable benchmark identifier. */
+                benchmark_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHistory"];
+                };
             };
             /** @description Error */
             default: {

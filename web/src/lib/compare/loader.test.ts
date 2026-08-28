@@ -9,6 +9,7 @@ const QUERY = { baseline: "b1", contender: "c1", threshold: null, thresholdZ: nu
 
 const detail = (id: string) => ({
   id,
+  benchmark_id: "benchmark-1",
   batch_id: null,
   run_id: `run-${id}`,
   run_reason: "commit",

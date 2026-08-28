@@ -131,7 +131,7 @@ function toRunResultRow(result: ResultItem): RunResultRow {
     id: result.id,
     displayResultId: compactIdentifier(result.id, 12, 8),
     resultHref: `/results/${encodeURIComponent(result.id)}`,
-    trendHref: `/series/${encodeURIComponent(result.history_fingerprint)}`,
+    trendHref: `/benchmarks/history/${encodeURIComponent(result.id)}`,
     batchHref: batchId === null ? null : `/batches/${encodeURIComponent(batchId)}`,
     timestamp: result.timestamp,
     batchId,

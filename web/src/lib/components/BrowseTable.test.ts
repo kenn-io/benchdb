@@ -29,11 +29,9 @@ afterEach(() => document.removeEventListener("click", swallowAnchorNavigation));
 const rows = toBrowseRows(
   [
     {
-      history_fingerprint: "fp1",
+      benchmark_id: "b1",
       name: "tpch-q1",
       tags: { name: "tpch-q1", scale: "sf10" },
-      context: { compiler: "gcc-13" },
-      hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
       repository: "https://github.com/benchdb/demo",
       unit: "s",
       less_is_better: true,
@@ -41,11 +39,11 @@ const rows = toBrowseRows(
       latest_result_id: "r9",
       latest_single_value_summary: 1.2,
       latest_single_value_summary_type: "min",
+      machine_names: ["m5", "m7"],
       latest_commit_sha: "a1b2c3d4e5",
       latest_commit_timestamp: "2024-01-07T12:00:00Z",
       latest_result_timestamp: "2024-01-07T13:00:00Z",
       point_count: 8,
-      sparkline: [1.0, 1.1, 1.2],
     },
   ],
   "en-US",
@@ -54,7 +52,7 @@ const rows = toBrowseRows(
 describe("BrowseTable", () => {
   it("renders one row with identity, value, status, and trend link", () => {
     render(BrowseTable, { props: { rows } });
-    expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/series/fp1");
+    expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/series/b1");
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     expect(screen.getByText("1.2 s")).toBeInTheDocument();
     expect(screen.getByText("regressed")).toBeInTheDocument();
@@ -77,23 +75,12 @@ describe("BrowseTable", () => {
     const longRows = toBrowseRows(
       [
         {
-          history_fingerprint: "long-fp",
+          benchmark_id: "long-benchmark",
           name: "benchmark-with-a-very-long-name/including/repository-ish/path/components/and-extra-identifiers",
           tags: {
             name: "benchmark-with-a-very-long-name/including/repository-ish/path/components/and-extra-identifiers",
             parameter_set: "dataset=parquet-wide-1tb-and-filter=very-long-expression",
             codec: "zstd-level-19-with-long-option-name",
-          },
-          context: {
-            compiler_flags:
-              "-O3 -march=native -fno-omit-frame-pointer -fdebug-prefix-map=/very/long/build/root=/src",
-            runtime: "python-3.13.0-cpython-with-long-build-tag",
-          },
-          hardware: {
-            id: "host-with-long-id",
-            type: "machine",
-            name: "production-runner-us-east-1-c7i-metal-24xl-with-extra-suffix",
-            hash: "hw-long",
           },
           repository: "https://github.com/benchdb/demo",
           unit: "s",
@@ -102,11 +89,11 @@ describe("BrowseTable", () => {
           latest_result_id: "long-r",
           latest_single_value_summary: 1234.567,
           latest_single_value_summary_type: "min",
+          machine_names: ["production-runner-us-east-1-c7i-metal-24xl-with-extra-suffix"],
           latest_commit_sha: "0123456789abcdef",
           latest_commit_timestamp: "2024-01-07T12:00:00Z",
           latest_result_timestamp: "2024-01-07T13:00:00Z",
           point_count: 42,
-          sparkline: [1230, 1234, 1232],
         },
       ],
       "en-US",
@@ -115,9 +102,7 @@ describe("BrowseTable", () => {
     render(BrowseTable, { props: { rows: longRows } });
 
     expect(screen.getByRole("link", { name: /^benchmark-with-a-very-long-name/ })).toHaveClass("row-primary-link");
-    expect(screen.queryByText(/compiler_flags=/)).toBeNull();
-    expect(screen.getByText(/production-runner-us-east-1/).closest("td")).toHaveClass("machine-cell");
-    expect(screen.getByLabelText("sparkline of 3 points").closest("td")).toHaveClass("trend-cell");
+    expect(screen.getByText("1 machine").closest("td")).toHaveClass("history-cell");
     expect(screen.getByText("stable").closest("td")).toHaveClass("status-cell");
   });
 

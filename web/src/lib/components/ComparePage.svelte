@@ -136,10 +136,10 @@
     commitsError = null;
     commitsLoading = true;
     const token = ++commitToken;
-    loadTrend(client, { kind: "fingerprint", fingerprint: row.fingerprint })
+    loadTrend(client, { kind: "benchmark", benchmarkId: row.benchmarkId })
       .then((trend) => {
         if (token !== commitToken) return;
-        const choices = toCommitChoices(trend.points, trend.identity.unit);
+        const choices = toCommitChoices(trend.tracks[0]?.points ?? [], trend.identity.unit);
         commitChoices = choices;
         const pair = defaultPair(choices);
         if (pair !== null) {
@@ -241,12 +241,12 @@
           <p class="hint">No benchmarks match “{benchmarkQuery.trim()}”.</p>
         {:else}
           <ul class="series-results">
-            {#each seriesResults as row (row.fingerprint)}
+            {#each seriesResults as row (row.benchmarkId)}
               <li>
                 <button type="button" class="series-option" onclick={() => selectSeries(row)}>
                   <span class="series-name">{row.name}</span>
                   <span class="series-meta">
-                    {[row.paramsText, row.hardwareName, `${row.pointCount} points`, `latest ${row.svsText}`]
+                    {[row.paramsText, `${row.machineNames.length} machines`, `${row.pointCount} points`, `latest ${row.svsText}`]
                       .filter((part) => part !== "")
                       .join(" · ")}
                   </span>
@@ -263,7 +263,7 @@
           <div>
             <h2>{selectedSeries.name}</h2>
             <p class="series-meta">
-              {[selectedSeries.paramsText, selectedSeries.hardwareName]
+              {[selectedSeries.paramsText, `${selectedSeries.machineNames.length} machines`]
                 .filter((part) => part !== "")
                 .join(" · ")}
             </p>
@@ -421,8 +421,8 @@
         <div class="action-row">
           <a
             class="button-pill primary"
-            href={`/series/${m.baseline.fingerprint}`}
-            onclick={(e) => go(e, `/series/${m.baseline.fingerprint}`)}
+            href={`/benchmarks/history/${m.baseline.id}`}
+            onclick={(e) => go(e, `/benchmarks/history/${m.baseline.id}`)}
           >View full trend</a>
         </div>
       </div>

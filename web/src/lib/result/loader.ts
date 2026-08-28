@@ -41,6 +41,8 @@ export interface ResultViewModel {
   resultDateText: string;
   fingerprint: string;
   displayFingerprint: string;
+  benchmarkId: string;
+  displayBenchmarkId: string;
   unit: string | null;
   lessIsBetter: boolean | null;
   lessIsBetterText: string;
@@ -118,6 +120,8 @@ export function resultViewModelFromDetail(
     resultDateText: formatDate(d.timestamp, locale),
     fingerprint: d.history_fingerprint,
     displayFingerprint: compactIdentifier(d.history_fingerprint, 12, 8),
+    benchmarkId: d.benchmark_id,
+    displayBenchmarkId: compactIdentifier(d.benchmark_id, 12, 8),
     unit: d.unit,
     lessIsBetter: d.less_is_better,
     lessIsBetterText: d.less_is_better === null ? "not set" : String(d.less_is_better),

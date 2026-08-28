@@ -3,12 +3,15 @@
   // lacks. TrendPage.test.ts vi.mocks SeriesChart.svelte with this stub so the
   // page's states, controls, and wiring are testable.
   import type { SeriesPoint } from "../series/transform";
+  import type { MachineTrack } from "../series/loader";
 
   let {
-    points,
+    points = [],
+    tracks = [],
     currentResultId = null,
   }: {
     points: SeriesPoint[];
+    tracks?: MachineTrack[];
     currentResultId?: string | null;
   } = $props();
 
@@ -17,4 +20,4 @@
   );
 </script>
 
-<div class="chart-stub" data-points={points.length} data-current-index={currentIndex}></div>
+<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex}></div>

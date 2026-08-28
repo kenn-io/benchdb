@@ -120,7 +120,7 @@ function toBatchResultRow(result: ResultItem): BatchResultRow {
     id: result.id,
     displayResultId: compactIdentifier(result.id, 12, 8),
     resultHref: `/results/${encodeURIComponent(result.id)}`,
-    trendHref: `/series/${encodeURIComponent(result.history_fingerprint)}`,
+    trendHref: `/benchmarks/history/${encodeURIComponent(result.id)}`,
     runId: result.run_id,
     displayRunId: compactIdentifier(result.run_id, 12, 8),
     runHref: `/runs/${encodeURIComponent(result.run_id)}`,

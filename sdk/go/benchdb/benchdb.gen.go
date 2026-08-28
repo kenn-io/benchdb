@@ -17,6 +17,30 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for BenchmarkListItemStatus.
+const (
+	BenchmarkListItemStatusImproved     BenchmarkListItemStatus = "improved"
+	BenchmarkListItemStatusInsufficient BenchmarkListItemStatus = "insufficient"
+	BenchmarkListItemStatusRegressed    BenchmarkListItemStatus = "regressed"
+	BenchmarkListItemStatusStable       BenchmarkListItemStatus = "stable"
+)
+
+// Valid indicates whether the value is a known member of the BenchmarkListItemStatus enum.
+func (e BenchmarkListItemStatus) Valid() bool {
+	switch e {
+	case BenchmarkListItemStatusImproved:
+		return true
+	case BenchmarkListItemStatusInsufficient:
+		return true
+	case BenchmarkListItemStatusRegressed:
+		return true
+	case BenchmarkListItemStatusStable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CIReportStatus.
 const (
 	CIReportStatusActionRequired CIReportStatus = "action_required"
@@ -100,22 +124,22 @@ func (e RecentRunAttentionStatus) Valid() bool {
 
 // Defines values for SeriesListItemStatus.
 const (
-	Improved     SeriesListItemStatus = "improved"
-	Insufficient SeriesListItemStatus = "insufficient"
-	Regressed    SeriesListItemStatus = "regressed"
-	Stable       SeriesListItemStatus = "stable"
+	SeriesListItemStatusImproved     SeriesListItemStatus = "improved"
+	SeriesListItemStatusInsufficient SeriesListItemStatus = "insufficient"
+	SeriesListItemStatusRegressed    SeriesListItemStatus = "regressed"
+	SeriesListItemStatusStable       SeriesListItemStatus = "stable"
 )
 
 // Valid indicates whether the value is a known member of the SeriesListItemStatus enum.
 func (e SeriesListItemStatus) Valid() bool {
 	switch e {
-	case Improved:
+	case SeriesListItemStatusImproved:
 		return true
-	case Insufficient:
+	case SeriesListItemStatusInsufficient:
 		return true
-	case Regressed:
+	case SeriesListItemStatusRegressed:
 		return true
-	case Stable:
+	case SeriesListItemStatusStable:
 		return true
 	default:
 		return false
@@ -200,6 +224,63 @@ type AlertRuleView struct {
 	ThresholdZ      float64    `json:"threshold_z"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	UserId          string     `json:"user_id"`
+}
+
+// BenchmarkHistory defines model for BenchmarkHistory.
+type BenchmarkHistory struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema       *string                `json:"$schema,omitempty"`
+	BenchmarkId  string                 `json:"benchmark_id"`
+	LessIsBetter *bool                  `json:"less_is_better"`
+	Name         string                 `json:"name"`
+	Repository   string                 `json:"repository"`
+	Tags         map[string]interface{} `json:"tags"`
+	Tracks       *[]BenchmarkTrack      `json:"tracks"`
+	Unit         *string                `json:"unit"`
+}
+
+// BenchmarkListItem defines model for BenchmarkListItem.
+type BenchmarkListItem struct {
+	BenchmarkId                  string                  `json:"benchmark_id"`
+	LatestCommitSha              string                  `json:"latest_commit_sha"`
+	LatestCommitTimestamp        time.Time               `json:"latest_commit_timestamp"`
+	LatestResultId               string                  `json:"latest_result_id"`
+	LatestResultTimestamp        time.Time               `json:"latest_result_timestamp"`
+	LatestSingleValueSummary     *float64                `json:"latest_single_value_summary"`
+	LatestSingleValueSummaryType *string                 `json:"latest_single_value_summary_type"`
+	LessIsBetter                 *bool                   `json:"less_is_better"`
+	MachineNames                 *[]string               `json:"machine_names"`
+	Name                         string                  `json:"name"`
+	PointCount                   int64                   `json:"point_count"`
+	Repository                   string                  `json:"repository"`
+	Status                       BenchmarkListItemStatus `json:"status"`
+	Tags                         map[string]interface{}  `json:"tags"`
+	Unit                         *string                 `json:"unit"`
+}
+
+// BenchmarkListItemStatus defines model for BenchmarkListItem.Status.
+type BenchmarkListItemStatus string
+
+// BenchmarkPage defines model for BenchmarkPage.
+type BenchmarkPage struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema         *string              `json:"$schema,omitempty"`
+	Benchmarks     *[]BenchmarkListItem `json:"benchmarks"`
+	NextPageCursor *string              `json:"next_page_cursor"`
+}
+
+// BenchmarkSegment defines model for BenchmarkSegment.
+type BenchmarkSegment struct {
+	Context            map[string]interface{} `json:"context"`
+	Hardware           Hardware               `json:"hardware"`
+	HistoryFingerprint string                 `json:"history_fingerprint"`
+	Samples            *[]HistorySample       `json:"samples"`
+}
+
+// BenchmarkTrack defines model for BenchmarkTrack.
+type BenchmarkTrack struct {
+	MachineName string              `json:"machine_name"`
+	Segments    *[]BenchmarkSegment `json:"segments"`
 }
 
 // CIReport defines model for CIReport.
@@ -635,6 +716,7 @@ type ResultDetail struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema                 *string                 `json:"$schema,omitempty"`
 	BatchId                *string                 `json:"batch_id"`
+	BenchmarkId            string                  `json:"benchmark_id"`
 	ChangeAnnotations      map[string]interface{}  `json:"change_annotations"`
 	Commit                 *Commit                 `json:"commit"`
 	CommitRepoUrl          string                  `json:"commit_repo_url"`
@@ -899,6 +981,33 @@ type UpdateResultParams struct {
 	// Authorization Bearer token, e.g. 'Bearer <token>'.
 	Authorization  *string `json:"Authorization,omitempty"`
 	BenchdbSession *string `form:"benchdb_session,omitempty" json:"benchdb_session,omitempty"`
+}
+
+// ListBenchmarksParams defines parameters for ListBenchmarks.
+type ListBenchmarksParams struct {
+	// Q Substring match on benchmark name and tags.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Hardware Only benchmarks with results from this machine name.
+	Hardware *string `form:"hardware,omitempty" json:"hardware,omitempty"`
+
+	// Repository Filter by repository URL.
+	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
+
+	// BenchmarkId Filter by stable benchmark identifier.
+	BenchmarkId *string `form:"benchmark_id,omitempty" json:"benchmark_id,omitempty"`
+
+	// ActiveSince Latest commit at or after this instant, RFC3339.
+	ActiveSince *string `form:"active_since,omitempty" json:"active_since,omitempty"`
+
+	// ActiveUntil Latest commit at or before this instant, RFC3339.
+	ActiveUntil *string `form:"active_until,omitempty" json:"active_until,omitempty"`
+
+	// Cursor Pagination cursor from a previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// PageSize Page size (max 1000).
+	PageSize *int64 `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
 // GetCiReportParams defines parameters for GetCiReport.
@@ -1167,6 +1276,12 @@ type ClientInterface interface {
 	UpdateResultWithBody(ctx context.Context, id string, params *UpdateResultParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBenchmarks request
+	ListBenchmarks(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBenchmarkHistory request
+	GetBenchmarkHistory(ctx context.Context, benchmarkId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetCiReport request
 	GetCiReport(ctx context.Context, params *GetCiReportParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1439,6 +1554,30 @@ func (c *Client) UpdateResultWithBody(ctx context.Context, id string, params *Up
 
 func (c *Client) UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateResultRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListBenchmarks(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBenchmarksRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetBenchmarkHistory(ctx context.Context, benchmarkId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBenchmarkHistoryRequest(c.Server, benchmarkId)
 	if err != nil {
 		return nil, err
 	}
@@ -2661,6 +2800,178 @@ func NewUpdateResultRequestWithBody(server string, id string, params *UpdateResu
 	return req, nil
 }
 
+// NewListBenchmarksRequest generates requests for ListBenchmarks
+func NewListBenchmarksRequest(server string, params *ListBenchmarksParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmarks")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Hardware != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "hardware", *params.Hardware, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Repository != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "repository", *params.Repository, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.BenchmarkId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "benchmark_id", *params.BenchmarkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ActiveSince != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "active_since", *params.ActiveSince, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ActiveUntil != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "active_until", *params.ActiveUntil, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.PageSize != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "page_size", *params.PageSize, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetBenchmarkHistoryRequest generates requests for GetBenchmarkHistory
+func NewGetBenchmarkHistoryRequest(server string, benchmarkId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "benchmark_id", benchmarkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmarks/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetCiReportRequest generates requests for GetCiReport
 func NewGetCiReportRequest(server string, params *GetCiReportParams) (*http.Request, error) {
 	var err error
@@ -3608,6 +3919,12 @@ type ClientWithResponsesInterface interface {
 
 	UpdateResultWithResponse(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateResultResponse, error)
 
+	// ListBenchmarksWithResponse request
+	ListBenchmarksWithResponse(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*ListBenchmarksResponse, error)
+
+	// GetBenchmarkHistoryWithResponse request
+	GetBenchmarkHistoryWithResponse(ctx context.Context, benchmarkId string, reqEditors ...RequestEditorFn) (*GetBenchmarkHistoryResponse, error)
+
 	// GetCiReportWithResponse request
 	GetCiReportWithResponse(ctx context.Context, params *GetCiReportParams, reqEditors ...RequestEditorFn) (*GetCiReportResponse, error)
 
@@ -4133,6 +4450,68 @@ func (r UpdateResultResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateResultResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBenchmarksResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *BenchmarkPage
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBenchmarksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBenchmarksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBenchmarksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBenchmarkHistoryResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *BenchmarkHistory
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBenchmarkHistoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBenchmarkHistoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBenchmarkHistoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4684,6 +5063,24 @@ func (c *ClientWithResponses) UpdateResultWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseUpdateResultResponse(rsp)
+}
+
+// ListBenchmarksWithResponse request returning *ListBenchmarksResponse
+func (c *ClientWithResponses) ListBenchmarksWithResponse(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*ListBenchmarksResponse, error) {
+	rsp, err := c.ListBenchmarks(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBenchmarksResponse(rsp)
+}
+
+// GetBenchmarkHistoryWithResponse request returning *GetBenchmarkHistoryResponse
+func (c *ClientWithResponses) GetBenchmarkHistoryWithResponse(ctx context.Context, benchmarkId string, reqEditors ...RequestEditorFn) (*GetBenchmarkHistoryResponse, error) {
+	rsp, err := c.GetBenchmarkHistory(ctx, benchmarkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBenchmarkHistoryResponse(rsp)
 }
 
 // GetCiReportWithResponse request returning *GetCiReportResponse
@@ -5279,6 +5676,72 @@ func ParseUpdateResultResponse(rsp *http.Response) (*UpdateResultResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ResultDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBenchmarksResponse parses an HTTP response from a ListBenchmarksWithResponse call
+func ParseListBenchmarksResponse(rsp *http.Response) (*ListBenchmarksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBenchmarksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BenchmarkPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBenchmarkHistoryResponse parses an HTTP response from a GetBenchmarkHistoryWithResponse call
+func ParseGetBenchmarkHistoryResponse(rsp *http.Response) (*GetBenchmarkHistoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBenchmarkHistoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BenchmarkHistory
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -2,22 +2,19 @@ import type { components } from "../api/schema";
 import { formatMeasurement, formatNumber } from "../format";
 import type { BrowseWindow } from "../router";
 
-type SeriesListItem = components["schemas"]["SeriesListItem"];
+type BenchmarkListItem = components["schemas"]["BenchmarkListItem"];
 
 /** SeriesStatus is the wire enum (closed union in the generated schema). */
-export type SeriesStatus = SeriesListItem["status"];
+export type SeriesStatus = BenchmarkListItem["status"];
 
 export interface BrowseRow {
-  fingerprint: string;
+  benchmarkId: string;
   name: string;
   paramsText: string;
-  contextText: string;
-  hardwareKey: string;
-  hardwareName: string;
+  machineNames: string[];
   latestSVS: number | null;
   svsText: string;
   pointCount: number;
-  sparkline: number[];
   status: SeriesStatus;
   commitSha: string;
   commitTimestampMs: number;
@@ -48,20 +45,17 @@ export function tagsText(tags: Record<string, unknown>, omit: string[] = []): st
     .join(" · ");
 }
 
-export function toBrowseRows(items: SeriesListItem[], locale?: string): BrowseRow[] {
+export function toBrowseRows(items: BenchmarkListItem[], locale?: string): BrowseRow[] {
   return items.map((item) => {
     const svs = item.latest_single_value_summary;
     return {
-      fingerprint: item.history_fingerprint,
+      benchmarkId: item.benchmark_id,
       name: item.name,
       paramsText: tagsText(item.tags, ["name"]),
-      contextText: tagsText(item.context),
-      hardwareKey: item.hardware.hash || item.hardware.id,
-      hardwareName: item.hardware.name,
+      machineNames: item.machine_names ?? [],
       latestSVS: svs,
       svsText: formatMeasurement(svs, item.unit),
       pointCount: item.point_count,
-      sparkline: item.sparkline ?? [],
       status: item.status,
       commitSha: item.latest_commit_sha.slice(0, 7),
       commitTimestampMs: Date.parse(item.latest_commit_timestamp),

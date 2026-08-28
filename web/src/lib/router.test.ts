@@ -108,10 +108,10 @@ describe("account route", () => {
 });
 
 describe("trend route", () => {
-  it("matches /series/:fingerprint with default controls", () => {
+  it("matches /series/:benchmark with default controls", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
-      fingerprint: "abc123",
+      benchmarkId: "abc123",
       query: { axis: "commit", range: "3mo", sigma: 2 },
     });
   });
@@ -119,7 +119,7 @@ describe("trend route", () => {
   it("parses controls from the search string", () => {
     expect(matchRoute("/series/abc123", "?axis=time&range=all&sigma=5")).toEqual({
       name: "trend",
-      fingerprint: "abc123",
+      benchmarkId: "abc123",
       query: { axis: "time", range: "all", sigma: 5 },
     });
   });

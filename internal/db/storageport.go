@@ -309,6 +309,7 @@ func resultDetailFromRow(r GetBenchmarkResultDetailRow) storage.ResultDetailRow 
 		Validation:            r.Validation,
 		OptionalBenchmarkInfo: r.OptionalBenchmarkInfo,
 		ChangeAnnotations:     r.ChangeAnnotations,
+		CaseID:                r.CaseID,
 		CaseName:              r.CaseName,
 		CaseTags:              r.CaseTags,
 		ContextTags:           r.ContextTags,
@@ -323,6 +324,27 @@ func resultDetailFromRow(r GetBenchmarkResultDetailRow) storage.ResultDetailRow 
 		CommitMessage:         r.CommitMessage,
 		CommitTimestamp:       r.CommitTimestamp,
 	}
+}
+
+func benchmarkHistoryRowsFromRows(rows []SelectHistoryForBenchmarkRow) []storage.BenchmarkHistoryRow {
+	out := make([]storage.BenchmarkHistoryRow, len(rows))
+	for i, r := range rows {
+		out[i] = storage.BenchmarkHistoryRow{
+			HistoryRow: storage.HistoryRow{
+				ID: r.ID, HistoryFingerprint: r.HistoryFingerprint, Timestamp: r.Timestamp,
+				Unit: r.Unit, Mean: r.Mean, Data: denseFloats(r.Data), RunTags: r.RunTags,
+				InfoTags: r.InfoTags, ChangeAnnotations: r.ChangeAnnotations,
+				HardwareHash: r.HardwareHash, CommitSha: r.CommitSha,
+				CommitRepository: r.CommitRepository, CommitMessage: r.CommitMessage,
+				CommitTimestamp: r.CommitTimestamp,
+			},
+			BenchmarkID: r.BenchmarkID, CaseName: r.CaseName, CaseTags: r.CaseTags,
+			ContextTags: r.ContextTags, HardwareID: r.HardwareID,
+			HardwareType: r.HardwareType, HardwareName: r.HardwareName,
+			Repository: r.CommitRepoUrl,
+		}
+	}
+	return out
 }
 
 func historyRowsFromRows(rows []SelectHistoryForFingerprintRow) []storage.HistoryRow {

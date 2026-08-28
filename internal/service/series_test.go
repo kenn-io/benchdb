@@ -66,6 +66,15 @@ func TestSeriesStatus(t *testing.T) {
 	assert.Equal(t, "insufficient", seriesStatus(mixedUnitMembers(), nil, nil))
 }
 
+func TestBenchmarkStatusUsesWorstFleetSegment(t *testing.T) {
+	stable := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
+	regressed := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s")
+	assert.Equal(t, statusRegressed, benchmarkStatus(
+		[]string{"stable-machine", "regressed-machine"},
+		map[string][]storage.HistoryRow{"stable-machine": stable, "regressed-machine": regressed},
+	))
+}
+
 func TestSeriesUnit(t *testing.T) {
 	// single unit -> that unit
 	u := seriesUnit(membersFromSVS([]float64{1, 2, 3}, "s"))

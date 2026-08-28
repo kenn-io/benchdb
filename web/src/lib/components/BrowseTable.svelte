@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { BrowseRow, SortKey, SortSpec } from "../browse/transform";
   import { interceptNavClick } from "../router";
-  import Sparkline from "./Sparkline.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
   let {
@@ -18,10 +17,8 @@
 
   const HEADERS: { key: SortKey | null; label: string }[] = [
     { key: "name", label: "benchmark" },
-    { key: null, label: "machine" },
     { key: "svs", label: "last value" },
     { key: "points", label: "history" },
-    { key: null, label: "trend" },
     { key: null, label: "status" },
     { key: "commit", label: "last commit" },
   ];
@@ -42,10 +39,8 @@
   <table class="data-table stacked-table browse-table">
     <colgroup>
       <col class="benchmark-col" />
-      <col class="machine-col" />
       <col class="value-col" />
       <col class="points-col" />
-      <col class="trend-col" />
       <col class="status-col" />
       <col class="commit-col" />
     </colgroup>
@@ -73,7 +68,7 @@
       </tr>
     </thead>
     <tbody>
-      {#each rows as row (row.fingerprint)}
+      {#each rows as row (row.benchmarkId)}
         <!-- The whole row is a click target as a pointer convenience. role="link"
              plus tabindex={-1} satisfy the a11y lint without adding a redundant
              tab stop; the name <a> below is the keyboard/screen-reader affordance. -->
@@ -86,7 +81,7 @@
             <span class="identity-stack">
               <a
                 class="row-primary-link"
-                href={`/series/${row.fingerprint}`}
+                href={`/series/${row.benchmarkId}`}
                 onclick={(e) => {
                   if (!onopen || !interceptNavClick(e)) return;
                   e.preventDefault();
@@ -96,10 +91,11 @@
               {#if row.paramsText}<span class="metadata-line">{row.paramsText}</span>{/if}
             </span>
           </td>
-          <td class="machine-cell" data-label="machine">{row.hardwareName}</td>
           <td class="num-cell" data-label="last value">{row.svsText}</td>
-          <td class="num-cell" data-label="history">{row.pointCount} points</td>
-          <td class="trend-cell" data-label="trend"><Sparkline values={row.sparkline} /></td>
+          <td class="history-cell" data-label="history">
+            <span>{row.pointCount} points</span>
+            <span class="metadata-line">{row.machineNames.length} {row.machineNames.length === 1 ? "machine" : "machines"}</span>
+          </td>
           <td class="status-cell" data-label="status"><StatusBadge status={row.status} /></td>
           <td class="muted commit-cell" data-label="last commit">{row.commitSha} · {row.commitDateText}</td>
         </tr>
@@ -121,20 +117,12 @@
     width: 31%;
   }
 
-  .machine-col {
+  .value-col {
     width: 16%;
   }
 
-  .value-col {
-    width: 11%;
-  }
-
   .points-col {
-    width: 6%;
-  }
-
-  .trend-col {
-    width: 8%;
+    width: 14%;
   }
 
   .status-col {
@@ -172,14 +160,7 @@
     color: var(--c-text-muted);
   }
 
-  .machine-cell {
-    color: var(--c-text);
-    font-weight: 650;
-    overflow-wrap: anywhere;
-  }
-
   .num-cell,
-  .trend-cell,
   .status-cell {
     white-space: nowrap;
   }
@@ -192,8 +173,11 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .trend-cell {
-    padding-top: 9px;
+  .history-cell {
+    font-variant-numeric: tabular-nums;
+  }
+  .history-cell span {
+    display: block;
   }
 
   .sort {
@@ -218,7 +202,6 @@
     }
 
     .num-cell,
-    .trend-cell,
     .status-cell,
     .commit-cell {
       white-space: normal;

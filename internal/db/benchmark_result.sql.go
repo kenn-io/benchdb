@@ -150,6 +150,7 @@ SELECT
   br.unit, br.time_unit, br.iterations, br.error, br.data, br.times,
   br.mean, br.min, br.max, br.median, br.q1, br.q3, br.stdev, br.iqr,
   br.validation, br.optional_benchmark_info, br.change_annotations,
+  cs.id AS case_id,
   cs.name AS case_name,
   cs.tags AS case_tags,
   ctx.tags AS context_tags,
@@ -198,6 +199,7 @@ type GetBenchmarkResultDetailRow struct {
 	Validation            []byte
 	OptionalBenchmarkInfo []byte
 	ChangeAnnotations     []byte
+	CaseID                string
 	CaseName              string
 	CaseTags              []byte
 	ContextTags           []byte
@@ -245,6 +247,7 @@ func (q *Queries) GetBenchmarkResultDetail(ctx context.Context, id string) (GetB
 		&i.Validation,
 		&i.OptionalBenchmarkInfo,
 		&i.ChangeAnnotations,
+		&i.CaseID,
 		&i.CaseName,
 		&i.CaseTags,
 		&i.ContextTags,

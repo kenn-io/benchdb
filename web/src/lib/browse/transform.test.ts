@@ -12,15 +12,13 @@ import {
   type BrowseRow,
 } from "./transform";
 
-type SeriesListItem = components["schemas"]["SeriesListItem"];
+type BenchmarkListItem = components["schemas"]["BenchmarkListItem"];
 
-function item(over: Partial<SeriesListItem> = {}): SeriesListItem {
+function item(over: Partial<BenchmarkListItem> = {}): BenchmarkListItem {
   return {
-    history_fingerprint: "fp1",
+    benchmark_id: "b1",
     name: "tpch-q1",
     tags: { name: "tpch-q1", scale: "sf10" },
-    context: { compiler: "gcc-13" },
-    hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
     repository: "https://github.com/benchdb/demo",
     unit: "s",
     less_is_better: true,
@@ -28,11 +26,11 @@ function item(over: Partial<SeriesListItem> = {}): SeriesListItem {
     latest_result_id: "r9",
     latest_single_value_summary: 1.23456,
     latest_single_value_summary_type: "min",
+    machine_names: ["m5", "m7"],
     latest_commit_sha: "a1b2c3d4e5f6",
     latest_commit_timestamp: "2024-01-07T12:00:00Z",
     latest_result_timestamp: "2024-01-07T13:00:00Z",
     point_count: 8,
-    sparkline: [1.0, 1.1, 1.2],
     ...over,
   };
 }
@@ -41,12 +39,10 @@ describe("toBrowseRows", () => {
   it("maps identity, formats SVS with unit, shortens the sha", () => {
     const [row] = toBrowseRows([item()], "en-US");
     expect(row).toMatchObject({
-      fingerprint: "fp1",
+      benchmarkId: "b1",
       name: "tpch-q1",
       paramsText: "scale=sf10",
-      contextText: "compiler=gcc-13",
-      hardwareKey: "hw1",
-      hardwareName: "m5",
+      machineNames: ["m5", "m7"],
       svsText: "1.235 s",
       pointCount: 8,
       status: "stable",
@@ -93,25 +89,25 @@ describe("windowStartIso", () => {
 
 describe("sortRows", () => {
   const rows = toBrowseRows([
-    item({ history_fingerprint: "f1", name: "b", latest_single_value_summary: 2, point_count: 1 }),
-    item({ history_fingerprint: "f2", name: "a", latest_single_value_summary: null, point_count: 3 }),
-    item({ history_fingerprint: "f3", name: "c", latest_single_value_summary: 1, point_count: 2 }),
+    item({ benchmark_id: "f1", name: "b", latest_single_value_summary: 2, point_count: 1 }),
+    item({ benchmark_id: "f2", name: "a", latest_single_value_summary: null, point_count: 3 }),
+    item({ benchmark_id: "f3", name: "c", latest_single_value_summary: 1, point_count: 2 }),
   ]);
   it("returns server order untouched for null sort", () => {
-    expect(sortRows(rows, null).map((r) => r.fingerprint)).toEqual(["f1", "f2", "f3"]);
+    expect(sortRows(rows, null).map((r) => r.benchmarkId)).toEqual(["f1", "f2", "f3"]);
   });
   it("sorts by name asc and desc", () => {
     expect(sortRows(rows, { key: "name", dir: "asc" }).map((r) => r.name)).toEqual(["a", "b", "c"]);
     expect(sortRows(rows, { key: "name", dir: "desc" }).map((r) => r.name)).toEqual(["c", "b", "a"]);
   });
   it("sorts numbers and keeps a null SVS last in both directions", () => {
-    expect(sortRows(rows, { key: "svs", dir: "asc" }).map((r) => r.fingerprint)).toEqual(["f3", "f1", "f2"]);
-    expect(sortRows(rows, { key: "svs", dir: "desc" }).map((r) => r.fingerprint)).toEqual(["f1", "f3", "f2"]);
+    expect(sortRows(rows, { key: "svs", dir: "asc" }).map((r) => r.benchmarkId)).toEqual(["f3", "f1", "f2"]);
+    expect(sortRows(rows, { key: "svs", dir: "desc" }).map((r) => r.benchmarkId)).toEqual(["f1", "f3", "f2"]);
   });
   it("does not mutate its input", () => {
-    const before = rows.map((r) => r.fingerprint);
+    const before = rows.map((r) => r.benchmarkId);
     sortRows(rows, { key: "points", dir: "desc" });
-    expect(rows.map((r) => r.fingerprint)).toEqual(before);
+    expect(rows.map((r) => r.benchmarkId)).toEqual(before);
   });
 });
 

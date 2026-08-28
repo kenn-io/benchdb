@@ -24,6 +24,7 @@
   import { tagsText } from "../browse/transform";
   import DetailTable from "./DetailTable.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
+  import FleetSeriesChart from "./FleetSeriesChart.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -59,6 +60,7 @@
   let rowLimit = $state(TREND_TABLE_INITIAL_ROWS);
   let trendFilter = $state<TrendFilter>("all");
   let exportCopied = $state(false);
+  let machineFilter = $state("all");
 
   onMount(async () => {
     try {
@@ -68,14 +70,30 @@
     }
   });
 
-  let all = $derived(vm?.points ?? []);
+  let tracks = $derived(vm?.tracks ?? []);
+  let activeTrack = $derived(
+    machineFilter === "all"
+      ? (tracks.length === 1 ? tracks[0]! : null)
+      : (tracks.find((track) => track.machineName === machineFilter) ?? null),
+  );
+  let all = $derived(
+    activeTrack === null
+      ? tracks.flatMap((track) => track.points).sort((a, b) => a.chartMs - b.chartMs)
+      : activeTrack.points,
+  );
   let rangeAnchor = $derived(windowAnchorDate(all, new Date()));
   let visible = $derived(windowPoints(all, query.range, rangeAnchor));
+  let visibleTracks = $derived(
+    tracks
+      .filter((track) => machineFilter === "all" || track.machineName === machineFilter)
+      .map((track) => ({ ...track, points: windowPoints(track.points, query.range, rangeAnchor) }))
+      .filter((track) => track.points.length > 0),
+  );
   let currentResultId = $derived(source.kind === "result" ? source.resultId : null);
   let outlierCount = $derived(visible.filter((p) => p.stats.isOutlier).length);
   let stepCount = $derived(visible.filter((p) => p.stats.isStep || p.stats.beginsChange).length);
   let flagTargets = $derived(flaggedPointTargets(visible));
-  let rows = $derived(filteredTableRows(visible, trendFilter));
+  let rows = $derived(filteredTableRows(visibleTracks, trendFilter));
   let displayedRows = $derived(rows.slice(Math.max(0, rows.length - rowLimit)));
   let hiddenRowCount = $derived(Math.max(0, rows.length - displayedRows.length));
   let selected = $derived(selectedIndex === null ? null : (visible[selectedIndex] ?? null));
@@ -118,6 +136,7 @@
   $effect(() => {
     void query.range;
     void trendFilter;
+    void machineFilter;
     selectedIndex = null;
     rowLimit = TREND_TABLE_INITIAL_ROWS;
     exportCopied = false;
@@ -129,8 +148,8 @@
   });
 
   function basePath(): string {
-    return source.kind === "fingerprint"
-      ? `/series/${source.fingerprint}`
+    return source.kind === "benchmark"
+      ? `/series/${source.benchmarkId}`
       : `/benchmarks/history/${source.resultId}`;
   }
 
@@ -157,22 +176,26 @@
     return true;
   }
 
-  function filteredTableRows(points: SeriesPoint[], filter: TrendFilter): TableRow[] {
-    return points.flatMap((point, index) => {
-      if (!pointMatchesFilter(point, filter)) return [];
-      return [
-        {
-          index,
-          resultId: point.resultId,
-          commitHash: point.commitHash,
-          commitMessage: point.commitMessage,
-          svs: point.svs,
-          unit: point.unit,
-          z: point.stats.z,
-          flags: flagsText(point.stats),
-        },
-      ];
-    });
+  function filteredTableRows(sourceTracks: typeof visibleTracks, filter: TrendFilter): TableRow[] {
+    return sourceTracks
+      .flatMap((track) => track.points.map((point) => ({ point, machineName: track.machineName })))
+      .sort((a, b) => a.point.chartMs - b.point.chartMs)
+      .flatMap(({ point, machineName }, index) => {
+        if (!pointMatchesFilter(point, filter)) return [];
+        return [
+          {
+            index,
+            resultId: point.resultId,
+            commitHash: point.commitHash,
+            commitMessage: point.commitMessage,
+            svs: point.svs,
+            unit: point.unit,
+            z: point.stats.z,
+            flags: flagsText(point.stats),
+            machineName,
+          },
+        ];
+      });
   }
 
   function flaggedPointTargets(points: SeriesPoint[]): FlagTarget[] {
@@ -260,7 +283,7 @@
           <h1>{vm.identity.benchmarkName}</h1>
           <div class="ident page-subtitle">
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
-            <span>machine {vm.identity.hardwareName}</span>
+            <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
             <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
             {#if vm.identity.unit !== null}
               <span>
@@ -272,8 +295,7 @@
           </div>
         </div>
         <div class="page-meta">
-          <span>{vm.identity.hardwareName}</span>
-          <span title={vm.identity.fingerprint}>series {vm.identity.displayFingerprint}</span>
+          <span title={vm.identity.benchmarkId}>benchmark {vm.identity.displayBenchmarkId}</span>
         </div>
       </header>
       {#if !vm.unitConsistent}
@@ -283,10 +305,21 @@
         </div>
       {/if}
 
-      <EnvironmentDetails context={vm.identity.context} label="Environment and configuration" />
+      {#if activeTrack !== null && activeTrack.segments.length > 0}
+        <EnvironmentDetails context={activeTrack.segments[activeTrack.segments.length - 1]!.context} label="Selected machine environment" />
+      {/if}
 
     {#if all.length > 0}
     <div class="toolbar controls">
+      <label class="filter-label">
+        machine
+        <select bind:value={machineFilter}>
+          <option value="all">all machines</option>
+          {#each vm.tracks as track (track.machineName)}
+            <option value={track.machineName}>{track.machineName}</option>
+          {/each}
+        </select>
+      </label>
       <label class="filter-label">
         range
         <select
@@ -406,14 +439,18 @@
         </button>
       </p>
     {:else}
-      <SeriesChart
-        points={visible}
-        axis={query.axis}
-        sigma={query.sigma}
-        {selectedIndex}
-        {currentResultId}
-        onselect={select}
-      />
+      {#if machineFilter === "all" && visibleTracks.length > 1}
+        <FleetSeriesChart tracks={visibleTracks} axis={query.axis} />
+      {:else}
+        <SeriesChart
+          points={visible}
+          axis={query.axis}
+          sigma={query.sigma}
+          {selectedIndex}
+          {currentResultId}
+          onselect={select}
+        />
+      {/if}
       {#if selected !== null}
         <!-- @const pins the narrowed point: TS narrowing on the nullable $derived
              does not survive into the onclick closure. -->
