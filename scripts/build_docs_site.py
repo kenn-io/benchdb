@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import importlib
+import re
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 
 class DocsSiteError(Exception):
     pass
+
+
+MARKDOWN_LINK_RE = re.compile(r"(?P<prefix>!?\[[^\]\n]*\]\()(?P<target>[^)\n]+)(?P<suffix>\))")
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -59,6 +64,21 @@ def markdown_twin_url(config: dict[str, Any], page: Path) -> str:
     return f"{docs_url}/{page.as_posix()}"
 
 
+def root_markdown_twin(source: str) -> str:
+    def rewrite(match: re.Match[str]) -> str:
+        target, separator, title = match.group("target").partition(" ")
+        parsed = urlsplit(target)
+        if parsed.scheme or parsed.netloc or target.startswith(("/", "#")) or not parsed.path.endswith(".md"):
+            return match.group(0)
+
+        path = parsed.path.removeprefix("./")
+        destination = urlunsplit(("", "", f"/docs/{path}", parsed.query, parsed.fragment))
+        rewritten_target = destination if not separator else f"{destination}{separator}{title}"
+        return f'{match.group("prefix")}{rewritten_target}{match.group("suffix")}'
+
+    return MARKDOWN_LINK_RE.sub(rewrite, source)
+
+
 def stage_site_root(
     docs_source: Path,
     website_source: Path,
@@ -73,7 +93,10 @@ def stage_site_root(
             raise DocsSiteError(f"published docs source is missing: {page.as_posix()}")
         twin = markdown_twin_path(site_root, page)
         twin.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, twin)
+        contents = source.read_text(encoding="utf-8")
+        if page == Path("index.md"):
+            contents = root_markdown_twin(contents)
+        twin.write_text(contents, encoding="utf-8")
     shutil.copy2(llms_source, site_root / "llms.txt")
 
 

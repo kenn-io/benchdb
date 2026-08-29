@@ -32,6 +32,11 @@ docs-assets:
 
 .PHONY: build-docs
 build-docs: check-zensical-version docs-link-check docs-screenshots-check docs-assets
+
+.PHONY: build-docs-ci
+build-docs-ci: check-zensical-version docs-link-check docs-screenshots-check
+
+build-docs build-docs-ci:
 	rm -rf site
 	$(ZENSICAL) build
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/build_docs_site.py

@@ -36,7 +36,13 @@ class BuildDocsSiteTest(unittest.TestCase):
         self.website.joinpath("guide").mkdir(parents=True)
         self.website.joinpath("index.html").write_text("<h1>Home</h1>\n", encoding="utf-8")
         self.website.joinpath("guide/index.html").write_text("<h1>Guide</h1>\n", encoding="utf-8")
-        self.docs.joinpath("index.md").write_text("# Docs\n", encoding="utf-8")
+        self.docs.joinpath("index.md").write_text(
+            "# Docs\n\n"
+            "[Quickstart](quickstart.md)\n\n"
+            "[Automation](agents.md#agent-workflow)\n\n"
+            "[Website](https://benchdb.example/)\n",
+            encoding="utf-8",
+        )
         self.docs.joinpath("quickstart.md").write_text("# Quickstart\n", encoding="utf-8")
         self.docs.joinpath("agents.md").write_text("# Agents\n", encoding="utf-8")
         self.docs.joinpath("private-notes.md").write_text("# Private\n", encoding="utf-8")
@@ -57,6 +63,10 @@ class BuildDocsSiteTest(unittest.TestCase):
         verify_site_root(self.site, self.config)
 
         self.assertEqual(markdown_twin_path(self.site, Path("index.md")), self.site / "docs.md")
+        root_twin = self.site.joinpath("docs.md").read_text(encoding="utf-8")
+        self.assertIn("[Quickstart](/docs/quickstart.md)", root_twin)
+        self.assertIn("[Automation](/docs/agents.md#agent-workflow)", root_twin)
+        self.assertIn("[Website](https://benchdb.example/)", root_twin)
         self.assertEqual(
             self.site.joinpath("docs/agents.md").read_text(encoding="utf-8"),
             "# Agents\n",
