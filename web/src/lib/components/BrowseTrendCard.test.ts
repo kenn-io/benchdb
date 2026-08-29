@@ -30,7 +30,7 @@ const row: BrowseRow = {
 };
 
 describe("BrowseTrendCard", () => {
-  it("spaces preview points by calendar time and opens the full trend", async () => {
+  it("spaces preview points by calendar time, labels the range, and explains hovered points", async () => {
     const onopen = vi.fn();
     const { container } = render(BrowseTrendCard, { props: { row, onopen } });
 
@@ -39,6 +39,15 @@ describe("BrowseTrendCard", () => {
     const xValues = [...(path?.matchAll(/[ML]([\d.]+),/g) ?? [])].map((match) => Number(match[1]));
     expect(xValues).toHaveLength(3);
     expect(xValues[1]! - xValues[0]!).toBeLessThan((xValues[2]! - xValues[1]!) / 5);
+
+    const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+    expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual([
+      dateFormat.format(Date.parse("2024-01-01T00:00:00Z")),
+      dateFormat.format(Date.parse("2024-01-11T00:00:00Z")),
+    ]);
+
+    await fireEvent.pointerEnter(container.querySelector(".point-hit")!);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/m5.*10 s/i);
 
     await fireEvent.click(screen.getByRole("button", { name: /open trend daily-usage/i }));
     expect(onopen).toHaveBeenCalledWith(row);
