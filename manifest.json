@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "file": "benchmark-series.png",
+      "bytes": 110049,
+      "width": 1440,
+      "height": 900,
+      "sha256": "61b3b8771b15b6e3c3a0a046679f7d61df77150e795891809594b93e2abaa361",
+      "source_revision": "0b0b1ff1812fd929d613880c00713c961084841d",
+      "route": "/series/:benchmark-id?range=all",
+      "data_source": "deterministic synthetic benchmark corpus ingested by the BenchDB server"
+    }
+  ]
+}
