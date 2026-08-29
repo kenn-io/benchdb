@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { SearchInput } from "@kenn-io/kit-ui/search-input";
+  import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
+  import { Toggle } from "@kenn-io/kit-ui/toggle";
+  import { onDestroy } from "svelte";
+
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
   import { sortRows, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
   import { formatBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
+  import BrowseTrendCard from "./BrowseTrendCard.svelte";
 
   let {
     query,
@@ -26,15 +32,17 @@
   let errorMsg = $state<string | null>(null);
   let moreErrorMsg = $state<string | null>(null);
   let sort = $state<SortSpec | null>(null);
-  let machineFilter = $state("");
+  let searchFilter = $state("");
   let repositoryFilter = $state("");
   let exactFiltersOpen = $state(false);
+  let chartView = $state(false);
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   // Monotonic token: a stale response (filters changed mid-flight) must not
   // overwrite a newer page.
   let reqToken = 0;
 
   $effect(() => {
-    machineFilter = query.hardware;
+    searchFilter = query.q;
     repositoryFilter = query.repository;
     void load(query);
   });
@@ -96,10 +104,23 @@
     });
   }
 
-  function submitMachineFilter(e: SubmitEvent) {
-    e.preventDefault();
-    setFilter({ hardware: machineFilter.trim() });
+  function updateSearch(value: string) {
+    searchFilter = value;
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const q = value.trim();
+      if (q !== query.q) setFilter({ q });
+    }, 250);
   }
+
+  function clearSearch() {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    if (query.q !== "") setFilter({ q: "" });
+  }
+
+  onDestroy(() => {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+  });
 
   function toggleSort(key: SortKey) {
     if (sort?.key !== key) {
@@ -122,6 +143,14 @@
   }
 
   let visible = $derived(sortRows(rows, sort));
+  let machineOptions = $derived.by((): SelectDropdownOption[] => {
+    const names = new Set(rows.flatMap((row) => row.machineNames));
+    if (query.hardware !== "") names.add(query.hardware);
+    return [
+      { value: "", label: "All machines" },
+      ...[...names].sort().map((name) => ({ value: name, label: name })),
+    ];
+  });
   const windowLabel: Record<BrowseWindow, string> = {
     all: "all time",
     "30d": "last 30 days",
@@ -183,6 +212,25 @@
 
   <div class="panel browse-filters">
     <div class="primary-filters">
+      <div class="benchmark-search">
+        <SearchInput
+          bind:value={searchFilter}
+          placeholder="Search benchmarks…"
+          ariaLabel="Search benchmarks"
+          oninput={updateSearch}
+          onclear={clearSearch}
+          block
+        />
+      </div>
+      <label class="filter-label machine-select">
+        Machine
+        <SelectDropdown
+          value={query.hardware}
+          options={machineOptions}
+          title="Machine"
+          onchange={(hardware) => setFilter({ hardware })}
+        />
+      </label>
       <div class="filter-row" role="group" aria-label="Series time window">
         <span class="filter-row-label">Window</span>
         <div class="segmented-control">
@@ -198,13 +246,7 @@
           {/each}
         </div>
       </div>
-      <form class="machine-filter-form" onsubmit={submitMachineFilter}>
-        <label class="filter-label">
-          Machine
-          <input type="text" bind:value={machineFilter} placeholder="benchmark-host-a" autocomplete="off" />
-        </label>
-        <button type="submit" class="button-pill">Apply</button>
-      </form>
+      <Toggle checked={chartView} label="Trend charts" onchange={(checked) => (chartView = checked)} />
     </div>
     {#if activeFilters.length > 0}
       <button type="button" class="button-pill secondary" onclick={() => navigate("/series")}>Clear filters</button>
@@ -270,7 +312,15 @@
       <p>Clear active filters or use the global search to open a benchmark family.</p>
     </section>
   {:else}
-    <BrowseTable rows={visible} {sort} onsort={toggleSort} onopen={open} />
+    {#if chartView}
+      <section class="trend-grid" aria-label="Benchmark trend cards">
+        {#each visible as row (row.benchmarkId)}
+          <BrowseTrendCard {row} onopen={open} />
+        {/each}
+      </section>
+    {:else}
+      <BrowseTable rows={visible} {sort} onsort={toggleSort} onopen={open} />
+    {/if}
     {#if sort !== null}
       <p class="scope-note">Sorting applies to loaded rows. Load more for a broader local sort.</p>
     {/if}
@@ -308,22 +358,20 @@
     padding: 10px 12px;
   }
 
-  .primary-filters,
-  .machine-filter-form {
+  .primary-filters {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 10px;
   }
 
-  .machine-filter-form input {
-    min-height: 30px;
-    width: 160px;
-    padding: 0 9px;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    color: var(--c-text);
+  .benchmark-search { width: min(320px, 100%); }
+  .machine-select { min-width: 180px; }
+  .machine-select :global(.kit-select-dropdown__trigger) { width: 100%; }
+  .trend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    gap: 10px;
   }
 
   .filter-row {

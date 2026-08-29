@@ -547,6 +547,7 @@ type HistoryRow struct {
 	InfoTags           []byte
 	ChangeAnnotations  []byte
 	HardwareHash       string
+	HardwareName       string
 	CommitSha          string
 	CommitRepository   string
 	CommitMessage      string

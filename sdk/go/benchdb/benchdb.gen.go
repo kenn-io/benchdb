@@ -241,21 +241,22 @@ type BenchmarkHistory struct {
 
 // BenchmarkListItem defines model for BenchmarkListItem.
 type BenchmarkListItem struct {
-	BenchmarkId                  string                  `json:"benchmark_id"`
-	LatestCommitSha              string                  `json:"latest_commit_sha"`
-	LatestCommitTimestamp        time.Time               `json:"latest_commit_timestamp"`
-	LatestResultId               string                  `json:"latest_result_id"`
-	LatestResultTimestamp        time.Time               `json:"latest_result_timestamp"`
-	LatestSingleValueSummary     *float64                `json:"latest_single_value_summary"`
-	LatestSingleValueSummaryType *string                 `json:"latest_single_value_summary_type"`
-	LessIsBetter                 *bool                   `json:"less_is_better"`
-	MachineNames                 *[]string               `json:"machine_names"`
-	Name                         string                  `json:"name"`
-	PointCount                   int64                   `json:"point_count"`
-	Repository                   string                  `json:"repository"`
-	Status                       BenchmarkListItemStatus `json:"status"`
-	Tags                         map[string]interface{}  `json:"tags"`
-	Unit                         *string                 `json:"unit"`
+	BenchmarkId                  string                   `json:"benchmark_id"`
+	LatestCommitSha              string                   `json:"latest_commit_sha"`
+	LatestCommitTimestamp        time.Time                `json:"latest_commit_timestamp"`
+	LatestResultId               string                   `json:"latest_result_id"`
+	LatestResultTimestamp        time.Time                `json:"latest_result_timestamp"`
+	LatestSingleValueSummary     *float64                 `json:"latest_single_value_summary"`
+	LatestSingleValueSummaryType *string                  `json:"latest_single_value_summary_type"`
+	LessIsBetter                 *bool                    `json:"less_is_better"`
+	MachineNames                 *[]string                `json:"machine_names"`
+	Name                         string                   `json:"name"`
+	PointCount                   int64                    `json:"point_count"`
+	PreviewTracks                *[]BenchmarkPreviewTrack `json:"preview_tracks"`
+	Repository                   string                   `json:"repository"`
+	Status                       BenchmarkListItemStatus  `json:"status"`
+	Tags                         map[string]interface{}   `json:"tags"`
+	Unit                         *string                  `json:"unit"`
 }
 
 // BenchmarkListItemStatus defines model for BenchmarkListItem.Status.
@@ -267,6 +268,18 @@ type BenchmarkPage struct {
 	Schema         *string              `json:"$schema,omitempty"`
 	Benchmarks     *[]BenchmarkListItem `json:"benchmarks"`
 	NextPageCursor *string              `json:"next_page_cursor"`
+}
+
+// BenchmarkPreviewPoint defines model for BenchmarkPreviewPoint.
+type BenchmarkPreviewPoint struct {
+	CommitTimestamp time.Time `json:"commit_timestamp"`
+	Value           float64   `json:"value"`
+}
+
+// BenchmarkPreviewTrack defines model for BenchmarkPreviewTrack.
+type BenchmarkPreviewTrack struct {
+	MachineName string                   `json:"machine_name"`
+	Points      *[]BenchmarkPreviewPoint `json:"points"`
 }
 
 // BenchmarkSegment defines model for BenchmarkSegment.

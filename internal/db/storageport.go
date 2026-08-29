@@ -421,6 +421,7 @@ func seriesMembersRowsFromRows(rows []SelectSeriesMembersRow) []storage.HistoryR
 			Data:               r.Data,
 			ChangeAnnotations:  r.ChangeAnnotations,
 			HardwareHash:       r.HardwareHash,
+			HardwareName:       r.HardwareName,
 			CommitSha:          r.CommitSha,
 			CommitRepository:   r.CommitRepository,
 			CommitMessage:      r.CommitMessage,

@@ -136,11 +136,12 @@ describe("TrendPage", () => {
       },
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
-    expect(screen.getByRole("button", { name: /^all machines/i })).toHaveClass("active");
+    const machineSelect = screen.getByRole("combobox", { name: /machine: all machines/i });
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-tracks", "2");
     expect(screen.getByRole("columnheader", { name: "machine" })).toBeInTheDocument();
 
-    await fireEvent.click(screen.getByRole("button", { name: /^m7/i }));
+    await fireEvent.click(machineSelect);
+    await fireEvent.click(screen.getByRole("option", { name: /m7/i }));
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-points", "1");
     expect(screen.getByText("Selected machine environment")).toBeInTheDocument();
   });

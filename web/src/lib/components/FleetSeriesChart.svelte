@@ -33,6 +33,7 @@
   let chart: uPlot | undefined;
   let resizeObserver: ResizeObserver | undefined;
   let hovered = $state<{ point: SeriesPoint; machineName: string } | null>(null);
+  let zoomWindow = $state<{ min: number; max: number } | null>(null);
   let tip = $state<{
     left: number;
     top: number;
@@ -177,14 +178,20 @@
       bands.push({ series: [valueIndex + 2, valueIndex + 3], fill: `${color}20` });
     });
     const unit = tracks[0]?.points[0]?.unit ?? null;
+    const xScale: uPlot.Scale = { time: true };
+    if (zoomWindow !== null) {
+      const { min, max } = zoomWindow;
+      xScale.range = () => [min, max];
+    }
     return {
       width,
       height,
       legend: { show: false },
       scales: {
-        x: { time: true },
+        x: xScale,
         y: range === null ? {} : { range: () => [range.min, range.max] },
       },
+      cursor: { drag: { x: true, y: false, dist: 8, setScale: true } },
       series,
       bands,
       axes: [
@@ -199,6 +206,7 @@
         },
       ],
       hooks: {
+        setSelect: [rememberZoom],
         setCursor: [
           (u) => {
             const target = closestPoint(u, data);
@@ -246,6 +254,23 @@
     if (hovered !== null) onopen?.(hovered.point.resultId);
   }
 
+  function rememberZoom(u: uPlot) {
+    if (u.select.width < 8) return;
+    const left = u.posToVal(u.select.left, "x");
+    const right = u.posToVal(u.select.left + u.select.width, "x");
+    if (!Number.isFinite(left) || !Number.isFinite(right) || left === right) return;
+    zoomWindow = { min: Math.min(left, right), max: Math.max(left, right) };
+    hovered = null;
+    tip = null;
+  }
+
+  function resetZoom() {
+    const xs = tracks.flatMap((track) => track.points.map((point) => point.chartMs / 1000));
+    if (chart === undefined || xs.length === 0) return;
+    zoomWindow = null;
+    chart.setScale("x", { min: Math.min(...xs), max: Math.max(...xs) });
+  }
+
   function trackSummary(track: MachineTrack): string {
     const latest = track.points[track.points.length - 1];
     const count = `${track.points.length} ${track.points.length === 1 ? "result" : "results"}`;
@@ -255,12 +280,22 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="fleet-chart" aria-label="Fleet benchmark trend" bind:this={chartWrap} onclick={openHoveredPoint}>
-  <div class="legend" aria-hidden="true">
-    {#each tracks as track, i (track.machineName)}
-      <span><i class="machine" style={`background:${palette[i % palette.length]}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
-    {/each}
-    <span><i class="mean"></i>rolling mean</span>
-    <span><i class="band"></i>{sigma}σ range</span>
+  <div class="chart-heading">
+    <div class="legend" aria-hidden="true">
+      {#each tracks as track, i (track.machineName)}
+        <span><i class="machine" style={`background:${palette[i % palette.length]}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
+      {/each}
+      <span><i class="mean"></i>rolling mean</span>
+      <span><i class="band"></i>{sigma}σ range</span>
+    </div>
+    <div class="zoom-controls">
+      {#if zoomWindow === null}
+        <span>Drag horizontally to zoom</span>
+      {:else}
+        <span>Zoomed</span>
+        <button type="button" onclick={resetZoom}>Reset zoom</button>
+      {/if}
+    </div>
   </div>
   <div bind:this={host}></div>
   {#if tip}
@@ -289,12 +324,12 @@
     cursor: pointer;
   }
   .fleet-chart :global(.uplot) { width: 100% !important; }
+  .fleet-chart :global(.u-over) { cursor: crosshair; }
   .legend {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 14px;
-    margin-bottom: 6px;
     color: var(--c-text-muted);
     font-size: 0.72rem;
   }
@@ -303,6 +338,30 @@
   .legend i { display: inline-block; width: 14px; height: 2px; border-radius: 999px; }
   .legend .mean { border-top: 2px dashed var(--c-text-muted); height: 0; }
   .legend .band { height: 8px; background: color-mix(in srgb, var(--c-accent) 18%, transparent); }
+  .chart-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    color: var(--c-text-muted);
+    font-size: 0.72rem;
+  }
+  .zoom-controls button {
+    padding: 3px 7px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+  }
   .tip {
     position: absolute;
     z-index: 6;

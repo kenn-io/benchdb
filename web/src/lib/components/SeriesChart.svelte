@@ -60,6 +60,7 @@
   let hoverIndex = $state<number | null>(null);
   let resizeObserver: ResizeObserver | undefined;
   let plotBox = $state({ left: 0, top: 0, width: 0, height: 0 });
+  let zoomWindow = $state<{ min: number; max: number } | null>(null);
 
   /** cssVar resolves a design token for canvas drawing (canvas cannot read CSS
    * custom properties); the fallback keeps jsdom and detached nodes working. */
@@ -157,8 +158,12 @@
 
   function overlayX(point: SeriesPoint): number {
     if (points.length === 1) return plotBox.width / 2;
-    const first = points[0]?.chartMs ?? point.chartMs;
-    const last = points[points.length - 1]?.chartMs ?? point.chartMs;
+    const first = zoomWindow?.min === undefined
+      ? (points[0]?.chartMs ?? point.chartMs)
+      : zoomWindow.min * 1000;
+    const last = zoomWindow?.max === undefined
+      ? (points[points.length - 1]?.chartMs ?? point.chartMs)
+      : zoomWindow.max * 1000;
     const span = last - first || 1;
     return ((point.chartMs - first) / span) * plotBox.width;
   }
@@ -357,14 +362,20 @@
       stroke: axisColor,
       grid: { stroke: gridColor, width: 1 },
     };
+    const xScale: uPlot.Scale = { time: true };
+    if (zoomWindow !== null) {
+      const { min, max } = zoomWindow;
+      xScale.range = () => [min, max];
+    }
     return {
       width,
       height,
       legend: { show: false },
       scales: {
-        x: { time: true },
+        x: xScale,
         y: yRange === null ? {} : { range: () => [yRange.min, yRange.max] },
       },
+      cursor: { drag: { x: true, y: false, dist: 8, setScale: true } },
       series: [
         {},
         { label: "result value", stroke: accent, width: 2, points: { show: false } },
@@ -387,6 +398,7 @@
       ],
       hooks: {
         ready: [() => requestAnimationFrame(syncPlotBox)],
+        setSelect: [rememberZoom],
         drawClear: [drawSegments],
         draw: [drawSteps, drawMarked, drawSelection],
         setCursor: [
@@ -464,20 +476,49 @@
       onopen?.(points[hoverIndex]!.resultId);
     }
   }
+
+  function rememberZoom(u: uPlot) {
+    if (u.select.width < 8) return;
+    const left = u.posToVal(u.select.left, "x");
+    const right = u.posToVal(u.select.left + u.select.width, "x");
+    if (!Number.isFinite(left) || !Number.isFinite(right) || left === right) return;
+    zoomWindow = { min: Math.min(left, right), max: Math.max(left, right) };
+    hoverIndex = null;
+    tip = null;
+  }
+
+  function resetZoom() {
+    if (chart === undefined || points.length === 0) return;
+    zoomWindow = null;
+    chart.setScale("x", {
+      min: points[0]!.chartMs / 1000,
+      max: points[points.length - 1]!.chartMs / 1000,
+    });
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <!-- The chart is a pointer-driven visualization; keyboard-accessible selection and
      navigation are provided by the DetailTable rows/links that share state. -->
 <div class="chart-wrap" class:clickable={onopen !== undefined} bind:this={chartWrap} onclick={selectAtCursor}>
-  <div class="legend" aria-hidden="true">
-    <span><i class="svs"></i>result value</span>
-    <span><i class="raw"></i>repetitions</span>
-    <span><i class="inlier"></i>inlier</span>
-    <span><i class="outlier"></i>outlier</span>
-    {#if currentResultId !== null}<span><i class="current"></i>current</span>{/if}
-    <span><i class="mean"></i>rolling mean</span>
-    <span><i class="band"></i>{sigma}σ band</span>
+  <div class="chart-heading">
+    <div class="legend" aria-hidden="true">
+      <span><i class="svs"></i>result value</span>
+      <span><i class="raw"></i>repetitions</span>
+      <span><i class="inlier"></i>inlier</span>
+      <span><i class="outlier"></i>outlier</span>
+      {#if currentResultId !== null}<span><i class="current"></i>current</span>{/if}
+      <span><i class="mean"></i>rolling mean</span>
+      <span><i class="band"></i>{sigma}σ band</span>
+    </div>
+    <div class="zoom-controls">
+      {#if zoomWindow === null}
+        <span>Drag horizontally to zoom</span>
+      {:else}
+        <span>Zoomed</span>
+        <button type="button" onclick={resetZoom}>Reset zoom</button>
+      {/if}
+    </div>
   </div>
   <div class="plot-host" bind:this={plotHost}>
     <div bind:this={host}></div>
@@ -556,15 +597,39 @@
   .chart-wrap :global(.uplot) {
     width: 100% !important;
   }
+  .chart-wrap :global(.u-over) { cursor: crosshair; }
   .plot-host {
     position: relative;
+  }
+  .chart-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    color: var(--c-text-muted);
+    font-size: 0.72rem;
+  }
+  .zoom-controls button {
+    padding: 3px 7px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
   }
   .legend {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
-    margin-bottom: 6px;
     color: var(--c-text-muted);
     font-size: 0.72rem;
   }

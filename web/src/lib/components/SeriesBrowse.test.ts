@@ -25,6 +25,15 @@ const item = (fp: string, name: string, overrides: Record<string, unknown> = {})
   latest_commit_timestamp: "2024-01-07T12:00:00Z",
   latest_result_timestamp: "2024-01-07T13:00:00Z",
   point_count: 6,
+  preview_tracks: [
+    {
+      machine_name: "m5",
+      points: [
+        { commit_timestamp: "2024-01-01T12:00:00Z", value: 1.2 },
+        { commit_timestamp: "2024-01-07T12:00:00Z", value: 1.5 },
+      ],
+    },
+  ],
   ...overrides,
 });
 
@@ -130,13 +139,18 @@ describe("SeriesBrowse", () => {
     expect(window.location.search).toBe("?window=3mo");
   });
 
-  it("keeps machine filtering visible and repository filtering advanced", async () => {
-    GET.mockResolvedValue({ data: { benchmarks: [], next_page_cursor: null } });
+  it("uses the primary search and machine controls while keeping repository filtering advanced", async () => {
+    GET.mockResolvedValue({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series");
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
-    await waitFor(() => screen.getByText(/no series match/i));
+    await waitFor(() => screen.getByRole("link", { name: "demo" }));
 
-    expect(screen.getByLabelText(/^machine$/i)).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toBeInTheDocument();
+    const machineSelect = screen.getByRole("combobox", { name: /machine: all machines/i });
+    await fireEvent.click(machineSelect);
+    await fireEvent.click(screen.getByRole("option", { name: "m5" }));
+    expect(window.location.search).toBe("?hardware=m5");
+
     expect(screen.queryByLabelText(/^repository url$/i)).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: /advanced filters/i }));
     await fireEvent.input(screen.getByLabelText(/^repository url$/i), {
@@ -146,6 +160,18 @@ describe("SeriesBrowse", () => {
 
     expect(window.location.pathname).toBe("/series");
     expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow");
+  });
+
+  it("switches from the table to fleet trend cards", async () => {
+    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => screen.getByRole("link", { name: "demo" }));
+
+    await fireEvent.click(screen.getByRole("switch", { name: /trend charts/i }));
+
+    expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("shows active filters and can clear them", async () => {

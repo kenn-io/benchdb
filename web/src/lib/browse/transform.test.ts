@@ -31,6 +31,7 @@ function item(over: Partial<BenchmarkListItem> = {}): BenchmarkListItem {
     latest_commit_timestamp: "2024-01-07T12:00:00Z",
     latest_result_timestamp: "2024-01-07T13:00:00Z",
     point_count: 8,
+    preview_tracks: [],
     ...over,
   };
 }

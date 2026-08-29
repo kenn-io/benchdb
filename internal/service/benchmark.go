@@ -1,30 +1,45 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
 )
 
+const benchmarkPreviewLen = 20
+
+type BenchmarkPreviewPoint struct {
+	CommitTimestamp time.Time `json:"commit_timestamp"`
+	Value           float64   `json:"value"`
+}
+
+type BenchmarkPreviewTrack struct {
+	MachineName string                  `json:"machine_name"`
+	Points      []BenchmarkPreviewPoint `json:"points"`
+}
+
 // BenchmarkListItem is one logical benchmark in the fleet browse response.
 type BenchmarkListItem struct {
-	BenchmarkID           string         `json:"benchmark_id"`
-	Name                  string         `json:"name"`
-	Tags                  map[string]any `json:"tags"`
-	Repository            string         `json:"repository"`
-	Unit                  *string        `json:"unit"`
-	LessIsBetter          *bool          `json:"less_is_better"`
-	Status                string         `json:"status" enum:"regressed,improved,stable,insufficient"`
-	LatestResultID        string         `json:"latest_result_id"`
-	LatestSVS             *float64       `json:"latest_single_value_summary"`
-	LatestSVSType         *string        `json:"latest_single_value_summary_type"`
-	MachineNames          []string       `json:"machine_names"`
-	LatestCommitSha       string         `json:"latest_commit_sha"`
-	LatestCommitTimestamp time.Time      `json:"latest_commit_timestamp"`
-	LatestResultTimestamp time.Time      `json:"latest_result_timestamp"`
-	PointCount            int64          `json:"point_count"`
+	BenchmarkID           string                  `json:"benchmark_id"`
+	Name                  string                  `json:"name"`
+	Tags                  map[string]any          `json:"tags"`
+	Repository            string                  `json:"repository"`
+	Unit                  *string                 `json:"unit"`
+	LessIsBetter          *bool                   `json:"less_is_better"`
+	Status                string                  `json:"status" enum:"regressed,improved,stable,insufficient"`
+	LatestResultID        string                  `json:"latest_result_id"`
+	LatestSVS             *float64                `json:"latest_single_value_summary"`
+	LatestSVSType         *string                 `json:"latest_single_value_summary_type"`
+	MachineNames          []string                `json:"machine_names"`
+	LatestCommitSha       string                  `json:"latest_commit_sha"`
+	LatestCommitTimestamp time.Time               `json:"latest_commit_timestamp"`
+	LatestResultTimestamp time.Time               `json:"latest_result_timestamp"`
+	PointCount            int64                   `json:"point_count"`
+	PreviewTracks         []BenchmarkPreviewTrack `json:"preview_tracks"`
 }
 
 type BenchmarkQuery struct {
@@ -123,6 +138,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 			MachineNames:  row.MachineNames, LatestCommitSha: row.LatestCommitSha,
 			LatestCommitTimestamp: row.LatestCommitTimestamp,
 			LatestResultTimestamp: row.LatestResultTimestamp, PointCount: row.PointCount,
+			PreviewTracks: benchmarkPreview(row.HistoryFingerprints, byFingerprint),
 		})
 	}
 	result := &BenchmarkResult{Benchmarks: items}
@@ -131,6 +147,43 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		result.NextCursor = &BenchmarkCursor{Ts: last.LatestCommitTimestamp, ID: last.BenchmarkID}
 	}
 	return result, nil
+}
+
+func benchmarkPreview(
+	fingerprints []string,
+	members map[string][]storage.HistoryRow,
+) []BenchmarkPreviewTrack {
+	byMachine := make(map[string][]BenchmarkPreviewPoint)
+	for _, fingerprint := range fingerprints {
+		for _, member := range members[fingerprint] {
+			if member.CommitTimestamp == nil || member.HardwareName == "" {
+				continue
+			}
+			value, _, err := historySVS(member.Unit, member.Data)
+			if err != nil {
+				continue
+			}
+			byMachine[member.HardwareName] = append(byMachine[member.HardwareName], BenchmarkPreviewPoint{
+				CommitTimestamp: *member.CommitTimestamp,
+				Value:           value,
+			})
+		}
+	}
+
+	tracks := make([]BenchmarkPreviewTrack, 0, len(byMachine))
+	for machineName, points := range byMachine {
+		slices.SortFunc(points, func(a, b BenchmarkPreviewPoint) int {
+			return a.CommitTimestamp.Compare(b.CommitTimestamp)
+		})
+		if len(points) > benchmarkPreviewLen {
+			points = points[len(points)-benchmarkPreviewLen:]
+		}
+		tracks = append(tracks, BenchmarkPreviewTrack{MachineName: machineName, Points: points})
+	}
+	slices.SortFunc(tracks, func(a, b BenchmarkPreviewTrack) int {
+		return cmp.Compare(a.MachineName, b.MachineName)
+	})
+	return tracks
 }
 
 func benchmarkStatus(fingerprints []string, members map[string][]storage.HistoryRow) string {

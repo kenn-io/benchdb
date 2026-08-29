@@ -236,6 +236,11 @@ components:
         point_count:
           format: int64
           type: integer
+        preview_tracks:
+          items:
+            $ref: "#/components/schemas/BenchmarkPreviewTrack"
+          nullable: true
+          type: array
         repository:
           type: string
         status:
@@ -267,6 +272,7 @@ components:
         - latest_commit_timestamp
         - latest_result_timestamp
         - point_count
+        - preview_tracks
       type: object
     BenchmarkPage:
       additionalProperties: false
@@ -288,6 +294,33 @@ components:
       required:
         - benchmarks
         - next_page_cursor
+      type: object
+    BenchmarkPreviewPoint:
+      additionalProperties: false
+      properties:
+        commit_timestamp:
+          format: date-time
+          type: string
+        value:
+          format: double
+          type: number
+      required:
+        - commit_timestamp
+        - value
+      type: object
+    BenchmarkPreviewTrack:
+      additionalProperties: false
+      properties:
+        machine_name:
+          type: string
+        points:
+          items:
+            $ref: "#/components/schemas/BenchmarkPreviewPoint"
+          nullable: true
+          type: array
+      required:
+        - machine_name
+        - points
       type: object
     BenchmarkSegment:
       additionalProperties: false

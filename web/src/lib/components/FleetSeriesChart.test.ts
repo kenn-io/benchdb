@@ -9,6 +9,8 @@ const plotState = vi.hoisted(() => ({
   options: undefined as Record<string, unknown> | undefined,
   data: undefined as unknown,
   cursorHook: undefined as ((plot: unknown) => void) | undefined,
+  selectHook: undefined as ((plot: unknown) => void) | undefined,
+  scaleCalls: [] as { key: string; limits: { min: number; max: number } }[],
   instance: undefined as unknown,
 }));
 
@@ -16,18 +18,26 @@ vi.mock("uplot", () => {
   class MockUPlot {
     bbox = { left: 0, top: 0, width: 640, height: 320 };
     cursor = { idx: 0, left: 100, top: 120 };
+    select = { left: 100, top: 0, width: 200, height: 320 };
 
     constructor(options: Record<string, unknown>, data: unknown) {
       plotState.options = options;
       plotState.data = data;
-      const hooks = options["hooks"] as { setCursor?: ((plot: unknown) => void)[] } | undefined;
+      const hooks = options["hooks"] as {
+        setCursor?: ((plot: unknown) => void)[];
+        setSelect?: ((plot: unknown) => void)[];
+      } | undefined;
       plotState.cursorHook = hooks?.setCursor?.[0];
+      plotState.selectHook = hooks?.setSelect?.[0];
       plotState.instance = this;
     }
 
     destroy() {}
     setSize() {}
-    posToVal() { return 1.1; }
+    posToVal(position: number, scale: string) { return scale === "x" ? position : 1.1; }
+    setScale(key: string, limits: { min: number; max: number }) {
+      plotState.scaleCalls.push({ key, limits });
+    }
   }
   return { default: MockUPlot };
 });
@@ -130,6 +140,37 @@ describe("FleetSeriesChart", () => {
     await tick();
 
     expect((plotState.data as [number[]])[0]).toHaveLength(2);
+  });
+
+  it("zooms by horizontal brush and resets to the full time range", async () => {
+    plotState.scaleCalls = [];
+    render(FleetSeriesChart, {
+      props: {
+        tracks: [{
+          machineName: "machine-a",
+          segments: [],
+          points: [
+            point("day-1", 1, "2026-01-01T00:00:00Z"),
+            point("day-11", 3, "2026-01-11T00:00:00Z"),
+          ],
+        }],
+      },
+    });
+    const options = plotState.options as { cursor: { drag: { x: boolean; y: boolean; dist: number } } };
+    expect(options.cursor.drag).toMatchObject({ x: true, y: false, dist: 8 });
+
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    await fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
+
+    expect(plotState.scaleCalls).toEqual([{
+      key: "x",
+      limits: {
+        min: Date.parse("2026-01-01T00:00:00Z") / 1000,
+        max: Date.parse("2026-01-11T00:00:00Z") / 1000,
+      },
+    }]);
+    expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
   });
 
   it("shows the nearest machine point and opens its result on click", async () => {

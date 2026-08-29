@@ -4,6 +4,10 @@
     localDateStr,
     type RangeSelection,
   } from "@kenn-io/kit-ui/date-range-picker";
+  import {
+    SelectDropdown,
+    type SelectDropdownOption,
+  } from "@kenn-io/kit-ui/select-dropdown";
   import { onMount, tick } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -122,6 +126,14 @@
     })),
   );
   let fleetCommitCount = $derived(new Set(fleetPoints.map((point) => point.commitHash)).size);
+  let machineOptions = $derived.by((): SelectDropdownOption[] => [
+    { value: "all", label: `All machines (${fleetPoints.length})`, triggerLabel: "All machines" },
+    ...machineSummaries.map((summary) => ({
+      value: summary.machineName,
+      label: `${summary.machineName} (${summary.pointCount})`,
+      triggerLabel: summary.machineName,
+    })),
+  ]);
   let activeTrack = $derived(
     machineFilter === "all"
       ? (tracks.length === 1 ? tracks[0]! : null)
@@ -397,31 +409,16 @@
       {/if}
 
     {#if all.length > 0}
-    <div class="machine-overview" aria-label="Machine summaries">
-      <button
-        type="button"
-        class="machine-card"
-        class:active={machineFilter === "all"}
-        onclick={() => (machineFilter = "all")}
-      >
-        <span>All machines</span>
-        <strong>{resultCountText(fleetPoints.length)} · {fleetCommitCount} {fleetCommitCount === 1 ? "commit" : "commits"}</strong>
-      </button>
-      {#each machineSummaries as summary (summary.machineName)}
-        <button
-          type="button"
-          class="machine-card"
-          class:active={machineFilter === summary.machineName}
-          onclick={() => (machineFilter = summary.machineName)}
-        >
-          <span>{summary.machineName}</span>
-          <strong>{summary.latest === null ? "—" : formatMeasurement(summary.latest.svs, summary.latest.unit)}</strong>
-          <small>{resultCountText(summary.pointCount)}</small>
-        </button>
-      {/each}
-    </div>
-
     <div class="toolbar controls">
+      <label class="filter-label machine-select">
+        machine
+        <SelectDropdown
+          value={machineFilter}
+          options={machineOptions}
+          title="Machine"
+          onchange={(value) => (machineFilter = value)}
+        />
+      </label>
       <div class="filter-label range-control">
         <span>range</span>
         <DateRangePicker
@@ -672,34 +669,6 @@
   .controls .filter-label {
     min-width: 120px;
   }
-  .machine-overview {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-  }
-  .machine-card {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    flex: 0 0 auto;
-    min-width: 0;
-    padding: 6px 9px;
-    border: 1px solid var(--c-border-muted);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface-subtle);
-    color: var(--c-text-muted);
-    cursor: pointer;
-    text-align: left;
-  }
-  .machine-card:hover { border-color: var(--c-accent); }
-  .machine-card.active {
-    border-color: var(--c-accent);
-    box-shadow: inset 0 -2px 0 var(--c-accent);
-    background: var(--c-accent-soft);
-  }
-  .machine-card span { font-size: 0.75rem; font-weight: 700; }
-  .machine-card strong { color: var(--c-text); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-  .machine-card small { color: var(--c-text-muted); font-size: 0.72rem; }
   .live-status {
     display: flex;
     align-items: center;

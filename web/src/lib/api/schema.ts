@@ -530,6 +530,7 @@ export interface components {
             name: string;
             /** Format: int64 */
             point_count: number;
+            preview_tracks: components["schemas"]["BenchmarkPreviewTrack"][] | null;
             repository: string;
             /** @enum {string} */
             status: "regressed" | "improved" | "stable" | "insufficient";
@@ -547,6 +548,16 @@ export interface components {
             readonly $schema?: string;
             benchmarks: components["schemas"]["BenchmarkListItem"][] | null;
             next_page_cursor: string | null;
+        };
+        BenchmarkPreviewPoint: {
+            /** Format: date-time */
+            commit_timestamp: string;
+            /** Format: double */
+            value: number;
+        };
+        BenchmarkPreviewTrack: {
+            machine_name: string;
+            points: components["schemas"]["BenchmarkPreviewPoint"][] | null;
         };
         BenchmarkSegment: {
             context: {

@@ -20,6 +20,17 @@ export interface BrowseRow {
   commitSha: string;
   commitTimestampMs: number;
   commitDateText: string;
+  previewTracks: BrowsePreviewTrack[];
+}
+
+export interface BrowsePreviewPoint {
+  chartMs: number;
+  value: number;
+}
+
+export interface BrowsePreviewTrack {
+  machineName: string;
+  points: BrowsePreviewPoint[];
 }
 
 /** formatSVS renders an SVS for dense tables: exact grouped integers and
@@ -62,6 +73,13 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
       commitSha: item.latest_commit_sha.slice(0, 7),
       commitTimestampMs: Date.parse(item.latest_commit_timestamp),
       commitDateText: formatDate(item.latest_commit_timestamp, locale),
+      previewTracks: (item.preview_tracks ?? []).map((track) => ({
+        machineName: track.machine_name,
+        points: (track.points ?? []).map((point) => ({
+          chartMs: Date.parse(point.commit_timestamp),
+          value: point.value,
+        })),
+      })),
     };
   });
 }
