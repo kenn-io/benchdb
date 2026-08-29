@@ -1,21 +1,21 @@
 {
-  "tags": {"name": "demo-benchmark", "dataset": "uniform"},
-  "context": {"compiler": "gcc-13", "optimization": "O2"},
-  "info": {"benchmark_language": "C++"},
+  "tags": {"name": "ingest-events-10m", "dataset": "10m-events", "metric": "wall-time"},
+  "context": {"runtime": "go1.27", "workers": 8},
+  "info": {"benchmark_language": "Go"},
   "machine_info": {
-    "name": "demo-runner",
+    "name": "runner-arm64",
     "architecture_name": "arm64",
     "os_name": "Linux",
-    "cpu_model_name": "Demo CPU",
-    "cpu_core_count": 10,
-    "cpu_thread_count": 10,
-    "memory_bytes": 34359738368,
+    "cpu_model_name": "Neoverse V2",
+    "cpu_core_count": 16,
+    "cpu_thread_count": 16,
+    "memory_bytes": 68719476736,
     "gpu_count": 0
   },
   "github": {"commit": "commit-06", "repository": "https://github.com/benchdb/demo"},
   "run_id": "e2e-run-06",
   "run_name": "nightly",
   "batch_id": "e2e-batch-06",
-  "timestamp": "2024-01-07T12:00:00Z",
-  "stats": {"data": [1.50, 1.52, 1.54], "unit": "s"}
+  "timestamp": "2026-08-15T12:00:00Z",
+  "stats": {"data": [89.1, 89.5, 89.8], "unit": "s"}
 }

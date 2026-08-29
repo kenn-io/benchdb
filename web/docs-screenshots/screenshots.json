@@ -19,7 +19,7 @@
     {
       "id": "series",
       "title": "Series browse",
-      "path": "/series?q=demo-benchmark",
+      "path": "/series?q=ingest-events-10m",
       "purpose": "Browse benchmark families, filters, status, and production-shaped identifiers."
     },
     {

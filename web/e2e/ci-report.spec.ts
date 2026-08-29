@@ -12,7 +12,7 @@ test("ci report renders seeded regression and action-required reports", async ({
   await expect(page.getByText(/lookback regression detected/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: targets.regression.runID })).toBeVisible();
   await expect(page.locator(".row-status.regressed").first()).toHaveText("regressed");
-  await expect(page.locator("table.comparisons tbody tr").first()).toContainText("demo-benchmark");
+  await expect(page.locator("table.comparisons tbody tr").first()).toContainText("ingest-events-10m");
 
   await page.goto(`${baseURL}/ci/report?${reportQuery(targets.actionRequired)}`);
   await expect(page.getByRole("heading", { name: targets.actionRequired.repository })).toBeVisible();

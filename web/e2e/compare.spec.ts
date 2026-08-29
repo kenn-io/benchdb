@@ -8,11 +8,12 @@ test("browse to trend to compare happy path", async ({ page }) => {
   await expect(page).toHaveURL(/\/series\//);
   // The trend default range is anchored at the newest series point, so the
   // seeded history renders without widening the window.
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
 
   // Pick baseline and contender from the table (row click selects; the strip
   // offers the pick actions).
-  const rows = page.locator("table.detail tbody tr");
+  const rows = page.locator("table.detail tbody tr", { hasText: "runner-arm64" });
+  await expect.poll(async () => await rows.count()).toBeGreaterThanOrEqual(15);
   await rows.first().click();
   await page.getByRole("button", { name: "set baseline" }).click();
   await rows.last().click();

@@ -63,7 +63,7 @@ UI instead of hand-picked local captures.
 | View | Route captured | What this screenshot proves |
 | --- | --- | --- |
 | Benchmark runs | `/` | Start from recent benchmark activity and jump into report, result, or series workflows. |
-| Series browse | `/series?q=demo-benchmark` | Browse benchmark families, filters, status, and production-shaped identifiers. |
+| Series browse | `/series?q=ingest-events-10m` | Browse benchmark families, filters, status, and production-shaped identifiers. |
 | Trend detail | `/series/:fingerprint?range=all` | Inspect history, charted trends, and sample rows for one series. |
 | Result detail | `/results/:id` | Inspect one benchmark result, measurement, metadata, and read-only actions. |
 | Results list | `/results?run_id=...` | Browse submitted benchmark results, filter by run or batch, and jump into detail or trends. |

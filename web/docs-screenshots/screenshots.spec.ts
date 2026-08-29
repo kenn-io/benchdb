@@ -88,7 +88,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectNoDocumentOverflow(page);
     await screenshot(page, "home", suffix, captured);
 
-    await gotoReady(page, "/series?q=demo-benchmark", /benchmark series/i);
+    await gotoReady(page, "/series?q=ingest-events-10m", /benchmark series/i);
     await expect(page.locator("table.browse-table tbody tr").first()).toBeVisible();
     await expectNoDocumentOverflow(page);
     await screenshot(page, "series", suffix, captured);
@@ -96,7 +96,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await gotoTrend(page, targets.benchmarkID);
     await screenshot(page, "trend", suffix, captured);
 
-    await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /demo-benchmark/i);
+    await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /ingest-events-10m/i);
     await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
     await expectPaintedCanvas(page.locator(".trend-hero canvas").first());
     await expect(page.getByRole("button", { name: /mark distribution change/i })).toHaveCount(0);
@@ -129,7 +129,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectStackedTableBadgesIntrinsic(page.locator(".runs-table [data-label=\"Errors\"] .status-badge"));
     await screenshot(page, "home", suffix, captured);
 
-    await gotoReady(page, "/series?q=demo-benchmark", /benchmark series/i);
+    await gotoReady(page, "/series?q=ingest-events-10m", /benchmark series/i);
     await expect(page.locator("table.browse-table tbody tr").first()).toBeVisible();
     await expectPrimaryNavLinksInViewport(page);
     await expectNoDocumentOverflow(page);
@@ -139,7 +139,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectPrimaryNavLinksInViewport(page);
     await screenshot(page, "trend", suffix, captured);
 
-    await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /demo-benchmark/i);
+    await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /ingest-events-10m/i);
     await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
     await expectPaintedCanvas(page.locator(".trend-hero canvas").first());
     await expectPrimaryNavLinksInViewport(page);
@@ -191,9 +191,9 @@ function filenameFor(id: string, viewport: string): string {
 }
 
 async function discoverTargets(request: APIRequestContext): Promise<DemoTargets> {
-  const benchmarkPage = await getJSON<BenchmarkPage>(request, "/api/benchmarks?q=demo-benchmark&page_size=1");
+  const benchmarkPage = await getJSON<BenchmarkPage>(request, "/api/benchmarks?q=ingest-events-10m&page_size=1");
   const benchmark = benchmarkPage.benchmarks?.[0];
-  expect(benchmark, "seeded demo-benchmark must exist").toBeTruthy();
+  expect(benchmark, "seeded ingest-events-10m benchmark must exist").toBeTruthy();
 
   const history = await getJSON<HistorySeries>(
     request,
@@ -232,8 +232,11 @@ async function gotoReady(page: Page, url: string, heading: RegExp) {
 }
 
 async function gotoTrend(page: Page, benchmarkID: string) {
-  await gotoReady(page, `/series/${encodeURIComponent(benchmarkID)}?range=all`, /demo-benchmark/i);
-  await expectPaintedCanvas(page.locator(".chart-wrap canvas").first());
+  await gotoReady(page, `/series/${encodeURIComponent(benchmarkID)}?range=all`, /ingest-events-10m/i);
+  const chart = page.getByLabel("Fleet benchmark trend");
+  await expect(chart).toContainText("runner-arm64");
+  await expect(chart).toContainText("runner-x86-64");
+  await expectPaintedCanvas(chart.locator("canvas").first());
   await expect(page.locator("table.detail tbody tr").first()).toBeVisible();
   await expectNoDocumentOverflow(page);
 }

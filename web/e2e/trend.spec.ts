@@ -23,33 +23,34 @@ test("trend deep link renders overlays and controls and opens a result", async (
   const name = typeof series.tags.name === "string" ? series.tags.name : "(unnamed)";
 
   await page.goto(`${baseURL}/series/${series.benchmark_id}?range=all`);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   await expect(page.getByRole("heading", { name })).toBeVisible();
   if (series.less_is_better !== null) {
     await expect(page.getByText(series.less_is_better ? /lower is better/ : /higher is better/)).toBeVisible();
   }
 
-  const canvas = page.locator(".chart-wrap canvas");
+  const canvas = page.locator('.fleet-chart canvas, .chart-wrap canvas').first();
   const box = await canvas.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width * 0.15, box!.y + box!.height * 0.45);
   const tip = page.locator(".tip");
   await expect(tip).toBeVisible();
   const hoverPoint = page.locator(".hover-point");
-  await expect(hoverPoint).toBeVisible();
-  const leftPoint = await hoverPoint.boundingBox();
-  expect(leftPoint).not.toBeNull();
+  const leftPoint = (await hoverPoint.count()) > 0 ? await hoverPoint.boundingBox() : null;
   const leftText = await tip.innerText();
   await page.mouse.move(box!.x + box!.width * 0.85, box!.y + box!.height * 0.45);
   await expect.poll(async () => await tip.innerText()).not.toBe(leftText);
-  // Require the marker to still exist and to have actually moved: a vanished
-  // marker (null box) must not be read as "moved away from the original x".
-  await expect
-    .poll(async () => {
-      const moved = await hoverPoint.boundingBox();
-      return moved !== null && moved.x !== leftPoint!.x;
-    })
-    .toBe(true);
+  if (leftPoint !== null) {
+    // The single-machine chart renders a separate hover marker. Fleet charts
+    // encode the selected point directly in uPlot and prove movement through
+    // the tooltip text above.
+    await expect
+      .poll(async () => {
+        const moved = await hoverPoint.boundingBox();
+        return moved !== null && moved.x !== leftPoint.x;
+      })
+      .toBe(true);
+  }
 
   // Controls re-render the chart and write the URL.
   const rangeTrigger = page.getByRole("button", { name: "All time" });
@@ -67,7 +68,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await expect(page).toHaveURL(/range=30d/);
   await page.getByLabel(/band/i).selectOption("5");
   await expect(page).toHaveURL(/sigma=5/);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   // A commit link in the table opens the light result detail.
   await page.locator("table.detail tbody tr a").first().click();
   await expect(page).toHaveURL(/\/results\//);
@@ -76,6 +77,6 @@ test("trend deep link renders overlays and controls and opens a result", async (
 
   // Deep-link reload survives (SPA fallback) with controls intact.
   await page.goto(`${baseURL}/series/${series.benchmark_id}?range=all&sigma=3`);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   await expect(page.getByLabel(/band/i)).toHaveValue("3");
 });

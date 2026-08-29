@@ -89,14 +89,19 @@ func TestSeedHistoryOrderedPoints(t *testing.T) {
 	require.NoError(t, err, "count")
 	assert.Greater(t, int(count), seed.IncludedHistoryPoints, "excluded rows present")
 
-	// Ordered oldest-commit-first, with a visible upward trend in the value.
+	// Ordered oldest-commit-first, with both ordinary improvement and a visible
+	// regression so the demo exercises meaningful chart states.
+	improved := false
+	regressed := false
 	for i := 1; i < len(series.Samples); i++ {
 		prev, cur := series.Samples[i-1], series.Samples[i]
 		require.NotNil(t, prev.CommitTimestamp, "sample missing commit timestamp")
 		require.NotNil(t, cur.CommitTimestamp, "sample missing commit timestamp")
 		assert.False(t, cur.CommitTimestamp.Before(*prev.CommitTimestamp),
 			"sample %d commit time %v is before %v", i, cur.CommitTimestamp, prev.CommitTimestamp)
-		assert.Greater(t, cur.SVS, prev.SVS,
-			"sample %d svs %v not greater than previous %v (expected upward trend)", i, cur.SVS, prev.SVS)
+		improved = improved || cur.SVS < prev.SVS
+		regressed = regressed || cur.SVS > prev.SVS
 	}
+	assert.True(t, improved, "seed history contains no improvement")
+	assert.True(t, regressed, "seed history contains no regression")
 }

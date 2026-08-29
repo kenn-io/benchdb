@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.BENCHDB_DOCS_SCREENSHOT_BASE_URL ?? "http://127.0.0.1:18180";
+const colorScheme = process.env.BENCHDB_DOCS_SCREENSHOT_COLOR_SCHEME === "dark" ? "dark" : "light";
 
 export default defineConfig({
   testDir: ".",
@@ -14,7 +15,7 @@ export default defineConfig({
     baseURL,
     locale: "en-US",
     timezoneId: "UTC",
-    colorScheme: "light",
+    colorScheme,
     trace: "retain-on-failure",
   },
   projects: [
