@@ -6,6 +6,7 @@
   import { formatMeasurement } from "../format";
   import { compactAxisValue } from "../series/chart-format";
   import {
+    clampRangeToDomain,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     observedValueRange,
@@ -264,6 +265,11 @@
 
   $effect(() => {
     const data = fleetData();
+    const xs = data.aligned[0] as number[];
+    const domain = xs.length < 2 ? null : { min: xs[0]!, max: xs[xs.length - 1]! };
+    const currentZoom = untrack(() => zoomWindow);
+    const nextZoom = clampRangeToDomain(currentZoom, domain);
+    if (nextZoom !== currentZoom) zoomWindow = nextZoom;
     void height;
     void sigma;
     void zeroBased;

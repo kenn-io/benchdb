@@ -48,6 +48,18 @@ export interface ValueRange {
   max: number;
 }
 
+export function clampRangeToDomain(
+  range: ValueRange | null,
+  domain: ValueRange | null,
+): ValueRange | null {
+  if (range === null || domain === null) return null;
+  const min = Math.max(range.min, domain.min);
+  const max = Math.min(range.max, domain.max);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return null;
+  if (min === range.min && max === range.max) return range;
+  return { min, max };
+}
+
 function tooltipUsableWidth(containerWidth: number, tooltipWidth: number, margin: number): number {
   return Math.min(tooltipWidth, Math.max(0, containerWidth - margin * 2));
 }

@@ -88,10 +88,32 @@ describe("loadTrend", () => {
     expect(vm.identity.benchmarkId).toBe("benchmark-1");
   });
 
-  it.each([
-    ["errored", { benchmark_id: "benchmark-1", error: { message: "failed" }, commit: { sha: "abc123" } }],
-    ["commitless", { benchmark_id: "benchmark-1", error: null, commit: null }],
-  ])("rejects %s results before requesting unavailable history", async (_label, result) => {
+  it("resolves an errored result to the benchmark's available history", async () => {
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") {
+        return {
+          data: {
+            benchmark_id: "benchmark-1",
+            error: { message: "failed" },
+            commit: { sha: "abc123" },
+          },
+        };
+      }
+      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    const vm = await loadTrend(
+      { GET } as unknown as Client,
+      { kind: "result", resultId: "errored-result" },
+    );
+
+    expect(GET).toHaveBeenCalledTimes(2);
+    expect(vm.identity.benchmarkId).toBe("benchmark-1");
+  });
+
+  it("rejects a commitless result before requesting unavailable history", async () => {
+    const result = { benchmark_id: "benchmark-1", error: null, commit: null };
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/benchmark-results/{id}") return { data: result };
       throw new Error(`unexpected url ${url}`);

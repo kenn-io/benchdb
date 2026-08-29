@@ -5,6 +5,7 @@
 
   import {
     closestIndexForValue,
+    clampRangeToDomain,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
@@ -433,6 +434,15 @@
   // selection changes must only trigger the redraw effect below, not a rebuild.
   $effect(() => {
     const data = trendChartData(points, sigma);
+    const domain = points.length < 2
+      ? null
+      : {
+          min: points[0]!.chartMs / 1000,
+          max: points[points.length - 1]!.chartMs / 1000,
+        };
+    const currentZoom = untrack(() => zoomWindow);
+    const nextZoom = clampRangeToDomain(currentZoom, domain);
+    if (nextZoom !== currentZoom) zoomWindow = nextZoom;
     // height is otherwise only read inside the untracked constructor; track it
     // here so a caller-driven height change rebuilds instead of being ignored.
     void height;

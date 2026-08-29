@@ -12,6 +12,7 @@ const plotState = vi.hoisted(() => ({
   selectHook: undefined as ((plot: unknown) => void) | undefined,
   scaleCalls: [] as { key: string; limits: { min: number; max: number } }[],
   instance: undefined as unknown,
+  xForPosition: (position: number) => position,
 }));
 
 vi.mock("uplot", () => {
@@ -34,7 +35,9 @@ vi.mock("uplot", () => {
 
     destroy() {}
     setSize() {}
-    posToVal(position: number, scale: string) { return scale === "x" ? position : 1.1; }
+    posToVal(position: number, scale: string) {
+      return scale === "x" ? plotState.xForPosition(position) : 1.1;
+    }
     setScale(key: string, limits: { min: number; max: number }) {
       plotState.scaleCalls.push({ key, limits });
     }
@@ -212,5 +215,33 @@ describe("FleetSeriesChart", () => {
     await fireEvent.click(chart);
     expect(onopen).toHaveBeenCalledWith("result-a");
     rect.mockRestore();
+  });
+
+  it("clears a zoom window outside replacement fleet data", async () => {
+    const first = point("day-1", 1, "2026-01-01T00:00:00Z");
+    const last = point("day-11", 3, "2026-01-11T00:00:00Z");
+    const { rerender } = render(FleetSeriesChart, {
+      props: { tracks: [{ machineName: "machine-a", segments: [], points: [first, last] }] },
+    });
+    plotState.xForPosition = (position) =>
+      position === 100 ? first.chartMs / 1000 : last.chartMs / 1000;
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    expect(screen.getByRole("button", { name: "Reset zoom" })).toBeInTheDocument();
+
+    await rerender({
+      tracks: [{
+        machineName: "machine-b",
+        segments: [],
+        points: [
+          point("day-366", 2, "2027-01-01T00:00:00Z"),
+          point("day-376", 4, "2027-01-11T00:00:00Z"),
+        ],
+      }],
+    });
+    await tick();
+
+    expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
+    plotState.xForPosition = (position) => position;
   });
 });

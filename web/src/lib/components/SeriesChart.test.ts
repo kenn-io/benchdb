@@ -167,4 +167,31 @@ describe("SeriesChart", () => {
     expect(onopen).toHaveBeenCalledWith("r2");
     plotState.xForPosition = (position) => position;
   });
+
+  it("clears a zoom window outside replacement data", async () => {
+    const laterPoint = {
+      ...boundaryPoint,
+      resultId: "r2",
+      chartMs: Date.parse("2026-01-11T00:00:00Z"),
+    };
+    const { rerender } = render(SeriesChart, {
+      props: { points: [boundaryPoint, laterPoint] },
+    });
+    plotState.xForPosition = (position) =>
+      position === 100 ? boundaryPoint.chartMs / 1000 : laterPoint.chartMs / 1000;
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    expect(screen.getByRole("button", { name: "Reset zoom" })).toBeInTheDocument();
+
+    await rerender({
+      points: [
+        { ...boundaryPoint, resultId: "r3", chartMs: Date.parse("2027-01-01T00:00:00Z") },
+        { ...boundaryPoint, resultId: "r4", chartMs: Date.parse("2027-01-11T00:00:00Z") },
+      ],
+    });
+    await tick();
+
+    expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
+    plotState.xForPosition = (position) => position;
+  });
 });
