@@ -3,13 +3,14 @@
   "assets": [
     {
       "file": "benchmark-series.png",
-      "bytes": 110049,
-      "width": 1440,
-      "height": 900,
-      "sha256": "61b3b8771b15b6e3c3a0a046679f7d61df77150e795891809594b93e2abaa361",
+      "bytes": 100654,
+      "width": 1410,
+      "height": 713,
+      "sha256": "b1493ea806b2e6ab72d42737ab6fc1f6b7ebc29ab6a4777e95470bc6284a6be3",
       "source_revision": "0b0b1ff1812fd929d613880c00713c961084841d",
       "route": "/series/:benchmark-id?range=all",
-      "data_source": "deterministic synthetic benchmark corpus ingested by the BenchDB server"
+      "data_source": "deterministic synthetic benchmark corpus ingested by the BenchDB server",
+      "presentation": "Playwright viewport cropped to the benchmark context and fleet trend"
     }
   ]
 }
