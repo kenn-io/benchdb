@@ -314,7 +314,17 @@
   function hoveredIndex(u: uPlot): number | null {
     const left = u.cursor.left;
     if (left == null || left < 0 || points.length === 0) return null;
-    const seconds = u.posToVal(left, "x");
+    const xScale = u.scales["x"];
+    const min = xScale?.min;
+    const max = xScale?.max;
+    if (min == null || max == null || !Number.isFinite(min) || !Number.isFinite(max)) {
+      return null;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const width = u.bbox.width / dpr;
+    if (width <= 0) return null;
+    const fraction = Math.min(1, Math.max(0, left / width));
+    const seconds = min + (max - min) * fraction;
     return closestIndexForValue(seconds * 1000, points.map((p) => p.chartMs));
   }
 
