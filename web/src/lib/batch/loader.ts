@@ -1,5 +1,6 @@
 import type { createBenchDBClient } from "../api/client";
 import type { components } from "../api/schema";
+import { resultTrendHref } from "../results/loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 type ResultItem = components["schemas"]["ResultListItem"];
@@ -13,7 +14,7 @@ export interface BatchResultRow {
   id: string;
   displayResultId: string;
   resultHref: string;
-  trendHref: string;
+  trendHref: string | null;
   runId: string;
   displayRunId: string;
   runHref: string;
@@ -120,7 +121,7 @@ function toBatchResultRow(result: ResultItem): BatchResultRow {
     id: result.id,
     displayResultId: compactIdentifier(result.id, 12, 8),
     resultHref: `/results/${encodeURIComponent(result.id)}`,
-    trendHref: `/benchmarks/history/${encodeURIComponent(result.id)}`,
+    trendHref: resultTrendHref(result),
     runId: result.run_id,
     displayRunId: compactIdentifier(result.run_id, 12, 8),
     runHref: `/runs/${encodeURIComponent(result.run_id)}`,

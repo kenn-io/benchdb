@@ -5,13 +5,13 @@
 
   let {
     rows,
-    selectedIndex = null,
+    selectedResultId = null,
     onselect,
     onopen,
   }: {
     rows: TableRow[];
-    selectedIndex?: number | null;
-    onselect?: (index: number) => void;
+    selectedResultId?: string | null;
+    onselect?: (row: TableRow) => void;
     onopen?: (row: TableRow) => void;
   } = $props();
 
@@ -45,7 +45,7 @@
       {#each rows as row (row.index)}
         <!-- Rows are a pointer convenience for selection; the commit link is the
              keyboard/screen-reader affordance and opens the result. -->
-        <tr class:selected={row.index === selectedIndex} onclick={() => onselect?.(row.index)}>
+        <tr class:selected={row.resultId === selectedResultId} onclick={() => onselect?.(row)}>
           <td class="measured" data-label="measured">{measuredAt(row.chartMs)}</td>
           <td class="commit" data-label="commit">
             <span class="cell-value">

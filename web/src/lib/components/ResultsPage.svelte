@@ -387,14 +387,19 @@
               </td>
               <td class="time-cell" data-label="Time">{formatTime(row.timestamp)}</td>
               <td data-label="Series">
-                <a
-                  class="button-pill secondary"
-                  href={row.trendHref}
-                  aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
-                  onclick={(e) => go(e, row.trendHref)}
-                >
-                  Trend
-                </a>
+                {#if row.trendHref !== null}
+                  {@const trendHref = row.trendHref}
+                  <a
+                    class="button-pill secondary"
+                    href={trendHref}
+                    aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
+                    onclick={(e) => go(e, trendHref)}
+                  >
+                    Trend
+                  </a>
+                {:else}
+                  <span class="faint">No history</span>
+                {/if}
               </td>
             </tr>
           {/each}

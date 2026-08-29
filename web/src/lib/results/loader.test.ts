@@ -85,4 +85,32 @@ describe("loadResultsPage", () => {
       trendHref: "/benchmarks/history/06a220d0d94471c480001414453ee7fc",
     });
   });
+
+  it("omits trend links for errored and commitless results", async () => {
+    const { client } = fakeClient({
+      results: [
+        result("errored", { has_error: true }),
+        result("commitless", { commit: null }),
+        result("valid"),
+      ],
+      next_page_cursor: null,
+    });
+
+    const page = await loadResultsPage(client, {
+      query: {
+        runID: "",
+        batchID: "",
+        runReason: "",
+        earliestTimestamp: "",
+        latestTimestamp: "",
+      },
+      cursor: null,
+    });
+
+    expect(page.rows.map((row) => row.trendHref)).toEqual([
+      null,
+      null,
+      "/benchmarks/history/valid",
+    ]);
+  });
 });

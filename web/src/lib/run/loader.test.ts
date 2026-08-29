@@ -83,7 +83,7 @@ describe("loadRunPage", () => {
       displayResultId: "r2",
       displayBatchId: "batch-b",
       resultHref: "/results/r2",
-      trendHref: "/benchmarks/history/r2",
+      trendHref: null,
       hasError: true,
     });
   });

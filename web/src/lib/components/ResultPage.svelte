@@ -27,6 +27,7 @@
 
   let vm = $state<ResultViewModel | null>(null);
   let historyPoints = $state<SeriesPoint[]>([]);
+  let historyLoaded = $state(false);
   let historyError = $state<string | null>(null);
   let errorMsg = $state<string | null>(null);
   let actionMsg = $state<string | null>(null);
@@ -48,6 +49,7 @@
       return;
     }
     vm = resultOutcome.value;
+    historyLoaded = true;
     if (historyOutcome.status === "fulfilled") {
       historyPoints = historyOutcome.value;
     } else {
@@ -65,6 +67,9 @@
     [...new Set(historyPoints.map((point) => point.unit ?? "unit not set"))],
   );
   let historyUnitConsistent = $derived(historyUnits.length <= 1);
+  let historyAvailable = $derived(
+    historyLoaded && historyError === null && historyPoints.length > 0,
+  );
 
   async function loadWriteCapability() {
     try {
@@ -225,11 +230,13 @@
           {#if vm.commitSha !== null}<span title={vm.commitSha}>commit {vm.shortCommit}</span>{/if}
         </div>
         <div class="action-row">
-          <a
-            class="button-pill"
-            href={seriesHref}
-            onclick={(e) => go(e, seriesHref)}
-          >Explore full series</a>
+          {#if historyAvailable}
+            <a
+              class="button-pill"
+              href={seriesHref}
+              onclick={(e) => go(e, seriesHref)}
+            >Explore full series</a>
+          {/if}
           <a class="button-pill" href={vm.historyExportHref} download={`benchdb-history-${vm.id}.json`}>
             Export history JSON
           </a>
@@ -252,8 +259,10 @@
       </div>
       {#if historyError !== null}
         <p class="error">Trend unavailable: {historyError}</p>
-      {:else if historyPoints.length === 0}
+      {:else if !historyLoaded}
         <p class="empty-history">Loading series history…</p>
+      {:else if historyPoints.length === 0}
+        <p class="empty-history">No comparable default-branch history is available for this result.</p>
       {:else if !historyUnitConsistent}
         <div class="integrity" role="alert">
           This history mixes units ({historyUnits.join(", ")}). Its values cannot be

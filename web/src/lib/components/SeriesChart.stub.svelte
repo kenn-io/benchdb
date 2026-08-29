@@ -9,11 +9,13 @@
     points = [],
     tracks = [],
     currentResultId = null,
+    selectedIndex = null,
     zeroBased = true,
   }: {
     points: SeriesPoint[];
     tracks?: MachineTrack[];
     currentResultId?: string | null;
+    selectedIndex?: number | null;
     zeroBased?: boolean;
   } = $props();
 
@@ -22,4 +24,4 @@
   );
 </script>
 
-<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex} data-zero-based={zeroBased}></div>
+<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex} data-selected-index={selectedIndex ?? -1} data-zero-based={zeroBased}></div>

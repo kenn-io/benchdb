@@ -94,7 +94,7 @@ describe("loadBatchPage", () => {
         { key: "language", value: "R" },
       ],
       resultHref: "/results/r3",
-      trendHref: "/benchmarks/history/r3",
+      trendHref: null,
       displayRunId: "run-b",
       runHref: "/runs/run-b",
       hasError: true,

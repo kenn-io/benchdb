@@ -77,9 +77,10 @@ describe("RunPage", () => {
       "href",
       "/results/r2",
     );
-    expect(screen.getByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toHaveAttribute(
+    expect(screen.queryByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open series trend for AceroAggregate result r1" })).toHaveAttribute(
       "href",
-      "/benchmarks/history/r2",
+      "/benchmarks/history/r1",
     );
   });
 

@@ -223,6 +223,10 @@ describe("TrendPage", () => {
     GET.mockResolvedValue({ error: { detail: "boom" } });
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /open result details/i })).toHaveAttribute(
+      "href",
+      "/results/r1",
+    );
   });
 
   it("refreshes the trend and calls out newly arrived results", async () => {
@@ -253,6 +257,43 @@ describe("TrendPage", () => {
       .getAllByRole("row")
       .slice(1);
     expect(historyRows[0]).toHaveTextContent("sha-r2");
+  });
+
+  it("keeps the selected result when a refresh inserts an earlier point", async () => {
+    GET
+      .mockResolvedValueOnce({
+        data: benchmarkHistory([
+          sample("r1", "2024-01-07T12:00:00Z"),
+          sample("r3", "2024-01-09T12:00:00Z"),
+        ]),
+      })
+      .mockResolvedValueOnce({
+        data: benchmarkHistory([
+          sample("r1", "2024-01-07T12:00:00Z"),
+          sample("r2", "2024-01-08T12:00:00Z"),
+          sample("r3", "2024-01-09T12:00:00Z"),
+        ]),
+      });
+    render(TrendPage, {
+      props: {
+        source: { kind: "benchmark", benchmarkId: "b1" },
+        query: ALL_TREND_QUERY,
+        baseUrl: "https://benchdb.example",
+      },
+    });
+
+    await waitFor(() => screen.getByRole("link", { name: "sha-r3" }));
+    await fireEvent.click(screen.getByRole("link", { name: "sha-r3" }).closest("tr")!);
+    expect(document.querySelector(".chart-stub")).toHaveAttribute("data-selected-index", "1");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(screen.getByText("1 new result")).toBeInTheDocument());
+    expect(screen.getByRole("region", { name: /selected point/i })).toHaveTextContent("r3");
+    expect(screen.getByRole("region", { name: /history export/i })).toHaveTextContent(
+      "benchdb history export r3",
+    );
+    expect(document.querySelector(".chart-stub")).toHaveAttribute("data-selected-index", "2");
   });
 
   it("shows the no-history state for an empty series", async () => {

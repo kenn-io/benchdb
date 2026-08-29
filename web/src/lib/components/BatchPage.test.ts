@@ -71,10 +71,12 @@ describe("BatchPage", () => {
     expect(screen.getAllByText("query_id TPCH-09").length).toBeGreaterThan(0);
     expect(screen.getAllByText("format parquet").length).toBeGreaterThan(0);
     expect(screen.getByText("result r3")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /trend for tpch result r3/i })).toHaveAttribute(
+    expect(screen.queryByRole("link", { name: /trend for tpch result r3/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /trend for tpch result r2/i })).toHaveAttribute(
       "href",
-      "/benchmarks/history/r3",
+      "/benchmarks/history/r2",
     );
+    expect(screen.getByText("No history")).toBeInTheDocument();
   });
 
   it("loads more results, appends them, and preserves the first page context", async () => {

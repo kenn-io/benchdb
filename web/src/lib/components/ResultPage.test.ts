@@ -187,6 +187,17 @@ describe("ResultPage", () => {
     expect(document.querySelector(".chart-stub")).toBeNull();
   });
 
+  it("shows a terminal state when the result has no comparable history", async () => {
+    mockPage(detail, readOnlyCapabilities, []);
+
+    render(ResultPage, { props: { resultId: "r1" } });
+
+    await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
+    expect(screen.getByText(/no comparable default-branch history/i)).toBeInTheDocument();
+    expect(screen.queryByText(/loading series history/i)).toBeNull();
+    expect(screen.queryByRole("link", { name: /explore full series/i })).toBeNull();
+  });
+
   it("shows write actions when auth-disabled dev mode allows result writes", async () => {
     mockPage(detail, authDisabledCapabilities);
 

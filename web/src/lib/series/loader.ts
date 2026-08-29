@@ -115,6 +115,9 @@ async function loadByBenchmark(client: Client, benchmarkId: string): Promise<Tre
     cache: "no-store",
   });
   if (res.error || !res.data) {
+    if (res.response?.status === 404) {
+      throw new Error(`benchmark ${benchmarkId} has no comparable default-branch history`);
+    }
     throw new Error(`failed to load benchmark ${benchmarkId}`);
   }
   return assemble(res.data);
@@ -126,6 +129,9 @@ async function loadByResult(client: Client, resultId: string): Promise<TrendView
   });
   if (detailRes.error || !detailRes.data) {
     throw new Error(`failed to load benchmark result ${resultId}`);
+  }
+  if (detailRes.data.error != null || detailRes.data.commit === null) {
+    throw new Error(`benchmark result ${resultId} has no comparable default-branch history`);
   }
   return loadByBenchmark(client, detailRes.data.benchmark_id);
 }

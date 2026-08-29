@@ -71,7 +71,7 @@ describe("DetailTable", () => {
     const onopen = vi.fn();
     render(DetailTable, { props: { rows, onselect, onopen } });
     await fireEvent.click(screen.getByText("outlier"));
-    expect(onselect).toHaveBeenCalledWith(0);
+    expect(onselect).toHaveBeenCalledWith(rows[0]);
     await fireEvent.click(screen.getByRole("link", { name: "abc1234" }));
     expect(onopen).toHaveBeenCalledWith(rows[0]);
     expect(onselect).toHaveBeenCalledTimes(1);

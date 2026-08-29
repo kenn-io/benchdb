@@ -56,13 +56,12 @@
     filter: Exclude<TrendFilter, "all">;
     label: string;
     count: number;
-    index: number;
     point: SeriesPoint;
   };
 
   let vm = $state<TrendViewModel | null>(null);
   let errorMsg = $state<string | null>(null);
-  let selectedIndex = $state<number | null>(null);
+  let selectedResultId = $state<string | null>(null);
   let rowLimit = $state(TREND_TABLE_INITIAL_ROWS);
   let trendFilter = $state<TrendFilter>("all");
   let exportCopied = $state(false);
@@ -174,6 +173,11 @@
   let rows = $derived(filteredTableRows(visibleTracks, trendFilter));
   let displayedRows = $derived(rows.slice(0, rowLimit));
   let hiddenRowCount = $derived(Math.max(0, rows.length - displayedRows.length));
+  let selectedIndex = $derived.by(() => {
+    if (selectedResultId === null) return null;
+    const index = visible.findIndex((point) => point.resultId === selectedResultId);
+    return index < 0 ? null : index;
+  });
   let selected = $derived(selectedIndex === null ? null : (visible[selectedIndex] ?? null));
   let exportResultID = $derived(
     selected?.resultId ??
@@ -208,14 +212,14 @@
     contenderPick = null;
   }
 
-  // Range and table-filter changes re-window the selectable row set, so stale
-  // indices would point at the wrong commit: reset the selection. Sigma keeps
-  // indices stable.
+  // Range and table-filter changes intentionally clear the selection because
+  // they re-window the selectable row set. Live refreshes do not: the selected
+  // result id is remapped to its new position when historical points arrive.
   $effect(() => {
     void query.range;
     void trendFilter;
     void machineFilter;
-    selectedIndex = null;
+    selectedResultId = null;
     rowLimit = TREND_TABLE_INITIAL_ROWS;
     exportCopied = false;
   });
@@ -240,7 +244,11 @@
   }
 
   function select(index: number) {
-    selectedIndex = index;
+    selectedResultId = visible[index]?.resultId ?? null;
+  }
+
+  function selectRow(row: TableRow) {
+    selectedResultId = row.resultId;
   }
 
   function openResult(resultId: string) {
@@ -283,12 +291,8 @@
   }
 
   function flaggedPointTargets(points: SeriesPoint[]): FlagTarget[] {
-    const outliers = points
-      .map((point, index) => ({ point, index }))
-      .filter((entry) => entry.point.stats.isOutlier);
-    const steps = points
-      .map((point, index) => ({ point, index }))
-      .filter((entry) => entry.point.stats.isStep || entry.point.stats.beginsChange);
+    const outliers = points.filter((point) => point.stats.isOutlier);
+    const steps = points.filter((point) => point.stats.isStep || point.stats.beginsChange);
     return [
       targetFor("outliers", "outlier", outliers),
       targetFor("steps", "step", steps),
@@ -298,11 +302,11 @@
   function targetFor(
     filter: Exclude<TrendFilter, "all">,
     label: string,
-    entries: { point: SeriesPoint; index: number }[],
+    entries: SeriesPoint[],
   ): FlagTarget | null {
     const first = entries[0];
     if (first === undefined) return null;
-    return { filter, label, count: entries.length, index: first.index, point: first.point };
+    return { filter, label, count: entries.length, point: first };
   }
 
   function zText(value: number | null): string {
@@ -348,7 +352,7 @@
     trendFilter = target.filter;
     rowLimit = TREND_TABLE_INITIAL_ROWS;
     await tick();
-    selectedIndex = target.index;
+    selectedResultId = target.point.resultId;
   }
 
   function orientation(lessIsBetter: boolean | null): string | null {
@@ -362,6 +366,17 @@
     <section class="panel state-panel">
       <h1>Trend unavailable</h1>
       <p class="error">Failed to load series: {errorMsg}</p>
+      {#if source.kind === "result"}
+        <a
+          class="button-pill"
+          href={`/results/${source.resultId}`}
+          onclick={(e) => {
+            if (!interceptNavClick(e)) return;
+            e.preventDefault();
+            openResult(source.resultId);
+          }}
+        >Open result details</a>
+      {/if}
     </section>
   </main>
 {:else if !vm}
@@ -623,8 +638,8 @@
         </header>
         <DetailTable
           rows={displayedRows}
-          {selectedIndex}
-          onselect={select}
+          {selectedResultId}
+          onselect={selectRow}
           onopen={(row) => openResult(row.resultId)}
         />
       </section>
