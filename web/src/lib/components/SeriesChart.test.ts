@@ -10,6 +10,7 @@ const plotState = vi.hoisted(() => ({
   scaleCalls: [] as { key: string; limits: { min: number; max: number } }[],
   instance: undefined as unknown,
   options: undefined as Record<string, unknown> | undefined,
+  xForPosition: (position: number) => position,
 }));
 
 vi.mock("uplot", () => {
@@ -18,16 +19,12 @@ vi.mock("uplot", () => {
     bbox = { left: 0, top: 0, width: 640, height: 280 };
     cursor = { left: 0, top: 0 };
     select = { left: 100, top: 0, width: 200, height: 280 };
-    scales = { x: { min: null as number | null, max: null as number | null } };
 
     constructor(options: { hooks?: {
       setCursor?: ((plot: unknown) => void)[];
       setSelect?: ((plot: unknown) => void)[];
     } }, data: unknown) {
       this.data = data;
-      const xs = (data as [number[]])[0];
-      this.scales.x.min = xs[0] ?? null;
-      this.scales.x.max = xs[xs.length - 1] ?? null;
       plotState.options = options;
       plotState.cursorHook = options.hooks?.setCursor?.[0];
       plotState.selectHook = options.hooks?.setSelect?.[0];
@@ -37,7 +34,9 @@ vi.mock("uplot", () => {
     destroy() {}
     redraw() {}
     setSize() {}
-    posToVal(position: number, scale: string) { return scale === "x" ? position : 1; }
+    posToVal(position: number, scale: string) {
+      return scale === "x" ? plotState.xForPosition(position) : 1;
+    }
     setScale(key: string, limits: { min: number; max: number }) {
       plotState.scaleCalls.push({ key, limits });
     }
@@ -155,19 +154,17 @@ describe("SeriesChart", () => {
     const { container } = render(SeriesChart, {
       props: { points: [boundaryPoint, middlePoint, lastPoint], onopen },
     });
-    const plot = plotState.instance as {
-      cursor: { left: number };
-      scales: { x: { min: number | null; max: number | null } };
-    };
+    const plot = plotState.instance as { cursor: { left: number } };
+    plotState.xForPosition = (position) =>
+      position === 100 ? middlePoint.chartMs / 1000 : lastPoint.chartMs / 1000;
+    plotState.selectHook?.(plotState.instance);
+    await tick();
     plot.cursor.left = 0;
-    plot.scales.x = {
-      min: middlePoint.chartMs / 1000,
-      max: lastPoint.chartMs / 1000,
-    };
 
     plotState.cursorHook?.(plotState.instance);
     await fireEvent.click(container.querySelector(".chart-wrap")!);
 
     expect(onopen).toHaveBeenCalledWith("r2");
+    plotState.xForPosition = (position) => position;
   });
 });

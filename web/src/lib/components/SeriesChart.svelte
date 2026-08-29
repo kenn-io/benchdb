@@ -314,12 +314,8 @@
   function hoveredIndex(u: uPlot): number | null {
     const left = u.cursor.left;
     if (left == null || left < 0 || points.length === 0) return null;
-    const xScale = u.scales["x"];
-    const min = xScale?.min;
-    const max = xScale?.max;
-    if (min == null || max == null || !Number.isFinite(min) || !Number.isFinite(max)) {
-      return null;
-    }
+    const min = zoomWindow?.min ?? points[0]!.chartMs / 1000;
+    const max = zoomWindow?.max ?? points[points.length - 1]!.chartMs / 1000;
     const dpr = window.devicePixelRatio || 1;
     const width = u.bbox.width / dpr;
     if (width <= 0) return null;
