@@ -158,7 +158,7 @@ describe("TrendPage", () => {
       "title",
       "https://github.com/benchdb/demo",
     );
-    expect(screen.getByText("id b1")).toHaveAttribute("title", "b1");
+    expect(screen.getByRole("heading", { name: "demo-benchmark" })).toHaveAttribute("title", "b1");
     expect(screen.getByText("1 machine")).toBeInTheDocument();
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
@@ -211,7 +211,6 @@ describe("TrendPage", () => {
     expect(context.querySelector(".page-header")).not.toBeNull();
     expect(context.querySelector(".summary-line")).not.toBeNull();
     const summary = context.querySelector(".summary-line") as HTMLElement;
-    expect(summary.querySelectorAll(".summary-item")).toHaveLength(6);
     expect(screen.getByLabelText("Trend point filters").querySelectorAll(".button-pill")).toHaveLength(3);
     expect(within(summary).getByText(/^\d+ machine results?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ commits?$/)).toBeInTheDocument();

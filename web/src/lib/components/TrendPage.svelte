@@ -392,7 +392,7 @@
       <header class="page-header">
         <div>
           <p class="eyebrow">Benchmark trend</p>
-          <h1>{vm.identity.benchmarkName}</h1>
+          <h1 title={vm.identity.benchmarkId}>{vm.identity.benchmarkName}</h1>
           <div class="ident page-subtitle">
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
             <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
@@ -428,69 +428,74 @@
       {/if}
 
     {#if all.length > 0}
-    <div class="toolbar controls">
-      <label class="filter-label machine-select">
-        machine
-        <SelectDropdown
-          value={machineFilter}
-          options={machineOptions}
-          title="Machine"
-          onchange={(value) => (machineFilter = value)}
-        />
-      </label>
-      <div class="filter-label range-control">
-        <span>range</span>
-        <DateRangePicker
-          selection={query.range}
-          onSelect={setRange}
-          {earliestDate}
-          maxDate={latestDate}
-        />
+    <div class="context-toolbar">
+      <div class="toolbar controls">
+        <label class="filter-label machine-select">
+          machine
+          <SelectDropdown
+            value={machineFilter}
+            options={machineOptions}
+            title="Machine"
+            onchange={(value) => (machineFilter = value)}
+          />
+        </label>
+        <div class="filter-label range-control">
+          <span>range</span>
+          <DateRangePicker
+            selection={query.range}
+            onSelect={setRange}
+            {earliestDate}
+            maxDate={latestDate}
+          />
+        </div>
+        <label class="filter-label">
+          band
+          <select
+            value={String(query.sigma)}
+            onchange={(e) => setControl({ sigma: Number(e.currentTarget.value) as TrendSigma })}
+          >
+            <option value="1">±1σ</option>
+            <option value="2">±2σ</option>
+            <option value="3">±3σ</option>
+            <option value="5">±5σ</option>
+          </select>
+        </label>
+        <label class="filter-label machine-select">
+          Y-axis
+          <SelectDropdown
+            value={query.yAxis}
+            options={yAxisOptions}
+            title="Y-axis"
+            onchange={(value) => setControl({ yAxis: value === "observed" ? "observed" : "zero" })}
+          />
+        </label>
       </div>
-      <label class="filter-label">
-        band
-        <select
-          value={String(query.sigma)}
-          onchange={(e) => setControl({ sigma: Number(e.currentTarget.value) as TrendSigma })}
-        >
-          <option value="1">±1σ</option>
-          <option value="2">±2σ</option>
-          <option value="3">±3σ</option>
-          <option value="5">±5σ</option>
-        </select>
-      </label>
-      <label class="filter-label machine-select">
-        Y-axis
-        <SelectDropdown
-          value={query.yAxis}
-          options={yAxisOptions}
-          title="Y-axis"
-          onchange={(value) => setControl({ yAxis: value === "observed" ? "observed" : "zero" })}
-        />
-      </label>
-    </div>
 
-    <p class="summary-line" aria-label="Trend summary">
-      <span class="summary-item">{visible.length} machine {visible.length === 1 ? "result" : "results"}</span>
-      <span class="summary-item">{visibleCommitCount} {visibleCommitCount === 1 ? "commit" : "commits"}</span>
-      <span class="summary-item">{fleetCoverageText}</span>
-      <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
-      <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
-      <span class="summary-item" title={vm.identity.benchmarkId}>id {vm.identity.displayBenchmarkId}</span>
-    </p>
-    <p class="chronology-note">
-      The x-axis is commit time. Historical backfill results appear at the commit's date,
-      so new results may be added in the middle of the chart.
-    </p>
+      <p class="summary-line context-summary" aria-label="Trend summary">
+        <span class="summary-item">{visible.length} machine {visible.length === 1 ? "result" : "results"}</span>
+        <span class="summary-item">{visibleCommitCount} {visibleCommitCount === 1 ? "commit" : "commits"}</span>
+        <span
+          class="summary-item"
+          title="The x-axis uses commit time. Backfilled results appear at the commit's date."
+        >{fleetCoverageText}</span>
+        <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
+        <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+      </p>
+    </div>
 
     {#if flagTargets.length > 0}
       <section class="flag-queue" aria-label="Flagged point shortcuts">
         {#each flagTargets as target}
-          <button type="button" class="flag-card" onclick={() => jumpToFlag(target)}>
-            <span>{target.count} {target.count === 1 ? target.label : `${target.label}s`}</span>
-            <strong>{target.point.commitHash}</strong>
+          <button
+            type="button"
+            class="flag-card"
+            aria-label={`Jump to first ${target.label}: ${target.point.commitHash}`}
+            onclick={() => jumpToFlag(target)}
+          >
+            <span class="flag-count">{target.count} {target.count === 1 ? target.label : `${target.label}s`}</span>
+            <strong title={target.point.commitHash}>{target.point.commitHash.slice(0, 12)}</strong>
             <span class="numeric-text">{formatMeasurement(target.point.svs, target.point.unit)} · {zText(target.point.stats.z)}</span>
-            <span class="jump">Jump to first {target.label}</span>
+            <span class="jump">View →</span>
           </button>
         {/each}
       </section>
@@ -674,8 +679,8 @@
   }
   .trend-context {
     display: grid;
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px 12px;
     background: var(--c-surface);
   }
   .ident {
@@ -701,6 +706,17 @@
   .controls .filter-label {
     min-width: 120px;
   }
+  .context-toolbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px 20px;
+    flex-wrap: wrap;
+  }
+  .context-summary {
+    justify-content: flex-end;
+    padding-bottom: 4px;
+  }
   .live-status {
     display: flex;
     align-items: center;
@@ -715,11 +731,6 @@
     color: var(--c-text);
     font-variant-numeric: tabular-nums;
   }
-  .chronology-note {
-    margin: -2px 0 0;
-    color: var(--c-text-muted);
-    font-size: 0.74rem;
-  }
   .refresh-button {
     padding: 3px 7px;
     border: 1px solid var(--c-border-muted);
@@ -730,18 +741,21 @@
   }
   .refresh-button:disabled { cursor: wait; opacity: 0.65; }
   .flag-queue {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    margin: 0.5rem 0 0.65rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
   }
   .flag-card {
-    display: grid;
-    gap: 3px;
+    display: flex;
+    align-items: center;
+    flex: 1 1 360px;
+    gap: 8px;
     min-width: 0;
-    padding: 0.55rem 0.65rem;
+    min-height: 34px;
+    padding: 0.3rem 0.55rem;
     border: 1px solid var(--c-border-muted);
-    border-left: 4px solid var(--c-warning);
+    border-left: 3px solid var(--c-warning);
     border-radius: var(--radius-sm);
     background: var(--c-surface);
     color: var(--c-text-muted);
@@ -755,11 +769,19 @@
   }
   .flag-card strong {
     color: var(--c-text);
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
+  .flag-count {
+    color: var(--c-warning);
+    font-weight: 700;
+    white-space: nowrap;
+  }
   .flag-card .jump {
+    margin-left: auto;
     color: var(--c-accent);
     font-weight: 700;
+    white-space: nowrap;
   }
   .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; }
   .selected-panel {
@@ -837,7 +859,9 @@
     }
     .live-status { flex-wrap: wrap; white-space: normal; }
     .history-heading { align-items: flex-start; flex-direction: column; }
-    .flag-queue { grid-template-columns: 1fr; }
+    .context-summary { justify-content: flex-start; padding-bottom: 0; }
+    .flag-card { align-items: flex-start; flex-wrap: wrap; }
+    .flag-card .jump { margin-left: 0; }
     .selected-panel { grid-template-columns: 1fr; align-items: start; }
     .point-meta { grid-template-columns: 1fr; }
     .actions { justify-content: flex-start; }
