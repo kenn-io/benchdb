@@ -25,6 +25,7 @@
 
   let hovered = $state<{ machineName: string; point: BrowsePreviewPoint } | null>(null);
   let allPoints = $derived(row.previewTracks.flatMap((track) => track.points));
+  let previewUnitCount = $derived(new Set(allPoints.map((point) => point.unit)).size);
   let minX = $derived(allPoints.length === 0 ? 0 : Math.min(...allPoints.map((point) => point.chartMs)));
   let maxX = $derived(allPoints.length === 0 ? 1 : Math.max(...allPoints.map((point) => point.chartMs)));
   let yRange = $derived(
@@ -47,7 +48,7 @@
   }
 
   function pointTitle(machineName: string, point: BrowsePreviewPoint): string {
-    return `${machineName} · ${new Date(point.chartMs).toLocaleDateString()} · ${formatMeasurement(point.value, row.unit)}`;
+    return `${machineName} · ${new Date(point.chartMs).toLocaleDateString()} · ${formatMeasurement(point.value, point.unit)}`;
   }
 
   function axisDate(chartMs: number): string {
@@ -77,6 +78,8 @@
   <button type="button" class="chart-button" aria-label={`Open trend ${row.name}`} onclick={() => onopen?.(row)}>
     {#if allPoints.length === 0}
       <span class="no-preview">No trend preview</span>
+    {:else if previewUnitCount > 1}
+      <span class="no-preview">Preview unavailable: mixed units</span>
     {:else}
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`${row.name} fleet trend preview`}>
         <line class="axis" x1={PAD_X} y1={PLOT_BOTTOM} x2={WIDTH - PAD_X} y2={PLOT_BOTTOM} />

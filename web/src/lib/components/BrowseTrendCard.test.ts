@@ -21,9 +21,9 @@ const row: BrowseRow = {
     {
       machineName: "m5",
       points: [
-        { chartMs: Date.parse("2024-01-01T00:00:00Z"), value: 10 },
-        { chartMs: Date.parse("2024-01-02T00:00:00Z"), value: 11 },
-        { chartMs: Date.parse("2024-01-11T00:00:00Z"), value: 12 },
+        { chartMs: Date.parse("2024-01-01T00:00:00Z"), value: 10, unit: "s" },
+        { chartMs: Date.parse("2024-01-02T00:00:00Z"), value: 11, unit: "s" },
+        { chartMs: Date.parse("2024-01-11T00:00:00Z"), value: 12, unit: "s" },
       ],
     },
   ],
@@ -60,5 +60,15 @@ describe("BrowseTrendCard", () => {
     await rerender({ row, zeroBased: false });
 
     expect(container.querySelector("path")?.getAttribute("d")).not.toBe(zeroPath);
+  });
+
+  it("does not plot preview points with mixed units", () => {
+    const mixed = structuredClone(row);
+    mixed.previewTracks[0]!.points[0]!.unit = "B";
+
+    const { container } = render(BrowseTrendCard, { props: { row: mixed } });
+
+    expect(screen.getByText("Preview unavailable: mixed units")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
   });
 });

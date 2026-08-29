@@ -15,6 +15,7 @@ const benchmarkPreviewLen = 20
 type BenchmarkPreviewPoint struct {
 	CommitTimestamp time.Time `json:"commit_timestamp"`
 	Value           float64   `json:"value"`
+	Unit            *string   `json:"unit"`
 }
 
 type BenchmarkPreviewTrack struct {
@@ -166,6 +167,7 @@ func benchmarkPreview(
 			byMachine[member.HardwareName] = append(byMachine[member.HardwareName], BenchmarkPreviewPoint{
 				CommitTimestamp: *member.CommitTimestamp,
 				Value:           value,
+				Unit:            member.Unit,
 			})
 		}
 	}

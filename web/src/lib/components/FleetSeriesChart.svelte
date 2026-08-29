@@ -53,25 +53,55 @@
     points: (SeriesPoint | null)[][];
   }
 
+  interface FleetColumn {
+    key: string;
+    ms: number;
+    hash: string;
+    occurrence: number;
+  }
+
   function pointKey(point: SeriesPoint): string {
     return `${point.commitHash}\u0000${point.chartMs}`;
   }
 
   function fleetData(): FleetData {
-    const keys = new Map<string, { ms: number; hash: string }>();
-    for (const point of tracks.flatMap((track) => track.points)) {
-      keys.set(pointKey(point), { ms: point.chartMs, hash: point.commitHash });
+    const occurrenceCounts = new Map<string, { count: number; ms: number; hash: string }>();
+    for (const track of tracks) {
+      const trackCounts = new Map<string, number>();
+      for (const point of track.points) {
+        const key = pointKey(point);
+        const count = (trackCounts.get(key) ?? 0) + 1;
+        trackCounts.set(key, count);
+        const current = occurrenceCounts.get(key);
+        if (current === undefined || count > current.count) {
+          occurrenceCounts.set(key, { count, ms: point.chartMs, hash: point.commitHash });
+        }
+      }
     }
-    const ordered = [...keys.entries()].sort((a, b) => a[1].ms - b[1].ms || a[0].localeCompare(b[0]));
-    const index = new Map(ordered.map(([key], i) => [key, i]));
-    const xs = ordered.map(([, value]) => value.ms / 1000);
+    const ordered: FleetColumn[] = [...occurrenceCounts.entries()]
+      .flatMap(([key, value]) => Array.from(
+        { length: value.count },
+        (_, occurrence) => ({
+          key: `${key}\u0000${occurrence}`,
+          ms: value.ms,
+          hash: value.hash,
+          occurrence,
+        }),
+      ))
+      .sort((a, b) => a.ms - b.ms || a.hash.localeCompare(b.hash) || a.occurrence - b.occurrence);
+    const index = new Map(ordered.map((column, i) => [column.key, i]));
+    const xs = ordered.map((column) => column.ms / 1000);
     const pointRows: (SeriesPoint | null)[][] = [];
     const values: (number | null)[][] = [];
 
     for (const track of tracks) {
       const points: (SeriesPoint | null)[] = Array(ordered.length).fill(null);
+      const trackCounts = new Map<string, number>();
       for (const point of track.points) {
-        const i = index.get(pointKey(point));
+        const key = pointKey(point);
+        const occurrence = trackCounts.get(key) ?? 0;
+        trackCounts.set(key, occurrence + 1);
+        const i = index.get(`${key}\u0000${occurrence}`);
         if (i !== undefined) points[i] = point;
       }
       pointRows.push(points);

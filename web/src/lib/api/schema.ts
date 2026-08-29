@@ -552,6 +552,7 @@ export interface components {
         BenchmarkPreviewPoint: {
             /** Format: date-time */
             commit_timestamp: string;
+            unit: string | null;
             /** Format: double */
             value: number;
         };

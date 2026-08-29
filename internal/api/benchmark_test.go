@@ -37,7 +37,7 @@ func TestBenchmarkBrowseAndHistoryGroupFleetMachines(t *testing.T) {
 	assert.Equal(t, int64(2), benchmark.PointCount)
 	require.Len(t, benchmark.PreviewTracks, 2)
 	assert.Equal(t, "machine-a", benchmark.PreviewTracks[0].MachineName)
-	assert.Equal(t, []service.BenchmarkPreviewPoint{{CommitTimestamp: day(0), Value: 1}}, benchmark.PreviewTracks[0].Points)
+	assert.Equal(t, []service.BenchmarkPreviewPoint{{CommitTimestamp: day(0), Value: 1, Unit: new("s")}}, benchmark.PreviewTracks[0].Points)
 	assert.Equal(t, "machine-b", benchmark.PreviewTracks[1].MachineName)
 
 	resp = tapi.Get("/api/benchmarks/" + detail.BenchmarkID)

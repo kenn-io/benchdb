@@ -301,12 +301,16 @@ components:
         commit_timestamp:
           format: date-time
           type: string
+        unit:
+          nullable: true
+          type: string
         value:
           format: double
           type: number
       required:
         - commit_timestamp
         - value
+        - unit
       type: object
     BenchmarkPreviewTrack:
       additionalProperties: false

@@ -273,6 +273,7 @@ type BenchmarkPage struct {
 // BenchmarkPreviewPoint defines model for BenchmarkPreviewPoint.
 type BenchmarkPreviewPoint struct {
 	CommitTimestamp time.Time `json:"commit_timestamp"`
+	Unit            *string   `json:"unit"`
 	Value           float64   `json:"value"`
 }
 

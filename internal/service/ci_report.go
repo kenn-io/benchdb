@@ -896,7 +896,7 @@ func ciReportComparisonBase(row storage.CIReportResultRow) (CIReportComparison, 
 		Contender:          contender,
 		Links: CIReportRowLinks{
 			Result: ciReportResultLink(row.ResultID),
-			Series: ciReportSeriesLink(row.HistoryFingerprint),
+			Series: ciReportSeriesLink(row.ResultID),
 		},
 	}, nil
 }
@@ -1248,8 +1248,8 @@ func ciReportCompareLink(baselineID, contenderID string, threshold float64, thre
 	return "/compare?" + values.Encode()
 }
 
-func ciReportSeriesLink(fingerprint string) string {
-	return "/series/" + url.PathEscape(fingerprint)
+func ciReportSeriesLink(resultID string) string {
+	return "/benchmarks/history/" + url.PathEscape(resultID)
 }
 
 func setNonDefaultReportFloat(values url.Values, key string, value float64, fallback float64) {

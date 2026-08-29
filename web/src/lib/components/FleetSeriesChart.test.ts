@@ -121,6 +121,21 @@ describe("FleetSeriesChart", () => {
     expect(xs[2]! - xs[1]!).toBe(9 * 24 * 60 * 60);
   });
 
+  it("preserves reruns of the same commit at the same timestamp", () => {
+    const first = point("rerun-a", 1);
+    const second = point("rerun-b", 2);
+    second.commitHash = first.commitHash;
+    render(FleetSeriesChart, {
+      props: {
+        tracks: [{ machineName: "machine-a", segments: [], points: [first, second] }],
+      },
+    });
+
+    const [xs, values] = plotState.data as [number[], (number | null)[]];
+    expect(xs).toEqual([first.chartMs / 1000, second.chartMs / 1000]);
+    expect(values).toEqual([1, 2]);
+  });
+
   it("redraws when a live refresh adds a result", async () => {
     const { rerender } = render(FleetSeriesChart, {
       props: {

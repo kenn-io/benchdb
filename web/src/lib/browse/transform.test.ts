@@ -53,6 +53,17 @@ describe("toBrowseRows", () => {
     expect(row!.commitTimestampMs).toBe(Date.parse("2024-01-07T12:00:00Z"));
   });
 
+  it("retains each preview point's unit", () => {
+    const [row] = toBrowseRows([item({
+      preview_tracks: [{
+        machine_name: "m5",
+        points: [{ commit_timestamp: "2024-01-07T12:00:00Z", value: 12, unit: "B" }],
+      }],
+    })]);
+
+    expect(row!.previewTracks[0]!.points[0]!.unit).toBe("B");
+  });
+
   it("renders a null SVS / null unit as a dash and bare number", () => {
     expect(toBrowseRows([item({ latest_single_value_summary: null })])[0]!.svsText).toBe("—");
     expect(toBrowseRows([item({ unit: null })])[0]!.svsText).toBe("1.235");

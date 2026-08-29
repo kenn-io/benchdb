@@ -29,8 +29,8 @@ const item = (fp: string, name: string, overrides: Record<string, unknown> = {})
     {
       machine_name: "m5",
       points: [
-        { commit_timestamp: "2024-01-01T12:00:00Z", value: 1.2 },
-        { commit_timestamp: "2024-01-07T12:00:00Z", value: 1.5 },
+        { commit_timestamp: "2024-01-01T12:00:00Z", value: 1.2, unit: "s" },
+        { commit_timestamp: "2024-01-07T12:00:00Z", value: 1.5, unit: "s" },
       ],
     },
   ],

@@ -26,6 +26,7 @@ export interface BrowseRow {
 export interface BrowsePreviewPoint {
   chartMs: number;
   value: number;
+  unit: string | null;
 }
 
 export interface BrowsePreviewTrack {
@@ -78,6 +79,7 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
         points: (track.points ?? []).map((point) => ({
           chartMs: Date.parse(point.commit_timestamp),
           value: point.value,
+          unit: point.unit,
         })),
       })),
     };
