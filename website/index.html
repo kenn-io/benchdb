@@ -55,39 +55,15 @@
             <p class="fine-print">Language-independent · Go service · PostgreSQL · MIT licensed</p>
           </div>
 
-          <div class="trend-card" aria-label="Illustration of benchmark trends across two machines">
-            <div class="trend-toolbar">
-              <div>
-                <span class="trend-kicker">series</span>
-                <strong>decode-batch / wall time</strong>
-              </div>
-              <span class="trend-range">30 days</span>
-            </div>
-            <div class="trend-legend">
-              <span><i class="dot blue"></i>linux-arm64</span>
-              <span><i class="dot coral"></i>linux-x86-64</span>
-            </div>
-            <svg class="trend-chart" viewBox="0 0 660 300" role="img" aria-label="Two benchmark machine trends over calendar time">
-              <g class="grid-lines">
-                <path d="M56 35H640M56 95H640M56 155H640M56 215H640M56 275H640" />
-                <path d="M56 35V275M202 35V275M348 35V275M494 35V275M640 35V275" />
-              </g>
-              <g class="axis-labels">
-                <text x="22" y="280">0</text><text x="12" y="220">25</text><text x="12" y="160">50</text><text x="12" y="100">75</text><text x="5" y="40">100</text>
-                <text x="56" y="296">Aug 1</text><text x="315" y="296">Aug 15</text><text x="595" y="296">Aug 30</text>
-              </g>
-              <path class="band blue-band" d="M56 118C135 108 160 132 225 113S325 88 378 102s95 12 133-2 71-42 129-32V103c-51-9-83 22-129 33s-84 15-133 5-114 4-153 13-102 15-169 4Z" />
-              <path class="line blue-line" d="M56 138C135 128 160 151 225 133S325 107 378 121s95 11 133-1 71-42 129-32" />
-              <path class="line coral-line" d="M56 195C125 188 179 207 237 190s110-7 151-15 85 17 123 2 80-6 129-16" />
-              <g class="points blue-points"><circle cx="56" cy="138" r="5" /><circle cx="225" cy="133" r="5" /><circle cx="378" cy="121" r="5" /><circle cx="511" cy="120" r="5" /><circle cx="640" cy="88" r="5" /></g>
-              <g class="points coral-points"><circle cx="56" cy="195" r="5" /><circle cx="237" cy="190" r="5" /><circle cx="388" cy="175" r="5" /><circle cx="511" cy="177" r="5" /><circle cx="640" cy="161" r="5" /></g>
-            </svg>
-            <div class="trend-insight">
-              <span class="signal">regression</span>
-              <span><strong>linux-arm64</strong> moved 18.4% outside its rolling range</span>
-              <span class="commit">8f3c29a</span>
-            </div>
-          </div>
+          <figure class="product-shot">
+            <img
+              src="/assets/benchmark-series.png"
+              alt="BenchDB showing one benchmark across two machines, with calendar-time trends, rolling means, uncertainty bands, and a detected regression"
+              width="1440"
+              height="900"
+            />
+            <figcaption>Actual BenchDB interface with deterministic demo data.</figcaption>
+          </figure>
         </div>
       </section>
 

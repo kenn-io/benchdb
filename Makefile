@@ -26,8 +26,12 @@ docs-link-check:
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_build_docs_site
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_links.py
 
+.PHONY: docs-assets
+docs-assets:
+	./scripts/sync_docs_assets.sh
+
 .PHONY: build-docs
-build-docs: check-zensical-version docs-link-check docs-screenshots-check
+build-docs: check-zensical-version docs-link-check docs-screenshots-check docs-assets
 	rm -rf site
 	$(ZENSICAL) build
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/build_docs_site.py

@@ -3,6 +3,8 @@ _build/
 _kpbuild/
 /var/
 /site/
+/website/assets/*.png
+/website/assets/.docs-assets.synced
 /.cache/
 .kata.local.toml
 .env
