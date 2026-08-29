@@ -52,4 +52,13 @@ describe("BrowseTrendCard", () => {
     await fireEvent.click(screen.getByRole("button", { name: /open trend daily-usage/i }));
     expect(onopen).toHaveBeenCalledWith(row);
   });
+
+  it("can scale its preview from the observed minimum", async () => {
+    const { container, rerender } = render(BrowseTrendCard, { props: { row, zeroBased: true } });
+    const zeroPath = container.querySelector("path")?.getAttribute("d");
+
+    await rerender({ row, zeroBased: false });
+
+    expect(container.querySelector("path")?.getAttribute("d")).not.toBe(zeroPath);
+  });
 });

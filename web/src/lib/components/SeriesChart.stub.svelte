@@ -9,10 +9,12 @@
     points = [],
     tracks = [],
     currentResultId = null,
+    zeroBased = true,
   }: {
     points: SeriesPoint[];
     tracks?: MachineTrack[];
     currentResultId?: string | null;
+    zeroBased?: boolean;
   } = $props();
 
   let currentIndex = $derived(
@@ -20,4 +22,4 @@
   );
 </script>
 
-<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex}></div>
+<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex} data-zero-based={zeroBased}></div>

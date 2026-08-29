@@ -36,6 +36,7 @@
   let repositoryFilter = $state("");
   let exactFiltersOpen = $state(false);
   let chartView = $state(false);
+  let zeroBased = $state(true);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   // Monotonic token: a stale response (filters changed mid-flight) must not
   // overwrite a newer page.
@@ -163,6 +164,10 @@
     { value: "3mo", label: "Last 3 months" },
     { value: "1y", label: "Last year" },
   ];
+  const yAxisOptions: SelectDropdownOption[] = [
+    { value: "zero", label: "Zero baseline" },
+    { value: "observed", label: "Observed range" },
+  ];
   let activeFilters = $derived([
     ...(query.q !== ""
       ? [{ label: "query", value: query.q, clear: { q: "" }, aria: `Remove query filter ${query.q}` }]
@@ -247,6 +252,17 @@
         </div>
       </div>
       <Toggle checked={chartView} label="Trend charts" onchange={(checked) => (chartView = checked)} />
+      {#if chartView}
+        <label class="filter-label machine-select">
+          Y-axis
+          <SelectDropdown
+            value={zeroBased ? "zero" : "observed"}
+            options={yAxisOptions}
+            title="Y-axis"
+            onchange={(value) => (zeroBased = value === "zero")}
+          />
+        </label>
+      {/if}
     </div>
     {#if activeFilters.length > 0}
       <button type="button" class="button-pill secondary" onclick={() => navigate("/series")}>Clear filters</button>
@@ -315,7 +331,7 @@
     {#if chartView}
       <section class="trend-grid" aria-label="Benchmark trend cards">
         {#each visible as row (row.benchmarkId)}
-          <BrowseTrendCard {row} onopen={open} />
+          <BrowseTrendCard {row} {zeroBased} onopen={open} />
         {/each}
       </section>
     {:else}

@@ -96,6 +96,12 @@ describe("FleetSeriesChart", () => {
     expect(screen.getByText("2σ range")).toBeInTheDocument();
   });
 
+  it("can scale the fleet Y-axis from the observed minimum", () => {
+    render(FleetSeriesChart, { props: { tracks, sigma: 2, zeroBased: false } });
+    const options = plotState.options as { scales: { y: { range: () => number[] } } };
+    expect(options.scales.y.range()[0]).toBeGreaterThan(0);
+  });
+
   it("spaces fleet points by elapsed calendar time", () => {
     render(FleetSeriesChart, {
       props: {

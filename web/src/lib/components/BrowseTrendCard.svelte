@@ -1,14 +1,17 @@
 <script lang="ts">
   import { formatMeasurement } from "../format";
   import type { BrowsePreviewPoint, BrowseRow } from "../browse/transform";
+  import { observedValueRange, zeroBasedValueRange } from "../series/chart-geometry";
   import MeasurementValue from "./MeasurementValue.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
   let {
     row,
+    zeroBased = true,
     onopen,
   }: {
     row: BrowseRow;
+    zeroBased?: boolean;
     onopen?: (row: BrowseRow) => void;
   } = $props();
 
@@ -24,7 +27,9 @@
   let allPoints = $derived(row.previewTracks.flatMap((track) => track.points));
   let minX = $derived(allPoints.length === 0 ? 0 : Math.min(...allPoints.map((point) => point.chartMs)));
   let maxX = $derived(allPoints.length === 0 ? 1 : Math.max(...allPoints.map((point) => point.chartMs)));
-  let maxY = $derived(Math.max(1, ...allPoints.map((point) => point.value)) * 1.05);
+  let yRange = $derived(
+    (zeroBased ? zeroBasedValueRange : observedValueRange)(allPoints.map((point) => point.value)),
+  );
 
   function x(point: BrowsePreviewPoint): number {
     if (maxX === minX) return WIDTH / 2;
@@ -32,7 +37,9 @@
   }
 
   function y(point: BrowsePreviewPoint): number {
-    return PLOT_BOTTOM - (point.value / maxY) * (PLOT_BOTTOM - PLOT_TOP);
+    if (yRange === null) return PLOT_BOTTOM;
+    const span = yRange.max - yRange.min || 1;
+    return PLOT_BOTTOM - ((point.value - yRange.min) / span) * (PLOT_BOTTOM - PLOT_TOP);
   }
 
   function path(points: BrowsePreviewPoint[]): string {

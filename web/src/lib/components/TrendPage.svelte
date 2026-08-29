@@ -47,6 +47,10 @@
 
   const TREND_TABLE_INITIAL_ROWS = 200;
   const TREND_TABLE_ROW_CHUNK = 200;
+  const yAxisOptions: SelectDropdownOption[] = [
+    { value: "zero", label: "Zero baseline" },
+    { value: "observed", label: "Observed range" },
+  ];
   type TrendFilter = "all" | "outliers" | "steps";
   type FlagTarget = {
     filter: Exclude<TrendFilter, "all">;
@@ -440,6 +444,15 @@
           <option value="5">±5σ</option>
         </select>
       </label>
+      <label class="filter-label machine-select">
+        Y-axis
+        <SelectDropdown
+          value={query.yAxis}
+          options={yAxisOptions}
+          title="Y-axis"
+          onchange={(value) => setControl({ yAxis: value === "observed" ? "observed" : "zero" })}
+        />
+      </label>
     </div>
 
     <p class="summary-line" aria-label="Trend summary">
@@ -515,12 +528,14 @@
         <FleetSeriesChart
           tracks={visibleTracks}
           sigma={query.sigma}
+          zeroBased={query.yAxis === "zero"}
           onopen={openResult}
         />
       {:else}
         <SeriesChart
           points={visible}
           sigma={query.sigma}
+          zeroBased={query.yAxis === "zero"}
           {selectedIndex}
           {currentResultId}
           onselect={select}

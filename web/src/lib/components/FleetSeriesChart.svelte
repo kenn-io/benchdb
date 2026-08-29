@@ -8,6 +8,7 @@
   import {
     tooltipLeftForCursor,
     tooltipTopForCursor,
+    observedValueRange,
     zeroBasedValueRange,
   } from "../series/chart-geometry";
   import type { MachineTrack } from "../series/loader";
@@ -17,11 +18,13 @@
   let {
     tracks,
     sigma = 2,
+    zeroBased = true,
     height = 320,
     onopen,
   }: {
     tracks: MachineTrack[];
     sigma?: number;
+    zeroBased?: boolean;
     height?: number;
     onopen?: (resultId: string) => void;
   } = $props();
@@ -153,7 +156,7 @@
   function options(width: number, data: FleetData): uPlot.Options {
     const axisColor = cssVar("--c-text-muted", "#57606a");
     const gridColor = cssVar("--c-border-muted", "#e4e6ec");
-    const range = zeroBasedValueRange(tracks.flatMap((track) => track.points.flatMap((point) => {
+    const values = tracks.flatMap((track) => track.points.flatMap((point) => {
       const values = [point.svs];
       if (point.stats.rollingMean !== null) {
         values.push(point.stats.rollingMean);
@@ -163,7 +166,8 @@
         }
       }
       return values;
-    })));
+    }));
+    const range = (zeroBased ? zeroBasedValueRange : observedValueRange)(values);
     const series: uPlot.Series[] = [{}];
     const bands: uPlot.Band[] = [];
     tracks.forEach((track, i) => {
@@ -232,6 +236,7 @@
     const data = fleetData();
     void height;
     void sigma;
+    void zeroBased;
     void resolvedTheme();
     chart?.destroy();
     chart = untrack(() => new uPlot(options(host.clientWidth || 640, data), data.aligned, host));

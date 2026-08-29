@@ -163,7 +163,21 @@ describe("TrendPage", () => {
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
+    expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "sha-r1" })).toBeInTheDocument();
+  });
+
+  it("keeps the Y-axis baseline choice in the trend URL", async () => {
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z")]);
+    render(TrendPage, {
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
+    });
+    await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
+
+    await fireEvent.click(screen.getByRole("combobox", { name: /y-axis: zero baseline/i }));
+    await fireEvent.click(screen.getByRole("option", { name: /observed range/i }));
+
+    expect(window.location.search).toBe("?range=all&y_axis=observed");
   });
 
   it("marks the opened result as the current chart point", async () => {

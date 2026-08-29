@@ -172,6 +172,10 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
+    const yAxis = screen.getByRole("combobox", { name: /y-axis: zero baseline/i });
+    await fireEvent.click(yAxis);
+    await fireEvent.click(screen.getByRole("option", { name: /observed range/i }));
+    expect(screen.getByRole("combobox", { name: /y-axis: observed range/i })).toBeInTheDocument();
   });
 
   it("shows active filters and can clear them", async () => {

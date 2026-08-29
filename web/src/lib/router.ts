@@ -103,15 +103,18 @@ export type Route =
   | NotFoundRoute;
 
 export type TrendSigma = 1 | 2 | 3 | 5;
+export type TrendYAxis = "zero" | "observed";
 
 export interface TrendQuery {
   range: RangeSelection;
   sigma: TrendSigma;
+  yAxis: TrendYAxis;
 }
 
 export const DEFAULT_TREND_QUERY: TrendQuery = {
   range: { mode: "relative", days: 90 },
   sigma: 2,
+  yAxis: "zero",
 };
 
 const TREND_SIGMAS: readonly TrendSigma[] = [1, 2, 3, 5];
@@ -125,6 +128,7 @@ export function parseTrendQuery(search: string): TrendQuery {
   return {
     range: parseTrendRange(params),
     sigma: TREND_SIGMAS.includes(sigma as TrendSigma) ? (sigma as TrendSigma) : 2,
+    yAxis: params.get("y_axis") === "observed" ? "observed" : "zero",
   };
 }
 
@@ -146,6 +150,7 @@ export function formatTrendQuery(query: TrendQuery): string {
     params.set("to", range.to);
   }
   if (query.sigma !== 2) params.set("sigma", String(query.sigma));
+  if (query.yAxis !== "zero") params.set("y_axis", query.yAxis);
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
 }

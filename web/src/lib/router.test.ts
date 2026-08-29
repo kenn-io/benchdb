@@ -112,15 +112,15 @@ describe("trend route", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { range: { mode: "relative", days: 90 }, sigma: 2 },
+      query: { range: { mode: "relative", days: 90 }, sigma: 2, yAxis: "zero" },
     });
   });
 
   it("parses controls from the search string", () => {
-    expect(matchRoute("/series/abc123", "?range=all&sigma=5")).toEqual({
+    expect(matchRoute("/series/abc123", "?range=all&sigma=5&y_axis=observed")).toEqual({
       name: "trend",
       benchmarkId: "abc123",
-      query: { range: { mode: "relative", days: 0 }, sigma: 5 },
+      query: { range: { mode: "relative", days: 0 }, sigma: 5, yAxis: "observed" },
     });
   });
 
@@ -149,6 +149,7 @@ describe("trend route", () => {
     expect(parseTrendQuery("?range=2026&sigma=4")).toEqual({
       range: { mode: "relative", days: 90 },
       sigma: 2,
+      yAxis: "zero",
     });
     expect(parseTrendQuery("?range=custom&from=2026-08-30&to=2026-08-01").range).toEqual({
       mode: "relative",
@@ -158,16 +159,16 @@ describe("trend route", () => {
 
   it("formats the canonical search string omitting defaults", () => {
     expect(formatTrendQuery(DEFAULT_TREND_QUERY)).toBe("");
-    expect(formatTrendQuery({ range: { mode: "relative", days: 0 }, sigma: 3 })).toBe(
-      "?range=all&sigma=3",
+    expect(formatTrendQuery({ range: { mode: "relative", days: 0 }, sigma: 3, yAxis: "observed" })).toBe(
+      "?range=all&sigma=3&y_axis=observed",
     );
   });
 
   it("round-trips parse(format(q))", () => {
     const queries = [
-      { range: { mode: "relative", days: 30 }, sigma: 1 },
-      { range: { mode: "calendar", unit: "month", anchor: "2026-08-10" }, sigma: 2 },
-      { range: { mode: "custom", from: "2026-08-01", to: "2026-08-28" }, sigma: 5 },
+      { range: { mode: "relative", days: 30 }, sigma: 1, yAxis: "zero" },
+      { range: { mode: "calendar", unit: "month", anchor: "2026-08-10" }, sigma: 2, yAxis: "observed" },
+      { range: { mode: "custom", from: "2026-08-01", to: "2026-08-28" }, sigma: 5, yAxis: "zero" },
     ] as const;
     for (const query of queries) {
       expect(parseTrendQuery(formatTrendQuery(query))).toEqual(query);

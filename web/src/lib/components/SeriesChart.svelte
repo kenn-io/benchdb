@@ -8,6 +8,7 @@
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
+    observedValueRange,
     zeroBasedValueRange,
   } from "../series/chart-geometry";
   import {
@@ -26,6 +27,7 @@
   let {
     points,
     sigma = 2,
+    zeroBased = true,
     height = 280,
     selectedIndex = null,
     currentResultId = null,
@@ -35,6 +37,7 @@
   }: {
     points: SeriesPoint[];
     sigma?: number;
+    zeroBased?: boolean;
     height?: number;
     selectedIndex?: number | null;
     currentResultId?: string | null;
@@ -152,9 +155,11 @@
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }
 
-  // Cache the zero-based Y range so hover movement does not re-scan the whole
+  // Cache the Y range so hover movement does not re-scan the whole
   // history on every cursor change; it only recomputes when points/sigma change.
-  let overlayRange = $derived(zeroBasedValueRange(trendYRangeValues(points, sigma)));
+  let overlayRange = $derived(
+    (zeroBased ? zeroBasedValueRange : observedValueRange)(trendYRangeValues(points, sigma)),
+  );
 
   function overlayX(point: SeriesPoint): number {
     if (points.length === 1) return plotBox.width / 2;
@@ -430,6 +435,7 @@
     // height is otherwise only read inside the untracked constructor; track it
     // here so a caller-driven height change rebuilds instead of being ignored.
     void height;
+    void zeroBased;
     // Canvas colors are read from CSS tokens at build time, so a theme switch
     // must rebuild the chart to pick up the new palette.
     void resolvedTheme();

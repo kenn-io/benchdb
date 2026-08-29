@@ -5,6 +5,7 @@ import {
   closestIndexForValue,
   indexForCursorOffset,
   indexForCursorValue,
+  observedValueRange,
   tooltipLeftForCursor,
   tooltipTopForCursor,
   zeroBasedValueRange,
@@ -50,6 +51,13 @@ describe("chart geometry", () => {
     expect(zeroBasedValueRange([5], 0.05)).toEqual({ min: 0, max: 5.25 });
     expect(zeroBasedValueRange([-5, 10], 0.1)).toEqual({ min: 0, max: 11 });
     expect(zeroBasedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
+  });
+
+  it("scales an observed range around its minimum and maximum", () => {
+    expect(observedValueRange([10, 20], 0.1)).toEqual({ min: 9, max: 21 });
+    expect(observedValueRange([5], 0.1)).toEqual({ min: 4.5, max: 5.5 });
+    expect(observedValueRange([0], 0.1)).toEqual({ min: 0, max: 1 });
+    expect(observedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
   });
 
   it("clamps tooltip left positions inside narrow chart bounds", () => {

@@ -106,6 +106,12 @@ describe("SeriesChart", () => {
     expect(onopen).toHaveBeenCalledWith("r1");
   });
 
+  it("can scale the Y-axis from the observed minimum", () => {
+    render(SeriesChart, { props: { points: [boundaryPoint], zeroBased: false } });
+    const options = plotState.options as { scales: { y: { range: () => number[] } } };
+    expect(options.scales.y.range()[0]).toBeGreaterThan(0);
+  });
+
   it("zooms by horizontal brush and resets to the full time range", async () => {
     plotState.scaleCalls = [];
     const laterPoint = {
