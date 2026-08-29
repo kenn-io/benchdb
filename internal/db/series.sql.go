@@ -11,9 +11,64 @@ import (
 )
 
 const selectBenchmarkPage = `-- name: SelectBenchmarkPage :many
-WITH members AS MATERIALIZED (
+WITH recent_commit_seed AS MATERIALIZED (
+  SELECT c.id, c.sha AS commit_sha, c."timestamp" AS commit_timestamp
+  FROM commit c
+  WHERE c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+    AND ($3::timestamp IS NULL OR c."timestamp" < $3::timestamp)
+    AND EXISTS (
+      SELECT 1
+      FROM benchmark_result br
+      JOIN "case" cs ON cs.id = br.case_id
+      JOIN hardware hw ON hw.id = br.hardware_id
+      WHERE br.commit_id = c.id
+        AND br.error IS NULL
+        AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+        AND ($5::text IS NULL OR hw.name = $5)
+        AND ($6::text IS NULL OR br.commit_repo_url = $6)
+        AND ($7::text IS NULL OR br.benchmark_id = $7)
+    )
+  ORDER BY c."timestamp" DESC, c.id DESC
+  LIMIT $8::integer
+),
+recent_commit_boundary AS (
+  SELECT min(commit_timestamp) AS min_commit_timestamp
+  FROM recent_commit_seed
+),
+recent_commit AS MATERIALIZED (
+  SELECT c.id, c.sha AS commit_sha, c."timestamp" AS commit_timestamp
+  FROM commit c
+  WHERE c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+    AND (
+      ($3::timestamp IS NOT NULL AND c."timestamp" = $3::timestamp)
+      OR (
+        ($3::timestamp IS NULL OR c."timestamp" < $3::timestamp)
+        AND (SELECT min_commit_timestamp FROM recent_commit_boundary) IS NOT NULL
+        AND c."timestamp" >= (SELECT min_commit_timestamp FROM recent_commit_boundary)
+      )
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM benchmark_result br
+      JOIN "case" cs ON cs.id = br.case_id
+      JOIN hardware hw ON hw.id = br.hardware_id
+      WHERE br.commit_id = c.id
+        AND br.error IS NULL
+        AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+        AND ($5::text IS NULL OR hw.name = $5)
+        AND ($6::text IS NULL OR br.commit_repo_url = $6)
+        AND ($7::text IS NULL OR br.benchmark_id = $7)
+    )
+),
+members AS MATERIALIZED (
   SELECT
-    md5(br.case_id || br.commit_repo_url) AS benchmark_id,
+    br.benchmark_id,
     br.history_fingerprint,
     br.id,
     br."timestamp" AS result_timestamp,
@@ -22,21 +77,35 @@ WITH members AS MATERIALIZED (
     br.case_id,
     br.hardware_id,
     br.commit_repo_url,
-    c.sha AS commit_sha,
-    c."timestamp" AS commit_timestamp
-  FROM benchmark_result br
-  JOIN commit c ON c.id = br.commit_id
+    rc.commit_sha,
+    rc.commit_timestamp
+  FROM recent_commit rc
+  JOIN benchmark_result br ON br.commit_id = rc.id
   JOIN hardware hw ON hw.id = br.hardware_id
   JOIN "case" cs ON cs.id = br.case_id
   WHERE br.error IS NULL
-    AND c.sha = c.fork_point_sha
-    AND c."timestamp" IS NOT NULL
-    AND ($1::text IS NULL OR cs.name ILIKE '%' || $1::text || '%' OR cs.tags::text ILIKE '%' || $1::text || '%')
-    AND ($2::text IS NULL OR hw.name = $2)
-    AND ($3::text IS NULL OR br.commit_repo_url = $3)
-    AND ($4::text IS NULL OR md5(br.case_id || br.commit_repo_url) = $4)
-    AND ($5::timestamp IS NULL OR c."timestamp" >= $5::timestamp)
-    AND ($6::timestamp IS NULL OR c."timestamp" <= $6::timestamp)
+    AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+    AND ($5::text IS NULL OR hw.name = $5)
+    AND ($6::text IS NULL OR br.commit_repo_url = $6)
+    AND ($7::text IS NULL OR br.benchmark_id = $7)
+    AND (
+      $3::timestamp IS NULL
+      OR NOT EXISTS (
+        SELECT 1
+        FROM benchmark_result newer
+        JOIN commit newer_c ON newer_c.id = newer.commit_id
+        JOIN hardware newer_hw ON newer_hw.id = newer.hardware_id
+        WHERE newer.benchmark_id = br.benchmark_id
+          AND newer.error IS NULL
+          AND newer_c.sha = newer_c.fork_point_sha
+          AND newer_c."timestamp" IS NOT NULL
+          AND ($5::text IS NULL OR newer_hw.name = $5)
+          AND ($1::timestamp IS NULL OR newer_c."timestamp" >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR newer_c."timestamp" <= $2::timestamp)
+          AND (newer_c."timestamp", newer.benchmark_id)
+             >= ($3::timestamp, $9::text)
+      )
+    )
 ),
 latest AS (
   SELECT DISTINCT ON (benchmark_id)
@@ -53,24 +122,32 @@ latest AS (
   FROM members
   ORDER BY benchmark_id, commit_timestamp DESC, id DESC
 ),
-counts AS (
-  SELECT
-    m.benchmark_id,
-    count(*)::bigint AS point_count,
-    array_agg(DISTINCT m.history_fingerprint ORDER BY m.history_fingerprint)::text[] AS history_fingerprints,
-    array_agg(DISTINCT hw.name ORDER BY hw.name)::text[] AS machine_names
-  FROM members m
-  JOIN hardware hw ON hw.id = m.hardware_id
-  GROUP BY m.benchmark_id
-),
-page AS (
+page AS MATERIALIZED (
   SELECT l.benchmark_id, l.latest_history_fingerprint, l.latest_result_id, l.latest_result_timestamp, l.latest_commit_sha, l.latest_commit_timestamp, l.commit_repo_url, l.latest_unit, l.latest_data, l.case_id
   FROM latest l
-  WHERE $7::timestamp IS NULL
+  WHERE $3::timestamp IS NULL
      OR (l.latest_commit_timestamp, l.benchmark_id)
-        < ($7::timestamp, $8::text)
+        < ($3::timestamp, $9::text)
   ORDER BY l.latest_commit_timestamp DESC, l.benchmark_id DESC
-  LIMIT $9
+  LIMIT $10
+),
+counts AS (
+  SELECT
+    br.benchmark_id,
+    count(*)::bigint AS point_count,
+    array_agg(DISTINCT br.history_fingerprint ORDER BY br.history_fingerprint)::text[] AS history_fingerprints,
+    array_agg(DISTINCT hw.name ORDER BY hw.name)::text[] AS machine_names
+  FROM page p
+  JOIN benchmark_result br ON br.benchmark_id = p.benchmark_id
+  JOIN commit c ON c.id = br.commit_id
+  JOIN hardware hw ON hw.id = br.hardware_id
+  WHERE br.error IS NULL
+    AND c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($5::text IS NULL OR hw.name = $5)
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+  GROUP BY br.benchmark_id
 )
 SELECT
   p.benchmark_id,
@@ -94,15 +171,16 @@ ORDER BY p.latest_commit_timestamp DESC, p.benchmark_id DESC
 `
 
 type SelectBenchmarkPageParams struct {
-	Q           *string
-	Hardware    *string
-	Repository  *string
-	BenchmarkID *string
-	ActiveSince *time.Time
-	ActiveUntil *time.Time
-	CursorTs    *time.Time
-	CursorID    *string
-	PageSize    int32
+	ActiveSince       *time.Time
+	ActiveUntil       *time.Time
+	CursorTs          *time.Time
+	Q                 *string
+	Hardware          *string
+	Repository        *string
+	BenchmarkID       *string
+	SearchCommitLimit int32
+	CursorID          *string
+	PageSize          int32
 }
 
 type SelectBenchmarkPageRow struct {
@@ -124,16 +202,19 @@ type SelectBenchmarkPageRow struct {
 
 // One row per logical benchmark (case + repository), independent of machine
 // and environment context. Fingerprints remain the directly-comparable
-// statistical segments beneath each benchmark.
+// statistical segments beneath each benchmark. Discovery starts from a
+// bounded window of matching result-bearing commits; exact counts and fleet
+// metadata are computed only for the selected page.
 func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPageParams) ([]SelectBenchmarkPageRow, error) {
 	rows, err := q.db.Query(ctx, selectBenchmarkPage,
+		arg.ActiveSince,
+		arg.ActiveUntil,
+		arg.CursorTs,
 		arg.Q,
 		arg.Hardware,
 		arg.Repository,
 		arg.BenchmarkID,
-		arg.ActiveSince,
-		arg.ActiveUntil,
-		arg.CursorTs,
+		arg.SearchCommitLimit,
 		arg.CursorID,
 		arg.PageSize,
 	)

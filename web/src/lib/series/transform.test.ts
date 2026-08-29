@@ -368,11 +368,11 @@ describe("orderSamplesForChart", () => {
 });
 
 describe("distinctUnits", () => {
-  it("returns the sorted set of non-null units", () => {
+  it("returns the sorted set of units", () => {
     expect(distinctUnits([sample({ unit: "s" }), sample({ unit: "ms" }), sample({ unit: "s" })])).toEqual(["ms", "s"]);
   });
 
-  it("ignores null units", () => {
-    expect(distinctUnits([sample({ unit: null }), sample({ unit: "s" })])).toEqual(["s"]);
+  it("treats a missing unit as a distinct identity", () => {
+    expect(distinctUnits([sample({ unit: null }), sample({ unit: "s" })])).toEqual([null, "s"]);
   });
 });

@@ -97,6 +97,7 @@ type BenchmarkResult struct {
 	HistoryFingerprint      string
 	SubmissionKey           *string
 	SubmissionPayloadSha256 *string
+	BenchmarkID             string
 }
 
 type Case struct {

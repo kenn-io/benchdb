@@ -235,6 +235,15 @@ func (r *Reader) BenchmarkHistory(ctx context.Context, benchmarkID string) (*Ben
 		}
 		segments[len(segments)-1].rows = append(segments[len(segments)-1].rows, row.HistoryRow)
 	}
+	slices.SortFunc(segments, func(a, b segmentRows) int {
+		if byMachine := cmp.Compare(a.meta.HardwareName, b.meta.HardwareName); byMachine != 0 {
+			return byMachine
+		}
+		if byLatest := latestHistoryRowTime(a.rows).Compare(latestHistoryRowTime(b.rows)); byLatest != 0 {
+			return byLatest
+		}
+		return cmp.Compare(a.meta.HistoryFingerprint, b.meta.HistoryFingerprint)
+	})
 
 	tracks := make([]BenchmarkTrack, 0)
 	trackIndex := make(map[string]int)
@@ -272,4 +281,14 @@ func (r *Reader) BenchmarkHistory(ctx context.Context, benchmarkID string) (*Ben
 		Repository: first.Repository, Unit: unit, LessIsBetter: lessIsBetter,
 		Tracks: tracks,
 	}, nil
+}
+
+func latestHistoryRowTime(rows []storage.HistoryRow) time.Time {
+	latest := time.Time{}
+	for _, row := range rows {
+		if row.CommitTimestamp != nil && row.CommitTimestamp.After(latest) {
+			latest = *row.CommitTimestamp
+		}
+	}
+	return latest
 }

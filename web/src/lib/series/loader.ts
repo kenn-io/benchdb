@@ -45,7 +45,7 @@ export type TrendSource =
 export interface TrendViewModel {
   identity: SeriesIdentity;
   tracks: MachineTrack[];
-  units: string[];
+  units: (string | null)[];
   unitConsistent: boolean;
 }
 

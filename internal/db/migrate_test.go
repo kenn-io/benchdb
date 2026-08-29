@@ -15,7 +15,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 2
+const latestMigrationVersion = 3
 
 func TestMigrateCreatesAndRecordsFreshSchema(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -229,6 +229,35 @@ func TestMigrateUpgradesVersionOneSchema(t *testing.T) {
 
 	require.NoError(t, db.Migrate(ctx, pool))
 	assertCurrentMigration(t, ctx, pool)
+}
+
+func TestMigrateUpgradesVersionTwoSchemaWithExistingResults(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyInitialSchema(t, ctx, pool)
+	submissionMigration, err := os.ReadFile("migrations/000002_submission_idempotency.up.sql")
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, string(submissionMigration))
+	require.NoError(t, err)
+	insertBenchmarkDependencies(t, ctx, pool)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO public.benchmark_result (
+			id, case_id, context_id, info_id, hardware_id, run_id, run_tags,
+			"timestamp", commit_repo_url, history_fingerprint
+		) VALUES (
+			'existing-result', 'case-1', 'context-1', 'info-1', 'hardware-1',
+			'existing-run', '{}', now(), 'https://example.com/org/repo', 'existing-fingerprint'
+		)
+	`)
+	require.NoError(t, err)
+	createMigrationLedger(t, ctx, pool, 2, false)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	var benchmarkID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT benchmark_id FROM public.benchmark_result WHERE id = 'existing-result'
+	`).Scan(&benchmarkID))
+	assert.NotEmpty(t, benchmarkID)
 }
 
 func TestMigrateRejectsDirtyVersion(t *testing.T) {

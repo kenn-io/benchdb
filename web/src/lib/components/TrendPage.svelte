@@ -407,7 +407,7 @@
       </header>
       {#if !vm.unitConsistent}
         <div class="integrity" role="alert">
-          data integrity: this series mixes units ({vm.units.join(", ")}) — values are
+          data integrity: this series mixes units ({vm.units.map((unit) => unit ?? "unit not set").join(", ")}) — values are
           not directly comparable
         </div>
       {/if}
@@ -524,7 +524,9 @@
         </button>
       </p>
     {:else}
-      {#if machineFilter === "all" && visibleTracks.length > 1}
+      {#if !vm.unitConsistent}
+        <p class="empty chart-suppressed">Chart unavailable because this benchmark mixes measurement units.</p>
+      {:else if machineFilter === "all" && visibleTracks.length > 1}
         <FleetSeriesChart
           tracks={visibleTracks}
           sigma={query.sigma}

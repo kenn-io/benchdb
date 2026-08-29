@@ -335,15 +335,13 @@ export function orderSamplesForChart(samples: HistorySample[]): HistorySample[] 
   return [...samples].sort((a, b) => effectiveChartMs(a) - effectiveChartMs(b));
 }
 
-/** distinctUnits returns the sorted set of non-null units across samples. A
- * series with more than one is unit-inconsistent (history_fingerprint excludes
- * unit) and must be surfaced as data-integrity, not a clean SVS line. */
-export function distinctUnits(samples: HistorySample[]): string[] {
-  const seen = new Set<string>();
+/** distinctUnits returns the sorted set of units across samples. Null is a
+ * distinct unit identity: mixing a unitless sample with a measured unit is no
+ * more comparable than mixing two named units. */
+export function distinctUnits(samples: HistorySample[]): (string | null)[] {
+  const seen = new Set<string | null>();
   for (const s of samples) {
-    if (s.unit !== null) {
-      seen.add(s.unit);
-    }
+    seen.add(s.unit);
   }
-  return [...seen].sort();
+  return [...seen].sort((a, b) => (a ?? "").localeCompare(b ?? ""));
 }

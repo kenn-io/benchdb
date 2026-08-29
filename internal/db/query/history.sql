@@ -41,7 +41,7 @@ ORDER BY c."timestamp", br.id;
 -- brings those segments together for fleet presentation.
 SELECT
   br.id,
-  md5(br.case_id || br.commit_repo_url) AS benchmark_id,
+  br.benchmark_id,
   br.history_fingerprint,
   br."timestamp",
   br.unit,
@@ -68,7 +68,7 @@ JOIN context ctx ON ctx.id = br.context_id
 JOIN info i ON i.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
 JOIN commit c ON c.id = br.commit_id
-WHERE md5(br.case_id || br.commit_repo_url) = sqlc.arg('benchmark_id')
+WHERE br.benchmark_id = sqlc.arg('benchmark_id')
   AND br.error IS NULL
   AND c.sha = c.fork_point_sha
   AND c."timestamp" IS NOT NULL

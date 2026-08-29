@@ -46,6 +46,11 @@ const (
 	// commit window is selected. Keep the cap explicit so the browse query
 	// remains bounded on production-sized history tables.
 	seriesBrowseScopedCommitLimit = int32(512)
+	// Logical benchmark browse uses the same recent-commit discovery model but
+	// needs a wider cap because a commit can contain only one logical benchmark.
+	benchmarkBrowseRecentCommitMinLimit   = int32(320)
+	benchmarkBrowseRecentCommitMaxLimit   = int32(4096)
+	benchmarkBrowseRecentCommitPageFactor = int32(4)
 	// Browse/search row enrichment needs enough recent points for the 100-commit
 	// stats window and sparkline, but full histories remain on history endpoints.
 	seriesMembersTailLimit = int32(256)
@@ -886,6 +891,7 @@ func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkList
 		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince,
 		ActiveUntil: p.ActiveUntil, CursorTs: p.CursorTs,
 		CursorID: p.CursorID, PageSize: p.PageSize,
+		SearchCommitLimit: benchmarkBrowseRecentCommitLimit(p),
 	})
 	if err != nil {
 		return nil, err
@@ -913,6 +919,13 @@ func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkList
 		})
 	}
 	return out, nil
+}
+
+func benchmarkBrowseRecentCommitLimit(p storage.BenchmarkListParams) int32 {
+	return min(
+		max(p.PageSize*benchmarkBrowseRecentCommitPageFactor, benchmarkBrowseRecentCommitMinLimit),
+		benchmarkBrowseRecentCommitMaxLimit,
+	)
 }
 
 func seriesQNeedsCompleteSearch(p storage.SeriesListParams) bool {

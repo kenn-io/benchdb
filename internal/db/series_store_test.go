@@ -669,6 +669,40 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
 }
 
+func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-fleet-a", "fleet-bench", `{}`, "m5", []seriesMember{
+		{ts: day(0), value: 1},
+		{ts: day(2), value: 2},
+	})
+	seedSeries(t, st, ctx, "fp-fleet-b", "fleet-bench", `{}`, "m7", []seriesMember{
+		{ts: day(1), value: 3},
+	})
+	seedSeries(t, st, ctx, "fp-older", "older-bench", `{}`, "m5", []seriesMember{
+		{ts: day(-1), value: 4},
+	})
+
+	first, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	assert.Equal(t, "fleet-bench", first[0].CaseName)
+	assert.Equal(t, int64(3), first[0].PointCount)
+	assert.Equal(t, []string{"fp-fleet-a", "fp-fleet-b"}, first[0].HistoryFingerprints)
+	assert.Equal(t, []string{"m5", "m7"}, first[0].MachineNames)
+
+	cursorTS := first[0].LatestCommitTimestamp
+	second, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
+		CursorTs: &cursorTS, CursorID: &first[0].BenchmarkID, PageSize: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+	assert.Equal(t, "older-bench", second[0].CaseName)
+
+	history, err := st.SelectHistoryForBenchmark(ctx, first[0].BenchmarkID)
+	require.NoError(t, err)
+	assert.Len(t, history, 3)
+}
+
 // TestSelectSeriesPageRepositoryFilter asserts the repository filter matches the
 // series' commit repo URL exactly.
 func TestSelectSeriesPageRepositoryFilter(t *testing.T) {

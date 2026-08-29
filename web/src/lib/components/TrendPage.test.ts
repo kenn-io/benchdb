@@ -550,5 +550,21 @@ describe("TrendPage", () => {
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/mixes units/);
+    expect(screen.getByText(/chart unavailable/i)).toBeInTheDocument();
+    expect(document.querySelector(".chart-stub")).toBeNull();
+  });
+
+  it("treats unitless and measured samples as mixed units", async () => {
+    GET.mockResolvedValue({ data: benchmarkHistory([
+      sample("r1", "2024-01-07T12:00:00Z", 1, { unit: null }),
+      sample("r2", "2024-01-08T12:00:00Z", 2),
+    ], null) });
+    render(TrendPage, {
+      props: { source: { kind: "benchmark", benchmarkId: "b1" }, query: ALL_TREND_QUERY },
+    });
+
+    await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/unit not set, s/);
+    expect(document.querySelector(".chart-stub")).toBeNull();
   });
 });
