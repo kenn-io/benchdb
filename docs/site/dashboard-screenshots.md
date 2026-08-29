@@ -64,7 +64,7 @@ UI instead of hand-picked local captures.
 | --- | --- | --- |
 | Benchmark runs | `/` | Start from recent benchmark activity and jump into report, result, or series workflows. |
 | Series browse | `/series?q=ingest-events-10m` | Browse benchmark families, filters, status, and production-shaped identifiers. |
-| Trend detail | `/series/:fingerprint?range=all` | Inspect history, charted trends, and sample rows for one series. |
+| Trend detail | `/benchmarks/:benchmark_id?range=all` | Inspect fleet history, charted trends, and sample rows for one benchmark. |
 | Result detail | `/results/:id` | Inspect one benchmark result, measurement, metadata, and read-only actions. |
 | Results list | `/results?run_id=...` | Browse submitted benchmark results, filter by run or batch, and jump into detail or trends. |
 | Run detail | `/runs/:run_id` | Inspect one run_id, its result rows, CI report link, batches, and series links. |

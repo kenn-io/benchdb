@@ -25,8 +25,8 @@
     {
       "id": "trend",
       "title": "Trend detail",
-      "path": "/series/:fingerprint?range=all",
-      "purpose": "Inspect history, charted trends, and sample rows for one series."
+      "path": "/benchmarks/:benchmark_id?range=all",
+      "purpose": "Inspect fleet history, charted trends, and sample rows for one benchmark."
     },
     {
       "id": "result",

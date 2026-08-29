@@ -99,11 +99,23 @@
         return;
       }
       vm = resultViewModelFromDetail(res.data);
+      await refreshHistory();
       actionMsg = "annotation updated";
     } catch (err) {
       actionError = err instanceof Error ? err.message : String(err);
     } finally {
       busyAction = null;
+    }
+  }
+
+  async function refreshHistory() {
+    try {
+      historyPoints = await loadResultHistory(client, resultId);
+      historyError = null;
+    } catch (err) {
+      historyError = err instanceof Error ? err.message : String(err);
+    } finally {
+      historyLoaded = true;
     }
   }
 

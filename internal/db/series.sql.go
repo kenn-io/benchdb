@@ -204,7 +204,10 @@ type SelectBenchmarkPageRow struct {
 // and environment context. Fingerprints remain the directly-comparable
 // statistical segments beneath each benchmark. Discovery starts from a
 // bounded window of matching result-bearing commits; exact counts and fleet
-// metadata are computed only for the selected page.
+// metadata are computed only for the selected page. Substring discovery is
+// intentionally limited to this recent window. An exact benchmark_id remains
+// exhaustive for identity discovery because that filter is applied inside the
+// seed before ordering and limiting matching commits.
 func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPageParams) ([]SelectBenchmarkPageRow, error) {
 	rows, err := q.db.Query(ctx, selectBenchmarkPage,
 		arg.ActiveSince,

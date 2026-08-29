@@ -209,7 +209,28 @@ describe("ResultPage", () => {
   });
 
   it("marks and unmarks a result as a distribution change", async () => {
-    mockPage({ ...detail, change_annotations: {} }, signedInCapabilities);
+    let historyReads = 0;
+    GET.mockImplementation((path: string) => {
+      if (path === "/api/benchmark-results/{id}") {
+        return Promise.resolve({ data: { ...detail, change_annotations: {} } });
+      }
+      if (path === "/api/auth/capabilities") {
+        return Promise.resolve({ data: signedInCapabilities });
+      }
+      if (path === "/api/history/{benchmark_result_id}") {
+        historyReads++;
+        const samples = history.map((sample) => sample.benchmark_result_id === "r1"
+          ? {
+              ...sample,
+              change_annotations: historyReads === 2
+                ? { begins_distribution_change: true }
+                : {},
+            }
+          : sample);
+        return Promise.resolve({ data: { history_fingerprint: "fp1", samples } });
+      }
+      return Promise.resolve({ error: { detail: `unexpected GET ${path}` } });
+    });
     PUT.mockResolvedValueOnce({ data: { ...detail, change_annotations: { begins_distribution_change: true } } });
     PUT.mockResolvedValueOnce({ data: { ...detail, change_annotations: {} } });
 
@@ -225,6 +246,7 @@ describe("ResultPage", () => {
     );
     expect(screen.getByText(/annotation updated/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /unmark distribution change/i })).toBeInTheDocument();
+    expect(screen.getByText("step", { selector: ".flag" })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /unmark distribution change/i }));
     await waitFor(() =>
@@ -234,6 +256,8 @@ describe("ResultPage", () => {
       }),
     );
     expect(screen.getByRole("button", { name: /mark distribution change/i })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector(".flag")).toBeNull());
+    expect(historyReads).toBe(3);
   });
 
   it("deletes a result after confirmation", async () => {

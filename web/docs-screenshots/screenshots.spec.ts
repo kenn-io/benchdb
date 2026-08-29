@@ -232,7 +232,7 @@ async function gotoReady(page: Page, url: string, heading: RegExp) {
 }
 
 async function gotoTrend(page: Page, benchmarkID: string) {
-  await gotoReady(page, `/series/${encodeURIComponent(benchmarkID)}?range=all`, /ingest-events-10m/i);
+  await gotoReady(page, `/benchmarks/${encodeURIComponent(benchmarkID)}?range=all`, /ingest-events-10m/i);
   const chart = page.getByLabel("Fleet benchmark trend");
   await expect(chart).toContainText("runner-arm64");
   await expect(chart).toContainText("runner-x86-64");
