@@ -5,6 +5,7 @@ const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
 
 interface ResultIdentity {
   benchmark_id: string;
+  history_fingerprint: string;
   tags: Record<string, unknown>;
   less_is_better: boolean | null;
 }
@@ -22,7 +23,13 @@ test("trend deep link renders overlays and controls and opens a result", async (
   const series = (await api.json()) as ResultIdentity;
   const name = typeof series.tags.name === "string" ? series.tags.name : "(unnamed)";
 
-  await page.goto(`${baseURL}/series/${series.benchmark_id}?range=all`);
+  // Existing fingerprint bookmarks retain their original single-segment view.
+  await page.goto(`${baseURL}/series/${series.history_fingerprint}?range=all`);
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+
+  // Logical benchmark links use the fleet-wide trend route.
+  await page.goto(`${baseURL}/benchmarks/${series.benchmark_id}?range=all`);
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   await expect(page.getByRole("heading", { name })).toBeVisible();
   if (series.less_is_better !== null) {
@@ -76,7 +83,7 @@ test("trend deep link renders overlays and controls and opens a result", async (
   await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
 
   // Deep-link reload survives (SPA fallback) with controls intact.
-  await page.goto(`${baseURL}/series/${series.benchmark_id}?range=all&sigma=3`);
+  await page.goto(`${baseURL}/benchmarks/${series.benchmark_id}?range=all&sigma=3`);
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   await expect(page.getByLabel(/band/i)).toHaveValue("3");
 });

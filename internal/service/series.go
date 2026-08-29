@@ -199,7 +199,11 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 	for i, row := range rows {
 		fingerprints[i] = row.HistoryFingerprint
 	}
-	members, err := r.store.SelectSeriesMembers(ctx, fingerprints)
+	members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: fingerprints,
+		ActiveSince:  q.ActiveSince,
+		ActiveUntil:  q.ActiveUntil,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list series members: %w", err)
 	}

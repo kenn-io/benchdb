@@ -28,7 +28,7 @@
       label: "Benchmarks",
       href: "/series",
       route: "browse",
-      active: ["browse", "trend", "series-leaf", "results-list", "result"],
+      active: ["browse", "trend", "benchmark-trend", "series-leaf", "results-list", "result"],
     },
     { label: "Compare", href: "/compare", route: "compare", active: ["compare"] },
     { label: "Reports", href: "/ci/report", route: "ci-report", active: ["ci-report"] },

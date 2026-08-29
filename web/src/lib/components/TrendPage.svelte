@@ -230,9 +230,9 @@
   });
 
   function basePath(): string {
-    return source.kind === "benchmark"
-      ? `/series/${source.benchmarkId}`
-      : `/benchmarks/history/${source.resultId}`;
+    if (source.kind === "benchmark") return `/benchmarks/${source.benchmarkId}`;
+    if (source.kind === "fingerprint") return `/series/${source.fingerprint}`;
+    return `/benchmarks/history/${source.resultId}`;
   }
 
   function setControl(patch: Partial<TrendQuery>) {

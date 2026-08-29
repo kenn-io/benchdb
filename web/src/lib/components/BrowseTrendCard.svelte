@@ -65,7 +65,7 @@
 <article class="trend-card panel">
   <header>
     <div class="identity">
-      <a href={`/series/${row.benchmarkId}`} onclick={(event) => {
+      <a href={`/benchmarks/${row.benchmarkId}`} onclick={(event) => {
         if (!onopen) return;
         event.preventDefault();
         onopen(row);

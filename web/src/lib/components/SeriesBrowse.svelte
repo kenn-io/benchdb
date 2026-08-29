@@ -134,7 +134,7 @@
   }
 
   function open(row: BrowseRow) {
-    navigate(`/series/${row.benchmarkId}`);
+    navigate(`/benchmarks/${row.benchmarkId}`);
   }
 
   function go(e: MouseEvent, href: string) {

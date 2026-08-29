@@ -53,7 +53,7 @@ const rows = toBrowseRows(
 describe("BrowseTable", () => {
   it("renders one row with identity, value, status, and trend link", () => {
     render(BrowseTable, { props: { rows } });
-    expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/series/b1");
+    expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/benchmarks/b1");
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     expect(screen.getByText("1.2 s")).toBeInTheDocument();
     expect(screen.getByText("regressed")).toBeInTheDocument();

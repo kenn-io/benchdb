@@ -1038,9 +1038,11 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string, revokedAt time.Ti
 // fingerprint, grouped by fingerprint and ordered oldest commit first within
 // each returned tail. Full history remains available through
 // SelectHistoryForFingerprint.
-func (s *Store) SelectSeriesMembers(ctx context.Context, fingerprints []string) ([]storage.HistoryRow, error) {
+func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) ([]storage.HistoryRow, error) {
 	rows, err := s.q.SelectSeriesMembers(ctx, SelectSeriesMembersParams{
-		Fingerprints:        fingerprints,
+		Fingerprints:        p.Fingerprints,
+		ActiveSince:         p.ActiveSince,
+		ActiveUntil:         p.ActiveUntil,
 		PerFingerprintLimit: seriesMembersTailLimit,
 	})
 	if err != nil {

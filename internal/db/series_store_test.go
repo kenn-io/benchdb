@@ -659,7 +659,7 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	}
 	seedSeries(t, st, ctx, "fp-long", "long-history", `{}`, "m5", members)
 
-	got, err := st.SelectSeriesMembers(ctx, []string{"fp-long"})
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-long"}})
 
 	require.NoError(t, err)
 	require.Len(t, got, 256)
@@ -667,6 +667,29 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
+}
+
+func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+
+	members := make([]seriesMember, 300)
+	for i := range members {
+		members[i] = seriesMember{ts: day(i), value: float64(i)}
+	}
+	seedSeries(t, st, ctx, "fp-windowed", "windowed-history", `{}`, "m5", members)
+
+	until := day(20)
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-windowed"},
+		ActiveUntil:  &until,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 21)
+	require.NotNil(t, got[0].CommitTimestamp)
+	require.NotNil(t, got[len(got)-1].CommitTimestamp)
+	assert.Equal(t, day(0), *got[0].CommitTimestamp)
+	assert.Equal(t, day(20), *got[len(got)-1].CommitTimestamp)
 }
 
 func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *testing.T) {
@@ -872,7 +895,7 @@ func TestSelectSeriesMembers(t *testing.T) {
 		{ts: day(0), value: 9.0},
 	})
 
-	rows, err := st.SelectSeriesMembers(ctx, []string{"fp-a", "fp-b"})
+	rows, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-a", "fp-b"}})
 	require.NoError(t, err)
 	require.Len(t, rows, 3, "two valid members of A plus one of B; errored/off-branch excluded")
 
@@ -913,13 +936,15 @@ func TestSelectSeriesMembersEmptyAndMissing(t *testing.T) {
 		{ts: day(0), value: 1.0},
 	})
 
-	empty, err := st.SelectSeriesMembers(ctx, []string{})
+	empty, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{})
 	require.NoError(t, err)
 	assert.Empty(t, empty, "empty fingerprint list returns no rows")
 
 	// A fingerprint that has no members contributes nothing; the present one still
 	// returns its single member.
-	rows, err := st.SelectSeriesMembers(ctx, []string{"fp-present", "fp-absent"})
+	rows, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-present", "fp-absent"},
+	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "absent fingerprint contributes no rows")
 	assert.Equal(t, "fp-present", rows[0].HistoryFingerprint)

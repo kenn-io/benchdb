@@ -11,6 +11,7 @@ type Client = ReturnType<typeof createBenchDBClient>;
 type BenchmarkHistory = components["schemas"]["BenchmarkHistory"];
 type BenchmarkSegment = components["schemas"]["BenchmarkSegment"];
 type HistorySample = components["schemas"]["HistorySample"];
+type SeriesListItem = components["schemas"]["SeriesListItem"];
 
 export interface SeriesIdentity {
   benchmarkId: string;
@@ -36,11 +37,12 @@ export interface MachineTrack {
   points: SeriesPoint[];
 }
 
-/** TrendSource enters by stable benchmark id or by a result whose benchmark id
- * is resolved first. Both paths load the same fleet-wide trend. */
+/** TrendSource enters by stable benchmark id, a result whose benchmark id is
+ * resolved first, or the shipped fingerprint route for one comparable segment. */
 export type TrendSource =
   | { kind: "result"; resultId: string }
-  | { kind: "benchmark"; benchmarkId: string };
+  | { kind: "benchmark"; benchmarkId: string }
+  | { kind: "fingerprint"; fingerprint: string };
 
 export interface TrendViewModel {
   identity: SeriesIdentity;
@@ -109,6 +111,37 @@ function assemble(history: BenchmarkHistory): TrendViewModel {
   };
 }
 
+function assembleFingerprint(item: SeriesListItem, samples: HistorySample[] | null): TrendViewModel {
+  const tags: Record<string, unknown> = { ...item.tags };
+  delete tags["name"];
+  const points = segmentPoints(samples);
+  const units = distinctUnits(samples ?? []);
+  return {
+    identity: {
+      benchmarkId: item.history_fingerprint,
+      displayBenchmarkId: compactIdentifier(item.history_fingerprint, 12, 8),
+      benchmarkName: item.name,
+      caseTags: tags,
+      repository: item.repository,
+      repositoryLabel: formatRepositoryLabel(item.repository),
+      unit: item.unit,
+      lessIsBetter: item.less_is_better,
+    },
+    tracks: [{
+      machineName: item.hardware.name,
+      segments: [{
+        fingerprint: item.history_fingerprint,
+        context: item.context,
+        hardware: item.hardware,
+        points,
+      }],
+      points,
+    }],
+    units,
+    unitConsistent: units.length <= 1,
+  };
+}
+
 async function loadByBenchmark(client: Client, benchmarkId: string): Promise<TrendViewModel> {
   const res = await client.GET("/api/benchmarks/{benchmark_id}", {
     params: { path: { benchmark_id: benchmarkId } },
@@ -121,6 +154,24 @@ async function loadByBenchmark(client: Client, benchmarkId: string): Promise<Tre
     throw new Error(`failed to load benchmark ${benchmarkId}`);
   }
   return assemble(res.data);
+}
+
+async function loadByFingerprint(client: Client, fingerprint: string): Promise<TrendViewModel> {
+  const [historyRes, seriesRes] = await Promise.all([
+    client.GET("/api/history", { params: { query: { fingerprint } }, cache: "no-store" }),
+    client.GET("/api/series", { params: { query: { fingerprint, page_size: 1 } }, cache: "no-store" }),
+  ]);
+  if (historyRes.error || !historyRes.data) {
+    throw new Error(`failed to load history for series ${fingerprint}`);
+  }
+  if (seriesRes.error || !seriesRes.data) {
+    throw new Error(`failed to load series ${fingerprint}`);
+  }
+  const item = seriesRes.data.series?.[0];
+  if (item === undefined) {
+    throw new Error(`series ${fingerprint} not found`);
+  }
+  return assembleFingerprint(item, historyRes.data.samples);
 }
 
 async function loadByResult(client: Client, resultId: string): Promise<TrendViewModel> {
@@ -137,7 +188,12 @@ async function loadByResult(client: Client, resultId: string): Promise<TrendView
 }
 
 export async function loadTrend(client: Client, source: TrendSource): Promise<TrendViewModel> {
-  return source.kind === "result"
-    ? loadByResult(client, source.resultId)
-    : loadByBenchmark(client, source.benchmarkId);
+  switch (source.kind) {
+    case "result":
+      return loadByResult(client, source.resultId);
+    case "fingerprint":
+      return loadByFingerprint(client, source.fingerprint);
+    case "benchmark":
+      return loadByBenchmark(client, source.benchmarkId);
+  }
 }

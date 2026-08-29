@@ -5,7 +5,7 @@ const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
 test("browse to trend to compare happy path", async ({ page }) => {
   await page.goto(`${baseURL}/series`);
   await page.locator("table.browse-table tbody tr a").first().click();
-  await expect(page).toHaveURL(/\/series\//);
+  await expect(page).toHaveURL(/\/benchmarks\//);
   // The trend default range is anchored at the newest series point, so the
   // seeded history renders without widening the window.
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();

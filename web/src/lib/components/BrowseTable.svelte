@@ -82,7 +82,7 @@
             <span class="identity-stack">
               <a
                 class="row-primary-link"
-                href={`/series/${row.benchmarkId}`}
+                href={`/benchmarks/${row.benchmarkId}`}
                 onclick={(e) => {
                   if (!onopen || !interceptNavClick(e)) return;
                   e.preventDefault();

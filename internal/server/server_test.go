@@ -95,7 +95,7 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 	history := getAPI[service.HistorySeries](t, handler, "/api/history?fingerprint="+url.QueryEscape(targets.Fingerprint))
 	require.Len(t, history.Samples, seed.IncludedHistoryPoints)
 	assert.Equal(t, targets.BaselineResultID, history.Samples[0].BenchmarkResultID)
-	assert.Equal(t, targets.ContenderResultID, history.Samples[len(history.Samples)-1].BenchmarkResultID)
+	assert.Equal(t, targets.LatestResultID, history.Samples[len(history.Samples)-1].BenchmarkResultID)
 
 	compareQuery := url.Values{
 		"baseline_result_id":  {targets.BaselineResultID},

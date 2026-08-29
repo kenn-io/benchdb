@@ -581,7 +581,7 @@ describe("TrendPage", () => {
       }
       throw new Error(`unexpected ${url}`);
     });
-    window.history.replaceState(null, "", "/series/b1");
+    window.history.replaceState(null, "", "/benchmarks/b1");
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },

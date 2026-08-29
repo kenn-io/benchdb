@@ -516,6 +516,8 @@ members AS MATERIALIZED (
     JOIN commit c ON c.id = br.commit_id
     WHERE c.sha = c.fork_point_sha
       AND c."timestamp" IS NOT NULL
+      AND (sqlc.narg('active_since')::timestamp IS NULL OR c."timestamp" >= sqlc.narg('active_since')::timestamp)
+      AND (sqlc.narg('active_until')::timestamp IS NULL OR c."timestamp" <= sqlc.narg('active_until')::timestamp)
     ORDER BY c."timestamp" DESC, br.id DESC
     LIMIT sqlc.arg('per_fingerprint_limit')::integer
   ) m

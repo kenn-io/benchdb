@@ -49,6 +49,10 @@
         <TrendPage source={{ kind: "result", resultId: route.resultId }} query={route.query} />
       {/key}
     {:else if route.name === "trend"}
+      {#key route.fingerprint}
+        <TrendPage source={{ kind: "fingerprint", fingerprint: route.fingerprint }} query={route.query} />
+      {/key}
+    {:else if route.name === "benchmark-trend"}
       {#key route.benchmarkId}
         <TrendPage source={{ kind: "benchmark", benchmarkId: route.benchmarkId }} query={route.query} />
       {/key}

@@ -213,7 +213,7 @@
     </section>
   </main>
 {:else}
-  {@const seriesHref = `/series/${vm.benchmarkId}`}
+  {@const seriesHref = `/benchmarks/${vm.benchmarkId}`}
   <main class="page result-page">
     <header class="page-header">
       <div>

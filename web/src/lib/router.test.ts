@@ -108,17 +108,17 @@ describe("account route", () => {
 });
 
 describe("trend route", () => {
-  it("matches /series/:benchmark with default controls", () => {
+  it("preserves /series/:fingerprint with default controls", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
-      benchmarkId: "abc123",
+      fingerprint: "abc123",
       query: { range: { mode: "relative", days: 90 }, sigma: 2, yAxis: "zero" },
     });
   });
 
-  it("parses controls from the search string", () => {
-    expect(matchRoute("/series/abc123", "?range=all&sigma=5&y_axis=observed")).toEqual({
-      name: "trend",
+  it("matches /benchmarks/:benchmark with controls", () => {
+    expect(matchRoute("/benchmarks/abc123", "?range=all&sigma=5&y_axis=observed")).toEqual({
+      name: "benchmark-trend",
       benchmarkId: "abc123",
       query: { range: { mode: "relative", days: 0 }, sigma: 5, yAxis: "observed" },
     });

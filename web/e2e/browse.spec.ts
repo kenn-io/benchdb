@@ -22,7 +22,7 @@ test("browse lists the seeded series, searches, and opens its trend", async ({ p
   // Row click opens the benchmark trend via SPA navigation. The default range
   // is anchored at the newest series point, so the seeded history renders.
   await page.locator("table.browse-table tbody tr a").first().click();
-  await expect(page).toHaveURL(/\/series\//);
+  await expect(page).toHaveURL(/\/benchmarks\//);
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
 
   // A search with no matches shows the empty state, not an error.

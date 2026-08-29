@@ -8,6 +8,12 @@ export interface LeafRoute {
 
 export interface TrendRoute {
   name: "trend";
+  fingerprint: string;
+  query: TrendQuery;
+}
+
+export interface BenchmarkTrendRoute {
+  name: "benchmark-trend";
   benchmarkId: string;
   query: TrendQuery;
 }
@@ -94,6 +100,7 @@ export type Route =
   | BrowseRoute
   | LeafRoute
   | TrendRoute
+  | BenchmarkTrendRoute
   | RunRoute
   | BatchRoute
   | ResultListRoute
@@ -363,6 +370,7 @@ const LEAF_PATTERNS: RegExp[] = [
 ];
 
 const TREND_PATTERN = /^\/series\/([^/]+)\/?$/;
+const BENCHMARK_TREND_PATTERN = /^\/benchmarks\/([^/]+)\/?$/;
 const RUN_PATTERN = /^\/runs\/([^/]+)\/?$/;
 const BATCH_PATTERN = /^\/batches\/([^/]+)\/?$/;
 const RESULT_PATTERN = /^\/results\/([^/]+)\/?$/;
@@ -419,10 +427,17 @@ export function matchRoute(pathname: string, search = ""): Route {
   }
   const trend = TREND_PATTERN.exec(pathname);
   if (trend) {
-    const benchmarkId = decodePathSegment(trend[1]!);
+    const fingerprint = decodePathSegment(trend[1]!);
+    return fingerprint === null
+      ? { name: "not-found" }
+      : { name: "trend", fingerprint, query: parseTrendQuery(search) };
+  }
+  const benchmarkTrend = BENCHMARK_TREND_PATTERN.exec(pathname);
+  if (benchmarkTrend) {
+    const benchmarkId = decodePathSegment(benchmarkTrend[1]!);
     return benchmarkId === null
       ? { name: "not-found" }
-      : { name: "trend", benchmarkId, query: parseTrendQuery(search) };
+      : { name: "benchmark-trend", benchmarkId, query: parseTrendQuery(search) };
   }
   const result = RESULT_PATTERN.exec(pathname) ?? RESULT_ALIAS_PATTERN.exec(pathname);
   if (result) {

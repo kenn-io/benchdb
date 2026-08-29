@@ -60,7 +60,7 @@ describe("SeriesBrowse", () => {
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
     await fireEvent.click(screen.getByRole("link", { name: "demo" }));
-    expect(window.location.pathname).toBe("/series/f1");
+    expect(window.location.pathname).toBe("/benchmarks/f1");
   });
 
   it("shows the empty state when nothing matches", async () => {

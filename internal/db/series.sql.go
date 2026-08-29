@@ -313,8 +313,10 @@ members AS MATERIALIZED (
     JOIN commit c ON c.id = br.commit_id
     WHERE c.sha = c.fork_point_sha
       AND c."timestamp" IS NOT NULL
+      AND ($2::timestamp IS NULL OR c."timestamp" >= $2::timestamp)
+      AND ($3::timestamp IS NULL OR c."timestamp" <= $3::timestamp)
     ORDER BY c."timestamp" DESC, br.id DESC
-    LIMIT $2::integer
+    LIMIT $4::integer
   ) m
 )
 SELECT
@@ -337,6 +339,8 @@ ORDER BY history_fingerprint, commit_timestamp, id
 
 type SelectSeriesMembersParams struct {
 	Fingerprints        []string
+	ActiveSince         *time.Time
+	ActiveUntil         *time.Time
 	PerFingerprintLimit int32
 }
 
@@ -362,7 +366,12 @@ type SelectSeriesMembersRow struct {
 // so high-cardinality production series cannot dominate page load time. Ordered
 // by fingerprint then commit time so the service can group in one pass.
 func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembersParams) ([]SelectSeriesMembersRow, error) {
-	rows, err := q.db.Query(ctx, selectSeriesMembers, arg.Fingerprints, arg.PerFingerprintLimit)
+	rows, err := q.db.Query(ctx, selectSeriesMembers,
+		arg.Fingerprints,
+		arg.ActiveSince,
+		arg.ActiveUntil,
+		arg.PerFingerprintLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -144,7 +144,7 @@ describe("ResultPage", () => {
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
     expect(screen.getByRole("link", { name: /explore full series/i })).toHaveAttribute(
       "href",
-      "/series/b1",
+      "/benchmarks/b1",
     );
     expect(screen.getByRole("link", { name: /export history json/i })).toHaveAttribute("href", "/api/history/r1");
     expect(screen.getByRole("heading", { name: "Machine" })).toBeInTheDocument();

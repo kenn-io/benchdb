@@ -112,7 +112,11 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 	for _, row := range rows {
 		fingerprints = append(fingerprints, row.HistoryFingerprints...)
 	}
-	members, err := r.store.SelectSeriesMembers(ctx, fingerprints)
+	members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: fingerprints,
+		ActiveSince:  q.ActiveSince,
+		ActiveUntil:  q.ActiveUntil,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark members: %w", err)
 	}

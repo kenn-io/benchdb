@@ -55,7 +55,7 @@ type Store interface {
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)
 	SelectRecentRunRepositories(ctx context.Context) ([]RecentRunRepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
-	SelectSeriesMembers(ctx context.Context, fingerprints []string) ([]HistoryRow, error)
+	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
 	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
 	SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]CIReportRunRow, error)
 	SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]CIReportRunRow, error)
@@ -660,6 +660,14 @@ type SeriesListParams struct {
 	CursorTs    *time.Time
 	CursorFp    *string
 	PageSize    int32
+}
+
+// SeriesMembersParams selects a bounded recent tail for each requested
+// fingerprint. Active bounds apply before the per-fingerprint tail limit.
+type SeriesMembersParams struct {
+	Fingerprints []string
+	ActiveSince  *time.Time
+	ActiveUntil  *time.Time
 }
 
 // SeriesPageRow is one series in the list: identity plus the newest-commit
