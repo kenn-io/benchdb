@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Guide to BenchDB — from benchmark to decision</title>
+    <meta
+      name="description"
+      content="Follow a benchmark result through BenchDB: measure, describe, publish, inspect history, report in CI, and operate reliably."
+    />
+    <link rel="canonical" href="https://benchdb.kenn.io/guide/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="BenchDB home">
+          <svg viewBox="0 0 40 40" role="img" aria-hidden="true">
+            <rect width="40" height="40" rx="10" />
+            <path d="M10 11h10c5 0 8 2 8 6 0 2.4-1.2 4.1-3.5 5 3 .8 4.5 2.8 4.5 5.6 0 4.3-3.2 6.4-8.8 6.4H10V11Zm7 5v4h3c1.7 0 2.6-.7 2.6-2s-.9-2-2.6-2h-3Zm0 9v4h3.7c1.8 0 2.8-.7 2.8-2s-1-2-2.8-2H17Z" />
+          </svg>
+          <span>BenchDB</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="/guide/" aria-current="page">Guide</a>
+          <a href="/docs/">Docs</a>
+          <a class="repo-link" href="https://github.com/kenn-io/benchdb">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="guide-hero">
+        <div class="narrow">
+          <p class="eyebrow">Six-stop guide</p>
+          <h1>From benchmark process to performance decision.</h1>
+          <p class="lede">
+            BenchDB does not replace your benchmark harness. It gives the results a
+            consistent identity, durable history, and a path into human investigation
+            and CI. Follow one result through the system.
+          </p>
+          <div class="button-row">
+            <a class="button primary" href="#measure">Start the guide</a>
+            <a class="button secondary" href="/docs/quickstart/">Open quickstart</a>
+          </div>
+        </div>
+      </section>
+
+      <nav class="guide-index container" aria-label="Guide sections">
+        <a href="#measure"><b>01</b><span>Measure</span></a>
+        <a href="#describe"><b>02</b><span>Describe</span></a>
+        <a href="#publish"><b>03</b><span>Publish</span></a>
+        <a href="#investigate"><b>04</b><span>Investigate</span></a>
+        <a href="#report"><b>05</b><span>Report</span></a>
+        <a href="#operate"><b>06</b><span>Operate</span></a>
+      </nav>
+
+      <ol class="guide-steps">
+        <li id="measure">
+          <div class="narrow step-grid">
+            <div class="guide-number">01</div>
+            <div>
+              <p class="eyebrow">Your harness stays in charge</p>
+              <h2>Measure the behavior you care about.</h2>
+              <p>
+                Use Go benchmarks, pytest-benchmark, Google Benchmark, a shell script,
+                or a purpose-built performance harness. Run on a developer machine, in
+                CI, or across a controlled fleet. BenchDB begins after the measurement
+                exists.
+              </p>
+              <div class="guide-note"><strong>Keep execution separate from publication.</strong> Save result files so a failed upload can retry without running an expensive benchmark again.</div>
+              <a class="text-link" href="/docs/concepts/">Understand BenchDB concepts →</a>
+            </div>
+          </div>
+        </li>
+
+        <li id="describe">
+          <div class="narrow step-grid">
+            <div class="guide-number">02</div>
+            <div>
+              <p class="eyebrow">Identity makes history possible</p>
+              <h2>Describe the result, not just the number.</h2>
+              <p>
+                A useful result names the benchmark case and unit, then records the run,
+                repository commit, machine, and timestamp. Stable tags let BenchDB group
+                comparable measurements while machine context keeps fleet differences
+                visible.
+              </p>
+              <pre class="code-card"><code>{
+  "tags": {"name": "decode-batch", "rows": "1m"},
+  "run_id": "ci-1842-1",
+  "github": {
+    "repository": "https://github.com/example/project",
+    "commit": "8f3c29a"
+  },
+  "machine_info": {"name": "linux-arm64"},
+  "stats": {"unit": "ms", "data": [82.1, 81.7, 82.4]}
+}</code></pre>
+              <a class="text-link" href="/docs/submitting-results/">Read the result contract →</a>
+            </div>
+          </div>
+        </li>
+
+        <li id="publish">
+          <div class="narrow step-grid">
+            <div class="guide-number">03</div>
+            <div>
+              <p class="eyebrow">CLI-first writes</p>
+              <h2>Publish files with a reporter token.</h2>
+              <p>
+                BenchDB accepts one result object or an array per JSON file. The CLI
+                resolves credentials, validates inputs, expands quoted globs, and submits
+                larger suites with bounded concurrency.
+              </p>
+              <pre class="code-card"><code>export BENCHDB_SERVER_URL=https://benchdb.example.com
+export BENCHDB_TOKEN=&lt;reporter-token&gt;
+
+benchdb results submit "bench-results/*.json" \
+  --server "$BENCHDB_SERVER_URL"</code></pre>
+              <div class="guide-note"><strong>Keep secrets out of arguments and payloads.</strong> Use <code>BENCHDB_TOKEN</code> in automation and preserve the JSON Lines submission receipt.</div>
+              <a class="text-link" href="/docs/quickstart/">Submit your first result →</a>
+            </div>
+          </div>
+        </li>
+
+        <li id="investigate">
+          <div class="narrow step-grid">
+            <div class="guide-number">04</div>
+            <div>
+              <p class="eyebrow">History with context</p>
+              <h2>Start at the signal, then follow the evidence.</h2>
+              <p>
+                Browse recent runs to confirm a complete attempt arrived. Open an
+                individual result for raw values and metadata. Move to its series to see
+                calendar-time trends across machines, then compare specific points when
+                a change needs closer inspection.
+              </p>
+              <div class="route-flow" aria-label="BenchDB investigation routes">
+                <span>Run</span><i>→</i><span>Result</span><i>→</i><span>Series</span><i>→</i><span>Compare</span>
+              </div>
+              <a class="text-link" href="/docs/browsing-and-comparing/">Learn the investigation workflow →</a>
+            </div>
+          </div>
+        </li>
+
+        <li id="report">
+          <div class="narrow step-grid">
+            <div class="guide-number">05</div>
+            <div>
+              <p class="eyebrow">Performance in CI</p>
+              <h2>Turn the same results into a CI decision.</h2>
+              <p>
+                After submission, <code>benchdb ci report</code> finds contender results
+                for the repository and commit, selects or accepts a baseline, and reports
+                stable, improved, regressed, insufficient, errored, or incomparable rows.
+                Lookback analysis uses recent history so one noisy pair does not decide
+                the entire build.
+              </p>
+              <pre class="code-card"><code>benchdb ci report \
+  --server "$BENCHDB_SERVER_URL" \
+  --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+  --commit "$GITHUB_SHA" \
+  --format markdown \
+  --output benchdb-report.md</code></pre>
+              <a class="text-link" href="/docs/ci-reporting/">Choose selectors and baselines →</a>
+            </div>
+          </div>
+        </li>
+
+        <li id="operate">
+          <div class="narrow step-grid">
+            <div class="guide-number">06</div>
+            <div>
+              <p class="eyebrow">A small, explicit runtime</p>
+              <h2>Operate the server and database as load-bearing services.</h2>
+              <p>
+                The BenchDB binary serves the Go API and embedded web application;
+                PostgreSQL stores results and operational state. Run migrations as a
+                separate deployment step, mint scoped reporter tokens, monitor the ping
+                and metrics endpoints, and schedule alert evaluation independently from
+                delivery.
+              </p>
+              <div class="operator-grid">
+                <div><strong>Deploy</strong><span>One application image plus PostgreSQL</span></div>
+                <div><strong>Migrate</strong><span>Explicit <code>benchdb migrate</code> step</span></div>
+                <div><strong>Observe</strong><span>Health and Prometheus metrics</span></div>
+                <div><strong>Automate</strong><span>Reporter tokens and scheduled alerts</span></div>
+              </div>
+              <a class="text-link" href="/docs/operations/">Read the operator reference →</a>
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <section class="guide-finish">
+        <div class="narrow final-panel">
+          <div>
+            <p class="eyebrow">Ready to publish a result?</p>
+            <h2>Continue with the quickstart.</h2>
+            <p>It covers the shortest working path from CLI setup to a result in the dashboard.</p>
+          </div>
+          <a class="button primary" href="/docs/quickstart/">Open quickstart</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div><strong>BenchDB</strong><span>Continuous performance testing with context.</span></div>
+        <nav aria-label="Footer navigation"><a href="/">Home</a><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/kenn-io/benchdb">GitHub</a></nav>
+        <p>© 2026 <a href="https://kenn.io">Kenn Software LLC</a> · MIT License</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -5,7 +5,7 @@
 # the Go server, embedded SPA, generated clients, and Zensical docs.
 
 # Build the public documentation site locally. Zensical reads zensical.toml and
-# writes the static site to ./site by default. The version is pinned in
+# writes the rendered reference under ./site/docs. The version is pinned in
 # requirements-docs.txt and reused by CI.
 ZENSICAL_VERSION := $(shell sed -n 's/^zensical==//p' requirements-docs.txt)
 ZENSICAL ?= uvx --from zensical==$(ZENSICAL_VERSION) zensical
@@ -23,17 +23,20 @@ check-zensical-version:
 docs-link-check:
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_docs_links
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_docs_rendered_assets
+	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_build_docs_site
 	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_links.py
 
 .PHONY: build-docs
 build-docs: check-zensical-version docs-link-check docs-screenshots-check
+	rm -rf site
 	$(ZENSICAL) build
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_rendered_assets.py docs/site/assets site/assets
-	echo 'To see the generated docs, open site/index.html'
+	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/build_docs_site.py
+	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_rendered_assets.py docs/site/assets site/docs/assets
+	echo 'Documentation site built at site/index.html'
 
 .PHONY: docs-serve
-docs-serve: check-zensical-version
-	$(ZENSICAL) serve
+docs-serve: build-docs
+	python3 -m http.server 8000 --directory site
 
 .PHONY: docs-screenshots
 docs-screenshots:

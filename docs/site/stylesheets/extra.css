@@ -1,0 +1,23 @@
+:root {
+  --md-primary-fg-color: #1c2330;
+  --md-accent-fg-color: #4f7cff;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #171d27;
+  --md-accent-fg-color: #7ca0ff;
+}
+
+.md-header__button.md-logo {
+  font-weight: 800;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  letter-spacing: -0.025em;
+}
+
+.md-typeset table:not([class]) {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
