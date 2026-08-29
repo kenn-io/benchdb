@@ -82,6 +82,7 @@ describe("loadResultsPage", () => {
       ],
       repositoryLabel: "apache/arrow",
       shortCommit: "23151618",
+      trendHref: "/benchmarks/history/06a220d0d94471c480001414453ee7fc",
     });
   });
 });

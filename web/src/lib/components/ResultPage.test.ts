@@ -171,6 +171,22 @@ describe("ResultPage", () => {
     expect(screen.queryByRole("button", { name: /delete result/i })).toBeNull();
   });
 
+  it("suppresses comparisons and charts when a history mixes units", async () => {
+    const mixedHistory = [
+      historySample("r0", "abc0000", "2024-01-06T12:00:00Z", 2),
+      { ...historySample("r1", "abc1234def", "2024-01-07T12:00:00Z", 1.5), unit: "ms" },
+    ];
+    mockPage(detail, readOnlyCapabilities, mixedHistory);
+
+    render(ResultPage, { props: { resultId: "r1" } });
+
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveTextContent(/mixes units \(s, ms\)/i);
+    expect(warning).toHaveTextContent(/cannot be compared or plotted/i);
+    expect(screen.queryByText(/better than previous/i)).toBeNull();
+    expect(document.querySelector(".chart-stub")).toBeNull();
+  });
+
   it("shows write actions when auth-disabled dev mode allows result writes", async () => {
     mockPage(detail, authDisabledCapabilities);
 

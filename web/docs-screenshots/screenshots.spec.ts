@@ -10,14 +10,13 @@ const screenshotManifest = JSON.parse(
   readFileSync(new URL("./screenshots.json", import.meta.url), "utf-8"),
 ) as ScreenshotManifest;
 
-interface SeriesListItem {
+interface BenchmarkListItem {
   benchmark_id: string;
-  history_fingerprint: string;
   latest_result_id: string;
 }
 
-interface SeriesPage {
-  series: SeriesListItem[] | null;
+interface BenchmarkPage {
+  benchmarks: BenchmarkListItem[] | null;
 }
 
 interface HistorySample {
@@ -192,13 +191,13 @@ function filenameFor(id: string, viewport: string): string {
 }
 
 async function discoverTargets(request: APIRequestContext): Promise<DemoTargets> {
-  const seriesPage = await getJSON<SeriesPage>(request, "/api/series?q=demo-benchmark&page_size=1");
-  const series = seriesPage.series?.[0];
-  expect(series, "seeded demo-benchmark series must exist").toBeTruthy();
+  const benchmarkPage = await getJSON<BenchmarkPage>(request, "/api/benchmarks?q=demo-benchmark&page_size=1");
+  const benchmark = benchmarkPage.benchmarks?.[0];
+  expect(benchmark, "seeded demo-benchmark must exist").toBeTruthy();
 
   const history = await getJSON<HistorySeries>(
     request,
-    `/api/history?fingerprint=${encodeURIComponent(series!.history_fingerprint)}`,
+    `/api/history/${encodeURIComponent(benchmark!.latest_result_id)}`,
   );
   const samples = history.samples ?? [];
   expect(samples.length, "seeded series must have at least two history samples").toBeGreaterThanOrEqual(2);
@@ -210,8 +209,8 @@ async function discoverTargets(request: APIRequestContext): Promise<DemoTargets>
   expect(ciRun, "seeded run-commit-05 must be available for CI report screenshots").toBeTruthy();
 
   return {
-    benchmarkID: series!.benchmark_id,
-    latestResultID: series!.latest_result_id,
+    benchmarkID: benchmark!.benchmark_id,
+    latestResultID: benchmark!.latest_result_id,
     baselineResultID: samples[0]!.benchmark_result_id,
     contenderResultID: samples[samples.length - 1]!.benchmark_result_id,
     runID: ciRun!.run_id,

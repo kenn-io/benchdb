@@ -65,7 +65,10 @@ describe("ResultsPage", () => {
     expect(screen.getAllByText("format parquet").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /run run-b/i })).toHaveAttribute("href", "/runs/run-b");
     expect(screen.getByRole("link", { name: /batch batch-a/i })).toHaveAttribute("href", "/batches/batch-a");
-    expect(screen.getByRole("link", { name: /trend for tpch result r2/i })).toHaveAttribute("href", "/series/fp-r2");
+    expect(screen.getByRole("link", { name: /trend for tpch result r2/i })).toHaveAttribute(
+      "href",
+      "/benchmarks/history/r2",
+    );
     expect(screen.getAllByText("apache/arrow").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
   });

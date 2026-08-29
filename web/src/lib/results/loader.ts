@@ -116,7 +116,7 @@ function toResultListRow(result: ResultItem): ResultListRow {
     batchId,
     displayBatchId: batchId === null ? null : compactIdentifier(batchId, 12, 8),
     batchHref: batchId === null ? null : `/batches/${encodeURIComponent(batchId)}`,
-    trendHref: `/series/${encodeURIComponent(result.history_fingerprint)}`,
+    trendHref: `/benchmarks/history/${encodeURIComponent(result.id)}`,
     timestamp: result.timestamp,
     unit: result.unit ?? null,
     singleValueSummary: result.single_value_summary ?? null,

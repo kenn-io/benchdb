@@ -61,6 +61,10 @@
   let currentPoint = $derived(currentIndex < 0 ? null : (historyPoints[currentIndex] ?? null));
   let previousPoint = $derived(currentIndex <= 0 ? null : (historyPoints[currentIndex - 1] ?? null));
   let comparison = $derived(comparisonFrom(currentPoint, previousPoint, vm));
+  let historyUnits = $derived(
+    [...new Set(historyPoints.map((point) => point.unit ?? "unit not set"))],
+  );
+  let historyUnitConsistent = $derived(historyUnits.length <= 1);
 
   async function loadWriteCapability() {
     try {
@@ -239,15 +243,22 @@
           <p class="eyebrow">Series trend</p>
           <h2>This result in context</h2>
         </div>
-        <div class={`comparison ${comparison.tone}`}>
-          <strong>{comparison.headline}</strong>
-          <span>{comparison.detail}</span>
-        </div>
+        {#if historyUnitConsistent}
+          <div class={`comparison ${comparison.tone}`}>
+            <strong>{comparison.headline}</strong>
+            <span>{comparison.detail}</span>
+          </div>
+        {/if}
       </div>
       {#if historyError !== null}
         <p class="error">Trend unavailable: {historyError}</p>
       {:else if historyPoints.length === 0}
         <p class="empty-history">Loading series history…</p>
+      {:else if !historyUnitConsistent}
+        <div class="integrity" role="alert">
+          This history mixes units ({historyUnits.join(", ")}). Its values cannot be
+          compared or plotted together.
+        </div>
       {:else}
         <SeriesChart
           points={historyPoints}
@@ -485,6 +496,14 @@
     place-items: center;
     margin: 0;
     color: var(--c-text-muted);
+  }
+  .integrity {
+    padding: 9px 11px;
+    border: 1px solid var(--c-warning);
+    border-radius: var(--radius-sm);
+    background: var(--c-warn-bg);
+    color: var(--c-warn-text);
+    font-size: 0.82rem;
   }
   .action-panel,
   .result-section {

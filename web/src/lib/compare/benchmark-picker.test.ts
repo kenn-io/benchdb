@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeriesPoint } from "../series/transform";
-import { defaultPair, toCommitChoices } from "./benchmark-picker";
+import type { MachineTrack } from "../series/loader";
+import { comparableTracks, defaultPair, toCommitChoices } from "./benchmark-picker";
 
 function point(over: Partial<SeriesPoint>): SeriesPoint {
   return {
@@ -48,6 +49,53 @@ describe("toCommitChoices", () => {
     expect(choices[0]!.shortCommit).toBe("—");
     expect(choices[0]!.dateText).toBe("—");
     expect(choices[0]!.svsText).toBe("1");
+  });
+});
+
+describe("comparableTracks", () => {
+  it("keeps machine histories and units in separate picker groups", () => {
+    const tracks: MachineTrack[] = [
+      {
+        machineName: "runner-a",
+        points: [],
+        segments: [
+          {
+            fingerprint: "fp-a",
+            context: {},
+            hardware: { id: "h1", type: "machine", name: "runner-a", hash: "hw-a" },
+            points: [
+              point({ resultId: "seconds", unit: "s" }),
+              point({ resultId: "millis", unit: "ms" }),
+            ],
+          },
+        ],
+      },
+      {
+        machineName: "runner-b",
+        points: [],
+        segments: [
+          {
+            fingerprint: "fp-b",
+            context: {},
+            hardware: { id: "h2", type: "machine", name: "runner-b", hash: "hw-b" },
+            points: [point({ resultId: "other", unit: "s" })],
+          },
+        ],
+      },
+    ];
+
+    expect(
+      comparableTracks(tracks).map((track) => ({
+        machine: track.machineName,
+        fingerprint: track.fingerprint,
+        unit: track.unit,
+        results: track.points.map((candidate) => candidate.resultId),
+      })),
+    ).toEqual([
+      { machine: "runner-a", fingerprint: "fp-a", unit: "s", results: ["seconds"] },
+      { machine: "runner-a", fingerprint: "fp-a", unit: "ms", results: ["millis"] },
+      { machine: "runner-b", fingerprint: "fp-b", unit: "s", results: ["other"] },
+    ]);
   });
 });
 

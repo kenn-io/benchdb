@@ -10,6 +10,7 @@ const plotState = vi.hoisted(() => ({
   scaleCalls: [] as { key: string; limits: { min: number; max: number } }[],
   instance: undefined as unknown,
   options: undefined as Record<string, unknown> | undefined,
+  xForPosition: (position: number) => position,
 }));
 
 vi.mock("uplot", () => {
@@ -33,7 +34,9 @@ vi.mock("uplot", () => {
     destroy() {}
     redraw() {}
     setSize() {}
-    posToVal(position: number, scale: string) { return scale === "x" ? position : 1; }
+    posToVal(position: number, scale: string) {
+      return scale === "x" ? plotState.xForPosition(position) : 1;
+    }
     setScale(key: string, limits: { min: number; max: number }) {
       plotState.scaleCalls.push({ key, limits });
     }
@@ -134,5 +137,29 @@ describe("SeriesChart", () => {
         max: Date.parse("2026-01-11T00:00:00Z") / 1000,
       },
     }]);
+  });
+
+  it("resolves hover through the active time scale after zoom", async () => {
+    const onopen = vi.fn();
+    const middlePoint = {
+      ...boundaryPoint,
+      resultId: "r2",
+      chartMs: Date.parse("2026-01-11T00:00:00Z"),
+    };
+    const lastPoint = {
+      ...boundaryPoint,
+      resultId: "r3",
+      chartMs: Date.parse("2026-01-21T00:00:00Z"),
+    };
+    plotState.xForPosition = () => middlePoint.chartMs / 1000;
+    const { container } = render(SeriesChart, {
+      props: { points: [boundaryPoint, middlePoint, lastPoint], onopen },
+    });
+
+    plotState.cursorHook?.(plotState.instance);
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+
+    expect(onopen).toHaveBeenCalledWith("r2");
+    plotState.xForPosition = (position) => position;
   });
 });

@@ -1,10 +1,20 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import {
+    SelectDropdown,
+    type SelectDropdownOption,
+  } from "@kenn-io/kit-ui/select-dropdown";
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
   import type { BrowseRow } from "../browse/transform";
-  import { defaultPair, toCommitChoices, type CommitChoice } from "../compare/benchmark-picker";
+  import {
+    comparableTracks,
+    defaultPair,
+    toCommitChoices,
+    type CommitChoice,
+    type ComparableTrack,
+  } from "../compare/benchmark-picker";
   import { loadCompare, NotComparableError, type CompareViewModel } from "../compare/loader";
   import { lookbackText, pairwiseText } from "../compare/transform";
   import { loadTrend } from "../series/loader";
@@ -41,6 +51,8 @@
   let seriesLoading = $state(false);
   let seriesError = $state<string | null>(null);
   let selectedSeries = $state<BrowseRow | null>(null);
+  let comparisonTracks = $state<ComparableTrack[]>([]);
+  let selectedTrackID = $state("");
   let commitChoices = $state<CommitChoice[]>([]);
   let commitsLoading = $state(false);
   let commitsError = $state<string | null>(null);
@@ -64,6 +76,15 @@
   let canOpenCompare = $derived(
     baselineID.trim() !== "" && contenderID.trim() !== "" && !sameSelection,
   );
+  let trackOptions = $derived.by((): SelectDropdownOption[] => [
+    ...(comparisonTracks.length > 1
+      ? [{ value: "", label: "Choose a machine and history" }]
+      : []),
+    ...comparisonTracks.map((track) => ({
+      value: track.id,
+      label: comparableTrackLabel(track),
+    })),
+  ]);
 
   // One load path: runs on mount and again when a threshold changes (the App
   // remounts the page when the PAIR changes). The token guards a stale slow
@@ -133,18 +154,17 @@
     baselineID = "";
     contenderID = "";
     commitChoices = [];
+    comparisonTracks = [];
+    selectedTrackID = "";
     commitsError = null;
     commitsLoading = true;
     const token = ++commitToken;
     loadTrend(client, { kind: "benchmark", benchmarkId: row.benchmarkId })
       .then((trend) => {
         if (token !== commitToken) return;
-        const choices = toCommitChoices(trend.tracks[0]?.points ?? [], trend.identity.unit);
-        commitChoices = choices;
-        const pair = defaultPair(choices);
-        if (pair !== null) {
-          baselineID = pair.baselineId;
-          contenderID = pair.contenderId;
+        comparisonTracks = comparableTracks(trend.tracks);
+        if (comparisonTracks.length === 1) {
+          selectComparisonTrack(comparisonTracks[0]!.id);
         }
       })
       .catch((err: unknown) => {
@@ -159,9 +179,37 @@
   function clearSeries() {
     selectedSeries = null;
     commitChoices = [];
+    comparisonTracks = [];
+    selectedTrackID = "";
     baselineID = "";
     contenderID = "";
     commitsError = null;
+  }
+
+  function selectComparisonTrack(id: string) {
+    selectedTrackID = id;
+    baselineID = "";
+    contenderID = "";
+    const track = comparisonTracks.find((candidate) => candidate.id === id);
+    if (track === undefined) {
+      commitChoices = [];
+      return;
+    }
+    const choices = toCommitChoices(track.points, track.unit);
+    commitChoices = choices;
+    const pair = defaultPair(choices);
+    if (pair !== null) {
+      baselineID = pair.baselineId;
+      contenderID = pair.contenderId;
+    }
+  }
+
+  function comparableTrackLabel(track: ComparableTrack): string {
+    const fingerprint = track.fingerprint.length > 12
+      ? `${track.fingerprint.slice(0, 8)}…${track.fingerprint.slice(-4)}`
+      : track.fingerprint;
+    const unit = track.unit ?? "unit not set";
+    return `${track.machineName} · history ${fingerprint} · ${unit} · ${track.points.length} results`;
   }
 
   // Picking a row already used by the other side swaps the two selections rather
@@ -281,9 +329,41 @@
           <p class="hint">Loading commits…</p>
         {:else if commitsError}
           <p class="error">{commitsError}</p>
+        {:else if comparisonTracks.length === 0}
+          <p class="hint">This benchmark has no comparable machine history.</p>
+        {:else if comparisonTracks.length > 1 && selectedTrackID === ""}
+          <label class="track-picker">
+            Machine and history
+            <SelectDropdown
+              value={selectedTrackID}
+              options={trackOptions}
+              title="Comparison history"
+              onchange={selectComparisonTrack}
+            />
+          </label>
         {:else if commitChoices.length < 2}
-          <p class="hint">This benchmark has fewer than two results — nothing to compare.</p>
+          <div class="track-selection">
+            <label class="track-picker">
+              Machine and history
+              <SelectDropdown
+                value={selectedTrackID}
+                options={trackOptions}
+                title="Comparison history"
+                onchange={selectComparisonTrack}
+              />
+            </label>
+            <p class="hint">This machine history has fewer than two comparable results.</p>
+          </div>
         {:else}
+          <label class="track-picker">
+            Machine and history
+            <SelectDropdown
+              value={selectedTrackID}
+              options={trackOptions}
+              title="Comparison history"
+              onchange={selectComparisonTrack}
+            />
+          </label>
           <div class="table-panel">
             <table class="commit-table">
               <thead>
@@ -579,6 +659,18 @@
     margin: 10px 0 0;
     color: var(--c-text-muted);
     font-size: 0.82rem;
+  }
+  .track-picker {
+    display: grid;
+    gap: 5px;
+    max-width: 40rem;
+    margin-bottom: 12px;
+    color: var(--c-text-muted);
+    font-size: 0.78rem;
+    font-weight: 650;
+  }
+  .track-selection .hint {
+    margin-top: 0;
   }
   .error {
     color: var(--c-error);

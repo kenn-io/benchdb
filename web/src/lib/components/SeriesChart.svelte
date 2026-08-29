@@ -4,7 +4,7 @@
   import { onDestroy, tick, untrack } from "svelte";
 
   import {
-    closestIndexForSortedValueOffset,
+    closestIndexForValue,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
@@ -314,13 +314,8 @@
   function hoveredIndex(u: uPlot): number | null {
     const left = u.cursor.left;
     if (left == null || left < 0 || points.length === 0) return null;
-    const dpr = window.devicePixelRatio || 1;
-    const width = u.bbox.width / dpr;
-    return closestIndexForSortedValueOffset(
-      left,
-      width,
-      points.map((p) => p.chartMs),
-    );
+    const seconds = u.posToVal(left, "x");
+    return closestIndexForValue(seconds * 1000, points.map((p) => p.chartMs));
   }
 
   function plotOffset() {
