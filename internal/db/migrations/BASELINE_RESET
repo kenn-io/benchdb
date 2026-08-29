@@ -1,0 +1,3 @@
+BenchDB reset its unreleased experimental schema to this single baseline before its first release.
+
+Databases created by an earlier private build must be exported and rebuilt. This marker makes the repository's migration-history check permit this reset exactly once; after it reaches the base branch, the baseline is immutable.

@@ -24,6 +24,7 @@ nav = [
   ] },
   { "Operations" = [
     "operations.md",
+    "upgrading.md",
     "prod-clone-compatibility.md",
     "storage-roadmap.md",
     "contributing.md",
