@@ -55,10 +55,10 @@ a { color: inherit; text-decoration: none; }
 
 .hero {
   position: relative;
-  padding: 92px 0 104px;
+  padding: 72px 0 82px;
 }
-.hero-grid { position: relative; display: grid; grid-template-columns: 1fr; gap: 64px; }
-.hero-copy { max-width: 780px; }
+.hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, .82fr) minmax(520px, 1.18fr); gap: 64px; align-items: center; }
+.hero-copy { max-width: 520px; }
 .eyebrow { margin: 0 0 14px; color: var(--blue-bright); font-family: var(--mono); font-size: 12px; font-weight: 650; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: 24px; font-size: clamp(44px, 4.5vw, 64px); line-height: 1.06; letter-spacing: -.045em; }
@@ -146,7 +146,8 @@ h3 { margin-bottom: 10px; font-size: 20px; line-height: 1.25; letter-spacing: -.
 
 @media (max-width: 980px) {
   .hero { padding-top: 78px; }
-  .hero-grid { gap: 52px; }
+  .hero-grid { grid-template-columns: 1fr; gap: 52px; }
+  .hero-copy { max-width: 780px; }
   .proof-grid { grid-template-columns: 1fr 1fr; }
   .proof-grid div:nth-child(3) { border-top: 1px solid var(--line); }.proof-grid div:nth-child(4) { border-top: 1px solid var(--line); }
   .three-up, .four-up { grid-template-columns: 1fr 1fr; }
