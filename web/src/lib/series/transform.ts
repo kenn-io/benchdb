@@ -140,12 +140,23 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
   }));
 }
 
+export function chartTimeExtent(points: SeriesPoint[]): { min: number; max: number } | null {
+  if (points.length === 0) return null;
+  let min = points[0]!.chartMs;
+  let max = min;
+  for (let i = 1; i < points.length; i++) {
+    min = Math.min(min, points[i]!.chartMs);
+    max = Math.max(max, points[i]!.chartMs);
+  }
+  return { min, max };
+}
+
 /** windowAnchorDate anchors a trend range at the newest plotted point,
  * falling back to caller-provided now only for empty data. Trend pages are often
  * opened on historical production series; anchoring to wall-clock today makes
  * those pages appear empty even when the series has useful history. */
 export function windowAnchorDate(points: SeriesPoint[], now: Date): Date {
-  const latest = Math.max(Number.NEGATIVE_INFINITY, ...points.map((p) => p.chartMs));
+  const latest = chartTimeExtent(points)?.max ?? Number.NEGATIVE_INFINITY;
   return Number.isFinite(latest) ? new Date(latest) : now;
 }
 

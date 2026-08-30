@@ -164,4 +164,24 @@ describe("loadCompare", () => {
     expect(vm.points).toEqual([]);
     expect(vm.marked).toEqual([]);
   });
+
+  it("keeps the mini-trend in the comparison unit", async () => {
+    const client = fakeClient({
+      "/api/history/{benchmark_result_id}": {
+        data: {
+          history_fingerprint: "fp1",
+          samples: [
+            sample("b1", 1),
+            { ...sample("other-unit", 2), unit: "ns" },
+            sample("c1", 3),
+          ],
+        },
+      },
+    });
+
+    const vm = await loadCompare(client, QUERY);
+
+    expect(vm.points.map((point) => point.resultId)).toEqual(["b1", "c1"]);
+    expect(vm.marked).toEqual([0, 1]);
+  });
 });

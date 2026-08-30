@@ -14,6 +14,7 @@
   import { formatMeasurement } from "../format";
   import { loadTrend, type TrendSource, type TrendViewModel } from "../series/loader";
   import {
+    chartTimeExtent,
     flagsText,
     type SeriesPoint,
     type TableRow,
@@ -149,8 +150,8 @@
   );
   let rangeAnchor = $derived(windowAnchorDate(all, new Date()));
   let earliestDate = $derived.by(() => {
-    if (all.length === 0) return null;
-    return localDateStr(new Date(Math.min(...all.map((point) => point.chartMs))));
+    const earliest = chartTimeExtent(all)?.min;
+    return earliest === undefined ? null : localDateStr(new Date(earliest));
   });
   let latestDate = $derived(localDateStr(rangeAnchor));
   let fleetCoverageText = $derived(

@@ -60,6 +60,13 @@ describe("chart geometry", () => {
     expect(observedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
   });
 
+  it("scales a large value history without spreading function arguments", () => {
+    const values = Array.from({ length: 200_000 }, (_, value) => value);
+
+    expect(zeroBasedValueRange(values, 0)).toEqual({ min: 0, max: 199_999 });
+    expect(observedValueRange(values, 0)).toEqual({ min: 0, max: 199_999 });
+  });
+
   it("clamps tooltip left positions inside narrow chart bounds", () => {
     expect(tooltipLeftForCursor(100, 800, 320)).toBe(108);
     expect(tooltipLeftForCursor(620, 800, 320)).toBe(472);

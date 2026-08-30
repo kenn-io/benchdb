@@ -13,7 +13,12 @@
     zeroBasedValueRange,
   } from "../series/chart-geometry";
   import type { MachineTrack } from "../series/loader";
-  import { pointTooltip, type SeriesPoint, type TrendTooltip } from "../series/transform";
+  import {
+    chartTimeExtent,
+    pointTooltip,
+    type SeriesPoint,
+    type TrendTooltip,
+  } from "../series/transform";
   import { resolvedTheme } from "../theme.svelte";
 
   let {
@@ -309,10 +314,10 @@
     event.stopPropagation();
     hovered = null;
     tip = null;
-    const xs = tracks.flatMap((track) => track.points.map((point) => point.chartMs / 1000));
-    if (chart === undefined || xs.length === 0) return;
+    const extent = chartTimeExtent(tracks.flatMap((track) => track.points));
+    if (chart === undefined || extent === null) return;
     zoomWindow = null;
-    chart.setScale("x", { min: Math.min(...xs), max: Math.max(...xs) });
+    chart.setScale("x", { min: extent.min / 1000, max: extent.max / 1000 });
   }
 
   function trackSummary(track: MachineTrack): string {

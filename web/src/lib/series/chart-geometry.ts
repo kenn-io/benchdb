@@ -48,6 +48,17 @@ export interface ValueRange {
   max: number;
 }
 
+function finiteValueExtent(values: readonly number[]): ValueRange | null {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+  return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+}
+
 export function clampRangeToDomain(
   range: ValueRange | null,
   domain: ValueRange | null,
@@ -116,9 +127,9 @@ export function zeroBasedValueRange(
   values: readonly number[],
   padFraction = 0.05,
 ): ValueRange | null {
-  const finite = values.filter(Number.isFinite);
-  if (finite.length === 0) return null;
-  const max = Math.max(0, ...finite);
+  const extent = finiteValueExtent(values);
+  if (extent === null) return null;
+  const max = Math.max(0, extent.max);
   return { min: 0, max: max === 0 ? 1 : max * (1 + padFraction) };
 }
 
@@ -126,10 +137,9 @@ export function observedValueRange(
   values: readonly number[],
   padFraction = 0.05,
 ): ValueRange | null {
-  const finite = values.filter(Number.isFinite);
-  if (finite.length === 0) return null;
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
+  const extent = finiteValueExtent(values);
+  if (extent === null) return null;
+  const { min, max } = extent;
   if (min === max) {
     if (min === 0) return { min: 0, max: 1 };
     const pad = Math.abs(min) * padFraction;

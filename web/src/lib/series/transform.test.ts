@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { components } from "../api/schema";
 import {
+  chartTimeExtent,
   distinctUnits,
   effectiveChartMs,
   orderSamplesForChart,
@@ -15,6 +16,7 @@ import {
   trendYRangeValues,
   windowAnchorDate,
   windowPoints,
+  type SeriesPoint,
 } from "./transform";
 
 type HistorySample = components["schemas"]["HistorySample"];
@@ -121,6 +123,16 @@ describe("windowPoints", () => {
     expect(windowAnchorDate([], new Date("2026-06-11T00:00:00Z")).toISOString()).toBe(
       "2026-06-11T00:00:00.000Z",
     );
+  });
+
+  it("finds the time extent of a large history without spreading function arguments", () => {
+    const largeHistory = Array.from(
+      { length: 200_000 },
+      (_, chartMs) => ({ chartMs }) as SeriesPoint,
+    );
+
+    expect(chartTimeExtent(largeHistory)).toEqual({ min: 0, max: 199_999 });
+    expect(windowAnchorDate(largeHistory, new Date(0)).getTime()).toBe(199_999);
   });
 
   it("keeps everything for all and filters by plotted time", () => {
