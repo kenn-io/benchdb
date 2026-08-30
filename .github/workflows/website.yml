@@ -1,0 +1,54 @@
+name: website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/build_docs_site.py'
+      - 'scripts/docs_*'
+      - 'scripts/sync_docs_assets.sh'
+      - 'website/**'
+      - 'Makefile'
+      - 'requirements-docs.txt'
+      - 'zensical.toml'
+      - '.github/workflows/website.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'scripts/build_docs_site.py'
+      - 'scripts/docs_*'
+      - 'scripts/sync_docs_assets.sh'
+      - 'website/**'
+      - 'Makefile'
+      - 'requirements-docs.txt'
+      - 'zensical.toml'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Check out product screenshot
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: docs-assets
+          path: .ci-docs-assets
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.9.2"
+          enable-cache: true
+      - name: Build the complete website
+        env:
+          BENCHDB_DOCS_ASSET_SOURCE: ${{ github.workspace }}/.ci-docs-assets/benchmark-series.png
+        run: make build-docs

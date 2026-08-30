@@ -40,6 +40,27 @@ preview them together. Source documentation lives under `docs/site/`; every
 published reference page is also emitted as raw Markdown for agents and other
 machine readers.
 
+## Website deployment
+
+The website is deployed through Vercel's CLI. Its GitHub workflow checks the
+complete tiered site but does not publish it.
+
+Link the repository root to the `benchdb.io` project once:
+
+```sh
+vercel link --yes --team kenn-software --project benchdb.io
+```
+
+Then build and deploy the exact local artifact:
+
+```sh
+make site-deploy
+```
+
+The build hydrates the curated product screenshot from the `docs-assets`
+branch, renders the product, guide, and reference layers, and stages that
+result as a prebuilt static Vercel deployment.
+
 ## Origin
 
 BenchDB began as an independent fork of the Go rewrite developed on Conbench's

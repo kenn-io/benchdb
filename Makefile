@@ -9,6 +9,7 @@
 # requirements-docs.txt and reused by CI.
 ZENSICAL_VERSION := $(shell sed -n 's/^zensical==//p' requirements-docs.txt)
 ZENSICAL ?= uvx --from zensical==$(ZENSICAL_VERSION) zensical
+VERCEL ?= vercel
 
 .PHONY: check-zensical-version
 check-zensical-version:
@@ -46,6 +47,14 @@ build-docs build-docs-ci:
 .PHONY: docs-serve
 docs-serve: build-docs
 	python3 -m http.server 8000 --directory site
+
+.PHONY: site-build
+site-build: build-docs
+	./scripts/build_vercel_output.sh
+
+.PHONY: site-deploy
+site-deploy: site-build
+	$(VERCEL) deploy --prebuilt --prod
 
 .PHONY: docs-screenshots
 docs-screenshots:

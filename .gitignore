@@ -3,6 +3,7 @@ _build/
 _kpbuild/
 /var/
 /site/
+/.vercel/
 /website/assets/*.png
 /website/assets/.docs-assets.synced
 /.cache/
