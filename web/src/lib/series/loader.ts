@@ -1,11 +1,6 @@
 import type { createBenchDBClient } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  distinctUnits,
-  orderSamplesForChart,
-  toSeriesPoints,
-  type SeriesPoint,
-} from "./transform";
+import { distinctUnits, orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "./transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 type BenchmarkHistory = components["schemas"]["BenchmarkHistory"];
@@ -34,7 +29,6 @@ export interface MachineSegment {
 export interface MachineTrack {
   machineName: string;
   segments: MachineSegment[];
-  points: SeriesPoint[];
 }
 
 /** TrendSource enters by stable benchmark id, a result whose benchmark id is
@@ -79,16 +73,15 @@ function assemble(history: BenchmarkHistory): TrendViewModel {
   const tags: Record<string, unknown> = { ...history.tags };
   delete tags["name"];
   const tracks = (history.tracks ?? []).map((track): MachineTrack => {
-    const segments = (track.segments ?? []).map((segment): MachineSegment => ({
-      fingerprint: segment.history_fingerprint,
-      context: segment.context,
-      hardware: segment.hardware,
-      points: segmentPoints(segment.samples),
-    }));
-    const points = segments
-      .flatMap((segment) => segment.points)
-      .sort((a, b) => a.chartMs - b.chartMs || a.resultId.localeCompare(b.resultId));
-    return { machineName: track.machine_name, segments, points };
+    const segments = (track.segments ?? []).map(
+      (segment): MachineSegment => ({
+        fingerprint: segment.history_fingerprint,
+        context: segment.context,
+        hardware: segment.hardware,
+        points: segmentPoints(segment.samples),
+      }),
+    );
+    return { machineName: track.machine_name, segments };
   });
   const samples = (history.tracks ?? []).flatMap((track) =>
     (track.segments ?? []).flatMap((segment) => segment.samples ?? []),
@@ -111,7 +104,10 @@ function assemble(history: BenchmarkHistory): TrendViewModel {
   };
 }
 
-function assembleFingerprint(item: SeriesListItem, samples: HistorySample[] | null): TrendViewModel {
+function assembleFingerprint(
+  item: SeriesListItem,
+  samples: HistorySample[] | null,
+): TrendViewModel {
   const tags: Record<string, unknown> = { ...item.tags };
   delete tags["name"];
   const points = segmentPoints(samples);
@@ -127,16 +123,19 @@ function assembleFingerprint(item: SeriesListItem, samples: HistorySample[] | nu
       unit: item.unit,
       lessIsBetter: item.less_is_better,
     },
-    tracks: [{
-      machineName: item.hardware.name,
-      segments: [{
-        fingerprint: item.history_fingerprint,
-        context: item.context,
-        hardware: item.hardware,
-        points,
-      }],
-      points,
-    }],
+    tracks: [
+      {
+        machineName: item.hardware.name,
+        segments: [
+          {
+            fingerprint: item.history_fingerprint,
+            context: item.context,
+            hardware: item.hardware,
+            points,
+          },
+        ],
+      },
+    ],
     units,
     unitConsistent: units.length <= 1,
   };
@@ -159,7 +158,10 @@ async function loadByBenchmark(client: Client, benchmarkId: string): Promise<Tre
 async function loadByFingerprint(client: Client, fingerprint: string): Promise<TrendViewModel> {
   const [historyRes, seriesRes] = await Promise.all([
     client.GET("/api/history", { params: { query: { fingerprint } }, cache: "no-store" }),
-    client.GET("/api/series", { params: { query: { fingerprint, page_size: 1 } }, cache: "no-store" }),
+    client.GET("/api/series", {
+      params: { query: { fingerprint, page_size: 1 } },
+      cache: "no-store",
+    }),
   ]);
   if (historyRes.error || !historyRes.data) {
     throw new Error(`failed to load history for series ${fingerprint}`);

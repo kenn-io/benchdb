@@ -24,10 +24,12 @@ vi.mock("uplot", () => {
     constructor(options: Record<string, unknown>, data: unknown) {
       plotState.options = options;
       plotState.data = data;
-      const hooks = options["hooks"] as {
-        setCursor?: ((plot: unknown) => void)[];
-        setSelect?: ((plot: unknown) => void)[];
-      } | undefined;
+      const hooks = options["hooks"] as
+        | {
+            setCursor?: ((plot: unknown) => void)[];
+            setSelect?: ((plot: unknown) => void)[];
+          }
+        | undefined;
       plotState.cursorHook = hooks?.setCursor?.[0];
       plotState.selectHook = hooks?.setSelect?.[0];
       plotState.instance = this;
@@ -77,9 +79,32 @@ function point(
   };
 }
 
+function machineTrack(
+  machineName: string,
+  points: SeriesPoint[],
+  fingerprint = `fp-${machineName}`,
+): MachineTrack {
+  return {
+    machineName,
+    segments: [
+      {
+        fingerprint,
+        context: {},
+        hardware: {
+          id: `id-${machineName}`,
+          type: "machine",
+          name: machineName,
+          hash: `hash-${machineName}`,
+        },
+        points,
+      },
+    ],
+  };
+}
+
 const tracks: MachineTrack[] = [
-  { machineName: "machine-a", segments: [], points: [point("result-a", 1.1)] },
-  { machineName: "machine-b", segments: [], points: [point("result-b", 2.2)] },
+  machineTrack("machine-a", [point("result-a", 1.1)]),
+  machineTrack("machine-b", [point("result-b", 2.2)]),
 ];
 
 describe("FleetSeriesChart", () => {
@@ -108,15 +133,13 @@ describe("FleetSeriesChart", () => {
   it("spaces fleet points by elapsed calendar time", () => {
     render(FleetSeriesChart, {
       props: {
-        tracks: [{
-          machineName: "machine-a",
-          segments: [],
-          points: [
+        tracks: [
+          machineTrack("machine-a", [
             point("day-1", 1, "2026-01-01T00:00:00Z"),
             point("day-2", 2, "2026-01-02T00:00:00Z"),
             point("day-11", 3, "2026-01-11T00:00:00Z"),
-          ],
-        }],
+          ]),
+        ],
       },
     });
     const [xs] = plotState.data as [number[]];
@@ -130,7 +153,7 @@ describe("FleetSeriesChart", () => {
     second.commitHash = first.commitHash;
     render(FleetSeriesChart, {
       props: {
-        tracks: [{ machineName: "machine-a", segments: [], points: [first, second] }],
+        tracks: [machineTrack("machine-a", [first, second])],
       },
     });
 
@@ -139,27 +162,41 @@ describe("FleetSeriesChart", () => {
     expect(values).toEqual([1, 2]);
   });
 
+  it("renders fingerprint segments as separate line series", () => {
+    const track = machineTrack(
+      "machine-a",
+      [point("old-1", 1, "2026-01-01T00:00:00Z"), point("old-2", 2, "2026-01-02T00:00:00Z")],
+      "fp-old",
+    );
+    track.segments.push({
+      fingerprint: "fp-new",
+      context: { compiler: "new" },
+      hardware: track.segments[0]!.hardware,
+      points: [point("new-1", 3, "2026-01-03T00:00:00Z")],
+    });
+
+    render(FleetSeriesChart, { props: { tracks: [track] } });
+
+    const data = plotState.data as [number[], ...(number | null)[][]];
+    expect(data[1]).toEqual([1, 2, null]);
+    expect(data[5]).toEqual([null, null, 3]);
+  });
+
   it("redraws when a live refresh adds a result", async () => {
     const { rerender } = render(FleetSeriesChart, {
       props: {
-        tracks: [{
-          machineName: "machine-a",
-          segments: [],
-          points: [point("day-1", 1, "2026-01-01T00:00:00Z")],
-        }],
+        tracks: [machineTrack("machine-a", [point("day-1", 1, "2026-01-01T00:00:00Z")])],
       },
     });
     expect((plotState.data as [number[]])[0]).toHaveLength(1);
 
     await rerender({
-      tracks: [{
-        machineName: "machine-a",
-        segments: [],
-        points: [
+      tracks: [
+        machineTrack("machine-a", [
           point("day-1", 1, "2026-01-01T00:00:00Z"),
           point("day-2", 2, "2026-01-02T00:00:00Z"),
-        ],
-      }],
+        ]),
+      ],
     });
     await tick();
 
@@ -171,18 +208,18 @@ describe("FleetSeriesChart", () => {
     const onopen = vi.fn();
     const { container } = render(FleetSeriesChart, {
       props: {
-        tracks: [{
-          machineName: "machine-a",
-          segments: [],
-          points: [
+        tracks: [
+          machineTrack("machine-a", [
             point("day-1", 1, "2026-01-01T00:00:00Z"),
             point("day-11", 3, "2026-01-11T00:00:00Z"),
-          ],
-        }],
+          ]),
+        ],
         onopen,
       },
     });
-    const options = plotState.options as { cursor: { drag: { x: boolean; y: boolean; dist: number } } };
+    const options = plotState.options as {
+      cursor: { drag: { x: boolean; y: boolean; dist: number } };
+    };
     expect(options.cursor.drag).toMatchObject({ x: true, y: false, dist: 8 });
 
     plotState.selectHook?.(plotState.instance);
@@ -191,13 +228,15 @@ describe("FleetSeriesChart", () => {
     await tick();
     await fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
 
-    expect(plotState.scaleCalls).toEqual([{
-      key: "x",
-      limits: {
-        min: Date.parse("2026-01-01T00:00:00Z") / 1000,
-        max: Date.parse("2026-01-11T00:00:00Z") / 1000,
+    expect(plotState.scaleCalls).toEqual([
+      {
+        key: "x",
+        limits: {
+          min: Date.parse("2026-01-01T00:00:00Z") / 1000,
+          max: Date.parse("2026-01-11T00:00:00Z") / 1000,
+        },
       },
-    }]);
+    ]);
     expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
     expect(onopen).not.toHaveBeenCalled();
     await fireEvent.click(container.querySelector(".fleet-chart")!);
@@ -207,7 +246,14 @@ describe("FleetSeriesChart", () => {
   it("shows the nearest machine point and opens its result on click", async () => {
     const onopen = vi.fn();
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: 0, top: 0, right: 640, bottom: 320, left: 0, width: 640, height: 320,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 640,
+      bottom: 320,
+      left: 0,
+      width: 640,
+      height: 320,
       toJSON: () => ({}),
     });
     const { container } = render(FleetSeriesChart, { props: { tracks, onopen } });
@@ -228,7 +274,7 @@ describe("FleetSeriesChart", () => {
     const first = point("day-1", 1, "2026-01-01T00:00:00Z");
     const last = point("day-11", 3, "2026-01-11T00:00:00Z");
     const { rerender } = render(FleetSeriesChart, {
-      props: { tracks: [{ machineName: "machine-a", segments: [], points: [first, last] }] },
+      props: { tracks: [machineTrack("machine-a", [first, last])] },
     });
     plotState.xForPosition = (position) =>
       position === 100 ? first.chartMs / 1000 : last.chartMs / 1000;
@@ -237,14 +283,12 @@ describe("FleetSeriesChart", () => {
     expect(screen.getByRole("button", { name: "Reset zoom" })).toBeInTheDocument();
 
     await rerender({
-      tracks: [{
-        machineName: "machine-b",
-        segments: [],
-        points: [
+      tracks: [
+        machineTrack("machine-b", [
           point("day-366", 2, "2027-01-01T00:00:00Z"),
           point("day-376", 4, "2027-01-11T00:00:00Z"),
-        ],
-      }],
+        ]),
+      ],
     });
     await tick();
 

@@ -34,8 +34,20 @@ function point(over: Partial<SeriesPoint>): SeriesPoint {
 describe("toCommitChoices", () => {
   it("orders newest first and formats commit, date, and svs", () => {
     const points = [
-      point({ resultId: "old", commitHash: "1111111aaaa", svs: 1, chartMs: Date.parse("2024-01-01T00:00:00Z"), commitTimestampMs: Date.parse("2024-01-01T00:00:00Z") }),
-      point({ resultId: "new", commitHash: "2222222bbbb", svs: 1.45, chartMs: Date.parse("2024-01-06T00:00:00Z"), commitTimestampMs: Date.parse("2024-01-06T00:00:00Z") }),
+      point({
+        resultId: "old",
+        commitHash: "1111111aaaa",
+        svs: 1,
+        chartMs: Date.parse("2024-01-01T00:00:00Z"),
+        commitTimestampMs: Date.parse("2024-01-01T00:00:00Z"),
+      }),
+      point({
+        resultId: "new",
+        commitHash: "2222222bbbb",
+        svs: 1.45,
+        chartMs: Date.parse("2024-01-06T00:00:00Z"),
+        commitTimestampMs: Date.parse("2024-01-06T00:00:00Z"),
+      }),
     ];
     const choices = toCommitChoices(points, "s", "en-US");
     expect(choices.map((c) => c.resultId)).toEqual(["new", "old"]);
@@ -57,7 +69,6 @@ describe("comparableTracks", () => {
     const tracks: MachineTrack[] = [
       {
         machineName: "runner-a",
-        points: [],
         segments: [
           {
             fingerprint: "fp-a",
@@ -72,7 +83,6 @@ describe("comparableTracks", () => {
       },
       {
         machineName: "runner-b",
-        points: [],
         segments: [
           {
             fingerprint: "fp-b",
@@ -117,7 +127,11 @@ describe("defaultPair", () => {
       [
         point({ resultId: "prev", commitHash: "c1", chartMs: Date.parse("2024-01-01T00:00:00Z") }),
         point({ resultId: "rerun", commitHash: "c2", chartMs: Date.parse("2024-01-06T00:00:00Z") }),
-        point({ resultId: "latest", commitHash: "c2", chartMs: Date.parse("2024-01-07T00:00:00Z") }),
+        point({
+          resultId: "latest",
+          commitHash: "c2",
+          chartMs: Date.parse("2024-01-07T00:00:00Z"),
+        }),
       ],
       "s",
     );

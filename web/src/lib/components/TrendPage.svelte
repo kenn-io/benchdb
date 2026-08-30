@@ -59,6 +59,19 @@
     count: number;
     point: SeriesPoint;
   };
+  type ComparePick = {
+    id: string;
+    sha: string;
+    machineName: string;
+    fingerprint: string;
+    unit: string | null;
+  };
+
+  function trackPoints(track: TrendViewModel["tracks"][number]): SeriesPoint[] {
+    return track.segments
+      .flatMap((segment) => segment.points)
+      .sort((a, b) => a.chartMs - b.chartMs || a.resultId.localeCompare(b.resultId));
+  }
 
   let vm = $state<TrendViewModel | null>(null);
   let errorMsg = $state<string | null>(null);
@@ -78,10 +91,10 @@
     next: TrendViewModel,
   ): { machineName: string; point: SeriesPoint }[] {
     const previousIDs = new Set(
-      previous.tracks.flatMap((track) => track.points.map((point) => point.resultId)),
+      previous.tracks.flatMap((track) => trackPoints(track).map((point) => point.resultId)),
     );
     return next.tracks.flatMap((track) =>
-      track.points
+      trackPoints(track)
         .filter((point) => !previousIDs.has(point.resultId))
         .map((point) => ({ machineName: track.machineName, point })),
     );
@@ -120,14 +133,17 @@
 
   let tracks = $derived(vm?.tracks ?? []);
   let fleetPoints = $derived(
-    tracks.flatMap((track) => track.points).sort((a, b) => a.chartMs - b.chartMs),
+    tracks.flatMap(trackPoints).sort((a, b) => a.chartMs - b.chartMs),
   );
   let machineSummaries = $derived(
-    tracks.map((track) => ({
-      machineName: track.machineName,
-      pointCount: track.points.length,
-      latest: track.points[track.points.length - 1] ?? null,
-    })),
+    tracks.map((track) => {
+      const points = trackPoints(track);
+      return {
+        machineName: track.machineName,
+        pointCount: points.length,
+        latest: points[points.length - 1] ?? null,
+      };
+    }),
   );
   let fleetCommitCount = $derived(new Set(fleetPoints.map((point) => point.commitHash)).size);
   let machineOptions = $derived.by((): SelectDropdownOption[] => [
@@ -145,8 +161,8 @@
   );
   let all = $derived(
     activeTrack === null
-      ? tracks.flatMap((track) => track.points).sort((a, b) => a.chartMs - b.chartMs)
-      : activeTrack.points,
+      ? tracks.flatMap(trackPoints).sort((a, b) => a.chartMs - b.chartMs)
+      : trackPoints(activeTrack),
   );
   let rangeAnchor = $derived(windowAnchorDate(all, new Date()));
   let earliestDate = $derived.by(() => {
@@ -164,8 +180,19 @@
   let visibleTracks = $derived(
     tracks
       .filter((track) => machineFilter === "all" || track.machineName === machineFilter)
-      .map((track) => ({ ...track, points: windowPoints(track.points, query.range, rangeAnchor) }))
-      .filter((track) => track.points.length > 0),
+      .map((track) => ({
+        ...track,
+        segments: track.segments
+          .map((segment) => ({
+            ...segment,
+            points: windowPoints(segment.points, query.range, rangeAnchor),
+          }))
+          .filter((segment) => segment.points.length > 0),
+      }))
+      .filter((track) => track.segments.length > 0),
+  );
+  let visibleSegmentCount = $derived(
+    visibleTracks.reduce((count, track) => count + track.segments.length, 0),
   );
   let currentResultId = $derived(source.kind === "result" ? source.resultId : null);
   let outlierCount = $derived(visible.filter((p) => p.stats.isOutlier).length);
@@ -192,13 +219,21 @@
   );
 
   // Compare picks are page-local workflow state: the shareable artifact is the
-  // /compare URL the bar produces, not the picking session. Picks reference
-  // result ids, so range/axis/sigma changes never invalidate them.
-  let baselinePick = $state<{ id: string; sha: string } | null>(null);
-  let contenderPick = $state<{ id: string; sha: string } | null>(null);
+  // /compare URL the bar produces, not the picking session. Picks retain the
+  // machine and fingerprint identity required by the compare API.
+  let baselinePick = $state<ComparePick | null>(null);
+  let contenderPick = $state<ComparePick | null>(null);
+
+  let picksComparable = $derived(
+    baselinePick === null || contenderPick === null || (
+      baselinePick.machineName === contenderPick.machineName &&
+      baselinePick.fingerprint === contenderPick.fingerprint &&
+      baselinePick.unit === contenderPick.unit
+    ),
+  );
 
   let compareHref = $derived(
-    baselinePick !== null && contenderPick !== null
+    baselinePick !== null && contenderPick !== null && picksComparable
       ? `/compare${formatCompareQuery({
           baseline: baselinePick.id,
           contender: contenderPick.id,
@@ -207,6 +242,23 @@
         })}`
       : null,
   );
+
+  function comparePick(point: SeriesPoint): ComparePick | null {
+    for (const track of tracks) {
+      for (const segment of track.segments) {
+        if (segment.points.some((candidate) => candidate.resultId === point.resultId)) {
+          return {
+            id: point.resultId,
+            sha: point.commitHash,
+            machineName: track.machineName,
+            fingerprint: segment.fingerprint,
+            unit: point.unit,
+          };
+        }
+      }
+    }
+    return null;
+  }
 
   function clearPicks() {
     baselinePick = null;
@@ -269,7 +321,8 @@
 
   function filteredTableRows(sourceTracks: typeof visibleTracks, filter: TrendFilter): TableRow[] {
     return sourceTracks
-      .flatMap((track) => track.points.map((point) => ({ point, machineName: track.machineName })))
+      .flatMap((track) => track.segments.flatMap((segment) =>
+        segment.points.map((point) => ({ point, machineName: track.machineName }))))
       .sort((a, b) => a.point.chartMs - b.point.chartMs)
       .flatMap(({ point, machineName }, index) => {
         if (!pointMatchesFilter(point, filter)) return [];
@@ -520,6 +573,8 @@
               navigate(href);
             }}
           >Compare</a>
+        {:else if baselinePick !== null && contenderPick !== null && !picksComparable}
+          <span class="compare-warning" role="alert">Choose results from the same machine, environment, and unit.</span>
         {:else}
           <span class="faint">pick both points to compare</span>
         {/if}
@@ -547,7 +602,7 @@
     {:else}
       {#if !vm.unitConsistent}
         <p class="empty chart-suppressed">Chart unavailable because this benchmark mixes measurement units.</p>
-      {:else if machineFilter === "all" && visibleTracks.length > 1}
+      {:else if visibleSegmentCount > 1}
         <FleetSeriesChart
           tracks={visibleTracks}
           sigma={query.sigma}
@@ -556,7 +611,7 @@
         />
       {:else}
         <SeriesChart
-          points={visible}
+          points={visibleTracks[0]?.segments[0]?.points ?? []}
           sigma={query.sigma}
           zeroBased={query.yAxis === "zero"}
           {selectedIndex}
@@ -602,12 +657,12 @@
             <button
               type="button"
               class="button-pill"
-              onclick={() => (baselinePick = { id: sel.resultId, sha: sel.commitHash })}
+              onclick={() => (baselinePick = comparePick(sel))}
             >set baseline</button>
             <button
               type="button"
               class="button-pill"
-              onclick={() => (contenderPick = { id: sel.resultId, sha: sel.commitHash })}
+              onclick={() => (contenderPick = comparePick(sel))}
             >set contender</button>
           </div>
         </section>

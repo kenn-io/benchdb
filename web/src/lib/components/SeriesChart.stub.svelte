@@ -24,4 +24,4 @@
   );
 </script>
 
-<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.points.length, 0)} data-tracks={tracks.length} data-current-index={currentIndex} data-selected-index={selectedIndex ?? -1} data-zero-based={zeroBased}></div>
+<div class="chart-stub" data-points={points.length || tracks.reduce((sum, track) => sum + track.segments.reduce((segmentSum, segment) => segmentSum + segment.points.length, 0), 0)} data-tracks={tracks.length} data-current-index={currentIndex} data-selected-index={selectedIndex ?? -1} data-zero-based={zeroBased}></div>

@@ -57,6 +57,13 @@
   interface FleetData {
     aligned: uPlot.AlignedData;
     points: (SeriesPoint | null)[][];
+    plotTracks: PlotTrack[];
+  }
+
+  interface PlotTrack {
+    machineName: string;
+    fingerprint: string;
+    points: SeriesPoint[];
   }
 
   interface FleetColumn {
@@ -71,8 +78,15 @@
   }
 
   function fleetData(): FleetData {
+    const plotTracks = tracks.flatMap((track) =>
+      track.segments.map((segment) => ({
+        machineName: track.machineName,
+        fingerprint: segment.fingerprint,
+        points: segment.points,
+      })),
+    );
     const occurrenceCounts = new Map<string, { count: number; ms: number; hash: string }>();
-    for (const track of tracks) {
+    for (const track of plotTracks) {
       const trackCounts = new Map<string, number>();
       for (const point of track.points) {
         const key = pointKey(point);
@@ -100,7 +114,7 @@
     const pointRows: (SeriesPoint | null)[][] = [];
     const values: (number | null)[][] = [];
 
-    for (const track of tracks) {
+    for (const track of plotTracks) {
       const points: (SeriesPoint | null)[] = Array(ordered.length).fill(null);
       const trackCounts = new Map<string, number>();
       for (const point of track.points) {
@@ -129,6 +143,7 @@
     return {
       aligned: [xs, ...values] as uPlot.AlignedData,
       points: pointRows,
+      plotTracks,
     };
   }
 
@@ -144,7 +159,7 @@
       const point = points[idx];
       return point === null || point === undefined
         ? []
-        : [{ point, machineName: tracks[trackIndex]!.machineName }];
+        : [{ point, machineName: data.plotTracks[trackIndex]!.machineName }];
     });
     if (candidates.length <= 1 || u.cursor.top == null) return candidates[0] ?? null;
     const cursorValue = u.posToVal(u.cursor.top, "y");
@@ -192,7 +207,7 @@
   function options(width: number, data: FleetData): uPlot.Options {
     const axisColor = cssVar("--c-text-muted", "#57606a");
     const gridColor = cssVar("--c-border-muted", "#e4e6ec");
-    const values = tracks.flatMap((track) => track.points.flatMap((point) => {
+    const values = data.plotTracks.flatMap((track) => track.points.flatMap((point) => {
       const values = [point.svs];
       if (point.stats.rollingMean !== null) {
         values.push(point.stats.rollingMean);
@@ -206,8 +221,9 @@
     const range = (zeroBased ? zeroBasedValueRange : observedValueRange)(values);
     const series: uPlot.Series[] = [{}];
     const bands: uPlot.Band[] = [];
-    tracks.forEach((track, i) => {
-      const color = palette[i % palette.length]!;
+    data.plotTracks.forEach((track, i) => {
+      const machineIndex = Math.max(0, tracks.findIndex((candidate) => candidate.machineName === track.machineName));
+      const color = palette[machineIndex % palette.length]!;
       const valueIndex = 1 + i * 4;
       series.push(
         { label: track.machineName, stroke: color, width: 2, spanGaps: true, points: { show: true, size: 6 } },
@@ -217,7 +233,7 @@
       );
       bands.push({ series: [valueIndex + 2, valueIndex + 3], fill: `${color}20` });
     });
-    const unit = tracks[0]?.points[0]?.unit ?? null;
+    const unit = data.plotTracks[0]?.points[0]?.unit ?? null;
     const xScale: uPlot.Scale = { time: true };
     if (zoomWindow !== null) {
       const { min, max } = zoomWindow;
@@ -314,15 +330,20 @@
     event.stopPropagation();
     hovered = null;
     tip = null;
-    const extent = chartTimeExtent(tracks.flatMap((track) => track.points));
+    const extent = chartTimeExtent(
+      tracks.flatMap((track) => track.segments.flatMap((segment) => segment.points)),
+    );
     if (chart === undefined || extent === null) return;
     zoomWindow = null;
     chart.setScale("x", { min: extent.min / 1000, max: extent.max / 1000 });
   }
 
   function trackSummary(track: MachineTrack): string {
-    const latest = track.points[track.points.length - 1];
-    const count = `${track.points.length} ${track.points.length === 1 ? "result" : "results"}`;
+    const points = track.segments
+      .flatMap((segment) => segment.points)
+      .sort((a, b) => a.chartMs - b.chartMs || a.resultId.localeCompare(b.resultId));
+    const latest = points[points.length - 1];
+    const count = `${points.length} ${points.length === 1 ? "result" : "results"}`;
     return latest === undefined ? count : `${count} · ${formatMeasurement(latest.svs, latest.unit)}`;
   }
 </script>

@@ -121,12 +121,14 @@ describe("TrendPage", () => {
     const fleet = benchmarkHistory([sample("m5-r1", "2024-01-07T12:00:00Z")]);
     fleet.tracks.push({
       machine_name: "m7",
-      segments: [{
-        history_fingerprint: "fp2",
-        context: { compiler: "clang" },
-        hardware: { id: "h2", type: "machine", name: "m7", hash: "hw2" },
-        samples: [sample("m7-r1", "2024-01-07T12:00:00Z", 2.1)],
-      }],
+      segments: [
+        {
+          history_fingerprint: "fp2",
+          context: { compiler: "clang" },
+          hardware: { id: "h2", type: "machine", name: "m7", hash: "hw2" },
+          samples: [sample("m7-r1", "2024-01-07T12:00:00Z", 2.1)],
+        },
+      ],
     });
     GET.mockResolvedValue({ data: fleet });
     render(TrendPage, {
@@ -160,7 +162,9 @@ describe("TrendPage", () => {
     );
     expect(screen.getByRole("heading", { name: "demo-benchmark" })).toHaveAttribute("title", "b1");
     expect(screen.getByText("1 machine")).toBeInTheDocument();
-    expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute(
+      "open",
+    );
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
     expect(screen.getByLabelText(/band/i)).toHaveValue("2");
     expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
@@ -211,7 +215,9 @@ describe("TrendPage", () => {
     expect(context.querySelector(".page-header")).not.toBeNull();
     expect(context.querySelector(".summary-line")).not.toBeNull();
     const summary = context.querySelector(".summary-line") as HTMLElement;
-    expect(screen.getByLabelText("Trend point filters").querySelectorAll(".button-pill")).toHaveLength(3);
+    expect(
+      screen.getByLabelText("Trend point filters").querySelectorAll(".button-pill"),
+    ).toHaveLength(3);
     expect(within(summary).getByText(/^\d+ machine results?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ commits?$/)).toBeInTheDocument();
     expect(within(summary).getByText(/^\d+ outliers?$/)).toBeInTheDocument();
@@ -229,16 +235,14 @@ describe("TrendPage", () => {
   });
 
   it("refreshes the trend and calls out newly arrived results", async () => {
-    GET
-      .mockResolvedValueOnce({
-        data: benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]),
-      })
-      .mockResolvedValueOnce({
-        data: benchmarkHistory([
-          sample("r1", "2024-01-07T12:00:00Z"),
-          sample("r2", "2024-01-08T12:00:00Z"),
-        ]),
-      });
+    GET.mockResolvedValueOnce({
+      data: benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]),
+    }).mockResolvedValueOnce({
+      data: benchmarkHistory([
+        sample("r1", "2024-01-07T12:00:00Z"),
+        sample("r2", "2024-01-08T12:00:00Z"),
+      ]),
+    });
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },
@@ -250,7 +254,9 @@ describe("TrendPage", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() => expect(screen.getByText("1 new result")).toBeInTheDocument());
-    expect(within(screen.getByLabelText("Trend summary")).getByText("2 machine results")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Trend summary")).getByText("2 machine results"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/m5 · sha-r2 · Jan 8, 2024/)).toBeInTheDocument();
     const historyRows = within(screen.getByRole("region", { name: "Trend history" }))
       .getAllByRole("row")
@@ -259,20 +265,18 @@ describe("TrendPage", () => {
   });
 
   it("keeps the selected result when a refresh inserts an earlier point", async () => {
-    GET
-      .mockResolvedValueOnce({
-        data: benchmarkHistory([
-          sample("r1", "2024-01-07T12:00:00Z"),
-          sample("r3", "2024-01-09T12:00:00Z"),
-        ]),
-      })
-      .mockResolvedValueOnce({
-        data: benchmarkHistory([
-          sample("r1", "2024-01-07T12:00:00Z"),
-          sample("r2", "2024-01-08T12:00:00Z"),
-          sample("r3", "2024-01-09T12:00:00Z"),
-        ]),
-      });
+    GET.mockResolvedValueOnce({
+      data: benchmarkHistory([
+        sample("r1", "2024-01-07T12:00:00Z"),
+        sample("r3", "2024-01-09T12:00:00Z"),
+      ]),
+    }).mockResolvedValueOnce({
+      data: benchmarkHistory([
+        sample("r1", "2024-01-07T12:00:00Z"),
+        sample("r2", "2024-01-08T12:00:00Z"),
+        sample("r3", "2024-01-09T12:00:00Z"),
+      ]),
+    });
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },
@@ -298,9 +302,7 @@ describe("TrendPage", () => {
   it("shows the no-history state for an empty series", async () => {
     mockResultEntry([]);
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
-    await waitFor(() =>
-      expect(screen.getByText(/no default-branch history/i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/no default-branch history/i)).toBeInTheDocument());
   });
 
   it("anchors the default range at the newest series result instead of wall-clock today", async () => {
@@ -322,10 +324,7 @@ describe("TrendPage", () => {
   });
 
   it("selects a point from the table and offers Open result", async () => {
-    mockResultEntry([
-      sample("r1", "2024-01-07T12:00:00Z"),
-      sample("r2", "2024-01-08T12:00:00Z"),
-    ]);
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
     render(TrendPage, {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
@@ -375,10 +374,16 @@ describe("TrendPage", () => {
     expect(within(summary).getByText(/^1 step$/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "sha-r10" })).not.toBeInTheDocument();
     const shortcuts = screen.getByRole("region", { name: /flagged point shortcuts/i });
-    expect(within(shortcuts).getByRole("button", { name: /jump to first outlier/i })).toBeInTheDocument();
-    expect(within(shortcuts).getByRole("button", { name: /jump to first step/i })).toBeInTheDocument();
+    expect(
+      within(shortcuts).getByRole("button", { name: /jump to first outlier/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(shortcuts).getByRole("button", { name: /jump to first step/i }),
+    ).toBeInTheDocument();
 
-    await fireEvent.click(within(shortcuts).getByRole("button", { name: /jump to first outlier/i }));
+    await fireEvent.click(
+      within(shortcuts).getByRole("button", { name: /jump to first outlier/i }),
+    );
     expect(screen.getByText(/showing 1 of 1 filtered points/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "sha-r10" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /selected point/i })).toHaveTextContent("sha-r10");
@@ -390,10 +395,7 @@ describe("TrendPage", () => {
   });
 
   it("keeps trend identity and compare state in a compact context", async () => {
-    mockResultEntry([
-      sample("r1", "2024-01-07T12:00:00Z"),
-      sample("r2", "2024-01-08T12:00:00Z"),
-    ]);
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
     render(TrendPage, {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
@@ -457,10 +459,7 @@ describe("TrendPage", () => {
       configurable: true,
       value: { writeText },
     });
-    mockResultEntry([
-      sample("r1", "2024-01-07T12:00:00Z"),
-      sample("r2", "2024-01-08T12:00:00Z"),
-    ]);
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
     render(TrendPage, {
       props: {
         source: RESULT_SOURCE,
@@ -496,10 +495,7 @@ describe("TrendPage", () => {
       configurable: true,
       value: { writeText },
     });
-    mockResultEntry([
-      sample("r1", "2024-01-07T12:00:00Z"),
-      sample("r2", "2024-01-08T12:00:00Z"),
-    ]);
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
     render(TrendPage, {
       props: {
         source: RESULT_SOURCE,
@@ -525,10 +521,7 @@ describe("TrendPage", () => {
   });
 
   it("builds a compare link from baseline and contender picks", async () => {
-    mockResultEntry([
-      sample("r1", "2024-01-07T12:00:00Z"),
-      sample("r2", "2024-01-08T12:00:00Z"),
-    ]);
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
     render(TrendPage, {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
@@ -542,6 +535,29 @@ describe("TrendPage", () => {
       "href",
       "/compare?baseline=r1&contender=r2",
     );
+  });
+
+  it("rejects compare picks from different fingerprint segments", async () => {
+    const fleet = benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]);
+    fleet.tracks[0]!.segments.push({
+      history_fingerprint: "fp2",
+      context: { compiler: "clang" },
+      hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
+      samples: [sample("r2", "2024-01-08T12:00:00Z")],
+    });
+    GET.mockResolvedValue({ data: fleet });
+    render(TrendPage, {
+      props: { source: { kind: "benchmark", benchmarkId: "b1" }, query: ALL_TREND_QUERY },
+    });
+
+    await waitFor(() => screen.getByText("sha-r1"));
+    await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
+    await fireEvent.click(screen.getByRole("button", { name: "set baseline" }));
+    await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
+    await fireEvent.click(screen.getByRole("button", { name: "set contender" }));
+
+    expect(screen.queryByRole("link", { name: "Compare" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/same machine, environment, and unit/i);
   });
 
   it("clears the compare picks", async () => {
@@ -574,10 +590,15 @@ describe("TrendPage", () => {
   it("loads by fingerprint and surfaces the mixed-unit banner", async () => {
     GET.mockImplementation(async (url: string) => {
       if (url === "/api/benchmarks/{benchmark_id}") {
-        return { data: benchmarkHistory([
-          sample("r1", "2024-01-07T12:00:00Z"),
-          { ...sample("r2", "2024-01-08T12:00:00Z"), unit: "ms" },
-        ], null) };
+        return {
+          data: benchmarkHistory(
+            [
+              sample("r1", "2024-01-07T12:00:00Z"),
+              { ...sample("r2", "2024-01-08T12:00:00Z"), unit: "ms" },
+            ],
+            null,
+          ),
+        };
       }
       throw new Error(`unexpected ${url}`);
     });
@@ -595,10 +616,15 @@ describe("TrendPage", () => {
   });
 
   it("treats unitless and measured samples as mixed units", async () => {
-    GET.mockResolvedValue({ data: benchmarkHistory([
-      sample("r1", "2024-01-07T12:00:00Z", 1, { unit: null }),
-      sample("r2", "2024-01-08T12:00:00Z", 2),
-    ], null) });
+    GET.mockResolvedValue({
+      data: benchmarkHistory(
+        [
+          sample("r1", "2024-01-07T12:00:00Z", 1, { unit: null }),
+          sample("r2", "2024-01-08T12:00:00Z", 2),
+        ],
+        null,
+      ),
+    });
     render(TrendPage, {
       props: { source: { kind: "benchmark", benchmarkId: "b1" }, query: ALL_TREND_QUERY },
     });

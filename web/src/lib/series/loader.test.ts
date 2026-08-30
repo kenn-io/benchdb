@@ -96,13 +96,15 @@ describe("loadTrend", () => {
     });
     expect(vm.tracks).toHaveLength(1);
     expect(vm.tracks[0]?.machineName).toBe("m5");
-    expect(vm.tracks[0]?.points.map((point) => point.resultId)).toEqual(["r1", "r2"]);
+    expect(vm.tracks[0]?.segments[0]?.points.map((point) => point.resultId)).toEqual(["r1", "r2"]);
   });
 
   it("loads an existing fingerprint URL as its original machine segment", async () => {
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/history") {
-        return { data: { history_fingerprint: "fp1", samples: [sample("r2", "2024-01-08T12:00:00Z")] } };
+        return {
+          data: { history_fingerprint: "fp1", samples: [sample("r2", "2024-01-08T12:00:00Z")] },
+        };
       }
       if (url === "/api/series") {
         return { data: { series: [seriesItem()], next_page_cursor: null } };
@@ -119,7 +121,7 @@ describe("loadTrend", () => {
     expect(vm.tracks).toHaveLength(1);
     expect(vm.tracks[0]).toMatchObject({ machineName: "m5" });
     expect(vm.tracks[0]?.segments[0]?.fingerprint).toBe("fp1");
-    expect(vm.tracks[0]?.points.map((point) => point.resultId)).toEqual(["r2"]);
+    expect(vm.tracks[0]?.segments[0]?.points.map((point) => point.resultId)).toEqual(["r2"]);
   });
 
   it("resolves a result to its benchmark before loading fleet history", async () => {
@@ -150,10 +152,10 @@ describe("loadTrend", () => {
       throw new Error(`unexpected url ${url}`);
     });
 
-    const vm = await loadTrend(
-      { GET } as unknown as Client,
-      { kind: "result", resultId: "errored-result" },
-    );
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "result",
+      resultId: "errored-result",
+    });
 
     expect(GET).toHaveBeenCalledTimes(2);
     expect(vm.identity.benchmarkId).toBe("benchmark-1");
@@ -197,14 +199,22 @@ describe("loadTrend", () => {
       samples: [sample("r3", "2024-01-09T12:00:00Z")],
     });
     const GET = vi.fn(async () => ({ data: h }));
-    const vm = await loadTrend({ GET } as unknown as Client, { kind: "benchmark", benchmarkId: "benchmark-1" });
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "benchmark",
+      benchmarkId: "benchmark-1",
+    });
     expect(vm.tracks[0]?.segments.map((segment) => segment.fingerprint)).toEqual(["fp1", "fp2"]);
-    expect(vm.tracks[0]?.points.map((point) => point.resultId)).toEqual(["r1", "r2", "r3"]);
+    expect(
+      vm.tracks[0]?.segments.map((segment) => segment.points.map((point) => point.resultId)),
+    ).toEqual([["r1", "r2"], ["r3"]]);
   });
 
   it("treats null tracks and samples as empty", async () => {
     const GET = vi.fn(async () => ({ data: history({ tracks: null }) }));
-    const vm = await loadTrend({ GET } as unknown as Client, { kind: "benchmark", benchmarkId: "benchmark-1" });
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "benchmark",
+      benchmarkId: "benchmark-1",
+    });
     expect(vm.tracks).toEqual([]);
   });
 
