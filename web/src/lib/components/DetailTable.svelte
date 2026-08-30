@@ -1,22 +1,31 @@
 <script lang="ts">
-  import { formatMeasurement } from "../format";
   import { interceptNavClick } from "../router";
   import type { TableRow } from "../series/transform";
+  import MeasurementValue from "./MeasurementValue.svelte";
 
   let {
     rows,
-    selectedIndex = null,
+    selectedResultId = null,
     onselect,
     onopen,
   }: {
     rows: TableRow[];
-    selectedIndex?: number | null;
-    onselect?: (index: number) => void;
+    selectedResultId?: string | null;
+    onselect?: (row: TableRow) => void;
     onopen?: (row: TableRow) => void;
   } = $props();
 
   function z(value: number | null): string {
     return value === null ? "—" : value.toFixed(2);
+  }
+
+  function measuredAt(value: number): string {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
   }
 </script>
 
@@ -24,8 +33,10 @@
   <table class="detail">
     <thead>
       <tr>
+        <th>measured</th>
         <th>commit</th>
-        <th>SVS</th>
+        {#if rows.some((row) => row.machineName)}<th>machine</th>{/if}
+        <th>result value</th>
         <th>z</th>
         <th>flags</th>
       </tr>
@@ -34,7 +45,8 @@
       {#each rows as row (row.index)}
         <!-- Rows are a pointer convenience for selection; the commit link is the
              keyboard/screen-reader affordance and opens the result. -->
-        <tr class:selected={row.index === selectedIndex} onclick={() => onselect?.(row.index)}>
+        <tr class:selected={row.resultId === selectedResultId} onclick={() => onselect?.(row)}>
+          <td class="measured" data-label="measured">{measuredAt(row.chartMs)}</td>
           <td class="commit" data-label="commit">
             <span class="cell-value">
               <a
@@ -45,11 +57,14 @@
                   e.stopPropagation();
                   onopen(row);
                 }}
-              >{row.commitHash}</a>
+              ><span title={row.commitHash}>{row.commitHash.slice(0, 8)}</span></a>
               <span class="msg">{row.commitMessage}</span>
             </span>
           </td>
-          <td class="num" data-label="SVS">{formatMeasurement(row.svs, row.unit)}</td>
+          {#if rows.some((candidate) => candidate.machineName)}
+            <td data-label="machine">{row.machineName}</td>
+          {/if}
+          <td class="num" data-label="result value"><MeasurementValue value={row.svs} unit={row.unit} /></td>
           <td class="num" data-label="z">{z(row.z)}</td>
           <td class="flags" data-label="flags">{row.flags}</td>
         </tr>
@@ -75,6 +90,7 @@
   .commit a, .msg { overflow-wrap: anywhere; }
   .msg { display: block; color: var(--c-text-faint); font-size: 0.72rem; }
   .num { font-variant-numeric: tabular-nums; }
+  .measured { white-space: nowrap; color: var(--c-text-muted); font-variant-numeric: tabular-nums; }
   .flags { color: var(--c-text-muted); font-size: 0.78rem; }
   @media (max-width: 760px) {
     .detail, .detail thead, .detail tbody, .detail tr, .detail td {

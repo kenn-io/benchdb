@@ -304,12 +304,15 @@
               <td data-label="Time">{formatTime(row.timestamp)}</td>
               <td data-label="Open">
                 <div class="inline-actions table-actions">
-                  <a
-                    class="inline-action-link"
-                    href={row.trendHref}
-                    aria-label={`Open series trend for ${row.benchmarkName} result ${row.id}`}
-                    onclick={(e) => go(e, row.trendHref)}
-                  >Trend</a>
+                  {#if row.trendHref !== null}
+                    {@const trendHref = row.trendHref}
+                    <a
+                      class="inline-action-link"
+                      href={trendHref}
+                      aria-label={`Open series trend for ${row.benchmarkName} result ${row.id}`}
+                      onclick={(e) => go(e, trendHref)}
+                    >Trend</a>
+                  {/if}
                   <a
                     class="inline-action-link"
                     href={row.resultHref}

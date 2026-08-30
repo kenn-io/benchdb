@@ -25,7 +25,7 @@ export interface ResultListRow {
   batchId: string | null;
   displayBatchId: string | null;
   batchHref: string | null;
-  trendHref: string;
+  trendHref: string | null;
   timestamp: string;
   unit: string | null;
   singleValueSummary: number | null;
@@ -116,7 +116,7 @@ function toResultListRow(result: ResultItem): ResultListRow {
     batchId,
     displayBatchId: batchId === null ? null : compactIdentifier(batchId, 12, 8),
     batchHref: batchId === null ? null : `/batches/${encodeURIComponent(batchId)}`,
-    trendHref: `/series/${encodeURIComponent(result.history_fingerprint)}`,
+    trendHref: resultTrendHref(result),
     timestamp: result.timestamp,
     unit: result.unit ?? null,
     singleValueSummary: result.single_value_summary ?? null,
@@ -132,6 +132,19 @@ function toResultListRow(result: ResultItem): ResultListRow {
     shortCommit: commitSha === null ? null : commitSha.slice(0, 8),
     hasError: result.has_error,
   };
+}
+
+export function resultTrendHref(result: {
+  id: string;
+  has_error: boolean;
+  commit?: { hash: string; is_default_branch: boolean } | null;
+}): string | null {
+  if (
+    result.has_error ||
+    (result.commit?.hash.trim() ?? "") === "" ||
+    result.commit?.is_default_branch !== true
+  ) return null;
+  return `/benchmarks/history/${encodeURIComponent(result.id)}`;
 }
 
 const TAG_PRIORITY = ["query_id", "suite", "dataset", "scale_factor", "format", "language", "engine"];

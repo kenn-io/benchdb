@@ -10,6 +10,114 @@ import (
 	"time"
 )
 
+const selectHistoryForBenchmark = `-- name: SelectHistoryForBenchmark :many
+SELECT
+  br.id,
+  br.benchmark_id,
+  br.history_fingerprint,
+  br."timestamp",
+  br.unit,
+  br.mean,
+  br.data,
+  br.run_tags,
+  i.tags AS info_tags,
+  br.change_annotations,
+  cs.name AS case_name,
+  cs.tags AS case_tags,
+  ctx.tags AS context_tags,
+  hw.id AS hardware_id,
+  hw.type AS hardware_type,
+  hw.name AS hardware_name,
+  hw.hash AS hardware_hash,
+  br.commit_repo_url,
+  c.sha AS commit_sha,
+  c.repository AS commit_repository,
+  c.message AS commit_message,
+  c."timestamp" AS commit_timestamp
+FROM benchmark_result br
+JOIN "case" cs ON cs.id = br.case_id
+JOIN context ctx ON ctx.id = br.context_id
+JOIN info i ON i.id = br.info_id
+JOIN hardware hw ON hw.id = br.hardware_id
+JOIN commit c ON c.id = br.commit_id
+WHERE br.benchmark_id = $1
+  AND br.error IS NULL
+  AND c.sha = c.fork_point_sha
+  AND c."timestamp" IS NOT NULL
+ORDER BY hw.name, br.history_fingerprint, c."timestamp", br.id
+`
+
+type SelectHistoryForBenchmarkRow struct {
+	ID                 string
+	BenchmarkID        string
+	HistoryFingerprint string
+	Timestamp          time.Time
+	Unit               *string
+	Mean               *float64
+	Data               []*float64
+	RunTags            []byte
+	InfoTags           []byte
+	ChangeAnnotations  []byte
+	CaseName           string
+	CaseTags           []byte
+	ContextTags        []byte
+	HardwareID         string
+	HardwareType       string
+	HardwareName       string
+	HardwareHash       string
+	CommitRepoUrl      string
+	CommitSha          string
+	CommitRepository   string
+	CommitMessage      string
+	CommitTimestamp    *time.Time
+}
+
+// All directly comparable fingerprint segments for one logical benchmark.
+// Rolling statistics remain fingerprint-local in the service; this query only
+// brings those segments together for fleet presentation.
+func (q *Queries) SelectHistoryForBenchmark(ctx context.Context, benchmarkID string) ([]SelectHistoryForBenchmarkRow, error) {
+	rows, err := q.db.Query(ctx, selectHistoryForBenchmark, benchmarkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectHistoryForBenchmarkRow{}
+	for rows.Next() {
+		var i SelectHistoryForBenchmarkRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BenchmarkID,
+			&i.HistoryFingerprint,
+			&i.Timestamp,
+			&i.Unit,
+			&i.Mean,
+			&i.Data,
+			&i.RunTags,
+			&i.InfoTags,
+			&i.ChangeAnnotations,
+			&i.CaseName,
+			&i.CaseTags,
+			&i.ContextTags,
+			&i.HardwareID,
+			&i.HardwareType,
+			&i.HardwareName,
+			&i.HardwareHash,
+			&i.CommitRepoUrl,
+			&i.CommitSha,
+			&i.CommitRepository,
+			&i.CommitMessage,
+			&i.CommitTimestamp,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectHistoryForFingerprint = `-- name: SelectHistoryForFingerprint :many
 SELECT
   br.id,

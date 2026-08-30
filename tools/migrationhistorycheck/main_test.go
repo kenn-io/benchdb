@@ -88,6 +88,49 @@ func TestValidateMigrationHistoryAllowsOneMigrationAfterBootstrap(t *testing.T) 
 	assert.NoError(t, validateMigrationHistory(base, candidate, nil))
 }
 
+func TestValidateMigrationHistoryAllowsOneTimeBaselineReset(t *testing.T) {
+	base := []string{
+		"internal/db/migrations/000001_initial_schema.up.sql",
+		"internal/db/migrations/000001_initial_schema.down.sql",
+		"internal/db/migrations/000002_submission_idempotency.up.sql",
+		"internal/db/migrations/000002_submission_idempotency.down.sql",
+	}
+	candidate := []string{
+		"internal/db/migrations/000001_initial_schema.up.sql",
+		"internal/db/migrations/000001_initial_schema.down.sql",
+		baselineResetMarker,
+	}
+	changed := []string{
+		"internal/db/migrations/000001_initial_schema.up.sql",
+		"internal/db/migrations/000002_submission_idempotency.up.sql",
+		"internal/db/migrations/000002_submission_idempotency.down.sql",
+		baselineResetMarker,
+	}
+	assert.NoError(t, validateMigrationHistory(base, candidate, changed))
+}
+
+func TestValidateMigrationHistoryRejectsSecondBaselineReset(t *testing.T) {
+	base := []string{
+		"internal/db/migrations/000001_initial_schema.up.sql",
+		"internal/db/migrations/000001_initial_schema.down.sql",
+		baselineResetMarker,
+	}
+	err := validateMigrationHistory(base, base, []string{"internal/db/migrations/000001_initial_schema.up.sql"})
+	assert.ErrorContains(t, err, "already exists on the comparison base")
+}
+
+func TestValidateMigrationHistoryRequiresSinglePairAfterBaselineReset(t *testing.T) {
+	candidate := []string{
+		"internal/db/migrations/000001_initial_schema.up.sql",
+		"internal/db/migrations/000001_initial_schema.down.sql",
+		"internal/db/migrations/000002_extra.up.sql",
+		"internal/db/migrations/000002_extra.down.sql",
+		baselineResetMarker,
+	}
+	err := validateMigrationHistory(nil, candidate, []string{baselineResetMarker})
+	assert.ErrorContains(t, err, "exactly one 000001 migration pair")
+}
+
 func TestValidateMigrationHistoryRejectsMultipleNewMigrations(t *testing.T) {
 	base := []string{
 		"internal/db/migrations/000001_initial_schema.up.sql",

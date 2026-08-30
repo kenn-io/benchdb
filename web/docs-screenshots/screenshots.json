@@ -19,14 +19,14 @@
     {
       "id": "series",
       "title": "Series browse",
-      "path": "/series?q=demo-benchmark",
+      "path": "/series?q=ingest-events-10m",
       "purpose": "Browse benchmark families, filters, status, and production-shaped identifiers."
     },
     {
       "id": "trend",
       "title": "Trend detail",
-      "path": "/series/:fingerprint?range=all",
-      "purpose": "Inspect history, charted trends, and sample rows for one series."
+      "path": "/benchmarks/:benchmark_id?range=all",
+      "purpose": "Inspect fleet history, charted trends, and sample rows for one benchmark."
     },
     {
       "id": "result",

@@ -34,3 +34,10 @@ func TestHistoryFingerprintMatchesPythonGolden(t *testing.T) {
 			c.CaseID, c.ContextID, c.HardwareHash, c.RepoURL)
 	}
 }
+
+func TestBenchmarkIDScopesCaseToRepository(t *testing.T) {
+	id := BenchmarkID("0123456789abcdef0123456789abcdef", "https://example.com/org/repo")
+	assert.Equal(t, id, BenchmarkID("0123456789abcdef0123456789abcdef", "https://example.com/org/repo"))
+	assert.NotEqual(t, id, BenchmarkID("fedcba9876543210fedcba9876543210", "https://example.com/org/repo"))
+	assert.NotEqual(t, id, BenchmarkID("0123456789abcdef0123456789abcdef", "https://example.com/org/other"))
+}

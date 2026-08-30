@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { components } from "../api/schema";
 import {
+  chartTimeExtent,
   distinctUnits,
   effectiveChartMs,
   orderSamplesForChart,
@@ -15,6 +16,7 @@ import {
   trendYRangeValues,
   windowAnchorDate,
   windowPoints,
+  type SeriesPoint,
 } from "./transform";
 
 type HistorySample = components["schemas"]["HistorySample"];
@@ -98,38 +100,66 @@ describe("windowPoints", () => {
   const points = toSeriesPoints([
     sample({
       benchmark_result_id: "recent-run",
-      commit_timestamp: "2022-03-01T00:00:00Z",
-      result_timestamp: "2026-06-01T00:00:00Z",
+      commit_timestamp: "2026-06-01T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
     sample({
       benchmark_result_id: "older-run",
-      commit_timestamp: "2022-02-01T00:00:00Z",
-      result_timestamp: "2026-04-15T00:00:00Z",
+      commit_timestamp: "2026-04-15T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
     sample({
       benchmark_result_id: "ancient-run",
-      commit_timestamp: "2022-01-01T00:00:00Z",
-      result_timestamp: "2025-01-07T12:00:00Z",
+      commit_timestamp: "2025-01-07T12:00:00Z",
+      result_timestamp: "2026-08-28T12:00:00Z",
     }),
   ]);
-  const anchor = new Date("2026-06-01T00:00:00Z");
+  const anchor = new Date("2026-06-01T12:00:00Z");
 
-  it("anchors trend windows at the newest result by default", () => {
+  it("anchors trend windows at the newest plotted point", () => {
     expect(windowAnchorDate(points, new Date("2026-06-11T00:00:00Z")).toISOString()).toBe(
-      "2026-06-01T00:00:00.000Z",
+      "2026-06-01T12:00:00.000Z",
     );
     expect(windowAnchorDate([], new Date("2026-06-11T00:00:00Z")).toISOString()).toBe(
       "2026-06-11T00:00:00.000Z",
     );
   });
 
-  it("keeps everything for all and filters by benchmark result activity", () => {
-    expect(windowPoints(points, "all", anchor)).toHaveLength(3);
-    expect(windowPoints(points, "30d", anchor).map((p) => p.resultId)).toEqual(["recent-run"]);
-    expect(windowPoints(points, "1y", anchor).map((p) => p.resultId)).toEqual([
-      "recent-run",
-      "older-run",
-    ]);
+  it("finds the time extent of a large history without spreading function arguments", () => {
+    const largeHistory = Array.from(
+      { length: 200_000 },
+      (_, chartMs) => ({ chartMs }) as SeriesPoint,
+    );
+
+    expect(chartTimeExtent(largeHistory)).toEqual({ min: 0, max: 199_999 });
+    expect(windowAnchorDate(largeHistory, new Date(0)).getTime()).toBe(199_999);
+  });
+
+  it("keeps everything for all and filters by plotted time", () => {
+    expect(windowPoints(points, { mode: "relative", days: 0 }, anchor)).toHaveLength(3);
+    expect(
+      windowPoints(points, { mode: "relative", days: 30 }, anchor).map((p) => p.resultId),
+    ).toEqual(["recent-run"]);
+    expect(
+      windowPoints(points, { mode: "relative", days: 365 }, anchor).map((p) => p.resultId),
+    ).toEqual(["recent-run", "older-run"]);
+  });
+
+  it("filters calendar periods and explicit custom ranges", () => {
+    expect(
+      windowPoints(
+        points,
+        { mode: "calendar", unit: "month", anchor: "2026-04-15" },
+        anchor,
+      ).map((point) => point.resultId),
+    ).toEqual(["older-run"]);
+    expect(
+      windowPoints(
+        points,
+        { mode: "custom", from: "2025-01-01", to: "2026-04-30" },
+        anchor,
+      ).map((point) => point.resultId),
+    ).toEqual(["older-run", "ancient-run"]);
   });
 });
 
@@ -144,11 +174,9 @@ describe("trendChartData", () => {
     sample({ commit_timestamp: "2024-01-09T12:00:00Z", single_value_summary: 3.0, zscorestats: null }),
   ]);
 
-  it("uses indices in commit mode and unix seconds in time mode", () => {
-    const [xsCommit] = trendChartData(points, "commit", 2);
-    expect(xsCommit).toEqual([0, 1, 2]);
-    const [xsTime] = trendChartData(points, "time", 2);
-    expect(xsTime).toEqual([
+  it("uses Unix seconds so horizontal spacing represents elapsed time", () => {
+    const [xs] = trendChartData(points, 2);
+    expect(xs).toEqual([
       Date.parse("2024-01-07T12:00:00Z") / 1000,
       Date.parse("2024-01-08T12:00:00Z") / 1000,
       Date.parse("2024-01-09T12:00:00Z") / 1000,
@@ -156,7 +184,7 @@ describe("trendChartData", () => {
   });
 
   it("builds mean and sigma-scaled band rows with null gaps", () => {
-    const [, svs, mean, hi, lo] = trendChartData(points, "commit", 2);
+    const [, svs, mean, hi, lo] = trendChartData(points, 2);
     expect(svs).toEqual([1.0, 2.0, 3.0]);
     expect(mean).toEqual([1.0, 1.5, null]);
     expect(hi).toEqual([1.1, 2.5, null]);
@@ -259,7 +287,7 @@ describe("pointTooltip", () => {
     const tip = pointTooltip(p!, "en-US");
     expect(tip.title).toBe("abc1234 · 1.1 s");
     expect(tip.lines).toContain("z 4.00");
-    expect(tip.lines).toContain("mean 1 · sd 0.05");
+    expect(tip.lines).toContain("mean 1 s · standard deviation 0.05 s");
     expect(tip.lines).toContain("step");
     expect(tip.lines.some((l) => l.includes("Jan 7, 2024"))).toBe(true);
     expect(tip.lines).toContain("tune the flux capacitor");
@@ -352,11 +380,11 @@ describe("orderSamplesForChart", () => {
 });
 
 describe("distinctUnits", () => {
-  it("returns the sorted set of non-null units", () => {
+  it("returns the sorted set of units", () => {
     expect(distinctUnits([sample({ unit: "s" }), sample({ unit: "ms" }), sample({ unit: "s" })])).toEqual(["ms", "s"]);
   });
 
-  it("ignores null units", () => {
-    expect(distinctUnits([sample({ unit: null }), sample({ unit: "s" })])).toEqual(["s"]);
+  it("treats a missing unit as a distinct identity", () => {
+    expect(distinctUnits([sample({ unit: null }), sample({ unit: "s" })])).toEqual([null, "s"]);
   });
 });

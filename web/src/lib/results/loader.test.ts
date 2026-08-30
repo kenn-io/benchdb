@@ -28,6 +28,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     hash: "2315161817ad5dcb94891567e7ac48a35921e05a",
     repository: "https://github.com/apache/arrow",
     timestamp: "2026-06-04T18:41:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,
@@ -82,6 +83,44 @@ describe("loadResultsPage", () => {
       ],
       repositoryLabel: "apache/arrow",
       shortCommit: "23151618",
+      trendHref: "/benchmarks/history/06a220d0d94471c480001414453ee7fc",
     });
+  });
+
+  it("omits trend links for errored, commitless, and off-branch results", async () => {
+    const { client } = fakeClient({
+      results: [
+        result("errored", { has_error: true }),
+        result("commitless", { commit: null }),
+        result("off-branch", {
+          commit: {
+            hash: "pr-sha",
+            repository: "https://github.com/apache/arrow",
+            timestamp: "2026-06-04T18:41:00Z",
+            is_default_branch: false,
+          },
+        }),
+        result("valid"),
+      ],
+      next_page_cursor: null,
+    });
+
+    const page = await loadResultsPage(client, {
+      query: {
+        runID: "",
+        batchID: "",
+        runReason: "",
+        earliestTimestamp: "",
+        latestTimestamp: "",
+      },
+      cursor: null,
+    });
+
+    expect(page.rows.map((row) => row.trendHref)).toEqual([
+      null,
+      null,
+      null,
+      "/benchmarks/history/valid",
+    ]);
   });
 });

@@ -1,10 +1,20 @@
 <script lang="ts">
+  import {
+    DateRangePicker,
+    localDateStr,
+    type RangeSelection,
+  } from "@kenn-io/kit-ui/date-range-picker";
+  import {
+    SelectDropdown,
+    type SelectDropdownOption,
+  } from "@kenn-io/kit-ui/select-dropdown";
   import { onMount, tick } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import { loadTrend, type TrendSource, type TrendViewModel } from "../series/loader";
   import {
+    chartTimeExtent,
     flagsText,
     type SeriesPoint,
     type TableRow,
@@ -16,14 +26,14 @@
     formatTrendQuery,
     interceptNavClick,
     navigate,
-    type BrowseWindow,
-    type TrendAxis,
     type TrendQuery,
     type TrendSigma,
   } from "../router";
-  import { tagsText } from "../browse/transform";
+  import { formatDate, tagsText } from "../browse/transform";
   import DetailTable from "./DetailTable.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
+  import FleetSeriesChart from "./FleetSeriesChart.svelte";
+  import MeasurementValue from "./MeasurementValue.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -36,48 +46,166 @@
     baseUrl?: string;
   } = $props();
 
-  const RANGE_LABEL: Record<BrowseWindow, string> = {
-    all: "all time",
-    "30d": "30 days",
-    "3mo": "3 months",
-    "1y": "year",
-  };
   const TREND_TABLE_INITIAL_ROWS = 200;
   const TREND_TABLE_ROW_CHUNK = 200;
+  const yAxisOptions: SelectDropdownOption[] = [
+    { value: "zero", label: "Zero baseline" },
+    { value: "observed", label: "Observed range" },
+  ];
   type TrendFilter = "all" | "outliers" | "steps";
   type FlagTarget = {
     filter: Exclude<TrendFilter, "all">;
     label: string;
     count: number;
-    index: number;
     point: SeriesPoint;
   };
+  type ComparePick = {
+    id: string;
+    sha: string;
+    machineName: string;
+    fingerprint: string;
+    unit: string | null;
+  };
+
+  function trackPoints(track: TrendViewModel["tracks"][number]): SeriesPoint[] {
+    return track.segments
+      .flatMap((segment) => segment.points)
+      .sort((a, b) => a.chartMs - b.chartMs || a.resultId.localeCompare(b.resultId));
+  }
 
   let vm = $state<TrendViewModel | null>(null);
   let errorMsg = $state<string | null>(null);
-  let selectedIndex = $state<number | null>(null);
+  let selectedResultId = $state<string | null>(null);
   let rowLimit = $state(TREND_TABLE_INITIAL_ROWS);
   let trendFilter = $state<TrendFilter>("all");
   let exportCopied = $state(false);
+  let machineFilter = $state("all");
+  let refreshing = $state(false);
+  let refreshError = $state(false);
+  let lastCheckedAt = $state<number | null>(null);
+  let newPointCount = $state(0);
+  let latestArrival = $state<{ machineName: string; point: SeriesPoint } | null>(null);
 
-  onMount(async () => {
+  function addedResults(
+    previous: TrendViewModel,
+    next: TrendViewModel,
+  ): { machineName: string; point: SeriesPoint }[] {
+    const previousIDs = new Set(
+      previous.tracks.flatMap((track) => trackPoints(track).map((point) => point.resultId)),
+    );
+    return next.tracks.flatMap((track) =>
+      trackPoints(track)
+        .filter((point) => !previousIDs.has(point.resultId))
+        .map((point) => ({ machineName: track.machineName, point })),
+    );
+  }
+
+  async function refreshTrend(initial = false) {
+    if (refreshing) return;
+    refreshing = true;
     try {
-      vm = await loadTrend(createBenchDBClient(baseUrl), source);
+      const next = await loadTrend(createBenchDBClient(baseUrl), source);
+      if (vm !== null) {
+        const arrivals = addedResults(vm, next);
+        newPointCount += arrivals.length;
+        latestArrival = arrivals[arrivals.length - 1] ?? latestArrival;
+      }
+      vm = next;
+      errorMsg = null;
+      lastCheckedAt = Date.now();
+      refreshError = false;
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+      if (initial || vm === null) {
+        errorMsg = err instanceof Error ? err.message : String(err);
+      } else {
+        refreshError = true;
+      }
+    } finally {
+      refreshing = false;
     }
+  }
+
+  onMount(() => {
+    void refreshTrend(true);
+    const interval = window.setInterval(() => void refreshTrend(), 30_000);
+    return () => window.clearInterval(interval);
   });
 
-  let all = $derived(vm?.points ?? []);
+  let tracks = $derived(vm?.tracks ?? []);
+  let fleetPoints = $derived(
+    tracks.flatMap(trackPoints).sort((a, b) => a.chartMs - b.chartMs),
+  );
+  let machineSummaries = $derived(
+    tracks.map((track) => {
+      const points = trackPoints(track);
+      return {
+        machineName: track.machineName,
+        pointCount: points.length,
+        latest: points[points.length - 1] ?? null,
+      };
+    }),
+  );
+  let fleetCommitCount = $derived(new Set(fleetPoints.map((point) => point.commitHash)).size);
+  let machineOptions = $derived.by((): SelectDropdownOption[] => [
+    { value: "all", label: `All machines (${fleetPoints.length})`, triggerLabel: "All machines" },
+    ...machineSummaries.map((summary) => ({
+      value: summary.machineName,
+      label: `${summary.machineName} (${summary.pointCount})`,
+      triggerLabel: summary.machineName,
+    })),
+  ]);
+  let activeTrack = $derived(
+    machineFilter === "all"
+      ? (tracks.length === 1 ? tracks[0]! : null)
+      : (tracks.find((track) => track.machineName === machineFilter) ?? null),
+  );
+  let all = $derived(
+    activeTrack === null
+      ? tracks.flatMap(trackPoints).sort((a, b) => a.chartMs - b.chartMs)
+      : trackPoints(activeTrack),
+  );
   let rangeAnchor = $derived(windowAnchorDate(all, new Date()));
+  let earliestDate = $derived.by(() => {
+    const earliest = chartTimeExtent(all)?.min;
+    return earliest === undefined ? null : localDateStr(new Date(earliest));
+  });
+  let latestDate = $derived(localDateStr(rangeAnchor));
+  let fleetCoverageText = $derived(
+    fleetPoints.length === 0
+      ? "no results"
+      : `${formatDate(new Date(fleetPoints[0]!.chartMs).toISOString())} – ${formatDate(new Date(fleetPoints[fleetPoints.length - 1]!.chartMs).toISOString())}`,
+  );
   let visible = $derived(windowPoints(all, query.range, rangeAnchor));
+  let visibleCommitCount = $derived(new Set(visible.map((point) => point.commitHash)).size);
+  let visibleTracks = $derived(
+    tracks
+      .filter((track) => machineFilter === "all" || track.machineName === machineFilter)
+      .map((track) => ({
+        ...track,
+        segments: track.segments
+          .map((segment) => ({
+            ...segment,
+            points: windowPoints(segment.points, query.range, rangeAnchor),
+          }))
+          .filter((segment) => segment.points.length > 0),
+      }))
+      .filter((track) => track.segments.length > 0),
+  );
+  let visibleSegmentCount = $derived(
+    visibleTracks.reduce((count, track) => count + track.segments.length, 0),
+  );
   let currentResultId = $derived(source.kind === "result" ? source.resultId : null);
   let outlierCount = $derived(visible.filter((p) => p.stats.isOutlier).length);
   let stepCount = $derived(visible.filter((p) => p.stats.isStep || p.stats.beginsChange).length);
   let flagTargets = $derived(flaggedPointTargets(visible));
-  let rows = $derived(filteredTableRows(visible, trendFilter));
-  let displayedRows = $derived(rows.slice(Math.max(0, rows.length - rowLimit)));
+  let rows = $derived(filteredTableRows(visibleTracks, trendFilter));
+  let displayedRows = $derived(rows.slice(0, rowLimit));
   let hiddenRowCount = $derived(Math.max(0, rows.length - displayedRows.length));
+  let selectedIndex = $derived.by(() => {
+    if (selectedResultId === null) return null;
+    const index = visible.findIndex((point) => point.resultId === selectedResultId);
+    return index < 0 ? null : index;
+  });
   let selected = $derived(selectedIndex === null ? null : (visible[selectedIndex] ?? null));
   let exportResultID = $derived(
     selected?.resultId ??
@@ -91,13 +219,21 @@
   );
 
   // Compare picks are page-local workflow state: the shareable artifact is the
-  // /compare URL the bar produces, not the picking session. Picks reference
-  // result ids, so range/axis/sigma changes never invalidate them.
-  let baselinePick = $state<{ id: string; sha: string } | null>(null);
-  let contenderPick = $state<{ id: string; sha: string } | null>(null);
+  // /compare URL the bar produces, not the picking session. Picks retain the
+  // machine and fingerprint identity required by the compare API.
+  let baselinePick = $state<ComparePick | null>(null);
+  let contenderPick = $state<ComparePick | null>(null);
+
+  let picksComparable = $derived(
+    baselinePick === null || contenderPick === null || (
+      baselinePick.machineName === contenderPick.machineName &&
+      baselinePick.fingerprint === contenderPick.fingerprint &&
+      baselinePick.unit === contenderPick.unit
+    ),
+  );
 
   let compareHref = $derived(
-    baselinePick !== null && contenderPick !== null
+    baselinePick !== null && contenderPick !== null && picksComparable
       ? `/compare${formatCompareQuery({
           baseline: baselinePick.id,
           contender: contenderPick.id,
@@ -107,18 +243,36 @@
       : null,
   );
 
+  function comparePick(point: SeriesPoint): ComparePick | null {
+    for (const track of tracks) {
+      for (const segment of track.segments) {
+        if (segment.points.some((candidate) => candidate.resultId === point.resultId)) {
+          return {
+            id: point.resultId,
+            sha: point.commitHash,
+            machineName: track.machineName,
+            fingerprint: segment.fingerprint,
+            unit: point.unit,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   function clearPicks() {
     baselinePick = null;
     contenderPick = null;
   }
 
-  // Range and table-filter changes re-window the selectable row set, so stale
-  // indices would point at the wrong commit: reset the selection. Axis/sigma
-  // keep indices stable.
+  // Range and table-filter changes intentionally clear the selection because
+  // they re-window the selectable row set. Live refreshes do not: the selected
+  // result id is remapped to its new position when historical points arrive.
   $effect(() => {
     void query.range;
     void trendFilter;
-    selectedIndex = null;
+    void machineFilter;
+    selectedResultId = null;
     rowLimit = TREND_TABLE_INITIAL_ROWS;
     exportCopied = false;
   });
@@ -129,17 +283,25 @@
   });
 
   function basePath(): string {
-    return source.kind === "fingerprint"
-      ? `/series/${source.fingerprint}`
-      : `/benchmarks/history/${source.resultId}`;
+    if (source.kind === "benchmark") return `/benchmarks/${source.benchmarkId}`;
+    if (source.kind === "fingerprint") return `/series/${source.fingerprint}`;
+    return `/benchmarks/history/${source.resultId}`;
   }
 
   function setControl(patch: Partial<TrendQuery>) {
     navigate(`${basePath()}${formatTrendQuery({ ...query, ...patch })}`);
   }
 
+  function setRange(range: RangeSelection) {
+    setControl({ range });
+  }
+
   function select(index: number) {
-    selectedIndex = index;
+    selectedResultId = visible[index]?.resultId ?? null;
+  }
+
+  function selectRow(row: TableRow) {
+    selectedResultId = row.resultId;
   }
 
   function openResult(resultId: string) {
@@ -157,31 +319,34 @@
     return true;
   }
 
-  function filteredTableRows(points: SeriesPoint[], filter: TrendFilter): TableRow[] {
-    return points.flatMap((point, index) => {
-      if (!pointMatchesFilter(point, filter)) return [];
-      return [
-        {
-          index,
-          resultId: point.resultId,
-          commitHash: point.commitHash,
-          commitMessage: point.commitMessage,
-          svs: point.svs,
-          unit: point.unit,
-          z: point.stats.z,
-          flags: flagsText(point.stats),
-        },
-      ];
-    });
+  function filteredTableRows(sourceTracks: typeof visibleTracks, filter: TrendFilter): TableRow[] {
+    return sourceTracks
+      .flatMap((track) => track.segments.flatMap((segment) =>
+        segment.points.map((point) => ({ point, machineName: track.machineName }))))
+      .sort((a, b) => a.point.chartMs - b.point.chartMs)
+      .flatMap(({ point, machineName }, index) => {
+        if (!pointMatchesFilter(point, filter)) return [];
+        return [
+          {
+            index,
+            resultId: point.resultId,
+            commitHash: point.commitHash,
+            commitMessage: point.commitMessage,
+            chartMs: point.chartMs,
+            svs: point.svs,
+            unit: point.unit,
+            z: point.stats.z,
+            flags: flagsText(point.stats),
+            machineName,
+          },
+        ];
+      })
+      .sort((a, b) => b.chartMs - a.chartMs || b.resultId.localeCompare(a.resultId));
   }
 
   function flaggedPointTargets(points: SeriesPoint[]): FlagTarget[] {
-    const outliers = points
-      .map((point, index) => ({ point, index }))
-      .filter((entry) => entry.point.stats.isOutlier);
-    const steps = points
-      .map((point, index) => ({ point, index }))
-      .filter((entry) => entry.point.stats.isStep || entry.point.stats.beginsChange);
+    const outliers = points.filter((point) => point.stats.isOutlier);
+    const steps = points.filter((point) => point.stats.isStep || point.stats.beginsChange);
     return [
       targetFor("outliers", "outlier", outliers),
       targetFor("steps", "step", steps),
@@ -191,11 +356,11 @@
   function targetFor(
     filter: Exclude<TrendFilter, "all">,
     label: string,
-    entries: { point: SeriesPoint; index: number }[],
+    entries: SeriesPoint[],
   ): FlagTarget | null {
     const first = entries[0];
     if (first === undefined) return null;
-    return { filter, label, count: entries.length, index: first.index, point: first.point };
+    return { filter, label, count: entries.length, point: first };
   }
 
   function zText(value: number | null): string {
@@ -207,6 +372,19 @@
       return `showing ${displayedRows.length} of ${rows.length} points`;
     }
     return `showing ${displayedRows.length} of ${rows.length} filtered points`;
+  }
+
+  function checkedAtText(): string {
+    if (lastCheckedAt === null) return "connecting";
+    return `checked ${new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(new Date(lastCheckedAt))}`;
+  }
+
+  function resultCountText(count: number): string {
+    return `${count} ${count === 1 ? "result" : "results"}`;
   }
 
   async function copyExportCommand() {
@@ -228,7 +406,7 @@
     trendFilter = target.filter;
     rowLimit = TREND_TABLE_INITIAL_ROWS;
     await tick();
-    selectedIndex = target.index;
+    selectedResultId = target.point.resultId;
   }
 
   function orientation(lessIsBetter: boolean | null): string | null {
@@ -242,6 +420,17 @@
     <section class="panel state-panel">
       <h1>Trend unavailable</h1>
       <p class="error">Failed to load series: {errorMsg}</p>
+      {#if source.kind === "result"}
+        <a
+          class="button-pill"
+          href={`/results/${source.resultId}`}
+          onclick={(e) => {
+            if (!interceptNavClick(e)) return;
+            e.preventDefault();
+            openResult(source.resultId);
+          }}
+        >Open result details</a>
+      {/if}
     </section>
   </main>
 {:else if !vm}
@@ -256,11 +445,11 @@
     <section class="trend-context panel" aria-label="Trend context">
       <header class="page-header">
         <div>
-          <p class="eyebrow">Trend detail</p>
-          <h1>{vm.identity.benchmarkName}</h1>
+          <p class="eyebrow">Benchmark trend</p>
+          <h1 title={vm.identity.benchmarkId}>{vm.identity.benchmarkName}</h1>
           <div class="ident page-subtitle">
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
-            <span>machine {vm.identity.hardwareName}</span>
+            <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
             <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
             {#if vm.identity.unit !== null}
               <span>
@@ -271,72 +460,96 @@
             {/if}
           </div>
         </div>
-        <div class="page-meta">
-          <span>{vm.identity.hardwareName}</span>
-          <span title={vm.identity.fingerprint}>series {vm.identity.displayFingerprint}</span>
+        <div class="live-status" class:warning={refreshError} aria-live="polite">
+          <span class="live-dot"></span>
+          <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
+          {#if latestArrival !== null}
+            <span class="arrival-detail">
+              {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
+              {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
+            </span>
+          {/if}
+          <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </header>
       {#if !vm.unitConsistent}
         <div class="integrity" role="alert">
-          data integrity: this series mixes units ({vm.units.join(", ")}) — values are
+          data integrity: this series mixes units ({vm.units.map((unit) => unit ?? "unit not set").join(", ")}) — values are
           not directly comparable
         </div>
       {/if}
 
-      <EnvironmentDetails context={vm.identity.context} label="Environment and configuration" />
-
     {#if all.length > 0}
-    <div class="toolbar controls">
-      <label class="filter-label">
-        range
-        <select
-          value={query.range}
-          onchange={(e) => setControl({ range: e.currentTarget.value as BrowseWindow })}
-        >
-          <option value="30d">last 30 days</option>
-          <option value="3mo">last 3 months</option>
-          <option value="1y">last year</option>
-          <option value="all">all time</option>
-        </select>
-      </label>
-      <label class="filter-label">
-        band
-        <select
-          value={String(query.sigma)}
-          onchange={(e) => setControl({ sigma: Number(e.currentTarget.value) as TrendSigma })}
-        >
-          <option value="1">±1σ</option>
-          <option value="2">±2σ</option>
-          <option value="3">±3σ</option>
-          <option value="5">±5σ</option>
-        </select>
-      </label>
-      <label class="filter-label">
-        x-axis
-        <select
-          value={query.axis}
-          onchange={(e) => setControl({ axis: e.currentTarget.value as TrendAxis })}
-        >
-          <option value="commit">commit order</option>
-          <option value="time">time</option>
-        </select>
-      </label>
-    </div>
+    <div class="context-toolbar">
+      <div class="toolbar controls">
+        <label class="filter-label machine-select">
+          machine
+          <SelectDropdown
+            value={machineFilter}
+            options={machineOptions}
+            title="Machine"
+            onchange={(value) => (machineFilter = value)}
+          />
+        </label>
+        <div class="filter-label range-control">
+          <span>range</span>
+          <DateRangePicker
+            selection={query.range}
+            onSelect={setRange}
+            {earliestDate}
+            maxDate={latestDate}
+          />
+        </div>
+        <label class="filter-label">
+          band
+          <select
+            value={String(query.sigma)}
+            onchange={(e) => setControl({ sigma: Number(e.currentTarget.value) as TrendSigma })}
+          >
+            <option value="1">±1σ</option>
+            <option value="2">±2σ</option>
+            <option value="3">±3σ</option>
+            <option value="5">±5σ</option>
+          </select>
+        </label>
+        <label class="filter-label machine-select">
+          Y-axis
+          <SelectDropdown
+            value={query.yAxis}
+            options={yAxisOptions}
+            title="Y-axis"
+            onchange={(value) => setControl({ yAxis: value === "observed" ? "observed" : "zero" })}
+          />
+        </label>
+      </div>
 
-    <p class="summary-line" aria-label="Trend summary">
-      <span class="summary-item">{visible.length} {visible.length === 1 ? "point" : "points"}</span>
-      <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
-      <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
-    </p>
+      <p class="summary-line context-summary" aria-label="Trend summary">
+        <span class="summary-item">{visible.length} machine {visible.length === 1 ? "result" : "results"}</span>
+        <span class="summary-item">{visibleCommitCount} {visibleCommitCount === 1 ? "commit" : "commits"}</span>
+        <span
+          class="summary-item"
+          title="The x-axis uses commit time. Backfilled results appear at the commit's date."
+        >{fleetCoverageText}</span>
+        <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
+        <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+      </p>
+    </div>
 
     {#if flagTargets.length > 0}
       <section class="flag-queue" aria-label="Flagged point shortcuts">
         {#each flagTargets as target}
-          <button type="button" class="flag-card" onclick={() => jumpToFlag(target)}>
-            <span>{target.count} {target.count === 1 ? target.label : `${target.label}s`}</span>
-            <strong>{target.point.commitHash}</strong>
+          <button
+            type="button"
+            class="flag-card"
+            aria-label={`Jump to first ${target.label}: ${target.point.commitHash}`}
+            onclick={() => jumpToFlag(target)}
+          >
+            <span class="flag-count">{target.count} {target.count === 1 ? target.label : `${target.label}s`}</span>
+            <strong title={target.point.commitHash}>{target.point.commitHash.slice(0, 12)}</strong>
             <span class="numeric-text">{formatMeasurement(target.point.svs, target.point.unit)} · {zText(target.point.stats.z)}</span>
-            <span class="jump">Jump to first {target.label}</span>
+            <span class="jump">View →</span>
           </button>
         {/each}
       </section>
@@ -360,6 +573,8 @@
               navigate(href);
             }}
           >Compare</a>
+        {:else if baselinePick !== null && contenderPick !== null && !picksComparable}
+          <span class="compare-warning" role="alert">Choose results from the same machine, environment, and unit.</span>
         {:else}
           <span class="faint">pick both points to compare</span>
         {/if}
@@ -367,31 +582,6 @@
       </div>
     {/if}
 
-      {#if visible.length > 0}
-        <div class="filter-bar" aria-label="Trend point filters">
-          <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "all"}
-          aria-pressed={trendFilter === "all"}
-          onclick={() => (trendFilter = "all")}
-        >All {visible.length}</button>
-        <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "outliers"}
-          aria-pressed={trendFilter === "outliers"}
-          onclick={() => (trendFilter = "outliers")}
-        >Outliers {outlierCount}</button>
-        <button
-          type="button"
-          class="button-pill"
-          class:active={trendFilter === "steps"}
-          aria-pressed={trendFilter === "steps"}
-          onclick={() => (trendFilter = "steps")}
-        >Steps {stepCount}</button>
-        </div>
-      {/if}
     {/if}
   </section>
 
@@ -400,20 +590,36 @@
   {:else}
     {#if visible.length === 0}
       <p class="empty">
-        No points in the last {RANGE_LABEL[query.range]} —
-        <button type="button" class="link" onclick={() => setControl({ range: "all" })}>
+        No points in the selected range —
+        <button
+          type="button"
+          class="link"
+          onclick={() => setRange({ mode: "relative", days: 0 })}
+        >
           show all {all.length} points
         </button>
       </p>
     {:else}
-      <SeriesChart
-        points={visible}
-        axis={query.axis}
-        sigma={query.sigma}
-        {selectedIndex}
-        {currentResultId}
-        onselect={select}
-      />
+      {#if !vm.unitConsistent}
+        <p class="empty chart-suppressed">Chart unavailable because this benchmark mixes measurement units.</p>
+      {:else if visibleSegmentCount > 1}
+        <FleetSeriesChart
+          tracks={visibleTracks}
+          sigma={query.sigma}
+          zeroBased={query.yAxis === "zero"}
+          onopen={openResult}
+        />
+      {:else}
+        <SeriesChart
+          points={visibleTracks[0]?.segments[0]?.points ?? []}
+          sigma={query.sigma}
+          zeroBased={query.yAxis === "zero"}
+          {selectedIndex}
+          {currentResultId}
+          onselect={select}
+          onopen={openResult}
+        />
+      {/if}
       {#if selected !== null}
         <!-- @const pins the narrowed point: TS narrowing on the nullable $derived
              does not survive into the onclick closure. -->
@@ -422,7 +628,7 @@
           <div>
             <span class="eyebrow">selected point</span>
             <strong>{sel.commitHash}</strong>
-            <span class="faint numeric-text">{formatMeasurement(sel.svs, sel.unit)}</span>
+            <span class="faint numeric-text"><MeasurementValue value={sel.svs} unit={sel.unit} /></span>
           </div>
           <dl class="point-meta">
             <div>
@@ -451,30 +657,50 @@
             <button
               type="button"
               class="button-pill"
-              onclick={() => (baselinePick = { id: sel.resultId, sha: sel.commitHash })}
+              onclick={() => (baselinePick = comparePick(sel))}
             >set baseline</button>
             <button
               type="button"
               class="button-pill"
-              onclick={() => (contenderPick = { id: sel.resultId, sha: sel.commitHash })}
+              onclick={() => (contenderPick = comparePick(sel))}
             >set contender</button>
           </div>
         </section>
       {/if}
-      {#if exportCommand !== null}
-        <section class="export-panel panel" aria-label="History export">
-          <span class="eyebrow">history export</span>
-          <code>{exportCommand}</code>
-          <button type="button" class="button-pill" onclick={copyExportCommand}>Copy export command</button>
-          {#if exportCopied}<span class="copied">copied</span>{/if}
-        </section>
-      {/if}
       <section class="panel table-panel history-table-panel" aria-label="Trend history">
-        <p class="row-count">{rowCountText()}</p>
+        <header class="history-heading">
+          <div>
+            <h2>Results</h2>
+            <p class="row-count">{rowCountText()} · newest first</p>
+          </div>
+          <div class="filter-bar" aria-label="Trend point filters">
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "all"}
+              aria-pressed={trendFilter === "all"}
+              onclick={() => (trendFilter = "all")}
+            >All {visible.length}</button>
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "outliers"}
+              aria-pressed={trendFilter === "outliers"}
+              onclick={() => (trendFilter = "outliers")}
+            >Outliers {outlierCount}</button>
+            <button
+              type="button"
+              class="button-pill"
+              class:active={trendFilter === "steps"}
+              aria-pressed={trendFilter === "steps"}
+              onclick={() => (trendFilter = "steps")}
+            >Steps {stepCount}</button>
+          </div>
+        </header>
         <DetailTable
           rows={displayedRows}
-          {selectedIndex}
-          onselect={select}
+          {selectedResultId}
+          onselect={selectRow}
           onopen={(row) => openResult(row.resultId)}
         />
       </section>
@@ -483,6 +709,21 @@
           Show more
         </button>
       {/if}
+      <section class="secondary-tools">
+        {#if activeTrack !== null && activeTrack.segments.length > 0}
+          <EnvironmentDetails context={activeTrack.segments[activeTrack.segments.length - 1]!.context} label="Selected machine environment" />
+        {/if}
+        {#if exportCommand !== null}
+          <details class="export-panel panel" role="region" aria-label="History export">
+            <summary>Export history</summary>
+            <div class="export-content">
+              <code>{exportCommand}</code>
+              <button type="button" class="button-pill" onclick={copyExportCommand}>Copy export command</button>
+              {#if exportCopied}<span class="copied">copied</span>{/if}
+            </div>
+          </details>
+        {/if}
+      </section>
     {/if}
   {/if}
   </main>
@@ -493,14 +734,10 @@
     max-width: 1600px;
   }
   .trend-context {
-    position: sticky;
-    top: var(--app-header-height);
-    z-index: 4;
     display: grid;
-    gap: 10px;
-    padding: 12px;
-    background: color-mix(in srgb, var(--c-surface) 94%, transparent);
-    backdrop-filter: blur(8px);
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--c-surface);
   }
   .ident {
     display: flex;
@@ -522,22 +759,59 @@
   .controls {
     align-items: end;
   }
-  .controls label {
+  .controls .filter-label {
     min-width: 120px;
   }
+  .context-toolbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px 20px;
+    flex-wrap: wrap;
+  }
+  .context-summary {
+    justify-content: flex-end;
+    padding-bottom: 4px;
+  }
+  .live-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--c-text-muted);
+    font-size: 0.76rem;
+    white-space: nowrap;
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-success); }
+  .live-status.warning .live-dot { background: var(--c-error); }
+  .arrival-detail {
+    color: var(--c-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .refresh-button {
+    padding: 3px 7px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+  }
+  .refresh-button:disabled { cursor: wait; opacity: 0.65; }
   .flag-queue {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    margin: 0.5rem 0 0.65rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
   }
   .flag-card {
-    display: grid;
-    gap: 3px;
+    display: flex;
+    align-items: center;
+    flex: 1 1 360px;
+    gap: 8px;
     min-width: 0;
-    padding: 0.55rem 0.65rem;
+    min-height: 34px;
+    padding: 0.3rem 0.55rem;
     border: 1px solid var(--c-border-muted);
-    border-left: 4px solid var(--c-warning);
+    border-left: 3px solid var(--c-warning);
     border-radius: var(--radius-sm);
     background: var(--c-surface);
     color: var(--c-text-muted);
@@ -551,14 +825,22 @@
   }
   .flag-card strong {
     color: var(--c-text);
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
+  .flag-count {
+    color: var(--c-warning);
+    font-weight: 700;
+    white-space: nowrap;
+  }
   .flag-card .jump {
+    margin-left: auto;
     color: var(--c-accent);
     font-weight: 700;
+    white-space: nowrap;
   }
-  .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; margin: 0.25rem 0 0.6rem; }
-  .selected-panel, .export-panel {
+  .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+  .selected-panel {
     margin: 0.65rem 0;
     padding: 0.65rem 0.75rem;
   }
@@ -592,7 +874,10 @@
   }
   .point-meta dd { margin: 0.08rem 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .actions { display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-  .export-panel { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+  .secondary-tools { display: grid; gap: 8px; }
+  .export-panel { padding: 0.65rem 0.75rem; }
+  .export-panel summary { cursor: pointer; color: var(--c-text-muted); font-weight: 650; }
+  .export-content { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; margin-top: 0.6rem; }
   .export-panel code {
     overflow-wrap: anywhere;
     font-size: 0.78rem;
@@ -616,26 +901,23 @@
   .history-table-panel {
     overflow: hidden;
   }
-  .row-count { color: var(--c-text-muted); font-size: 0.8rem; margin: 0; padding: 9px 10px; }
+  .history-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px; border-bottom: 1px solid var(--c-border-muted); }
+  .history-heading h2 { margin: 0; font-size: 0.95rem; }
+  .row-count { color: var(--c-text-muted); font-size: 0.76rem; margin: 2px 0 0; }
   .more {
     margin-top: 0.6rem;
   }
   .link { background: none; border: none; padding: 0; font: inherit;
           color: var(--c-accent); cursor: pointer; text-decoration: underline; }
-  @media (max-width: 1120px) {
-    .trend-context {
-      position: static;
-      top: auto;
-    }
-  }
   @media (max-width: 760px) {
     .page-header {
       display: grid;
     }
-    .page-meta {
-      justify-content: flex-start;
-    }
-    .flag-queue { grid-template-columns: 1fr; }
+    .live-status { flex-wrap: wrap; white-space: normal; }
+    .history-heading { align-items: flex-start; flex-direction: column; }
+    .context-summary { justify-content: flex-start; padding-bottom: 0; }
+    .flag-card { align-items: flex-start; flex-wrap: wrap; }
+    .flag-card .jump { margin-left: 0; }
     .selected-panel { grid-template-columns: 1fr; align-items: start; }
     .point-meta { grid-template-columns: 1fr; }
     .actions { justify-content: flex-start; }

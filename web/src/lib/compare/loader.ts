@@ -48,14 +48,15 @@ async function fetchVerdicts(client: Client, query: CompareQuery): Promise<Compa
   return res.data;
 }
 
-async function fetchPoints(client: Client, resultId: string): Promise<SeriesPoint[]> {
+async function fetchPoints(client: Client, resultId: string, unit: string): Promise<SeriesPoint[]> {
   const res = await client.GET("/api/history/{benchmark_result_id}", {
     params: { path: { benchmark_result_id: resultId } },
   });
   if (res.error || !res.data) {
     throw new Error(`failed to load history for benchmark result ${resultId}`);
   }
-  return toSeriesPoints(orderSamplesForChart(res.data.samples ?? []));
+  const samples = (res.data.samples ?? []).filter((sample) => sample.unit === unit);
+  return toSeriesPoints(orderSamplesForChart(samples));
 }
 
 /** loadCompare resolves the verdicts first — the endpoint's 422 throws
@@ -68,7 +69,7 @@ export async function loadCompare(client: Client, query: CompareQuery): Promise<
   const [baseline, contender, points] = await Promise.all([
     loadResult(client, query.baseline),
     loadResult(client, query.contender),
-    fetchPoints(client, query.baseline),
+    fetchPoints(client, query.baseline, verdicts.unit),
   ]);
   return {
     status: verdictStatus(verdicts.analysis.lookback_z_score),

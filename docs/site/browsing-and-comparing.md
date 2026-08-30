@@ -27,11 +27,14 @@ queries can match many production series, so pages cap rendered rows and ask you
 to narrow with search, hardware, repository, fingerprint, or active-time filters
 instead of painting an unbounded table.
 
-Default browse is intentionally a recent discovery view. On large installations
-it starts from a bounded window of recent default-branch commits that have
-benchmark results, then shows the latest visible member for each series. Use a
-search term, a known history fingerprint, a run page, or a CI report when you
-need an exact historical lookup for a specific benchmark family.
+Default browse and substring search are intentionally recent discovery views.
+On large installations they start from a bounded window of recent
+default-branch commits that have benchmark results, then show the latest visible
+member for each benchmark. They can omit a benchmark whose matching results are
+all outside that window. A known logical benchmark ID at
+`/benchmarks/<benchmark_id>` loads its complete fleet history. A known history
+fingerprint at `/series/<fingerprint>` loads that directly comparable segment.
+Run pages and CI reports also provide exact links into those histories.
 
 Benchmark-name search shows a loaded family drilldown: case variants,
 hardware/context coverage, loaded history-point counts, and
@@ -45,8 +48,10 @@ scale-aware product workflow rather than as an unbounded table.
 
 ## Trend Detail
 
-A trend page shows the result history for one fingerprint. It is the primary
-place to inspect:
+A benchmark trend page shows the result history across the machines in the
+fleet. The machine selector narrows that view, while the legacy fingerprint
+route shows one directly comparable segment. Trend detail is the primary place
+to inspect:
 
 - recent values,
 - outliers,
@@ -56,9 +61,9 @@ place to inspect:
 - manual baseline and contender picks.
 
 Trend pages are the canonical place to localize a regression. They show the
-commit-ordered series, rolling history context, result links, and point flags
-for one fingerprint. Large histories are rendered progressively: the recent
-window appears first, with controls to reveal more history when needed.
+commit-ordered series, per-machine rolling history context, result links, and
+point flags. Large histories are rendered progressively: the recent window
+appears first, with controls to reveal more history when needed.
 
 Use the outlier and step filters when a long history needs triage. Filtering is
 applied before the rendered-row cap, so an old flagged point can still be found

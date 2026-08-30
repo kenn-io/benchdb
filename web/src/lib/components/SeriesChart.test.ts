@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,7 +6,11 @@ import type { SeriesPoint } from "../series/transform";
 
 const plotState = vi.hoisted(() => ({
   cursorHook: undefined as ((plot: unknown) => void) | undefined,
+  selectHook: undefined as ((plot: unknown) => void) | undefined,
+  scaleCalls: [] as { key: string; limits: { min: number; max: number } }[],
   instance: undefined as unknown,
+  options: undefined as Record<string, unknown> | undefined,
+  xForPosition: (position: number) => position,
 }));
 
 vi.mock("uplot", () => {
@@ -14,16 +18,28 @@ vi.mock("uplot", () => {
     data: unknown;
     bbox = { left: 0, top: 0, width: 640, height: 280 };
     cursor = { left: 0, top: 0 };
+    select = { left: 100, top: 0, width: 200, height: 280 };
 
-    constructor(options: { hooks?: { setCursor?: ((plot: unknown) => void)[] } }, data: unknown) {
+    constructor(options: { hooks?: {
+      setCursor?: ((plot: unknown) => void)[];
+      setSelect?: ((plot: unknown) => void)[];
+    } }, data: unknown) {
       this.data = data;
+      plotState.options = options;
       plotState.cursorHook = options.hooks?.setCursor?.[0];
+      plotState.selectHook = options.hooks?.setSelect?.[0];
       plotState.instance = this;
     }
 
     destroy() {}
     redraw() {}
     setSize() {}
+    posToVal(position: number, scale: string) {
+      return scale === "x" ? plotState.xForPosition(position) : 1;
+    }
+    setScale(key: string, limits: { min: number; max: number }) {
+      plotState.scaleCalls.push({ key, limits });
+    }
   }
   return { default: MockUPlot };
 });
@@ -81,5 +97,109 @@ describe("SeriesChart", () => {
     expect(screen.getByText("run: channel=nightly")).toBeInTheDocument();
     expect(container.querySelector(".tip")).toHaveStyle({ top: "102px", visibility: "visible" });
     rect.mockRestore();
+  });
+
+  it("starts at zero and opens the hovered result on click", async () => {
+    const onopen = vi.fn();
+    const { container } = render(SeriesChart, { props: { points: [boundaryPoint], onopen } });
+    const options = plotState.options as { scales: { y: { range: () => number[] } } };
+    expect(options.scales.y.range()[0]).toBe(0);
+    plotState.cursorHook?.(plotState.instance);
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+    expect(onopen).toHaveBeenCalledWith("r1");
+  });
+
+  it("can scale the Y-axis from the observed minimum", () => {
+    render(SeriesChart, { props: { points: [boundaryPoint], zeroBased: false } });
+    const options = plotState.options as { scales: { y: { range: () => number[] } } };
+    expect(options.scales.y.range()[0]).toBeGreaterThan(0);
+  });
+
+  it("zooms by horizontal brush and resets to the full time range", async () => {
+    plotState.scaleCalls = [];
+    const onopen = vi.fn();
+    const laterPoint = {
+      ...boundaryPoint,
+      resultId: "r2",
+      chartMs: Date.parse("2026-01-11T00:00:00Z"),
+    };
+    const { container } = render(SeriesChart, {
+      props: { points: [boundaryPoint, laterPoint], onopen },
+    });
+    const options = plotState.options as { cursor: { drag: { x: boolean; y: boolean; dist: number } } };
+    expect(options.cursor.drag).toMatchObject({ x: true, y: false, dist: 8 });
+
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    plotState.cursorHook?.(plotState.instance);
+    await tick();
+    await fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
+
+    expect(plotState.scaleCalls).toEqual([{
+      key: "x",
+      limits: {
+        min: Date.parse("2026-01-01T00:00:00Z") / 1000,
+        max: Date.parse("2026-01-11T00:00:00Z") / 1000,
+      },
+    }]);
+    expect(onopen).not.toHaveBeenCalled();
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+    expect(onopen).not.toHaveBeenCalled();
+  });
+
+  it("resolves hover through the active time scale after zoom", async () => {
+    const onopen = vi.fn();
+    const middlePoint = {
+      ...boundaryPoint,
+      resultId: "r2",
+      chartMs: Date.parse("2026-01-11T00:00:00Z"),
+    };
+    const lastPoint = {
+      ...boundaryPoint,
+      resultId: "r3",
+      chartMs: Date.parse("2026-01-21T00:00:00Z"),
+    };
+    const { container } = render(SeriesChart, {
+      props: { points: [boundaryPoint, middlePoint, lastPoint], onopen },
+    });
+    const plot = plotState.instance as { cursor: { left: number } };
+    plotState.xForPosition = (position) =>
+      position === 100 ? middlePoint.chartMs / 1000 : lastPoint.chartMs / 1000;
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    plot.cursor.left = 0;
+
+    plotState.cursorHook?.(plotState.instance);
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+
+    expect(onopen).toHaveBeenCalledWith("r2");
+    plotState.xForPosition = (position) => position;
+  });
+
+  it("clears a zoom window outside replacement data", async () => {
+    const laterPoint = {
+      ...boundaryPoint,
+      resultId: "r2",
+      chartMs: Date.parse("2026-01-11T00:00:00Z"),
+    };
+    const { rerender } = render(SeriesChart, {
+      props: { points: [boundaryPoint, laterPoint] },
+    });
+    plotState.xForPosition = (position) =>
+      position === 100 ? boundaryPoint.chartMs / 1000 : laterPoint.chartMs / 1000;
+    plotState.selectHook?.(plotState.instance);
+    await tick();
+    expect(screen.getByRole("button", { name: "Reset zoom" })).toBeInTheDocument();
+
+    await rerender({
+      points: [
+        { ...boundaryPoint, resultId: "r3", chartMs: Date.parse("2027-01-01T00:00:00Z") },
+        { ...boundaryPoint, resultId: "r4", chartMs: Date.parse("2027-01-11T00:00:00Z") },
+      ],
+    });
+    await tick();
+
+    expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
+    plotState.xForPosition = (position) => position;
   });
 });

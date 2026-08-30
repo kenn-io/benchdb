@@ -52,6 +52,20 @@
   --c-warn-text: #92400e;
   --shadow-hairline: 0 1px 0 rgba(16, 24, 40, 0.03);
   --shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.05);
+  /* Kit UI components inherit BenchDB's theme instead of introducing a
+     second palette. */
+  --bg-surface: var(--c-surface);
+  --bg-surface-hover: var(--c-surface-hover);
+  --bg-inset: var(--c-bg-inset);
+  --border-default: var(--c-border);
+  --border-muted: var(--c-border-muted);
+  --text-primary: var(--c-text);
+  --text-secondary: var(--c-text-muted);
+  --text-muted: var(--c-text-faint);
+  --accent-blue: var(--c-accent);
+  --accent-blue-foreground: var(--c-on-accent);
+  --focus-ring: 2px solid var(--c-accent);
+  --shadow-lg: var(--shadow-panel);
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--c-text);

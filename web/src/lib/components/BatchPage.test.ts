@@ -30,6 +30,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     hash: "abcdef123456",
     repository: "https://github.com/apache/arrow",
     timestamp: "2026-01-02T00:00:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,
@@ -71,10 +72,12 @@ describe("BatchPage", () => {
     expect(screen.getAllByText("query_id TPCH-09").length).toBeGreaterThan(0);
     expect(screen.getAllByText("format parquet").length).toBeGreaterThan(0);
     expect(screen.getByText("result r3")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /trend for tpch result r3/i })).toHaveAttribute(
+    expect(screen.queryByRole("link", { name: /trend for tpch result r3/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /trend for tpch result r2/i })).toHaveAttribute(
       "href",
-      "/series/fp-r3",
+      "/benchmarks/history/r2",
     );
+    expect(screen.getByText("No history")).toBeInTheDocument();
   });
 
   it("loads more results, appends them, and preserves the first page context", async () => {
@@ -88,6 +91,7 @@ describe("BatchPage", () => {
               hash: "999999991111",
               repository: "https://github.com/example/other",
               timestamp: "2026-01-03T00:00:00Z",
+              is_default_branch: true,
             },
           }),
         ],

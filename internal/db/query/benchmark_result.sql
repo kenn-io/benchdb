@@ -51,6 +51,7 @@ SELECT
   br.unit, br.time_unit, br.iterations, br.error, br.data, br.times,
   br.mean, br.min, br.max, br.median, br.q1, br.q3, br.stdev, br.iqr,
   br.validation, br.optional_benchmark_info, br.change_annotations,
+  cs.id AS case_id,
   cs.name AS case_name,
   cs.tags AS case_tags,
   ctx.tags AS context_tags,
@@ -63,7 +64,8 @@ SELECT
   c.sha AS commit_sha,
   c.repository AS commit_repository,
   c.message AS commit_message,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
@@ -98,7 +100,8 @@ SELECT
   c.author_name AS commit_author_name,
   c.author_login AS commit_author_login,
   c.author_avatar AS commit_author_avatar,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 LEFT JOIN commit c ON c.id = br.commit_id

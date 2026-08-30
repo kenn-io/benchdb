@@ -13,6 +13,7 @@ const QUERY = { baseline: "b1", contender: "c1", threshold: null, thresholdZ: nu
 
 const detail = (id: string) => ({
   id,
+  benchmark_id: "benchmark-1",
   batch_id: null,
   run_id: `run-${id}`,
   run_reason: "commit",
@@ -52,15 +53,13 @@ const compareBody = (lookback: unknown, pairwise: unknown) => ({
 });
 
 const seriesListItem = (overrides: Record<string, unknown> = {}) => ({
-  history_fingerprint: "fp-shared",
+  benchmark_id: "benchmark-1",
   name: "demo-benchmark",
   tags: { name: "demo-benchmark", dataset: "uniform" },
-  context: { compiler: "gcc-13" },
-  hardware: { id: "h1", type: "machine", name: "demo-runner", hash: "hw1" },
+  machine_names: ["demo-runner"],
   latest_single_value_summary: 1.45,
   unit: "s",
   point_count: 2,
-  sparkline: [1, 1.45],
   status: "stable",
   latest_commit_sha: "sha-c1abcdef",
   latest_commit_timestamp: "2024-01-06T00:00:00Z",
@@ -188,11 +187,27 @@ describe("ComparePage", () => {
 
   it("searches a benchmark and compares its latest two commits in one click", async () => {
     GET.mockImplementation(async (url: string) => {
-      if (url === "/api/series") {
-        return { data: { series: [seriesListItem()], next_page_cursor: null } };
+      if (url === "/api/benchmarks") {
+        return { data: { benchmarks: [seriesListItem()], next_page_cursor: null } };
       }
-      if (url === "/api/history") {
-        return { data: { samples: PICKER_SAMPLES } };
+      if (url === "/api/benchmarks/{benchmark_id}") {
+        return { data: {
+          benchmark_id: "benchmark-1",
+          name: "demo-benchmark",
+          tags: { name: "demo-benchmark", dataset: "uniform" },
+          repository: "https://github.com/benchdb/demo",
+          unit: "s",
+          less_is_better: true,
+          tracks: [{
+            machine_name: "demo-runner",
+            segments: [{
+              history_fingerprint: "fp-shared",
+              context: {},
+              hardware: { id: "h1", type: "machine", name: "demo-runner", hash: "hw1" },
+              samples: PICKER_SAMPLES,
+            }],
+          }],
+        } };
       }
       throw new Error(`unexpected ${url}`);
     });
@@ -258,7 +273,7 @@ describe("ComparePage", () => {
     expect(screen.getByText("sha-c1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view full trend/i })).toHaveAttribute(
       "href",
-      "/series/fp1",
+      "/benchmarks/history/b1",
     );
     expect(document.querySelector(".chart-stub")).not.toBeNull();
   });

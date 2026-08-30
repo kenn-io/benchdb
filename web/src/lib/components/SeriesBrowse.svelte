@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { SearchInput } from "@kenn-io/kit-ui/search-input";
+  import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
+  import { Toggle } from "@kenn-io/kit-ui/toggle";
+  import { onDestroy } from "svelte";
+
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
   import { sortRows, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
   import { formatBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
+  import BrowseTrendCard from "./BrowseTrendCard.svelte";
 
   let {
     query,
@@ -26,15 +32,18 @@
   let errorMsg = $state<string | null>(null);
   let moreErrorMsg = $state<string | null>(null);
   let sort = $state<SortSpec | null>(null);
-  let machineFilter = $state("");
+  let searchFilter = $state("");
   let repositoryFilter = $state("");
   let exactFiltersOpen = $state(false);
+  let chartView = $state(false);
+  let zeroBased = $state(true);
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   // Monotonic token: a stale response (filters changed mid-flight) must not
   // overwrite a newer page.
   let reqToken = 0;
 
   $effect(() => {
-    machineFilter = query.hardware;
+    searchFilter = query.q;
     repositoryFilter = query.repository;
     void load(query);
   });
@@ -96,10 +105,23 @@
     });
   }
 
-  function submitMachineFilter(e: SubmitEvent) {
-    e.preventDefault();
-    setFilter({ hardware: machineFilter.trim() });
+  function updateSearch(value: string) {
+    searchFilter = value;
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const q = value.trim();
+      if (q !== query.q) setFilter({ q });
+    }, 250);
   }
+
+  function clearSearch() {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    if (query.q !== "") setFilter({ q: "" });
+  }
+
+  onDestroy(() => {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+  });
 
   function toggleSort(key: SortKey) {
     if (sort?.key !== key) {
@@ -112,7 +134,7 @@
   }
 
   function open(row: BrowseRow) {
-    navigate(`/series/${row.fingerprint}`);
+    navigate(`/benchmarks/${row.benchmarkId}`);
   }
 
   function go(e: MouseEvent, href: string) {
@@ -122,6 +144,14 @@
   }
 
   let visible = $derived(sortRows(rows, sort));
+  let machineOptions = $derived.by((): SelectDropdownOption[] => {
+    const names = new Set(rows.flatMap((row) => row.machineNames));
+    if (query.hardware !== "") names.add(query.hardware);
+    return [
+      { value: "", label: "All machines" },
+      ...[...names].sort().map((name) => ({ value: name, label: name })),
+    ];
+  });
   const windowLabel: Record<BrowseWindow, string> = {
     all: "all time",
     "30d": "last 30 days",
@@ -133,6 +163,10 @@
     { value: "30d", label: "Last 30 days" },
     { value: "3mo", label: "Last 3 months" },
     { value: "1y", label: "Last year" },
+  ];
+  const yAxisOptions: SelectDropdownOption[] = [
+    { value: "zero", label: "Zero baseline" },
+    { value: "observed", label: "Observed range" },
   ];
   let activeFilters = $derived([
     ...(query.q !== ""
@@ -161,101 +195,6 @@
   let loadedSummary = $derived(
     `Showing ${visible.length} loaded ${visible.length === 1 ? "series" : "series"}`,
   );
-  let familySummary = $derived(query.q.trim() === "" || visible.length === 0 ? null : summarizeFamily(visible));
-
-  interface FamilyCase {
-    key: string;
-    name: string;
-    paramsText: string;
-    seriesCount: number;
-    hardwareCount: number;
-    contextCount: number;
-    pointCount: number;
-    latestMs: number;
-    latestDateText: string;
-    sampleFingerprint: string;
-  }
-
-  interface FamilySummary {
-    caseCount: number;
-    hardwareCount: number;
-    contextCount: number;
-    regressedCount: number;
-    improvedCount: number;
-    totalPoints: number;
-    cases: FamilyCase[];
-    triageRows: BrowseRow[];
-  }
-
-  function summarizeFamily(sourceRows: BrowseRow[]): FamilySummary {
-    const hardware = new Set<string>();
-    const context = new Set<string>();
-    const cases = new Map<string, FamilyCase>();
-    let regressedCount = 0;
-    let improvedCount = 0;
-    let totalPoints = 0;
-
-    for (const row of sourceRows) {
-      hardware.add(row.hardwareKey);
-      context.add(row.contextText || "default");
-      totalPoints += row.pointCount;
-      if (row.status === "regressed") regressedCount += 1;
-      if (row.status === "improved") improvedCount += 1;
-
-      const key = `${row.name}\u0000${row.paramsText}`;
-      const existing = cases.get(key);
-      if (existing === undefined) {
-        cases.set(key, {
-          key,
-          name: row.name,
-          paramsText: row.paramsText || "default case",
-          seriesCount: 1,
-          hardwareCount: 1,
-          contextCount: 1,
-          pointCount: row.pointCount,
-          latestMs: row.commitTimestampMs,
-          latestDateText: row.commitDateText,
-          sampleFingerprint: row.fingerprint,
-        });
-        continue;
-      }
-      existing.seriesCount += 1;
-      existing.pointCount += row.pointCount;
-      if (row.commitTimestampMs > existing.latestMs) {
-        existing.latestMs = row.commitTimestampMs;
-        existing.latestDateText = row.commitDateText;
-        existing.sampleFingerprint = row.fingerprint;
-      }
-    }
-
-    const caseHardware = new Map<string, Set<string>>();
-    const caseContext = new Map<string, Set<string>>();
-    for (const row of sourceRows) {
-      const key = `${row.name}\u0000${row.paramsText}`;
-      if (!caseHardware.has(key)) caseHardware.set(key, new Set());
-      if (!caseContext.has(key)) caseContext.set(key, new Set());
-      caseHardware.get(key)?.add(row.hardwareKey);
-      caseContext.get(key)?.add(row.contextText || "default");
-    }
-    for (const c of cases.values()) {
-      c.hardwareCount = caseHardware.get(c.key)?.size ?? 0;
-      c.contextCount = caseContext.get(c.key)?.size ?? 0;
-    }
-
-    return {
-      caseCount: cases.size,
-      hardwareCount: hardware.size,
-      contextCount: context.size,
-      regressedCount,
-      improvedCount,
-      totalPoints,
-      cases: [...cases.values()].sort((a, b) => b.seriesCount - a.seriesCount || b.latestMs - a.latestMs).slice(0, 8),
-      triageRows: sourceRows
-        .filter((row) => row.status === "regressed" || row.status === "improved")
-        .sort((a, b) => b.commitTimestampMs - a.commitTimestampMs)
-        .slice(0, 8),
-    };
-  }
 </script>
 
 <main class="page series-page">
@@ -267,14 +206,36 @@
         Scan benchmark families, current status, recent history, and default-branch coverage.
       </p>
     </div>
-    <div class="page-meta">
-      <span>{loadedSummary}</span>
-      {#if nextCursor !== null}<span>More available</span>{/if}
+    <div class="header-actions">
+      <div class="page-meta">
+        <span>{loadedSummary}</span>
+        {#if nextCursor !== null}<span>More available</span>{/if}
+      </div>
+      <a class="button-pill secondary" href="/results" onclick={(e) => go(e, "/results")}>Result explorer</a>
     </div>
   </header>
 
   <div class="panel browse-filters">
     <div class="primary-filters">
+      <div class="benchmark-search">
+        <SearchInput
+          bind:value={searchFilter}
+          placeholder="Search benchmarks…"
+          ariaLabel="Search benchmarks"
+          oninput={updateSearch}
+          onclear={clearSearch}
+          block
+        />
+      </div>
+      <label class="filter-label machine-select">
+        Machine
+        <SelectDropdown
+          value={query.hardware}
+          options={machineOptions}
+          title="Machine"
+          onchange={(hardware) => setFilter({ hardware })}
+        />
+      </label>
       <div class="filter-row" role="group" aria-label="Series time window">
         <span class="filter-row-label">Window</span>
         <div class="segmented-control">
@@ -290,13 +251,18 @@
           {/each}
         </div>
       </div>
-      <form class="machine-filter-form" onsubmit={submitMachineFilter}>
-        <label class="filter-label">
-          Machine
-          <input type="text" bind:value={machineFilter} placeholder="benchmark-host-a" autocomplete="off" />
+      <Toggle checked={chartView} label="Trend charts" onchange={(checked) => (chartView = checked)} />
+      {#if chartView}
+        <label class="filter-label machine-select">
+          Y-axis
+          <SelectDropdown
+            value={zeroBased ? "zero" : "observed"}
+            options={yAxisOptions}
+            title="Y-axis"
+            onchange={(value) => (zeroBased = value === "zero")}
+          />
         </label>
-        <button type="submit" class="button-pill">Apply</button>
-      </form>
+      {/if}
     </div>
     {#if activeFilters.length > 0}
       <button type="button" class="button-pill secondary" onclick={() => navigate("/series")}>Clear filters</button>
@@ -346,75 +312,6 @@
     </div>
   {/if}
 
-  {#if familySummary !== null}
-    <section class="panel family-drilldown" aria-label="Loaded benchmark family drilldown">
-      <header>
-        <div>
-          <p class="eyebrow">Family Drilldown</p>
-          <h2>{query.q}</h2>
-        </div>
-        <span>{loadedSummary}</span>
-      </header>
-      <div class="family-metrics" aria-label="Loaded family summary">
-        <div>
-          <strong>{familySummary.caseCount.toLocaleString()}</strong>
-          <span>case variants</span>
-        </div>
-        <div>
-          <strong>{familySummary.hardwareCount.toLocaleString()}</strong>
-          <span>machines</span>
-        </div>
-        <div>
-          <strong>{familySummary.contextCount.toLocaleString()}</strong>
-          <span>environments</span>
-        </div>
-        <div>
-          <strong>{familySummary.totalPoints.toLocaleString()}</strong>
-          <span>history points</span>
-        </div>
-        <div>
-          <strong>{familySummary.regressedCount.toLocaleString()}</strong>
-          <span>regressed</span>
-        </div>
-        <div>
-          <strong>{familySummary.improvedCount.toLocaleString()}</strong>
-          <span>improved</span>
-        </div>
-      </div>
-      <div class="family-sections">
-        <section aria-label="Loaded case variants">
-          <h3>Case variants</h3>
-          <div class="case-list">
-            {#each familySummary.cases as c (c.key)}
-              <a href={`/series/${c.sampleFingerprint}`} onclick={(e) => go(e, `/series/${c.sampleFingerprint}`)}>
-                <strong>{c.paramsText}</strong>
-                <span>{c.seriesCount.toLocaleString()} series · {c.hardwareCount.toLocaleString()} machines · {c.contextCount.toLocaleString()} environments · {c.pointCount.toLocaleString()} points</span>
-                <span>latest {c.latestDateText}</span>
-              </a>
-            {/each}
-          </div>
-        </section>
-        <section aria-label="Loaded trend triage">
-          <h3>Trend triage</h3>
-          {#if familySummary.triageRows.length === 0}
-            <p class="muted">No loaded regressed or improved series.</p>
-          {:else}
-            <div class="triage-list">
-              {#each familySummary.triageRows as row (row.fingerprint)}
-                <a class={`triage-row ${row.status}`} href={`/series/${row.fingerprint}`} onclick={(e) => go(e, `/series/${row.fingerprint}`)}>
-                  <span>{row.status}</span>
-                  <strong>{row.name}</strong>
-                  <span>{row.paramsText || "default case"}</span>
-                  <span>{row.hardwareName} · {row.svsText}</span>
-                </a>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      </div>
-    </section>
-  {/if}
-
   {#if errorMsg}
     <section class="panel state-panel error-panel" role="alert">
       <h2>Failed to load series</h2>
@@ -431,7 +328,15 @@
       <p>Clear active filters or use the global search to open a benchmark family.</p>
     </section>
   {:else}
-    <BrowseTable rows={visible} {sort} onsort={toggleSort} onopen={open} />
+    {#if chartView}
+      <section class="trend-grid" aria-label="Benchmark trend cards">
+        {#each visible as row (row.benchmarkId)}
+          <BrowseTrendCard {row} {zeroBased} onopen={open} />
+        {/each}
+      </section>
+    {:else}
+      <BrowseTable rows={visible} {sort} onsort={toggleSort} onopen={open} />
+    {/if}
     {#if sort !== null}
       <p class="scope-note">Sorting applies to loaded rows. Load more for a broader local sort.</p>
     {/if}
@@ -453,6 +358,14 @@
   .series-page {
     gap: 12px;
   }
+  .header-actions {
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+  }
+  @media (max-width: 760px) {
+    .header-actions { justify-items: start; }
+  }
   .browse-filters {
     display: flex;
     align-items: center;
@@ -461,22 +374,20 @@
     padding: 10px 12px;
   }
 
-  .primary-filters,
-  .machine-filter-form {
+  .primary-filters {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 10px;
   }
 
-  .machine-filter-form input {
-    min-height: 30px;
-    width: 160px;
-    padding: 0 9px;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    color: var(--c-text);
+  .benchmark-search { width: min(320px, 100%); }
+  .machine-select { min-width: 180px; }
+  .machine-select :global(.kit-select-dropdown__trigger) { width: 100%; }
+  .trend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    gap: 10px;
   }
 
   .filter-row {
@@ -547,96 +458,6 @@
     color: var(--c-error);
   }
 
-  .muted { color: var(--c-text-muted); margin: 0; }
-  .family-drilldown {
-    display: grid;
-    gap: 10px;
-    padding: 12px;
-  }
-  .family-drilldown header {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: start;
-  }
-  .family-drilldown h2 {
-    margin: 0;
-    font-size: 1.05rem;
-  }
-  .family-drilldown header > span {
-    color: var(--c-text-muted);
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-  .family-metrics {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 8px;
-  }
-  .family-metrics div {
-    display: grid;
-    gap: 2px;
-    padding: 8px;
-    border: 1px solid var(--c-border-muted);
-    border-radius: var(--radius-sm);
-    background: var(--c-bg-inset);
-  }
-  .family-metrics strong {
-    font-size: 1rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .family-metrics span {
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-  }
-  .family-sections {
-    display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-    gap: 12px;
-  }
-  .family-sections h3 {
-    margin: 0 0 6px;
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .case-list, .triage-list {
-    display: grid;
-    gap: 6px;
-  }
-  .case-list a, .triage-row {
-    display: grid;
-    gap: 3px;
-    min-width: 0;
-    padding: 8px;
-    border: 1px solid var(--c-border-muted);
-    border-radius: var(--radius-sm);
-    color: var(--c-text-muted);
-    text-decoration: none;
-  }
-  .case-list a:hover, .triage-row:hover {
-    border-color: var(--c-accent);
-  }
-  .case-list strong, .triage-row strong {
-    min-width: 0;
-    color: var(--c-text);
-    overflow-wrap: anywhere;
-  }
-  .case-list span, .triage-row span {
-    overflow-wrap: anywhere;
-    font-size: 0.76rem;
-  }
-  .triage-row {
-    border-left: 4px solid var(--c-success);
-  }
-  .triage-row.regressed {
-    border-left-color: var(--c-error);
-  }
-  .triage-row > span:first-child {
-    color: var(--c-accent);
-    font-weight: 700;
-  }
   .scope-note {
     color: var(--c-text-muted);
     font-size: 0.78rem;
@@ -647,18 +468,6 @@
     margin-top: 0.25rem;
   }
   @media (max-width: 760px) {
-    .family-drilldown header {
-      flex-direction: column;
-    }
-    .family-drilldown header > span {
-      white-space: normal;
-    }
-    .family-metrics {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .family-sections {
-      grid-template-columns: 1fr;
-    }
     .browse-filters {
       align-items: stretch;
       flex-direction: column;

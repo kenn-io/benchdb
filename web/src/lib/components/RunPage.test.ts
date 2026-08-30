@@ -29,6 +29,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     author_login: "contributor-a",
     author_avatar: "https://avatars.githubusercontent.com/u/12345?v=4",
     timestamp: "2026-01-02T00:00:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,
@@ -77,9 +78,10 @@ describe("RunPage", () => {
       "href",
       "/results/r2",
     );
-    expect(screen.getByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toHaveAttribute(
+    expect(screen.queryByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open series trend for AceroAggregate result r1" })).toHaveAttribute(
       "href",
-      "/series/fp-r2",
+      "/benchmarks/history/r1",
     );
   });
 

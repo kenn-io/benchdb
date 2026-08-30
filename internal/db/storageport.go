@@ -309,6 +309,7 @@ func resultDetailFromRow(r GetBenchmarkResultDetailRow) storage.ResultDetailRow 
 		Validation:            r.Validation,
 		OptionalBenchmarkInfo: r.OptionalBenchmarkInfo,
 		ChangeAnnotations:     r.ChangeAnnotations,
+		CaseID:                r.CaseID,
 		CaseName:              r.CaseName,
 		CaseTags:              r.CaseTags,
 		ContextTags:           r.ContextTags,
@@ -322,7 +323,29 @@ func resultDetailFromRow(r GetBenchmarkResultDetailRow) storage.ResultDetailRow 
 		CommitRepository:      r.CommitRepository,
 		CommitMessage:         r.CommitMessage,
 		CommitTimestamp:       r.CommitTimestamp,
+		CommitIsDefaultBranch: r.CommitIsDefaultBranch,
 	}
+}
+
+func benchmarkHistoryRowsFromRows(rows []SelectHistoryForBenchmarkRow) []storage.BenchmarkHistoryRow {
+	out := make([]storage.BenchmarkHistoryRow, len(rows))
+	for i, r := range rows {
+		out[i] = storage.BenchmarkHistoryRow{
+			HistoryRow: storage.HistoryRow{
+				ID: r.ID, HistoryFingerprint: r.HistoryFingerprint, Timestamp: r.Timestamp,
+				Unit: r.Unit, Mean: r.Mean, Data: denseFloats(r.Data), RunTags: r.RunTags,
+				InfoTags: r.InfoTags, ChangeAnnotations: r.ChangeAnnotations,
+				HardwareHash: r.HardwareHash, CommitSha: r.CommitSha,
+				CommitRepository: r.CommitRepository, CommitMessage: r.CommitMessage,
+				CommitTimestamp: r.CommitTimestamp,
+			},
+			BenchmarkID: r.BenchmarkID, CaseName: r.CaseName, CaseTags: r.CaseTags,
+			ContextTags: r.ContextTags, HardwareID: r.HardwareID,
+			HardwareType: r.HardwareType, HardwareName: r.HardwareName,
+			Repository: r.CommitRepoUrl,
+		}
+	}
+	return out
 }
 
 func historyRowsFromRows(rows []SelectHistoryForFingerprintRow) []storage.HistoryRow {
@@ -399,6 +422,7 @@ func seriesMembersRowsFromRows(rows []SelectSeriesMembersRow) []storage.HistoryR
 			Data:               r.Data,
 			ChangeAnnotations:  r.ChangeAnnotations,
 			HardwareHash:       r.HardwareHash,
+			HardwareName:       r.HardwareName,
 			CommitSha:          r.CommitSha,
 			CommitRepository:   r.CommitRepository,
 			CommitMessage:      r.CommitMessage,
@@ -412,25 +436,26 @@ func resultListRowsFromRows(rows []SelectBenchmarkResultsRow) []storage.ResultLi
 	out := make([]storage.ResultListRow, len(rows))
 	for i, r := range rows {
 		out[i] = storage.ResultListRow{
-			ID:                 r.ID,
-			RunID:              r.RunID,
-			RunReason:          r.RunReason,
-			RunTags:            r.RunTags,
-			BatchID:            r.BatchID,
-			Timestamp:          r.Timestamp,
-			Unit:               r.Unit,
-			Data:               r.Data,
-			Error:              r.Error,
-			HistoryFingerprint: r.HistoryFingerprint,
-			CaseName:           r.CaseName,
-			CaseTags:           r.CaseTags,
-			CommitSha:          r.CommitSha,
-			CommitRepository:   r.CommitRepository,
-			CommitMessage:      r.CommitMessage,
-			CommitAuthorName:   r.CommitAuthorName,
-			CommitAuthorLogin:  r.CommitAuthorLogin,
-			CommitAuthorAvatar: r.CommitAuthorAvatar,
-			CommitTimestamp:    r.CommitTimestamp,
+			ID:                    r.ID,
+			RunID:                 r.RunID,
+			RunReason:             r.RunReason,
+			RunTags:               r.RunTags,
+			BatchID:               r.BatchID,
+			Timestamp:             r.Timestamp,
+			Unit:                  r.Unit,
+			Data:                  r.Data,
+			Error:                 r.Error,
+			HistoryFingerprint:    r.HistoryFingerprint,
+			CaseName:              r.CaseName,
+			CaseTags:              r.CaseTags,
+			CommitSha:             r.CommitSha,
+			CommitRepository:      r.CommitRepository,
+			CommitMessage:         r.CommitMessage,
+			CommitAuthorName:      r.CommitAuthorName,
+			CommitAuthorLogin:     r.CommitAuthorLogin,
+			CommitAuthorAvatar:    r.CommitAuthorAvatar,
+			CommitTimestamp:       r.CommitTimestamp,
+			CommitIsDefaultBranch: r.CommitIsDefaultBranch,
 		}
 	}
 	return out

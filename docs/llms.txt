@@ -31,6 +31,7 @@ as raw Markdown at `/docs/<page>.md`.
 - [CLI reference](https://benchdb.kenn.io/docs/cli-reference.md): Supported command groups and option contracts
 - [Authentication and tokens](https://benchdb.kenn.io/docs/auth-and-tokens.md): OIDC users, reporter tokens, and token handling
 - [Operations](https://benchdb.kenn.io/docs/operations.md): Runtime configuration, containers, migrations, health, and deployment
+- [Upgrading](https://benchdb.kenn.io/docs/upgrading.md): Rebuild private experimental databases on the current baseline and preserve released migration history
 - [Production clone compatibility](https://benchdb.kenn.io/docs/prod-clone-compatibility.md): Compatibility constraints for cloned production data
 - [Storage roadmap](https://benchdb.kenn.io/docs/storage-roadmap.md): Current storage boundaries and planned direction
 - [Contributing](https://benchdb.kenn.io/docs/contributing.md): Local development and repository checks

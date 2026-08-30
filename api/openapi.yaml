@@ -173,6 +173,221 @@ components:
         - created_at
         - updated_at
       type: object
+    BenchmarkHistory:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/BenchmarkHistory.json
+          format: uri
+          readOnly: true
+          type: string
+        benchmark_id:
+          type: string
+        less_is_better:
+          type:
+            - boolean
+            - "null"
+        name:
+          type: string
+        repository:
+          type: string
+        tags:
+          additionalProperties: {}
+          type: object
+        tracks:
+          items:
+            $ref: "#/components/schemas/BenchmarkTrack"
+          type:
+            - array
+            - "null"
+        unit:
+          type:
+            - string
+            - "null"
+      required:
+        - benchmark_id
+        - name
+        - tags
+        - repository
+        - unit
+        - less_is_better
+        - tracks
+      type: object
+    BenchmarkListItem:
+      additionalProperties: false
+      properties:
+        benchmark_id:
+          type: string
+        latest_commit_sha:
+          type: string
+        latest_commit_timestamp:
+          format: date-time
+          type: string
+        latest_result_id:
+          type: string
+        latest_result_timestamp:
+          format: date-time
+          type: string
+        latest_single_value_summary:
+          format: double
+          type:
+            - number
+            - "null"
+        latest_single_value_summary_type:
+          type:
+            - string
+            - "null"
+        less_is_better:
+          type:
+            - boolean
+            - "null"
+        machine_names:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        name:
+          type: string
+        point_count:
+          format: int64
+          type: integer
+        preview_tracks:
+          items:
+            $ref: "#/components/schemas/BenchmarkPreviewTrack"
+          type:
+            - array
+            - "null"
+        repository:
+          type: string
+        status:
+          enum:
+            - regressed
+            - improved
+            - stable
+            - insufficient
+          type: string
+        tags:
+          additionalProperties: {}
+          type: object
+        unit:
+          type:
+            - string
+            - "null"
+      required:
+        - benchmark_id
+        - name
+        - tags
+        - repository
+        - unit
+        - less_is_better
+        - status
+        - latest_result_id
+        - latest_single_value_summary
+        - latest_single_value_summary_type
+        - machine_names
+        - latest_commit_sha
+        - latest_commit_timestamp
+        - latest_result_timestamp
+        - point_count
+        - preview_tracks
+      type: object
+    BenchmarkPage:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/BenchmarkPage.json
+          format: uri
+          readOnly: true
+          type: string
+        benchmarks:
+          items:
+            $ref: "#/components/schemas/BenchmarkListItem"
+          type:
+            - array
+            - "null"
+        next_page_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - benchmarks
+        - next_page_cursor
+      type: object
+    BenchmarkPreviewPoint:
+      additionalProperties: false
+      properties:
+        commit_timestamp:
+          format: date-time
+          type: string
+        unit:
+          type:
+            - string
+            - "null"
+        value:
+          format: double
+          type: number
+      required:
+        - commit_timestamp
+        - value
+        - unit
+      type: object
+    BenchmarkPreviewTrack:
+      additionalProperties: false
+      properties:
+        machine_name:
+          type: string
+        points:
+          items:
+            $ref: "#/components/schemas/BenchmarkPreviewPoint"
+          type:
+            - array
+            - "null"
+      required:
+        - machine_name
+        - points
+      type: object
+    BenchmarkSegment:
+      additionalProperties: false
+      properties:
+        context:
+          additionalProperties: {}
+          type: object
+        hardware:
+          $ref: "#/components/schemas/Hardware"
+        history_fingerprint:
+          type: string
+        samples:
+          items:
+            $ref: "#/components/schemas/HistorySample"
+          type:
+            - array
+            - "null"
+      required:
+        - history_fingerprint
+        - context
+        - hardware
+        - samples
+      type: object
+    BenchmarkTrack:
+      additionalProperties: false
+      properties:
+        machine_name:
+          type: string
+        segments:
+          items:
+            $ref: "#/components/schemas/BenchmarkSegment"
+          type:
+            - array
+            - "null"
+      required:
+        - machine_name
+        - segments
+      type: object
     CIReport:
       additionalProperties: false
       properties:
@@ -627,6 +842,8 @@ components:
       properties:
         id:
           type: string
+        is_default_branch:
+          type: boolean
         message:
           type: string
         repository:
@@ -644,6 +861,7 @@ components:
         - repository
         - message
         - timestamp
+        - is_default_branch
       type:
         - object
         - "null"
@@ -1002,6 +1220,8 @@ components:
           type: string
         hash:
           type: string
+        is_default_branch:
+          type: boolean
         message:
           type: string
         repository:
@@ -1019,6 +1239,7 @@ components:
         - author_login
         - author_avatar
         - timestamp
+        - is_default_branch
       type:
         - object
         - "null"
@@ -1319,6 +1540,8 @@ components:
           type:
             - string
             - "null"
+        benchmark_id:
+          type: string
         change_annotations:
           additionalProperties: {}
           type: object
@@ -1414,6 +1637,7 @@ components:
             - "null"
       required:
         - id
+        - benchmark_id
         - run_id
         - run_tags
         - run_reason
@@ -2380,6 +2604,107 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Update a benchmark result's change_annotations
+  /api/benchmarks:
+    get:
+      operationId: list-benchmarks
+      parameters:
+        - description: Substring match on benchmark name and tags.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Substring match on benchmark name and tags.
+            type: string
+        - description: Only benchmarks with results from this machine name.
+          explode: false
+          in: query
+          name: hardware
+          schema:
+            description: Only benchmarks with results from this machine name.
+            type: string
+        - description: Filter by repository URL.
+          explode: false
+          in: query
+          name: repository
+          schema:
+            description: Filter by repository URL.
+            type: string
+        - description: Filter by stable benchmark identifier.
+          explode: false
+          in: query
+          name: benchmark_id
+          schema:
+            description: Filter by stable benchmark identifier.
+            type: string
+        - description: Latest commit at or after this instant, RFC3339.
+          explode: false
+          in: query
+          name: active_since
+          schema:
+            description: Latest commit at or after this instant, RFC3339.
+            type: string
+        - description: Latest commit at or before this instant, RFC3339.
+          explode: false
+          in: query
+          name: active_until
+          schema:
+            description: Latest commit at or before this instant, RFC3339.
+            type: string
+        - description: Pagination cursor from a previous page.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Pagination cursor from a previous page.
+            type: string
+        - description: Page size (max 1000).
+          explode: false
+          in: query
+          name: page_size
+          schema:
+            default: 100
+            description: Page size (max 1000).
+            format: int64
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkPage"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List logical benchmarks across the fleet
+  /api/benchmarks/{benchmark_id}:
+    get:
+      operationId: get-benchmark-history
+      parameters:
+        - description: Stable benchmark identifier.
+          in: path
+          name: benchmark_id
+          required: true
+          schema:
+            description: Stable benchmark identifier.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkHistory"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get all machine tracks for a logical benchmark
   /api/ci/report:
     get:
       operationId: get-ci-report

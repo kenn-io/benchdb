@@ -3,8 +3,11 @@ import { resolveResultTarget } from "./targets";
 
 const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
 
-interface SeriesIdentity {
-  series: { name: string; less_is_better: boolean | null }[] | null;
+interface ResultIdentity {
+  benchmark_id: string;
+  history_fingerprint: string;
+  tags: Record<string, unknown>;
+  less_is_better: boolean | null;
 }
 
 test("trend deep link renders overlays and controls and opens a result", async ({
@@ -13,61 +16,74 @@ test("trend deep link renders overlays and controls and opens a result", async (
 }) => {
   const target = await resolveResultTarget(request, baseURL);
 
-  // Resolve the seeded series' fingerprint from the result's history payload.
-  const api = await request.get(`${baseURL}/api/history/${target.resultId}`);
+  // Resolve the logical benchmark identity from the result itself. The legacy
+  // /api/series response is fingerprint-local and does not carry benchmark_id.
+  const api = await request.get(`${baseURL}/api/benchmark-results/${target.resultId}`);
   expect(api.status()).toBe(200);
-  const fp = ((await api.json()) as { history_fingerprint: string }).history_fingerprint;
-  const seriesAPI = await request.get(`${baseURL}/api/series?fingerprint=${fp}&page_size=1`);
-  expect(seriesAPI.status()).toBe(200);
-  const series = ((await seriesAPI.json()) as SeriesIdentity).series?.[0];
-  expect(series, "series identity must be available").toBeDefined();
+  const series = (await api.json()) as ResultIdentity;
+  const name = typeof series.tags.name === "string" ? series.tags.name : "(unnamed)";
 
-  await page.goto(`${baseURL}/series/${fp}?range=all`);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
-  // Identity header from /api/series?fingerprint=, including orientation.
-  await expect(page.getByRole("heading", { name: series!.name })).toBeVisible();
-  if (series!.less_is_better !== null) {
-    await expect(page.getByText(series!.less_is_better ? /lower is better/ : /higher is better/)).toBeVisible();
+  // Existing fingerprint bookmarks retain their original single-segment view.
+  await page.goto(`${baseURL}/series/${series.history_fingerprint}?range=all`);
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+
+  // Logical benchmark links use the fleet-wide trend route.
+  await page.goto(`${baseURL}/benchmarks/${series.benchmark_id}?range=all`);
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  if (series.less_is_better !== null) {
+    await expect(page.getByText(series.less_is_better ? /lower is better/ : /higher is better/)).toBeVisible();
   }
 
-  const canvas = page.locator(".chart-wrap canvas");
+  const canvas = page.locator('.fleet-chart canvas, .chart-wrap canvas').first();
   const box = await canvas.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width * 0.15, box!.y + box!.height * 0.45);
   const tip = page.locator(".tip");
   await expect(tip).toBeVisible();
   const hoverPoint = page.locator(".hover-point");
-  await expect(hoverPoint).toBeVisible();
-  const leftPoint = await hoverPoint.boundingBox();
-  expect(leftPoint).not.toBeNull();
+  const leftPoint = (await hoverPoint.count()) > 0 ? await hoverPoint.boundingBox() : null;
   const leftText = await tip.innerText();
   await page.mouse.move(box!.x + box!.width * 0.85, box!.y + box!.height * 0.45);
   await expect.poll(async () => await tip.innerText()).not.toBe(leftText);
-  // Require the marker to still exist and to have actually moved: a vanished
-  // marker (null box) must not be read as "moved away from the original x".
-  await expect
-    .poll(async () => {
-      const moved = await hoverPoint.boundingBox();
-      return moved !== null && moved.x !== leftPoint!.x;
-    })
-    .toBe(true);
+  if (leftPoint !== null) {
+    // The single-machine chart renders a separate hover marker. Fleet charts
+    // encode the selected point directly in uPlot and prove movement through
+    // the tooltip text above.
+    await expect
+      .poll(async () => {
+        const moved = await hoverPoint.boundingBox();
+        return moved !== null && moved.x !== leftPoint.x;
+      })
+      .toBe(true);
+  }
 
   // Controls re-render the chart and write the URL.
+  const rangeTrigger = page.getByRole("button", { name: "All time" });
+  await rangeTrigger.click();
+  const rangePanel = page.getByRole("dialog", { name: "Select date range" });
+  await expect(rangePanel).toBeVisible();
+  const triggerBox = await rangeTrigger.boundingBox();
+  const panelBox = await rangePanel.boundingBox();
+  expect(triggerBox).not.toBeNull();
+  expect(panelBox).not.toBeNull();
+  expect(Math.abs(panelBox!.x - triggerBox!.x)).toBeLessThanOrEqual(8);
+  expect(panelBox!.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height);
+  expect(panelBox!.y - (triggerBox!.y + triggerBox!.height)).toBeLessThanOrEqual(8);
+  await page.getByRole("button", { name: "30d" }).click();
+  await expect(page).toHaveURL(/range=30d/);
   await page.getByLabel(/band/i).selectOption("5");
   await expect(page).toHaveURL(/sigma=5/);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
-  await page.getByLabel(/x-axis/i).selectOption("time");
-  await expect(page).toHaveURL(/axis=time/);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
-
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   // A commit link in the table opens the light result detail.
   await page.locator("table.detail tbody tr a").first().click();
   await expect(page).toHaveURL(/\/results\//);
-  await expect(page.getByRole("heading", { name: series!.name })).toBeVisible();
-  await expect(page.getByRole("link", { name: /view trend/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
 
   // Deep-link reload survives (SPA fallback) with controls intact.
-  await page.goto(`${baseURL}/series/${fp}?range=all&axis=time&sigma=3`);
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await page.goto(`${baseURL}/benchmarks/${series.benchmark_id}?range=all&sigma=3`);
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   await expect(page.getByLabel(/band/i)).toHaveValue("3");
 });

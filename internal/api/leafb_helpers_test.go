@@ -48,6 +48,7 @@ type seedOpts struct {
 	batchID   string         // optional; omitted when empty
 	name      string         // case name (the "name" tag); defaults to "bench"
 	tags      map[string]any // extra case tags merged with name; defaults to {"source":"test"}
+	context   map[string]any // context tags; defaults to validBody's fixed context
 	machine   string         // hardware name; defaults to "m1"
 	repo      string         // repository url; defaults to the org/repo remote
 }
@@ -75,6 +76,9 @@ func seedResult(t *testing.T, tapi humatest.TestAPI, o seedOpts) string {
 	}
 	body := validBody()
 	body["tags"] = caseTags(o)
+	if o.context != nil {
+		body["context"] = o.context
+	}
 	if o.machine != "" {
 		machine, ok := body["machine_info"].(map[string]any)
 		require.True(t, ok, "machine_info must be a map")

@@ -2,9 +2,18 @@
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
-  import { loadResult, resultViewModelFromDetail, type ResultViewModel } from "../result/loader";
+  import { formatMeasurement } from "../format";
+  import {
+    loadResult,
+    loadResultHistory,
+    resultViewModelFromDetail,
+    type ResultViewModel,
+  } from "../result/loader";
   import { interceptNavClick, navigate } from "../router";
+  import { flagsText, type SeriesPoint } from "../series/transform";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
+  import MeasurementValue from "./MeasurementValue.svelte";
+  import SeriesChart from "./SeriesChart.svelte";
 
   let {
     resultId,
@@ -17,6 +26,9 @@
   const client = $derived(createBenchDBClient(baseUrl));
 
   let vm = $state<ResultViewModel | null>(null);
+  let historyPoints = $state<SeriesPoint[]>([]);
+  let historyLoaded = $state(false);
+  let historyError = $state<string | null>(null);
   let errorMsg = $state<string | null>(null);
   let actionMsg = $state<string | null>(null);
   let actionError = $state<string | null>(null);
@@ -26,12 +38,38 @@
 
   onMount(async () => {
     void loadWriteCapability();
-    try {
-      vm = await loadResult(client, resultId);
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+    const [resultOutcome, historyOutcome] = await Promise.allSettled([
+      loadResult(client, resultId),
+      loadResultHistory(client, resultId),
+    ]);
+    if (resultOutcome.status === "rejected") {
+      errorMsg = resultOutcome.reason instanceof Error
+        ? resultOutcome.reason.message
+        : String(resultOutcome.reason);
+      return;
+    }
+    vm = resultOutcome.value;
+    historyLoaded = true;
+    if (historyOutcome.status === "fulfilled") {
+      historyPoints = historyOutcome.value;
+    } else {
+      historyError = historyOutcome.reason instanceof Error
+        ? historyOutcome.reason.message
+        : String(historyOutcome.reason);
     }
   });
+
+  let currentIndex = $derived(historyPoints.findIndex((point) => point.resultId === resultId));
+  let currentPoint = $derived(currentIndex < 0 ? null : (historyPoints[currentIndex] ?? null));
+  let previousPoint = $derived(currentIndex <= 0 ? null : (historyPoints[currentIndex - 1] ?? null));
+  let comparison = $derived(comparisonFrom(currentPoint, previousPoint, vm));
+  let historyUnits = $derived(
+    [...new Set(historyPoints.map((point) => point.unit ?? "unit not set"))],
+  );
+  let historyUnitConsistent = $derived(historyUnits.length <= 1);
+  let historyAvailable = $derived(
+    historyLoaded && historyError === null && historyPoints.length > 0,
+  );
 
   async function loadWriteCapability() {
     try {
@@ -61,11 +99,23 @@
         return;
       }
       vm = resultViewModelFromDetail(res.data);
+      await refreshHistory();
       actionMsg = "annotation updated";
     } catch (err) {
       actionError = err instanceof Error ? err.message : String(err);
     } finally {
       busyAction = null;
+    }
+  }
+
+  async function refreshHistory() {
+    try {
+      historyPoints = await loadResultHistory(client, resultId);
+      historyError = null;
+    } catch (err) {
+      historyError = err instanceof Error ? err.message : String(err);
+    } finally {
+      historyLoaded = true;
     }
   }
 
@@ -105,6 +155,49 @@
     e.preventDefault();
     navigate(href);
   }
+
+  function openHistoryResult(historyResultId: string) {
+    if (historyResultId !== resultId) {
+      navigate(`/results/${historyResultId}`);
+    }
+  }
+
+  function comparisonFrom(
+    current: SeriesPoint | null,
+    previous: SeriesPoint | null,
+    result: ResultViewModel | null,
+  ): { headline: string; detail: string; tone: "good" | "bad" | "neutral" } {
+    if (current === null) {
+      return {
+        headline: "Not in default-branch history",
+        detail: "This result is not part of the comparable series history.",
+        tone: "neutral",
+      };
+    }
+    if (previous === null) {
+      return {
+        headline: "First recorded point",
+        detail: "There is no earlier result in this series to compare.",
+        tone: "neutral",
+      };
+    }
+    const delta = current.svs - previous.svs;
+    const percent = previous.svs === 0 ? null : (delta / Math.abs(previous.svs)) * 100;
+    const direction = delta === 0 ? "unchanged" : delta > 0 ? "higher" : "lower";
+    let verdict = direction;
+    let tone: "good" | "bad" | "neutral" = "neutral";
+    if (delta !== 0 && result?.lessIsBetter !== null && result?.lessIsBetter !== undefined) {
+      const better = result.lessIsBetter ? delta < 0 : delta > 0;
+      verdict = better ? "better" : "worse";
+      tone = better ? "good" : "bad";
+    }
+    const percentText = percent === null ? "" : `${Math.abs(percent).toFixed(1)}% `;
+    return {
+      headline: delta === 0 ? "Unchanged from previous" : `${percentText}${verdict} than previous`,
+      detail: `${formatMeasurement(current.svs, current.unit)} vs ${formatMeasurement(previous.svs, previous.unit)} at ${previous.commitHash.slice(0, 8)}`,
+      tone,
+    };
+  }
 </script>
 
 {#if errorMsg}
@@ -132,6 +225,7 @@
     </section>
   </main>
 {:else}
+  {@const seriesHref = `/benchmarks/${vm.benchmarkId}`}
   <main class="page result-page">
     <header class="page-header">
       <div>
@@ -143,22 +237,66 @@
       </div>
       <div class="header-actions">
         <div class="page-meta">
-          <span>SVS <span class="numeric-text">{vm.svsText}</span></span>
+          <span>result value <span class="numeric-text"><MeasurementValue value={vm.svs} unit={vm.unit} /></span></span>
           <span>machine {vm.hardwareName}</span>
-          <span title={vm.runId}>run {vm.displayRunId}</span>
+          {#if vm.commitSha !== null}<span title={vm.commitSha}>commit {vm.shortCommit}</span>{/if}
         </div>
         <div class="action-row">
-          <a
-            class="button-pill primary"
-            href={`/benchmarks/history/${resultId}`}
-            onclick={(e) => go(e, `/benchmarks/history/${resultId}`)}
-          >View trend</a>
+          {#if historyAvailable}
+            <a
+              class="button-pill"
+              href={seriesHref}
+              onclick={(e) => go(e, seriesHref)}
+            >Explore full series</a>
+          {/if}
           <a class="button-pill" href={vm.historyExportHref} download={`benchdb-history-${vm.id}.json`}>
             Export history JSON
           </a>
         </div>
       </div>
     </header>
+
+    <section class="panel trend-hero" aria-label="Result in series trend">
+      <div class="trend-heading">
+        <div>
+          <p class="eyebrow">Series trend</p>
+          <h2>This result in context</h2>
+        </div>
+        {#if historyUnitConsistent}
+          <div class={`comparison ${comparison.tone}`}>
+            <strong>{comparison.headline}</strong>
+            <span>{comparison.detail}</span>
+          </div>
+        {/if}
+      </div>
+      {#if historyError !== null}
+        <p class="error">Trend unavailable: {historyError}</p>
+      {:else if !historyLoaded}
+        <p class="empty-history">Loading series history…</p>
+      {:else if historyPoints.length === 0}
+        <p class="empty-history">No comparable default-branch history is available for this result.</p>
+      {:else if !historyUnitConsistent}
+        <div class="integrity" role="alert">
+          This history mixes units ({historyUnits.join(", ")}). Its values cannot be
+          compared or plotted together.
+        </div>
+      {:else}
+        <SeriesChart
+          points={historyPoints}
+          sigma={2}
+          height={320}
+          currentResultId={resultId}
+          onopen={openHistoryResult}
+        />
+        <div class="trend-foot">
+          <span>{historyPoints.length} {historyPoints.length === 1 ? "result" : "results"} in this series</span>
+          {#if currentPoint !== null}
+            <span>{currentPoint.commitHash.slice(0, 8)} · <MeasurementValue value={currentPoint.svs} unit={currentPoint.unit} /></span>
+            {#if flagsText(currentPoint.stats) !== ""}<span class="flag">{flagsText(currentPoint.stats)}</span>{/if}
+          {/if}
+        </div>
+      {/if}
+    </section>
 
     {#if canWrite}
       <section class="panel action-panel" aria-label="Result actions">
@@ -192,11 +330,13 @@
       </section>
     {/if}
 
-    <section class="panel result-section" aria-label="Result measurement">
-      <h2>Measurement</h2>
-      <dl class="compact-dl">
-        <dt>SVS ({vm.svsType})</dt>
-        <dd class="numeric-text">{vm.svsText}</dd>
+    <section class="panel result-section measurement-section" aria-label="Result measurement">
+      <div class="measurement-primary">
+        <span class="eyebrow">{vm.svsType}</span>
+        <strong class="numeric-text">{vm.svsText}</strong>
+        <span>{vm.lessIsBetter === null ? "Direction not set" : vm.lessIsBetter ? "Lower is better" : "Higher is better"}</span>
+      </div>
+      <dl class="compact-dl measurement-details">
         {#if vm.iterations !== null}
           <dt>iterations</dt>
           <dd class="numeric-text">{vm.iterations}</dd>
@@ -205,8 +345,6 @@
           <dt>{agg.label}</dt>
           <dd class="numeric-text">{agg.value}</dd>
         {/each}
-        <dt>less is better</dt>
-        <dd>{vm.lessIsBetterText}</dd>
         <dt>time unit</dt>
         <dd>{vm.timeUnitText}</dd>
         <dt>raw data</dt>
@@ -278,30 +416,37 @@
       </div>
     </section>
 
-    <section class="result-metadata" aria-label="Technical details">
-      <div class="technical-heading">
-        <h2>Technical details</h2>
-        <p>Environment, identifiers, and submitted payloads are available for diagnosis.</p>
-      </div>
-      <div class="json-grid">
-        <EnvironmentDetails context={vm.context} />
-        <details class="json-panel">
-          <summary>Identifiers</summary>
-          <dl class="compact-dl identifier-list">
-            <dt>machine identity</dt>
-            <dd class="mono" title={vm.hardwareHash}>{vm.displayHardwareHash}</dd>
-            <dt>series</dt>
-            <dd class="mono" title={vm.fingerprint}>{vm.displayFingerprint}</dd>
-          </dl>
-        </details>
-        {#each vm.jsonBlocks as block (block.label)}
+    <details class="panel technical-disclosure" aria-label="Technical details">
+      <summary>
+        <span>
+          <strong>Technical details</strong>
+          <small>Environment, identifiers, and submitted payloads</small>
+        </span>
+        <span class="disclosure-hint">Show</span>
+      </summary>
+      <div class="technical-body">
+        <div class="json-grid">
+          <EnvironmentDetails context={vm.context} />
           <details class="json-panel">
-            <summary>{block.label}</summary>
-            <pre>{block.value}</pre>
+            <summary>Identifiers</summary>
+            <dl class="compact-dl identifier-list">
+              <dt>machine identity</dt>
+              <dd class="mono" title={vm.hardwareHash}>{vm.displayHardwareHash}</dd>
+              <dt>series</dt>
+              <dd class="mono" title={vm.fingerprint}>{vm.displayFingerprint}</dd>
+              <dt>benchmark</dt>
+              <dd class="mono" title={vm.benchmarkId}>{vm.displayBenchmarkId}</dd>
+            </dl>
           </details>
-        {/each}
+          {#each vm.jsonBlocks as block (block.label)}
+            <details class="json-panel">
+              <summary>{block.label}</summary>
+              <pre>{block.value}</pre>
+            </details>
+          {/each}
+        </div>
       </div>
-    </section>
+    </details>
 </main>
 {/if}
 
@@ -320,26 +465,94 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  .trend-hero {
+    padding: 12px;
+  }
+  .trend-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 10px;
+  }
+  .trend-heading h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .comparison {
+    display: grid;
+    justify-items: end;
+    gap: 1px;
+    max-width: 520px;
+    text-align: right;
+    color: var(--c-text-muted);
+    font-size: 0.76rem;
+  }
+  .comparison strong {
+    color: var(--c-text);
+    font-size: 0.9rem;
+  }
+  .comparison.good strong { color: var(--c-success); }
+  .comparison.bad strong { color: var(--c-error); }
+  .trend-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--c-text-muted);
+    font-size: 0.76rem;
+  }
+  .trend-foot span + span::before {
+    content: "·";
+    margin-right: 8px;
+    color: var(--c-border);
+  }
+  .trend-foot .flag {
+    color: var(--c-warning);
+    font-weight: 700;
+  }
+  .empty-history {
+    min-height: 280px;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    color: var(--c-text-muted);
+  }
+  .integrity {
+    padding: 9px 11px;
+    border: 1px solid var(--c-warning);
+    border-radius: var(--radius-sm);
+    background: var(--c-warn-bg);
+    color: var(--c-warn-text);
+    font-size: 0.82rem;
+  }
   .action-panel,
   .result-section {
     padding: 12px;
   }
   .action-panel h2,
-  .result-section h2,
-  .result-metadata h2 {
+  .result-section h2 {
     margin: 0 0 8px;
     font-size: 0.95rem;
   }
-  .technical-heading {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8px;
+  .measurement-section {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.45fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
   }
-  .technical-heading p {
-    margin: 0 0 8px;
+  .measurement-primary {
+    display: grid;
+    align-content: start;
+    gap: 3px;
+  }
+  .measurement-primary strong {
+    font-size: clamp(1.65rem, 4vw, 2.5rem);
+    line-height: 1.08;
+  }
+  .measurement-primary > span:last-child {
     color: var(--c-text-muted);
-    font-size: 0.78rem;
+    font-size: 0.76rem;
   }
   .identifier-list {
     padding: 10px;
@@ -357,11 +570,45 @@
     font-size: 0.85rem;
     margin: 0;
   }
+  .measurement-details {
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+    column-gap: 1rem;
+  }
   dt { color: var(--c-text-muted); }
   dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .ok { color: var(--c-success); }
-  .result-metadata {
+  .technical-disclosure {
     min-width: 0;
+  }
+  .technical-disclosure > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0;
+    padding: 11px 12px;
+    border: 0;
+    list-style: none;
+  }
+  .technical-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .technical-disclosure > summary > span:first-child {
+    display: grid;
+    gap: 1px;
+  }
+  .technical-disclosure small {
+    color: var(--c-text-muted);
+    font-weight: 400;
+  }
+  .technical-disclosure[open] .disclosure-hint::after {
+    content: " less";
+  }
+  .technical-disclosure:not([open]) .disclosure-hint::after {
+    content: " details";
+  }
+  .technical-body {
+    padding: 0 12px 12px;
   }
   .json-grid {
     min-width: 0;
@@ -400,11 +647,22 @@
     .header-actions {
       justify-items: stretch;
     }
+    .trend-heading {
+      display: grid;
+    }
+    .comparison {
+      justify-items: start;
+      text-align: left;
+    }
+    .measurement-section,
     .result-facts,
     .json-grid { grid-template-columns: 1fr; }
     .compact-dl {
       grid-template-columns: minmax(6.5rem, 9rem) minmax(0, 1fr);
       column-gap: 0.75rem;
+    }
+    .measurement-details {
+      grid-template-columns: minmax(6.5rem, 9rem) minmax(0, 1fr);
     }
   }
 </style>

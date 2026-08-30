@@ -82,7 +82,7 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 	detail := getAPI[service.ResultDetail](t, handler, "/api/benchmark-results/"+url.PathEscape(targets.LatestResultID))
 	assert.Equal(t, targets.LatestResultID, detail.ID)
 	assert.Equal(t, targets.Fingerprint, detail.HistoryFingerprint)
-	assert.Equal(t, "demo-benchmark", detail.Tags["name"])
+	assert.Equal(t, "ingest-events-10m", detail.Tags["name"])
 
 	recent := getAPI[service.RecentRunsPage](t, handler, "/api/runs/recent?page_size=25")
 	assertRunPresent(t, recent.Runs, targets.RecentRunID, targets.RecentBatchID)
@@ -95,7 +95,7 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 	history := getAPI[service.HistorySeries](t, handler, "/api/history?fingerprint="+url.QueryEscape(targets.Fingerprint))
 	require.Len(t, history.Samples, seed.IncludedHistoryPoints)
 	assert.Equal(t, targets.BaselineResultID, history.Samples[0].BenchmarkResultID)
-	assert.Equal(t, targets.ContenderResultID, history.Samples[len(history.Samples)-1].BenchmarkResultID)
+	assert.Equal(t, targets.LatestResultID, history.Samples[len(history.Samples)-1].BenchmarkResultID)
 
 	compareQuery := url.Values{
 		"baseline_result_id":  {targets.BaselineResultID},

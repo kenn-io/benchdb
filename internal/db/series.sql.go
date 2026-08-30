@@ -10,6 +10,254 @@ import (
 	"time"
 )
 
+const selectBenchmarkPage = `-- name: SelectBenchmarkPage :many
+WITH recent_commit_seed AS MATERIALIZED (
+  SELECT c.id, c.sha AS commit_sha, c."timestamp" AS commit_timestamp
+  FROM commit c
+  WHERE c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+    AND ($3::timestamp IS NULL OR c."timestamp" < $3::timestamp)
+    AND EXISTS (
+      SELECT 1
+      FROM benchmark_result br
+      JOIN "case" cs ON cs.id = br.case_id
+      JOIN hardware hw ON hw.id = br.hardware_id
+      WHERE br.commit_id = c.id
+        AND br.error IS NULL
+        AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+        AND ($5::text IS NULL OR hw.name = $5)
+        AND ($6::text IS NULL OR br.commit_repo_url = $6)
+        AND ($7::text IS NULL OR br.benchmark_id = $7)
+    )
+  ORDER BY c."timestamp" DESC, c.id DESC
+  LIMIT $8::integer
+),
+recent_commit_boundary AS (
+  SELECT min(commit_timestamp) AS min_commit_timestamp
+  FROM recent_commit_seed
+),
+recent_commit AS MATERIALIZED (
+  SELECT c.id, c.sha AS commit_sha, c."timestamp" AS commit_timestamp
+  FROM commit c
+  WHERE c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+    AND (
+      ($3::timestamp IS NOT NULL AND c."timestamp" = $3::timestamp)
+      OR (
+        ($3::timestamp IS NULL OR c."timestamp" < $3::timestamp)
+        AND (SELECT min_commit_timestamp FROM recent_commit_boundary) IS NOT NULL
+        AND c."timestamp" >= (SELECT min_commit_timestamp FROM recent_commit_boundary)
+      )
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM benchmark_result br
+      JOIN "case" cs ON cs.id = br.case_id
+      JOIN hardware hw ON hw.id = br.hardware_id
+      WHERE br.commit_id = c.id
+        AND br.error IS NULL
+        AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+        AND ($5::text IS NULL OR hw.name = $5)
+        AND ($6::text IS NULL OR br.commit_repo_url = $6)
+        AND ($7::text IS NULL OR br.benchmark_id = $7)
+    )
+),
+members AS MATERIALIZED (
+  SELECT
+    br.benchmark_id,
+    br.history_fingerprint,
+    br.id,
+    br."timestamp" AS result_timestamp,
+    br.unit,
+    br.data,
+    br.case_id,
+    br.hardware_id,
+    br.commit_repo_url,
+    rc.commit_sha,
+    rc.commit_timestamp
+  FROM recent_commit rc
+  JOIN benchmark_result br ON br.commit_id = rc.id
+  JOIN hardware hw ON hw.id = br.hardware_id
+  JOIN "case" cs ON cs.id = br.case_id
+  WHERE br.error IS NULL
+    AND ($4::text IS NULL OR cs.name ILIKE '%' || $4::text || '%' OR cs.tags::text ILIKE '%' || $4::text || '%')
+    AND ($5::text IS NULL OR hw.name = $5)
+    AND ($6::text IS NULL OR br.commit_repo_url = $6)
+    AND ($7::text IS NULL OR br.benchmark_id = $7)
+    AND (
+      $3::timestamp IS NULL
+      OR NOT EXISTS (
+        SELECT 1
+        FROM benchmark_result newer
+        JOIN commit newer_c ON newer_c.id = newer.commit_id
+        JOIN hardware newer_hw ON newer_hw.id = newer.hardware_id
+        WHERE newer.benchmark_id = br.benchmark_id
+          AND newer.error IS NULL
+          AND newer_c.sha = newer_c.fork_point_sha
+          AND newer_c."timestamp" IS NOT NULL
+          AND ($5::text IS NULL OR newer_hw.name = $5)
+          AND ($1::timestamp IS NULL OR newer_c."timestamp" >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR newer_c."timestamp" <= $2::timestamp)
+          AND (newer_c."timestamp", newer.benchmark_id)
+             >= ($3::timestamp, $9::text)
+      )
+    )
+),
+latest AS (
+  SELECT DISTINCT ON (benchmark_id)
+    benchmark_id,
+    history_fingerprint AS latest_history_fingerprint,
+    id AS latest_result_id,
+    result_timestamp AS latest_result_timestamp,
+    commit_sha AS latest_commit_sha,
+    commit_timestamp AS latest_commit_timestamp,
+    commit_repo_url,
+    unit AS latest_unit,
+    data AS latest_data,
+    case_id
+  FROM members
+  ORDER BY benchmark_id, commit_timestamp DESC, id DESC
+),
+page AS MATERIALIZED (
+  SELECT l.benchmark_id, l.latest_history_fingerprint, l.latest_result_id, l.latest_result_timestamp, l.latest_commit_sha, l.latest_commit_timestamp, l.commit_repo_url, l.latest_unit, l.latest_data, l.case_id
+  FROM latest l
+  WHERE $3::timestamp IS NULL
+     OR (l.latest_commit_timestamp, l.benchmark_id)
+        < ($3::timestamp, $9::text)
+  ORDER BY l.latest_commit_timestamp DESC, l.benchmark_id DESC
+  LIMIT $10
+),
+counts AS (
+  SELECT
+    br.benchmark_id,
+    count(*)::bigint AS point_count,
+    array_agg(DISTINCT coalesce(br.unit, '') ORDER BY coalesce(br.unit, ''))::text[] AS benchmark_units,
+    array_agg(DISTINCT br.history_fingerprint ORDER BY br.history_fingerprint)::text[] AS history_fingerprints,
+    array_agg(DISTINCT hw.name ORDER BY hw.name)::text[] AS machine_names
+  FROM page p
+  JOIN benchmark_result br ON br.benchmark_id = p.benchmark_id
+  JOIN commit c ON c.id = br.commit_id
+  JOIN hardware hw ON hw.id = br.hardware_id
+  WHERE br.error IS NULL
+    AND c.sha = c.fork_point_sha
+    AND c."timestamp" IS NOT NULL
+    AND ($5::text IS NULL OR hw.name = $5)
+    AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
+  GROUP BY br.benchmark_id
+)
+SELECT
+  p.benchmark_id,
+  p.latest_history_fingerprint,
+  p.latest_result_id,
+  p.latest_result_timestamp,
+  p.latest_commit_sha,
+  p.latest_commit_timestamp,
+  p.commit_repo_url,
+  p.latest_unit,
+  p.latest_data,
+  cnt.point_count,
+  cnt.benchmark_units,
+  cnt.history_fingerprints,
+  cnt.machine_names,
+  cs.name AS case_name,
+  cs.tags AS case_tags
+FROM page p
+JOIN counts cnt ON cnt.benchmark_id = p.benchmark_id
+JOIN "case" cs ON cs.id = p.case_id
+ORDER BY p.latest_commit_timestamp DESC, p.benchmark_id DESC
+`
+
+type SelectBenchmarkPageParams struct {
+	ActiveSince       *time.Time
+	ActiveUntil       *time.Time
+	CursorTs          *time.Time
+	Q                 *string
+	Hardware          *string
+	Repository        *string
+	BenchmarkID       *string
+	SearchCommitLimit int32
+	CursorID          *string
+	PageSize          int32
+}
+
+type SelectBenchmarkPageRow struct {
+	BenchmarkID              string
+	LatestHistoryFingerprint string
+	LatestResultID           string
+	LatestResultTimestamp    time.Time
+	LatestCommitSha          string
+	LatestCommitTimestamp    *time.Time
+	CommitRepoUrl            string
+	LatestUnit               *string
+	LatestData               []float64
+	PointCount               int64
+	BenchmarkUnits           []string
+	HistoryFingerprints      []string
+	MachineNames             []string
+	CaseName                 string
+	CaseTags                 []byte
+}
+
+// One row per logical benchmark (case + repository), independent of machine
+// and environment context. Fingerprints remain the directly-comparable
+// statistical segments beneath each benchmark. Discovery starts from a
+// bounded window of matching result-bearing commits; exact counts and fleet
+// metadata are computed only for the selected page. Substring discovery is
+// intentionally limited to this recent window. An exact benchmark_id remains
+// exhaustive for identity discovery because that filter is applied inside the
+// seed before ordering and limiting matching commits.
+func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPageParams) ([]SelectBenchmarkPageRow, error) {
+	rows, err := q.db.Query(ctx, selectBenchmarkPage,
+		arg.ActiveSince,
+		arg.ActiveUntil,
+		arg.CursorTs,
+		arg.Q,
+		arg.Hardware,
+		arg.Repository,
+		arg.BenchmarkID,
+		arg.SearchCommitLimit,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectBenchmarkPageRow{}
+	for rows.Next() {
+		var i SelectBenchmarkPageRow
+		if err := rows.Scan(
+			&i.BenchmarkID,
+			&i.LatestHistoryFingerprint,
+			&i.LatestResultID,
+			&i.LatestResultTimestamp,
+			&i.LatestCommitSha,
+			&i.LatestCommitTimestamp,
+			&i.CommitRepoUrl,
+			&i.LatestUnit,
+			&i.LatestData,
+			&i.PointCount,
+			&i.BenchmarkUnits,
+			&i.HistoryFingerprints,
+			&i.MachineNames,
+			&i.CaseName,
+			&i.CaseTags,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectSeriesCaseIDsForQ = `-- name: SelectSeriesCaseIDsForQ :many
 SELECT id
 FROM "case"
@@ -43,7 +291,7 @@ WITH requested(fingerprint) AS MATERIALIZED (
   SELECT unnest($1::text[])
 ),
 members AS MATERIALIZED (
-  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.hardware_hash, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp
+  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.hardware_hash, m.hardware_name, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp
   FROM requested req
   CROSS JOIN LATERAL (
     SELECT
@@ -55,6 +303,7 @@ members AS MATERIALIZED (
       br.data,
       br.change_annotations,
       hw.hash AS hardware_hash,
+      hw.name AS hardware_name,
       c.sha AS commit_sha,
       c.repository AS commit_repository,
       c.message AS commit_message,
@@ -71,8 +320,10 @@ members AS MATERIALIZED (
     JOIN commit c ON c.id = br.commit_id
     WHERE c.sha = c.fork_point_sha
       AND c."timestamp" IS NOT NULL
+      AND ($2::timestamp IS NULL OR c."timestamp" >= $2::timestamp)
+      AND ($3::timestamp IS NULL OR c."timestamp" <= $3::timestamp)
     ORDER BY c."timestamp" DESC, br.id DESC
-    LIMIT $2::integer
+    LIMIT $4::integer
   ) m
 )
 SELECT
@@ -84,6 +335,7 @@ SELECT
   data,
   change_annotations,
   hardware_hash,
+  hardware_name,
   commit_sha,
   commit_repository,
   commit_message,
@@ -94,6 +346,8 @@ ORDER BY history_fingerprint, commit_timestamp, id
 
 type SelectSeriesMembersParams struct {
 	Fingerprints        []string
+	ActiveSince         *time.Time
+	ActiveUntil         *time.Time
 	PerFingerprintLimit int32
 }
 
@@ -106,6 +360,7 @@ type SelectSeriesMembersRow struct {
 	Data               []float64
 	ChangeAnnotations  []byte
 	HardwareHash       string
+	HardwareName       string
 	CommitSha          string
 	CommitRepository   string
 	CommitMessage      string
@@ -118,7 +373,12 @@ type SelectSeriesMembersRow struct {
 // so high-cardinality production series cannot dominate page load time. Ordered
 // by fingerprint then commit time so the service can group in one pass.
 func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembersParams) ([]SelectSeriesMembersRow, error) {
-	rows, err := q.db.Query(ctx, selectSeriesMembers, arg.Fingerprints, arg.PerFingerprintLimit)
+	rows, err := q.db.Query(ctx, selectSeriesMembers,
+		arg.Fingerprints,
+		arg.ActiveSince,
+		arg.ActiveUntil,
+		arg.PerFingerprintLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +395,7 @@ func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembe
 			&i.Data,
 			&i.ChangeAnnotations,
 			&i.HardwareHash,
+			&i.HardwareName,
 			&i.CommitSha,
 			&i.CommitRepository,
 			&i.CommitMessage,

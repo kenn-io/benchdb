@@ -5,9 +5,10 @@ import {
   closestIndexForValue,
   indexForCursorOffset,
   indexForCursorValue,
-  paddedValueRange,
+  observedValueRange,
   tooltipLeftForCursor,
   tooltipTopForCursor,
+  zeroBasedValueRange,
 } from "./chart-geometry";
 
 describe("chart geometry", () => {
@@ -45,10 +46,25 @@ describe("chart geometry", () => {
     expect(closestIndexForSortedValueOffset(10, 100, [])).toBeNull();
   });
 
-  it("computes one padded numeric range for chart and overlay y scales", () => {
-    expect(paddedValueRange([10, 20], 0.1)).toEqual({ min: 9, max: 21 });
-    expect(paddedValueRange([5], 0.05)).toEqual({ min: 4.95, max: 5.05 });
-    expect(paddedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
+  it("starts non-negative chart and overlay ranges at zero", () => {
+    expect(zeroBasedValueRange([10, 20], 0.1)).toEqual({ min: 0, max: 22 });
+    expect(zeroBasedValueRange([5], 0.05)).toEqual({ min: 0, max: 5.25 });
+    expect(zeroBasedValueRange([-5, 10], 0.1)).toEqual({ min: 0, max: 11 });
+    expect(zeroBasedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
+  });
+
+  it("scales an observed range around its minimum and maximum", () => {
+    expect(observedValueRange([10, 20], 0.1)).toEqual({ min: 9, max: 21 });
+    expect(observedValueRange([5], 0.1)).toEqual({ min: 4.5, max: 5.5 });
+    expect(observedValueRange([0], 0.1)).toEqual({ min: 0, max: 1 });
+    expect(observedValueRange([Number.NaN, Number.POSITIVE_INFINITY])).toBeNull();
+  });
+
+  it("scales a large value history without spreading function arguments", () => {
+    const values = Array.from({ length: 200_000 }, (_, value) => value);
+
+    expect(zeroBasedValueRange(values, 0)).toEqual({ min: 0, max: 199_999 });
+    expect(observedValueRange(values, 0)).toEqual({ min: 0, max: 199_999 });
   });
 
   it("clamps tooltip left positions inside narrow chart bounds", () => {

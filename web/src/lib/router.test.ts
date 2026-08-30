@@ -108,19 +108,32 @@ describe("account route", () => {
 });
 
 describe("trend route", () => {
-  it("matches /series/:fingerprint with default controls", () => {
+  it("preserves /series/:fingerprint with default controls", () => {
     expect(matchRoute("/series/abc123")).toEqual({
       name: "trend",
       fingerprint: "abc123",
-      query: { axis: "commit", range: "3mo", sigma: 2 },
+      query: { range: { mode: "relative", days: 90 }, sigma: 2, yAxis: "zero" },
     });
   });
 
-  it("parses controls from the search string", () => {
-    expect(matchRoute("/series/abc123", "?axis=time&range=all&sigma=5")).toEqual({
-      name: "trend",
-      fingerprint: "abc123",
-      query: { axis: "time", range: "all", sigma: 5 },
+  it("matches /benchmarks/:benchmark with controls", () => {
+    expect(matchRoute("/benchmarks/abc123", "?range=all&sigma=5&y_axis=observed")).toEqual({
+      name: "benchmark-trend",
+      benchmarkId: "abc123",
+      query: { range: { mode: "relative", days: 0 }, sigma: 5, yAxis: "observed" },
+    });
+  });
+
+  it("parses calendar and custom ranges from shareable URLs", () => {
+    expect(parseTrendQuery("?range=week&date=2026-08-24").range).toEqual({
+      mode: "calendar",
+      unit: "week",
+      anchor: "2026-08-24",
+    });
+    expect(parseTrendQuery("?range=custom&from=2026-08-01&to=2026-08-28").range).toEqual({
+      mode: "custom",
+      from: "2026-08-01",
+      to: "2026-08-28",
     });
   });
 
@@ -133,23 +146,33 @@ describe("trend route", () => {
   });
 
   it("is total over junk control values", () => {
-    expect(parseTrendQuery("?axis=bogus&range=2026&sigma=4")).toEqual({
-      axis: "commit",
-      range: "3mo",
+    expect(parseTrendQuery("?range=2026&sigma=4")).toEqual({
+      range: { mode: "relative", days: 90 },
       sigma: 2,
+      yAxis: "zero",
+    });
+    expect(parseTrendQuery("?range=custom&from=2026-08-30&to=2026-08-01").range).toEqual({
+      mode: "relative",
+      days: 90,
     });
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatTrendQuery({ axis: "commit", range: "3mo", sigma: 2 })).toBe("");
-    expect(formatTrendQuery({ axis: "time", range: "all", sigma: 3 })).toBe(
-      "?axis=time&range=all&sigma=3",
+    expect(formatTrendQuery(DEFAULT_TREND_QUERY)).toBe("");
+    expect(formatTrendQuery({ range: { mode: "relative", days: 0 }, sigma: 3, yAxis: "observed" })).toBe(
+      "?range=all&sigma=3&y_axis=observed",
     );
   });
 
   it("round-trips parse(format(q))", () => {
-    const q = { axis: "time", range: "30d", sigma: 1 } as const;
-    expect(parseTrendQuery(formatTrendQuery(q))).toEqual(q);
+    const queries = [
+      { range: { mode: "relative", days: 30 }, sigma: 1, yAxis: "zero" },
+      { range: { mode: "calendar", unit: "month", anchor: "2026-08-10" }, sigma: 2, yAxis: "observed" },
+      { range: { mode: "custom", from: "2026-08-01", to: "2026-08-28" }, sigma: 5, yAxis: "zero" },
+    ] as const;
+    for (const query of queries) {
+      expect(parseTrendQuery(formatTrendQuery(query))).toEqual(query);
+    }
   });
 });
 

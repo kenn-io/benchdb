@@ -27,9 +27,9 @@ describe("TopBar", () => {
   it("exposes primary product navigation", () => {
     render(TopBar, { props: { routeName: "compare" } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
-    expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(within(nav).getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/");
     expect(within(nav).getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/series");
-    expect(within(nav).getByRole("link", { name: "Results" })).toHaveAttribute("href", "/results");
+    expect(within(nav).queryByRole("link", { name: "Results" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("href", "/compare");
     expect(within(nav).getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/ci/report");
     expect(within(nav).getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
@@ -74,6 +74,24 @@ describe("TopBar", () => {
     expect(activeLink).toHaveAttribute("href", "/series");
     expect(activeLink).toHaveTextContent("Benchmarks");
     expect(within(nav).queryByRole("link", { name: "Benchmarks", current: "page" })).not.toBeInTheDocument();
+  });
+
+  it("keeps individual results inside the Benchmarks navigation hierarchy", () => {
+    render(TopBar, { props: { routeName: "result" } });
+    const nav = screen.getByRole("navigation", { name: "Primary navigation" });
+    expect(within(nav).getByRole("link", { name: "Benchmarks", current: "location" })).toHaveAttribute(
+      "href",
+      "/series",
+    );
+  });
+
+  it("keeps run records inside the Runs navigation hierarchy", () => {
+    render(TopBar, { props: { routeName: "run" } });
+    const nav = screen.getByRole("navigation", { name: "Primary navigation" });
+    expect(within(nav).getByRole("link", { name: "Runs", current: "location" })).toHaveAttribute(
+      "href",
+      "/",
+    );
   });
 
   it("leaves modified brand clicks to the browser", async () => {

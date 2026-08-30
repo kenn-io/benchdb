@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
+import type { components } from "../api/schema";
 import { loadTrend } from "./loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
+type HistorySample = components["schemas"]["HistorySample"];
+type BenchmarkHistory = components["schemas"]["BenchmarkHistory"];
+type SeriesListItem = components["schemas"]["SeriesListItem"];
 
-const zsNull = null;
-
-const sample = (id: string, ts: string) => ({
+const sample = (id: string, ts: string): HistorySample => ({
   benchmark_result_id: id,
   commit_hash: `sha-${id}`,
   commit_message: "msg",
@@ -23,156 +25,220 @@ const sample = (id: string, ts: string) => ({
   run_tags: {},
   info: {},
   change_annotations: {},
-  zscorestats: zsNull,
+  zscorestats: null,
 });
 
-const detail = {
-  id: "r1",
-  tags: { name: "demo-benchmark", scale: "sf10" },
-  context: { compiler: "gcc" },
-  hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
-  commit_repo_url: "https://github.com/benchdb/demo",
-  unit: "s",
-  less_is_better: true,
-  history_fingerprint: "fp1",
-};
-
-const seriesItem = {
-  history_fingerprint: "fp1",
-  name: "demo-benchmark",
-  tags: { name: "demo-benchmark", scale: "sf10" },
-  context: { compiler: "gcc" },
-  hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
-  repository: "https://github.com/benchdb/demo",
-  unit: "s",
-  less_is_better: true,
-  status: "stable",
-  latest_result_id: "r2",
-  latest_single_value_summary: 1.1,
-  latest_single_value_summary_type: "min",
-  latest_commit_sha: "sha-r2",
-  latest_commit_timestamp: "2024-01-08T12:00:00Z",
-  latest_result_timestamp: "2024-01-08T12:00:00Z",
-  point_count: 2,
-  sparkline: [1.0, 1.1],
-};
-
-describe("loadTrend by result", () => {
-  it("loads identity from result detail and points from the result history", async () => {
-    const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") return { data: detail };
-      if (url === "/api/history/{benchmark_result_id}") {
-        return {
-          data: {
+function history(over: Partial<BenchmarkHistory> = {}): BenchmarkHistory {
+  return {
+    benchmark_id: "benchmark-1",
+    name: "demo-benchmark",
+    tags: { name: "demo-benchmark", scale: "sf10" },
+    repository: "https://github.com/benchdb/demo",
+    unit: "s",
+    less_is_better: true,
+    tracks: [
+      {
+        machine_name: "m5",
+        segments: [
+          {
             history_fingerprint: "fp1",
+            context: { compiler: "gcc" },
+            hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
             samples: [sample("r2", "2024-01-08T12:00:00Z"), sample("r1", "2024-01-07T12:00:00Z")],
           },
+        ],
+      },
+    ],
+    ...over,
+  };
+}
+
+function seriesItem(over: Partial<SeriesListItem> = {}): SeriesListItem {
+  return {
+    context: { compiler: "gcc" },
+    hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
+    history_fingerprint: "fp1",
+    latest_commit_sha: "sha-r2",
+    latest_commit_timestamp: "2024-01-08T12:00:00Z",
+    latest_result_id: "r2",
+    latest_result_timestamp: "2024-01-08T12:00:00Z",
+    latest_single_value_summary: 1.1,
+    latest_single_value_summary_type: "min",
+    less_is_better: true,
+    name: "demo-benchmark",
+    point_count: 2,
+    repository: "https://github.com/benchdb/demo",
+    sparkline: [1.1, 1.1],
+    status: "stable",
+    tags: { name: "demo-benchmark", scale: "sf10" },
+    unit: "s",
+    ...over,
+  };
+}
+
+describe("loadTrend", () => {
+  it("loads all machine tracks for a stable benchmark id", async () => {
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      throw new Error(`unexpected url ${url}`);
+    });
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "benchmark",
+      benchmarkId: "benchmark-1",
+    });
+    expect(vm.identity).toMatchObject({
+      benchmarkId: "benchmark-1",
+      benchmarkName: "demo-benchmark",
+      caseTags: { scale: "sf10" },
+      repositoryLabel: "benchdb/demo",
+      unit: "s",
+      lessIsBetter: true,
+    });
+    expect(vm.tracks).toHaveLength(1);
+    expect(vm.tracks[0]?.machineName).toBe("m5");
+    expect(vm.tracks[0]?.segments[0]?.points.map((point) => point.resultId)).toEqual(["r1", "r2"]);
+  });
+
+  it("loads an existing fingerprint URL as its original machine segment", async () => {
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/history") {
+        return {
+          data: { history_fingerprint: "fp1", samples: [sample("r2", "2024-01-08T12:00:00Z")] },
         };
+      }
+      if (url === "/api/series") {
+        return { data: { series: [seriesItem()], next_page_cursor: null } };
       }
       throw new Error(`unexpected url ${url}`);
     });
-    const vm = await loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" });
-    expect(vm.identity).toMatchObject({
-      benchmarkName: "demo-benchmark",
-      caseTags: { scale: "sf10" },
-      hardwareName: "m5",
-      unit: "s",
-      lessIsBetter: true,
+
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "fingerprint",
       fingerprint: "fp1",
     });
-    // ordered ascending by chart time
-    expect(vm.points.map((p) => p.resultId)).toEqual(["r1", "r2"]);
-    expect(vm.unitConsistent).toBe(true);
+
+    expect(vm.identity).toMatchObject({ benchmarkId: "fp1", benchmarkName: "demo-benchmark" });
+    expect(vm.tracks).toHaveLength(1);
+    expect(vm.tracks[0]).toMatchObject({ machineName: "m5" });
+    expect(vm.tracks[0]?.segments[0]?.fingerprint).toBe("fp1");
+    expect(vm.tracks[0]?.segments[0]?.points.map((point) => point.resultId)).toEqual(["r2"]);
   });
 
-  it("derives compact trend identity labels from result detail", async () => {
+  it("resolves a result to its benchmark before loading fleet history", async () => {
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") {
+        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
+      }
+      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      throw new Error(`unexpected url ${url}`);
+    });
+    const vm = await loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" });
+    expect(GET).toHaveBeenCalledTimes(2);
+    expect(vm.identity.benchmarkId).toBe("benchmark-1");
+  });
+
+  it("resolves an errored result to the benchmark's available history", async () => {
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/benchmark-results/{id}") {
         return {
           data: {
-            ...detail,
-            hardware: {
-              ...detail.hardware,
-              hash: "0123456789abcdef0123456789abcdef",
-            },
-            commit_repo_url: "https://github.com/apache/arrow",
-            history_fingerprint: "fff41571debd35f721110e6a7d99440a",
+            benchmark_id: "benchmark-1",
+            error: { message: "failed" },
+            commit: { sha: "abc123", is_default_branch: true },
           },
         };
       }
-      if (url === "/api/history/{benchmark_result_id}") {
-        return { data: { history_fingerprint: "fp1", samples: [] } };
+      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "result",
+      resultId: "errored-result",
+    });
+
+    expect(GET).toHaveBeenCalledTimes(2);
+    expect(vm.identity.benchmarkId).toBe("benchmark-1");
+  });
+
+  it("rejects a commitless result before requesting unavailable history", async () => {
+    const result = { benchmark_id: "benchmark-1", error: null, commit: null };
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") return { data: result };
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    await expect(
+      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" }),
+    ).rejects.toThrow(/no comparable default-branch history/i);
+    expect(GET).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an off-branch result before loading unrelated default-branch history", async () => {
+    const result = {
+      benchmark_id: "benchmark-1",
+      error: null,
+      commit: { sha: "pr-sha", is_default_branch: false },
+    };
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") return { data: result };
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    await expect(
+      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "pr-result" }),
+    ).rejects.toThrow(/no comparable default-branch history/i);
+    expect(GET).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an empty logical benchmark as unavailable history", async () => {
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") {
+        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
+      }
+      if (url === "/api/benchmarks/{benchmark_id}") {
+        return { error: { detail: "not found" }, response: { status: 404 } };
       }
       throw new Error(`unexpected url ${url}`);
     });
 
-    const vm = await loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" });
-
-    expect(vm.identity.displayFingerprint).toBe("fff41571debd…7d99440a");
-    expect(vm.identity.displayHardwareHash).toBe("0123456789ab…89abcdef");
-    expect(vm.identity.repositoryLabel).toBe("apache/arrow");
-  });
-
-  it("throws when the detail load fails", async () => {
-    const GET = vi.fn(async () => ({ error: { detail: "boom" } }));
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "rX" }),
-    ).rejects.toThrow("rX");
+      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" }),
+    ).rejects.toThrow(/no comparable default-branch history/i);
   });
-});
 
-describe("loadTrend by fingerprint", () => {
-  it("loads identity from the series row and points from the fingerprint history", async () => {
-    const GET = vi.fn(async (url: string, opts?: { params?: { query?: unknown } }) => {
-      if (url === "/api/history") {
-        expect(opts?.params?.query).toEqual({ fingerprint: "fp1" });
-        return {
-          data: { history_fingerprint: "fp1", samples: [sample("r1", "2024-01-07T12:00:00Z")] },
-        };
-      }
-      if (url === "/api/series") {
-        expect(opts?.params?.query).toEqual({ fingerprint: "fp1", page_size: 1 });
-        return { data: { series: [seriesItem], next_page_cursor: null } };
-      }
-      throw new Error(`unexpected url ${url}`);
+  it("keeps context epochs as segments under one machine", async () => {
+    const h = history();
+    h.tracks![0]!.segments!.push({
+      history_fingerprint: "fp2",
+      context: { compiler: "clang" },
+      hardware: { id: "h2", type: "machine", name: "m5", hash: "hw2" },
+      samples: [sample("r3", "2024-01-09T12:00:00Z")],
     });
+    const GET = vi.fn(async () => ({ data: h }));
     const vm = await loadTrend({ GET } as unknown as Client, {
-      kind: "fingerprint",
-      fingerprint: "fp1",
+      kind: "benchmark",
+      benchmarkId: "benchmark-1",
     });
-    expect(vm.identity).toMatchObject({
-      benchmarkName: "demo-benchmark",
-      caseTags: { scale: "sf10" },
-      lessIsBetter: true,
-      fingerprint: "fp1",
-    });
-    expect(vm.points).toHaveLength(1);
-    expect(vm.identity.displayFingerprint).toBe("fp1");
-    expect(vm.identity.displayHardwareHash).toBe("hw1");
-    expect(vm.identity.repositoryLabel).toBe("benchdb/demo");
+    expect(vm.tracks[0]?.segments.map((segment) => segment.fingerprint)).toEqual(["fp1", "fp2"]);
+    expect(
+      vm.tracks[0]?.segments.map((segment) => segment.points.map((point) => point.resultId)),
+    ).toEqual([["r1", "r2"], ["r3"]]);
   });
 
-  it("throws a not-found error for an unknown fingerprint", async () => {
-    const GET = vi.fn(async (url: string) =>
-      url === "/api/history"
-        ? { data: { history_fingerprint: "nope", samples: [] } }
-        : { data: { series: [], next_page_cursor: null } },
-    );
+  it("treats null tracks and samples as empty", async () => {
+    const GET = vi.fn(async () => ({ data: history({ tracks: null }) }));
+    const vm = await loadTrend({ GET } as unknown as Client, {
+      kind: "benchmark",
+      benchmarkId: "benchmark-1",
+    });
+    expect(vm.tracks).toEqual([]);
+  });
+
+  it("throws when a benchmark cannot be loaded", async () => {
+    const GET = vi.fn(async () => ({ error: { detail: "not found" } }));
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "fingerprint", fingerprint: "nope" }),
-    ).rejects.toThrow("not found");
-  });
-
-  it("treats null samples as an empty series", async () => {
-    const GET = vi.fn(async (url: string) =>
-      url === "/api/history"
-        ? { data: { history_fingerprint: "fp1", samples: null } }
-        : { data: { series: [seriesItem], next_page_cursor: null } },
-    );
-    const vm = await loadTrend({ GET } as unknown as Client, {
-      kind: "fingerprint",
-      fingerprint: "fp1",
-    });
-    expect(vm.points).toEqual([]);
+      loadTrend({ GET } as unknown as Client, { kind: "benchmark", benchmarkId: "missing" }),
+    ).rejects.toThrow("missing");
   });
 });

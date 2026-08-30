@@ -11,11 +11,11 @@ export interface BrowsePage {
 
 export const BROWSE_PAGE_SIZE = 25;
 
-function listSeriesError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to list series");
+function listBenchmarksError(res: { error?: { detail?: string } | undefined }): Error {
+  return new Error(res.error?.detail ?? "failed to list benchmarks");
 }
 
-/** listSeries fetches one page of GET /api/series for the browse table. Filters
+/** listSeries fetches one page of logical benchmarks for the browse table. Filters
  * map 1:1 onto the endpoint; the window preset becomes an absolute UTC
  * active_since at call time. Throws on any error so the page's error state owns
  * presentation. now is injectable for tests. */
@@ -26,7 +26,7 @@ export async function listSeries(
   now: Date = new Date(),
 ): Promise<BrowsePage> {
   const since = windowStartIso(query.window, now);
-  const res = await client.GET("/api/series", {
+  const res = await client.GET("/api/benchmarks", {
     params: {
       query: {
         page_size: BROWSE_PAGE_SIZE,
@@ -39,9 +39,9 @@ export async function listSeries(
     },
   });
   if (res.error || !res.data) {
-    throw listSeriesError(res);
+    throw listBenchmarksError(res);
   }
-  // The generated schema types `series` as nullable (a Go nil slice serializes
+  // The generated schema types `benchmarks` as nullable (a Go nil slice serializes
   // as JSON null); treat null as an empty page, matching the history loader.
-  return { rows: toBrowseRows(res.data.series ?? []), nextCursor: res.data.next_page_cursor };
+  return { rows: toBrowseRows(res.data.benchmarks ?? []), nextCursor: res.data.next_page_cursor };
 }

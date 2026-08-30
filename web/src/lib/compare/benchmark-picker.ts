@@ -1,5 +1,39 @@
-import { formatDate, formatSVS } from "../browse/transform";
+import { formatDate } from "../browse/transform";
+import { formatMeasurement } from "../format";
+import type { MachineTrack } from "../series/loader";
 import type { SeriesPoint } from "../series/transform";
+
+export interface ComparableTrack {
+  id: string;
+  machineName: string;
+  fingerprint: string;
+  unit: string | null;
+  points: SeriesPoint[];
+}
+
+/** comparableTracks keeps picker choices inside one machine, history
+ * fingerprint, and unit. The compare API owns the final comparability verdict;
+ * this grouping prevents the benchmark-first picker from manufacturing an
+ * obviously invalid cross-environment or cross-unit pair. */
+export function comparableTracks(tracks: MachineTrack[]): ComparableTrack[] {
+  return tracks.flatMap((track) =>
+    track.segments.flatMap((segment) => {
+      const byUnit = new Map<string | null, SeriesPoint[]>();
+      for (const point of segment.points) {
+        const group = byUnit.get(point.unit) ?? [];
+        group.push(point);
+        byUnit.set(point.unit, group);
+      }
+      return [...byUnit.entries()].map(([unit, points]) => ({
+        id: JSON.stringify([track.machineName, segment.fingerprint, unit]),
+        machineName: track.machineName,
+        fingerprint: segment.fingerprint,
+        unit,
+        points,
+      }));
+    }),
+  );
+}
 
 /** CommitChoice is one selectable row in the benchmark-first compare picker:
  * a single result within a chosen series, labeled by its commit so a human
@@ -29,7 +63,7 @@ export function toCommitChoices(
       shortCommit: p.commitHash === "" ? "—" : p.commitHash.slice(0, 7),
       commitMessage: p.commitMessage,
       dateText: p.commitTimestampMs === null ? "—" : formatDate(new Date(p.commitTimestampMs).toISOString(), locale),
-      svsText: `${formatSVS(p.svs)}${unit === null ? "" : ` ${unit}`}`,
+      svsText: formatMeasurement(p.svs, unit),
     }));
 }
 

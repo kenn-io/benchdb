@@ -46,6 +46,11 @@ const (
 	// commit window is selected. Keep the cap explicit so the browse query
 	// remains bounded on production-sized history tables.
 	seriesBrowseScopedCommitLimit = int32(512)
+	// Logical benchmark browse uses the same recent-commit discovery model but
+	// needs a wider cap because a commit can contain only one logical benchmark.
+	benchmarkBrowseRecentCommitMinLimit   = int32(320)
+	benchmarkBrowseRecentCommitMaxLimit   = int32(4096)
+	benchmarkBrowseRecentCommitPageFactor = int32(4)
 	// Browse/search row enrichment needs enough recent points for the 100-commit
 	// stats window and sparkline, but full histories remain on history endpoints.
 	seriesMembersTailLimit = int32(256)
@@ -721,6 +726,16 @@ func (s *Store) SelectHistoryForFingerprint(ctx context.Context, fingerprint str
 	return historyRowsFromRows(rows), nil
 }
 
+// SelectHistoryForBenchmark returns every default-branch history member for a
+// logical benchmark, retaining fingerprint boundaries and fleet metadata.
+func (s *Store) SelectHistoryForBenchmark(ctx context.Context, benchmarkID string) ([]storage.BenchmarkHistoryRow, error) {
+	rows, err := s.q.SelectHistoryForBenchmark(ctx, benchmarkID)
+	if err != nil {
+		return nil, err
+	}
+	return benchmarkHistoryRowsFromRows(rows), nil
+}
+
 // SelectHistoryForFingerprintAsOf returns the baseline-distribution window: the
 // membership series restricted to commits at or before asOf.
 func (s *Store) SelectHistoryForFingerprintAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
@@ -868,6 +883,52 @@ func (s *Store) SelectSeriesPage(ctx context.Context, p storage.SeriesListParams
 	return seriesPageRowsFromRows(rows), nil
 }
 
+// SelectBenchmarkPage returns one row per logical benchmark across machines
+// and environment contexts.
+func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkListParams) ([]storage.BenchmarkPageRow, error) {
+	rows, err := s.q.SelectBenchmarkPage(ctx, SelectBenchmarkPageParams{
+		Q: p.Q, Hardware: p.Hardware, Repository: p.Repository,
+		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince,
+		ActiveUntil: p.ActiveUntil, CursorTs: p.CursorTs,
+		CursorID: p.CursorID, PageSize: p.PageSize,
+		SearchCommitLimit: benchmarkBrowseRecentCommitLimit(p),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]storage.BenchmarkPageRow, 0, len(rows))
+	for _, row := range rows {
+		if row.LatestCommitTimestamp == nil {
+			return nil, fmt.Errorf("benchmark %s latest commit timestamp is null", row.BenchmarkID)
+		}
+		out = append(out, storage.BenchmarkPageRow{
+			BenchmarkID:              row.BenchmarkID,
+			LatestHistoryFingerprint: row.LatestHistoryFingerprint,
+			LatestResultID:           row.LatestResultID,
+			LatestResultTimestamp:    row.LatestResultTimestamp,
+			LatestCommitSha:          row.LatestCommitSha,
+			LatestCommitTimestamp:    *row.LatestCommitTimestamp,
+			CommitRepoURL:            row.CommitRepoUrl,
+			LatestUnit:               row.LatestUnit,
+			LatestData:               row.LatestData,
+			PointCount:               row.PointCount,
+			BenchmarkUnits:           row.BenchmarkUnits,
+			HistoryFingerprints:      row.HistoryFingerprints,
+			MachineNames:             row.MachineNames,
+			CaseName:                 row.CaseName,
+			CaseTags:                 row.CaseTags,
+		})
+	}
+	return out, nil
+}
+
+func benchmarkBrowseRecentCommitLimit(p storage.BenchmarkListParams) int32 {
+	return min(
+		max(p.PageSize*benchmarkBrowseRecentCommitPageFactor, benchmarkBrowseRecentCommitMinLimit),
+		benchmarkBrowseRecentCommitMaxLimit,
+	)
+}
+
 func seriesQNeedsCompleteSearch(p storage.SeriesListParams) bool {
 	return p.Hardware != nil || p.Repository != nil || p.ActiveSince != nil || p.ActiveUntil != nil
 }
@@ -978,9 +1039,11 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string, revokedAt time.Ti
 // fingerprint, grouped by fingerprint and ordered oldest commit first within
 // each returned tail. Full history remains available through
 // SelectHistoryForFingerprint.
-func (s *Store) SelectSeriesMembers(ctx context.Context, fingerprints []string) ([]storage.HistoryRow, error) {
+func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) ([]storage.HistoryRow, error) {
 	rows, err := s.q.SelectSeriesMembers(ctx, SelectSeriesMembersParams{
-		Fingerprints:        fingerprints,
+		Fingerprints:        p.Fingerprints,
+		ActiveSince:         p.ActiveSince,
+		ActiveUntil:         p.ActiveUntil,
 		PerFingerprintLimit: seriesMembersTailLimit,
 	})
 	if err != nil {

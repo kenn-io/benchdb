@@ -87,7 +87,18 @@ CREATE TABLE public.benchmark_result (
     commit_id character varying(50),
     hardware_id character varying(50) NOT NULL,
     commit_repo_url text NOT NULL,
-    history_fingerprint text NOT NULL
+    history_fingerprint text NOT NULL,
+    submission_key text,
+    submission_payload_sha256 text,
+    benchmark_id text GENERATED ALWAYS AS (md5((case_id || commit_repo_url))) STORED NOT NULL,
+    CONSTRAINT benchmark_result_submission_idempotency_check CHECK (
+        ((submission_key IS NULL) AND (submission_payload_sha256 IS NULL))
+        OR (
+            (submission_key IS NOT NULL)
+            AND (submission_payload_sha256 IS NOT NULL)
+            AND (submission_payload_sha256 ~ '^[0-9a-f]{64}$'::text)
+        )
+    )
 );
 
 CREATE TABLE public."case" (
@@ -213,6 +224,8 @@ CREATE INDEX alert_rule_user_id_index ON public.alert_rule USING btree (user_id)
 
 CREATE INDEX benchmark_result_batch_id_index ON public.benchmark_result USING btree (batch_id);
 
+CREATE INDEX benchmark_result_benchmark_id_commit_id_index ON public.benchmark_result USING btree (benchmark_id, commit_id) WHERE (error IS NULL);
+
 CREATE INDEX benchmark_result_case_id_index ON public.benchmark_result USING btree (case_id);
 
 CREATE INDEX benchmark_result_commit_id_index ON public.benchmark_result USING btree (commit_id);
@@ -233,11 +246,15 @@ CREATE INDEX benchmark_result_run_reason_id_idx ON public.benchmark_result USING
 
 CREATE INDEX benchmark_result_timestamp_index ON public.benchmark_result USING btree ("timestamp");
 
+CREATE UNIQUE INDEX benchmark_result_submission_key_index ON public.benchmark_result USING btree (submission_key) WHERE (submission_key IS NOT NULL);
+
 CREATE UNIQUE INDEX case_index ON public."case" USING btree (name, tags);
 
 CREATE INDEX cli_login_code_expires_at_index ON public.cli_login_code USING btree (expires_at);
 
 CREATE UNIQUE INDEX commit_index ON public.commit USING btree (sha, repository);
+
+CREATE INDEX commit_default_branch_timestamp_index ON public.commit USING btree ("timestamp" DESC, id DESC) WHERE (("timestamp" IS NOT NULL) AND ((sha)::text = (fork_point_sha)::text));
 
 CREATE UNIQUE INDEX context_index ON public.context USING btree (tags);
 

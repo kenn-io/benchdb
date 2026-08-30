@@ -3,14 +3,14 @@
   import "uplot/dist/uPlot.min.css";
   import { onDestroy, tick, untrack } from "svelte";
 
-  import type { TrendAxis } from "../router";
   import {
-    closestIndexForSortedValueOffset,
-    indexForCursorOffset,
-    paddedValueRange,
+    closestIndexForValue,
+    clampRangeToDomain,
     tooltipLeftForCursor,
     tooltipTopForCursor,
     type ValueRange,
+    observedValueRange,
+    zeroBasedValueRange,
   } from "../series/chart-geometry";
   import {
     pointTooltip,
@@ -22,26 +22,29 @@
     type TrendTooltip,
   } from "../series/transform";
   import { compactAxisValue } from "../series/chart-format";
+  import { formatMeasurement } from "../format";
   import { resolvedTheme } from "../theme.svelte";
 
   let {
     points,
-    axis = "commit",
     sigma = 2,
+    zeroBased = true,
     height = 280,
     selectedIndex = null,
     currentResultId = null,
     markedIndices = [],
     onselect,
+    onopen,
   }: {
     points: SeriesPoint[];
-    axis?: TrendAxis;
     sigma?: number;
+    zeroBased?: boolean;
     height?: number;
     selectedIndex?: number | null;
     currentResultId?: string | null;
     markedIndices?: number[];
     onselect?: (index: number) => void;
+    onopen?: (resultId: string) => void;
   } = $props();
 
   let chartWrap: HTMLDivElement;
@@ -61,18 +64,13 @@
   let hoverIndex = $state<number | null>(null);
   let resizeObserver: ResizeObserver | undefined;
   let plotBox = $state({ left: 0, top: 0, width: 0, height: 0 });
+  let zoomWindow = $state<{ min: number; max: number } | null>(null);
 
   /** cssVar resolves a design token for canvas drawing (canvas cannot read CSS
    * custom properties); the fallback keeps jsdom and detached nodes working. */
   function cssVar(name: string, fallback: string): string {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v === "" ? fallback : v;
-  }
-
-  function shortDate(ms: number): string {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-      new Date(ms),
-    );
   }
 
   function drawSegments(u: uPlot): void {
@@ -158,16 +156,20 @@
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }
 
-  // Cache the padded Y range so hover movement does not re-scan the whole
+  // Cache the Y range so hover movement does not re-scan the whole
   // history on every cursor change; it only recomputes when points/sigma change.
-  let overlayRange = $derived(paddedValueRange(trendYRangeValues(points, sigma)));
+  let overlayRange = $derived(
+    (zeroBased ? zeroBasedValueRange : observedValueRange)(trendYRangeValues(points, sigma)),
+  );
 
-  function overlayX(point: SeriesPoint, index: number): number {
-    if (axis === "commit") {
-      return points.length === 1 ? plotBox.width / 2 : (index / (points.length - 1)) * plotBox.width;
-    }
-    const first = points[0]?.chartMs ?? point.chartMs;
-    const last = points[points.length - 1]?.chartMs ?? point.chartMs;
+  function overlayX(point: SeriesPoint): number {
+    if (points.length === 1) return plotBox.width / 2;
+    const first = zoomWindow?.min === undefined
+      ? (points[0]?.chartMs ?? point.chartMs)
+      : zoomWindow.min * 1000;
+    const last = zoomWindow?.max === undefined
+      ? (points[points.length - 1]?.chartMs ?? point.chartMs)
+      : zoomWindow.max * 1000;
     const span = last - first || 1;
     return ((point.chartMs - first) / span) * plotBox.width;
   }
@@ -186,7 +188,7 @@
     if (range === null) return "";
     return points
       .map((p, i) => {
-        const x = overlayX(p, i);
+        const x = overlayX(p);
         const y = overlayY(p.svs, range);
         return `${i === 0 ? "M" : "L"}${pathPoint(x, y)}`;
       })
@@ -221,7 +223,7 @@
         flush();
         continue;
       }
-      const x = overlayX(p, i);
+      const x = overlayX(p);
       const hi = p.stats.rollingMean + sigma * p.stats.rollingStddev;
       const lo = p.stats.rollingMean - sigma * p.stats.rollingStddev;
       upper.push(pathPoint(x, overlayY(hi, range)));
@@ -239,7 +241,7 @@
     const range = overlayRange;
     if (range === null) return null;
     return {
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
     };
   }
@@ -257,10 +259,10 @@
     if (width <= 0 || height <= 0) return [];
     const range = overlayRange;
     if (range === null) return [];
-    return points.flatMap((p, i) =>
+    return points.flatMap((p) =>
       p.measurements.map((value, j) => ({
         key: `${p.resultId}-raw-${j}`,
-        x: overlayX(p, i),
+        x: overlayX(p),
         y: overlayY(value, range),
         current: currentResultId !== null && p.resultId === currentResultId,
         outlier: false,
@@ -273,9 +275,9 @@
     if (width <= 0 || height <= 0) return [];
     const range = overlayRange;
     if (range === null) return [];
-    return points.map((p, i) => ({
+    return points.map((p) => ({
       key: p.resultId,
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
       current: currentResultId !== null && p.resultId === currentResultId,
       outlier: p.stats.isOutlier,
@@ -290,7 +292,7 @@
     const range = overlayRange;
     if (range === null) return null;
     return {
-      x: overlayX(p, i),
+      x: overlayX(p),
       y: overlayY(p.svs, range),
     };
   }
@@ -313,16 +315,14 @@
   function hoveredIndex(u: uPlot): number | null {
     const left = u.cursor.left;
     if (left == null || left < 0 || points.length === 0) return null;
+    const min = zoomWindow?.min ?? points[0]!.chartMs / 1000;
+    const max = zoomWindow?.max ?? points[points.length - 1]!.chartMs / 1000;
     const dpr = window.devicePixelRatio || 1;
     const width = u.bbox.width / dpr;
-    if (axis === "commit") {
-      return indexForCursorOffset(left, width, points.length);
-    }
-    return closestIndexForSortedValueOffset(
-      left,
-      width,
-      points.map((p) => p.chartMs),
-    );
+    if (width <= 0) return null;
+    const fraction = Math.min(1, Math.max(0, left / width));
+    const seconds = min + (max - min) * fraction;
+    return closestIndexForValue(seconds * 1000, points.map((p) => p.chartMs));
   }
 
   function plotOffset() {
@@ -365,33 +365,27 @@
     const axisColor = cssVar("--c-text-muted", "#57606a");
     const gridColor = cssVar("--c-border-muted", "#e4e6ec");
     const yRange = overlayRange;
-    const xAxis: uPlot.Axis =
-      axis === "commit"
-        ? {
-            stroke: axisColor,
-            grid: { stroke: gridColor, width: 1 },
-            values: (_u, ticks) =>
-              ticks.map((t) =>
-                Number.isInteger(t) && points[t as number]
-                  ? shortDate(points[t as number]!.chartMs)
-                  : "",
-              ),
-          }
-        : {
-            stroke: axisColor,
-            grid: { stroke: gridColor, width: 1 },
-          };
+    const xAxis: uPlot.Axis = {
+      stroke: axisColor,
+      grid: { stroke: gridColor, width: 1 },
+    };
+    const xScale: uPlot.Scale = { time: true };
+    if (zoomWindow !== null) {
+      const { min, max } = zoomWindow;
+      xScale.range = () => [min, max];
+    }
     return {
       width,
       height,
       legend: { show: false },
       scales: {
-        x: { time: axis === "time" },
+        x: xScale,
         y: yRange === null ? {} : { range: () => [yRange.min, yRange.max] },
       },
+      cursor: { drag: { x: true, y: false, dist: 8, setScale: true } },
       series: [
         {},
-        { label: "SVS", stroke: accent, width: 2, points: { show: false } },
+        { label: "result value", stroke: accent, width: 2, points: { show: false } },
         { label: "rolling mean", stroke: meanColor, width: 1.5, dash: [6, 4], points: { show: false } },
         { label: "hi", stroke: "transparent", points: { show: false } },
         { label: "lo", stroke: "transparent", points: { show: false } },
@@ -402,11 +396,16 @@
           size: 76,
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
-          values: (_u, ticks) => ticks.map((t) => compactAxisValue(Number(t))),
+          values: (_u, ticks) => ticks.map((t) =>
+            points[0]?.unit === "B"
+              ? formatMeasurement(Number(t), "B")
+              : compactAxisValue(Number(t)),
+          ),
         },
       ],
       hooks: {
         ready: [() => requestAnimationFrame(syncPlotBox)],
+        setSelect: [rememberZoom],
         drawClear: [drawSegments],
         draw: [drawSteps, drawMarked, drawSelection],
         setCursor: [
@@ -429,16 +428,25 @@
     };
   }
 
-  // Rebuild on data/axis/sigma changes: axis mode alters scale config, so a
-  // setData-only update is not sufficient; series are small, rebuilds are cheap.
+  // Rebuild on data/sigma changes; series are small, so rebuilds are cheap.
   // The constructor is untracked so reads inside uPlot-invoked hooks (the draw
   // closures read selectedIndex) can never become dependencies of this effect —
   // selection changes must only trigger the redraw effect below, not a rebuild.
   $effect(() => {
-    const data = trendChartData(points, axis, sigma);
+    const data = trendChartData(points, sigma);
+    const domain = points.length < 2
+      ? null
+      : {
+          min: points[0]!.chartMs / 1000,
+          max: points[points.length - 1]!.chartMs / 1000,
+        };
+    const currentZoom = untrack(() => zoomWindow);
+    const nextZoom = clampRangeToDomain(currentZoom, domain);
+    if (nextZoom !== currentZoom) zoomWindow = nextZoom;
     // height is otherwise only read inside the untracked constructor; track it
     // here so a caller-driven height change rebuilds instead of being ignored.
     void height;
+    void zeroBased;
     // Canvas colors are read from CSS tokens at build time, so a theme switch
     // must rebuild the chart to pick up the new palette.
     void resolvedTheme();
@@ -482,22 +490,55 @@
   function selectAtCursor() {
     if (hoverIndex != null) {
       onselect?.(hoverIndex);
+      onopen?.(points[hoverIndex]!.resultId);
     }
+  }
+
+  function rememberZoom(u: uPlot) {
+    if (u.select.width < 8) return;
+    const left = u.posToVal(u.select.left, "x");
+    const right = u.posToVal(u.select.left + u.select.width, "x");
+    if (!Number.isFinite(left) || !Number.isFinite(right) || left === right) return;
+    zoomWindow = { min: Math.min(left, right), max: Math.max(left, right) };
+    hoverIndex = null;
+    tip = null;
+  }
+
+  function resetZoom(event: MouseEvent) {
+    event.stopPropagation();
+    hoverIndex = null;
+    tip = null;
+    if (chart === undefined || points.length === 0) return;
+    zoomWindow = null;
+    chart.setScale("x", {
+      min: points[0]!.chartMs / 1000,
+      max: points[points.length - 1]!.chartMs / 1000,
+    });
   }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <!-- The chart is a pointer-driven visualization; keyboard-accessible selection and
      navigation are provided by the DetailTable rows/links that share state. -->
-<div class="chart-wrap" bind:this={chartWrap} onclick={selectAtCursor}>
-  <div class="legend" aria-hidden="true">
-    <span><i class="svs"></i>SVS</span>
-    <span><i class="raw"></i>repetitions</span>
-    <span><i class="inlier"></i>inlier</span>
-    <span><i class="outlier"></i>outlier</span>
-    {#if currentResultId !== null}<span><i class="current"></i>current</span>{/if}
-    <span><i class="mean"></i>rolling mean</span>
-    <span><i class="band"></i>{sigma}σ band</span>
+<div class="chart-wrap" class:clickable={onopen !== undefined} bind:this={chartWrap} onclick={selectAtCursor}>
+  <div class="chart-heading">
+    <div class="legend" aria-hidden="true">
+      <span><i class="svs"></i>result value</span>
+      <span><i class="raw"></i>repetitions</span>
+      <span><i class="inlier"></i>inlier</span>
+      <span><i class="outlier"></i>outlier</span>
+      {#if currentResultId !== null}<span><i class="current"></i>current</span>{/if}
+      <span><i class="mean"></i>rolling mean</span>
+      <span><i class="band"></i>{sigma}σ band</span>
+    </div>
+    <div class="zoom-controls">
+      {#if zoomWindow === null}
+        <span>Drag horizontally to zoom</span>
+      {:else}
+        <span>Zoomed</span>
+        <button type="button" onclick={resetZoom}>Reset zoom</button>
+      {/if}
+    </div>
   </div>
   <div class="plot-host" bind:this={plotHost}>
     <div bind:this={host}></div>
@@ -558,6 +599,7 @@
       {#each tip.vm.metadata as line, i (i)}
         <div class="tip-metadata">{line}</div>
       {/each}
+      {#if onopen !== undefined}<div class="tip-action">click to open result</div>{/if}
     </div>
   {/if}
 </div>
@@ -571,17 +613,43 @@
     background: var(--c-chart-bg);
     min-width: 0;
   }
+  .chart-wrap.clickable { cursor: pointer; }
   .chart-wrap :global(.uplot) {
     width: 100% !important;
   }
+  .chart-wrap :global(.u-over) { cursor: crosshair; }
   .plot-host {
     position: relative;
   }
-  .legend {
+  .chart-heading {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 12px;
     margin-bottom: 6px;
+  }
+  .zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    color: var(--c-text-muted);
+    font-size: 0.72rem;
+  }
+  .zoom-controls button {
+    padding: 3px 7px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
     color: var(--c-text-muted);
     font-size: 0.72rem;
   }
@@ -651,7 +719,7 @@
   .chart-overlay {
     position: absolute;
     pointer-events: none;
-    overflow: visible;
+    overflow: hidden;
     z-index: 2;
   }
   .chart-overlay .band-fill {
@@ -716,4 +784,5 @@
     overflow-wrap: anywhere;
     z-index: 3;
   }
+  .tip-action { margin-top: 0.2rem; color: #cbd5e1; font-weight: 650; }
 </style>

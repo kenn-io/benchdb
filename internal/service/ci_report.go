@@ -1248,8 +1248,8 @@ func ciReportCompareLink(baselineID, contenderID string, threshold float64, thre
 	return "/compare?" + values.Encode()
 }
 
-func ciReportSeriesLink(fingerprint string) string {
-	return "/series/" + url.PathEscape(fingerprint)
+func ciReportSeriesLink(historyFingerprint string) string {
+	return "/series/" + url.PathEscape(historyFingerprint)
 }
 
 func setNonDefaultReportFloat(values url.Values, key string, value float64, fallback float64) {

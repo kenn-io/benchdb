@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeriesPoint } from "../series/transform";
-import { defaultPair, toCommitChoices } from "./benchmark-picker";
+import type { MachineTrack } from "../series/loader";
+import { comparableTracks, defaultPair, toCommitChoices } from "./benchmark-picker";
 
 function point(over: Partial<SeriesPoint>): SeriesPoint {
   return {
@@ -33,8 +34,20 @@ function point(over: Partial<SeriesPoint>): SeriesPoint {
 describe("toCommitChoices", () => {
   it("orders newest first and formats commit, date, and svs", () => {
     const points = [
-      point({ resultId: "old", commitHash: "1111111aaaa", svs: 1, chartMs: Date.parse("2024-01-01T00:00:00Z"), commitTimestampMs: Date.parse("2024-01-01T00:00:00Z") }),
-      point({ resultId: "new", commitHash: "2222222bbbb", svs: 1.45, chartMs: Date.parse("2024-01-06T00:00:00Z"), commitTimestampMs: Date.parse("2024-01-06T00:00:00Z") }),
+      point({
+        resultId: "old",
+        commitHash: "1111111aaaa",
+        svs: 1,
+        chartMs: Date.parse("2024-01-01T00:00:00Z"),
+        commitTimestampMs: Date.parse("2024-01-01T00:00:00Z"),
+      }),
+      point({
+        resultId: "new",
+        commitHash: "2222222bbbb",
+        svs: 1.45,
+        chartMs: Date.parse("2024-01-06T00:00:00Z"),
+        commitTimestampMs: Date.parse("2024-01-06T00:00:00Z"),
+      }),
     ];
     const choices = toCommitChoices(points, "s", "en-US");
     expect(choices.map((c) => c.resultId)).toEqual(["new", "old"]);
@@ -48,6 +61,51 @@ describe("toCommitChoices", () => {
     expect(choices[0]!.shortCommit).toBe("—");
     expect(choices[0]!.dateText).toBe("—");
     expect(choices[0]!.svsText).toBe("1");
+  });
+});
+
+describe("comparableTracks", () => {
+  it("keeps machine histories and units in separate picker groups", () => {
+    const tracks: MachineTrack[] = [
+      {
+        machineName: "runner-a",
+        segments: [
+          {
+            fingerprint: "fp-a",
+            context: {},
+            hardware: { id: "h1", type: "machine", name: "runner-a", hash: "hw-a" },
+            points: [
+              point({ resultId: "seconds", unit: "s" }),
+              point({ resultId: "millis", unit: "ms" }),
+            ],
+          },
+        ],
+      },
+      {
+        machineName: "runner-b",
+        segments: [
+          {
+            fingerprint: "fp-b",
+            context: {},
+            hardware: { id: "h2", type: "machine", name: "runner-b", hash: "hw-b" },
+            points: [point({ resultId: "other", unit: "s" })],
+          },
+        ],
+      },
+    ];
+
+    expect(
+      comparableTracks(tracks).map((track) => ({
+        machine: track.machineName,
+        fingerprint: track.fingerprint,
+        unit: track.unit,
+        results: track.points.map((candidate) => candidate.resultId),
+      })),
+    ).toEqual([
+      { machine: "runner-a", fingerprint: "fp-a", unit: "s", results: ["seconds"] },
+      { machine: "runner-a", fingerprint: "fp-a", unit: "ms", results: ["millis"] },
+      { machine: "runner-b", fingerprint: "fp-b", unit: "s", results: ["other"] },
+    ]);
   });
 });
 
@@ -69,7 +127,11 @@ describe("defaultPair", () => {
       [
         point({ resultId: "prev", commitHash: "c1", chartMs: Date.parse("2024-01-01T00:00:00Z") }),
         point({ resultId: "rerun", commitHash: "c2", chartMs: Date.parse("2024-01-06T00:00:00Z") }),
-        point({ resultId: "latest", commitHash: "c2", chartMs: Date.parse("2024-01-07T00:00:00Z") }),
+        point({
+          resultId: "latest",
+          commitHash: "c2",
+          chartMs: Date.parse("2024-01-07T00:00:00Z"),
+        }),
       ],
       "s",
     );

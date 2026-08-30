@@ -31,6 +31,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     hash: "abcdef123456",
     repository: "https://github.com/apache/arrow",
     timestamp: "2026-01-02T00:00:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,
@@ -57,6 +58,7 @@ describe("ResultsPage", () => {
 
     await waitFor(() => screen.getByRole("heading", { name: /benchmark results/i }));
     expect(screen.getAllByText(/2 results\+?/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: /series explorer/i })).toHaveAttribute("href", "/series");
     expect(screen.getByText(/^2 runs$/i)).toBeInTheDocument();
     expect(screen.getByText(/^1 error$/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /tpch/i })[0]).toHaveAttribute("href", "/results/r2");
@@ -64,7 +66,12 @@ describe("ResultsPage", () => {
     expect(screen.getAllByText("format parquet").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /run run-b/i })).toHaveAttribute("href", "/runs/run-b");
     expect(screen.getByRole("link", { name: /batch batch-a/i })).toHaveAttribute("href", "/batches/batch-a");
-    expect(screen.getByRole("link", { name: /trend for tpch result r2/i })).toHaveAttribute("href", "/series/fp-r2");
+    expect(screen.queryByRole("link", { name: /trend for tpch result r2/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /trend for tpch result r1/i })).toHaveAttribute(
+      "href",
+      "/benchmarks/history/r1",
+    );
+    expect(screen.getByText("No history")).toBeInTheDocument();
     expect(screen.getAllByText("apache/arrow").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
   });

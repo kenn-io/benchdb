@@ -26,6 +26,7 @@ func day(n int) time.Time {
 type seriesMember struct {
 	ts        time.Time
 	value     float64
+	unit      string
 	errored   bool
 	offBranch bool
 }
@@ -85,11 +86,15 @@ func seedSeriesRepo(
 		if m.errored {
 			errBytes = []byte(`{"x":1}`)
 		}
+		unit := m.unit
+		if unit == "" {
+			unit = "s"
+		}
 		id, err := st.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
 			CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
 			RunID: "run", RunTags: []byte(`{"name":"b"}`), CommitID: new(commitID),
 			CommitRepoUrl: repo, HistoryFingerprint: fp,
-			Timestamp: m.ts, Unit: new("s"), Data: []*float64{new(m.value)}, Error: errBytes,
+			Timestamp: m.ts, Unit: new(unit), Data: []*float64{new(m.value)}, Error: errBytes,
 		})
 		mustID(t, id, err)
 	}
@@ -659,7 +664,7 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	}
 	seedSeries(t, st, ctx, "fp-long", "long-history", `{}`, "m5", members)
 
-	got, err := st.SelectSeriesMembers(ctx, []string{"fp-long"})
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-long"}})
 
 	require.NoError(t, err)
 	require.Len(t, got, 256)
@@ -667,6 +672,80 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
+}
+
+func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+
+	members := make([]seriesMember, 300)
+	for i := range members {
+		members[i] = seriesMember{ts: day(i), value: float64(i)}
+	}
+	seedSeries(t, st, ctx, "fp-windowed", "windowed-history", `{}`, "m5", members)
+
+	until := day(20)
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-windowed"},
+		ActiveUntil:  &until,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 21)
+	require.NotNil(t, got[0].CommitTimestamp)
+	require.NotNil(t, got[len(got)-1].CommitTimestamp)
+	assert.Equal(t, day(0), *got[0].CommitTimestamp)
+	assert.Equal(t, day(20), *got[len(got)-1].CommitTimestamp)
+}
+
+func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-fleet-a", "fleet-bench", `{}`, "m5", []seriesMember{
+		{ts: day(0), value: 1},
+		{ts: day(2), value: 2},
+	})
+	seedSeries(t, st, ctx, "fp-fleet-b", "fleet-bench", `{}`, "m7", []seriesMember{
+		{ts: day(1), value: 3},
+	})
+	seedSeries(t, st, ctx, "fp-older", "older-bench", `{}`, "m5", []seriesMember{
+		{ts: day(-1), value: 4},
+	})
+
+	first, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	assert.Equal(t, "fleet-bench", first[0].CaseName)
+	assert.Equal(t, int64(3), first[0].PointCount)
+	assert.Equal(t, []string{"fp-fleet-a", "fp-fleet-b"}, first[0].HistoryFingerprints)
+	assert.Equal(t, []string{"m5", "m7"}, first[0].MachineNames)
+	assert.Equal(t, []string{"s"}, first[0].BenchmarkUnits)
+
+	cursorTS := first[0].LatestCommitTimestamp
+	second, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
+		CursorTs: &cursorTS, CursorID: &first[0].BenchmarkID, PageSize: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+	assert.Equal(t, "older-bench", second[0].CaseName)
+
+	history, err := st.SelectHistoryForBenchmark(ctx, first[0].BenchmarkID)
+	require.NoError(t, err)
+	assert.Len(t, history, 3)
+}
+
+func TestSelectBenchmarkPageRejectsMixedFleetUnits(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-seconds", "fleet-bench", `{}`, "m5", []seriesMember{
+		{ts: day(0), value: 1, unit: "s"},
+	})
+	seedSeries(t, st, ctx, "fp-bytes", "fleet-bench", `{}`, "m7", []seriesMember{
+		{ts: day(1), value: 2, unit: "B"},
+	})
+
+	page, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
+
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.ElementsMatch(t, []string{"s", "B"}, page[0].BenchmarkUnits)
 }
 
 // TestSelectSeriesPageRepositoryFilter asserts the repository filter matches the
@@ -838,7 +917,7 @@ func TestSelectSeriesMembers(t *testing.T) {
 		{ts: day(0), value: 9.0},
 	})
 
-	rows, err := st.SelectSeriesMembers(ctx, []string{"fp-a", "fp-b"})
+	rows, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-a", "fp-b"}})
 	require.NoError(t, err)
 	require.Len(t, rows, 3, "two valid members of A plus one of B; errored/off-branch excluded")
 
@@ -879,13 +958,15 @@ func TestSelectSeriesMembersEmptyAndMissing(t *testing.T) {
 		{ts: day(0), value: 1.0},
 	})
 
-	empty, err := st.SelectSeriesMembers(ctx, []string{})
+	empty, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{})
 	require.NoError(t, err)
 	assert.Empty(t, empty, "empty fingerprint list returns no rows")
 
 	// A fingerprint that has no members contributes nothing; the present one still
 	// returns its single member.
-	rows, err := st.SelectSeriesMembers(ctx, []string{"fp-present", "fp-absent"})
+	rows, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-present", "fp-absent"},
+	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "absent fingerprint contributes no rows")
 	assert.Equal(t, "fp-present", rows[0].HistoryFingerprint)

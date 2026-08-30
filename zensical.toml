@@ -34,6 +34,7 @@ nav = [
   { "Operate" = [
     "auth-and-tokens.md",
     "operations.md",
+    "upgrading.md",
     "prod-clone-compatibility.md",
     "storage-roadmap.md",
     "contributing.md",

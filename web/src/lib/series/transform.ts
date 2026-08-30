@@ -1,7 +1,12 @@
+import {
+  localDateStr,
+  resolveRange,
+  type RangeSelection,
+} from "@kenn-io/kit-ui/date-range-picker";
+
 import type { components } from "../api/schema";
-import { formatDate, formatSVS, windowStartIso } from "../browse/transform";
-import { formatMeasurement } from "../format";
-import type { BrowseWindow, TrendAxis } from "../router";
+import { formatDate } from "../browse/transform";
+import { exactMeasurement, formatMeasurement } from "../format";
 
 type HistorySample = components["schemas"]["HistorySample"];
 type ZScoreStats = components["schemas"]["ZScoreStats"];
@@ -99,10 +104,12 @@ export interface TableRow {
   resultId: string;
   commitHash: string;
   commitMessage: string;
+  chartMs: number;
   svs: number;
   unit: string | null;
   z: number | null;
   flags: string;
+  machineName?: string;
 }
 
 /** flagsText renders the engine's point flags for compact display. "step"
@@ -125,6 +132,7 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
     resultId: p.resultId,
     commitHash: p.commitHash,
     commitMessage: p.commitMessage,
+    chartMs: p.chartMs,
     svs: p.svs,
     unit: p.unit,
     z: p.stats.z,
@@ -132,25 +140,53 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
   }));
 }
 
-/** windowAnchorDate anchors a trend range at the newest result in that series,
+export function chartTimeExtent(points: SeriesPoint[]): { min: number; max: number } | null {
+  if (points.length === 0) return null;
+  let min = points[0]!.chartMs;
+  let max = min;
+  for (let i = 1; i < points.length; i++) {
+    min = Math.min(min, points[i]!.chartMs);
+    max = Math.max(max, points[i]!.chartMs);
+  }
+  return { min, max };
+}
+
+/** windowAnchorDate anchors a trend range at the newest plotted point,
  * falling back to caller-provided now only for empty data. Trend pages are often
  * opened on historical production series; anchoring to wall-clock today makes
  * those pages appear empty even when the series has useful history. */
 export function windowAnchorDate(points: SeriesPoint[], now: Date): Date {
-  const latest = Math.max(Number.NEGATIVE_INFINITY, ...points.map((p) => p.resultTimestampMs));
+  const latest = chartTimeExtent(points)?.max ?? Number.NEGATIVE_INFINITY;
   return Number.isFinite(latest) ? new Date(latest) : now;
 }
 
-/** windowPoints filters to the rolling benchmark-activity window ending at
- * anchor; "all" keeps everything. The x-axis can use commit order/time, but
- * range membership is about when benchmark results were produced. */
-export function windowPoints(points: SeriesPoint[], range: BrowseWindow, anchor: Date): SeriesPoint[] {
-  const startIso = windowStartIso(range, anchor);
-  if (startIso === null) {
+/** windowPoints filters the chart's time axis by local calendar date. Relative
+ * windows end at the newest plotted point rather than wall-clock today so
+ * historical series remain useful. Calendar and custom selections use Kit
+ * UI's inclusive date-range contract. */
+export function windowPoints(
+  points: SeriesPoint[],
+  selection: RangeSelection,
+  anchor: Date,
+): SeriesPoint[] {
+  if (selection.mode === "relative" && selection.days <= 0) {
     return points;
   }
-  const startMs = Date.parse(startIso);
-  return points.filter((p) => p.resultTimestampMs >= startMs);
+  const range =
+    selection.mode === "relative"
+      ? relativeRange(selection.days, anchor)
+      : resolveRange(selection);
+  if (range.from === "" || range.to === "") return [];
+  return points.filter((point) => {
+    const date = localDateStr(new Date(point.chartMs));
+    return date >= range.from && date <= range.to;
+  });
+}
+
+function relativeRange(days: number, anchor: Date): { from: string; to: string } {
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  start.setDate(start.getDate() - (days - 1));
+  return { from: localDateStr(start), to: localDateStr(anchor) };
 }
 
 export type TrendChartData = [
@@ -161,17 +197,17 @@ export type TrendChartData = [
   (number | null)[],
 ];
 
-/** trendChartData builds the uPlot-aligned rows [x, svs, mean, hi, lo]: x is the
- * point index in commit mode or unix seconds in time mode; hi/lo are
- * rolling_mean ± sigma · rolling_stddev with null gaps wherever the engine has
- * no stats (series start, outliers, fresh segments) — the band re-centers per
- * segment because the underlying rolling stats do. */
+/** trendChartData builds the uPlot-aligned rows [x, svs, mean, hi, lo]. The x
+ * values are Unix seconds so horizontal distance always represents elapsed
+ * calendar time. The hi/lo rows are rolling_mean ± sigma · rolling_stddev with
+ * null gaps wherever the engine has no stats (series start, outliers, fresh
+ * segments) — the band re-centers per segment because the underlying rolling
+ * stats do. */
 export function trendChartData(
   points: SeriesPoint[],
-  axis: TrendAxis,
   sigma: number,
 ): TrendChartData {
-  const xs = points.map((p, i) => (axis === "time" ? p.chartMs / 1000 : i));
+  const xs = points.map((p) => p.chartMs / 1000);
   const svs = points.map((p): number | null => p.svs);
   const mean = points.map((p) => p.stats.rollingMean);
   const hi = points.map((p) =>
@@ -271,11 +307,16 @@ function boundaryMetadata(p: SeriesPoint): string[] {
  * stats, omitting whatever is unavailable rather than printing nulls. */
 export function pointTooltip(p: SeriesPoint, locale?: string): TrendTooltip {
   const lines: string[] = [];
+  const formatted = formatMeasurement(p.svs, p.unit);
+  const exact = exactMeasurement(p.svs, p.unit);
+  if (formatted !== exact) {
+    lines.push(`exact ${exact}`);
+  }
   if (p.stats.z !== null) {
     lines.push(`z ${p.stats.z.toFixed(2)}`);
   }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
-    lines.push(`mean ${formatSVS(p.stats.rollingMean)} · sd ${formatSVS(p.stats.rollingStddev)}`);
+    lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);
   }
   lines.push(formatDate(new Date(p.chartMs).toISOString(), locale));
   const flags = flagsText(p.stats);
@@ -286,7 +327,7 @@ export function pointTooltip(p: SeriesPoint, locale?: string): TrendTooltip {
     lines.push(p.commitMessage.length > 80 ? `${p.commitMessage.slice(0, 79)}…` : p.commitMessage);
   }
   return {
-    title: `${p.commitHash} · ${formatMeasurement(p.svs, p.unit)}`,
+    title: `${p.commitHash} · ${formatted}`,
     lines,
     metadata: boundaryMetadata(p),
   };
@@ -305,15 +346,13 @@ export function orderSamplesForChart(samples: HistorySample[]): HistorySample[] 
   return [...samples].sort((a, b) => effectiveChartMs(a) - effectiveChartMs(b));
 }
 
-/** distinctUnits returns the sorted set of non-null units across samples. A
- * series with more than one is unit-inconsistent (history_fingerprint excludes
- * unit) and must be surfaced as data-integrity, not a clean SVS line. */
-export function distinctUnits(samples: HistorySample[]): string[] {
-  const seen = new Set<string>();
+/** distinctUnits returns the sorted set of units across samples. Null is a
+ * distinct unit identity: mixing a unitless sample with a measured unit is no
+ * more comparable than mixing two named units. */
+export function distinctUnits(samples: HistorySample[]): (string | null)[] {
+  const seen = new Set<string | null>();
   for (const s of samples) {
-    if (s.unit !== null) {
-      seen.add(s.unit);
-    }
+    seen.add(s.unit);
   }
-  return [...seen].sort();
+  return [...seen].sort((a, b) => (a ?? "").localeCompare(b ?? ""));
 }

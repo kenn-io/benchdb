@@ -15,6 +15,7 @@ import (
 const (
 	defaultBaseRef      = "origin/main"
 	defaultMigrationDir = "internal/db/migrations"
+	baselineResetMarker = defaultMigrationDir + "/BASELINE_RESET"
 )
 
 var migrationFilename = regexp.MustCompile(`^(\d{6})_([a-z0-9][a-z0-9_]*)\.(up|down)\.sql$`)
@@ -72,13 +73,18 @@ func validateMigrationHistory(baseFiles, candidateFiles, changedPaths []string) 
 	baseNames := make(map[string]struct{})
 	for _, file := range baseFiles {
 		basePaths[file] = struct{}{}
+		if file == baselineResetMarker {
+			continue
+		}
 		if identity, ok := parseMigrationIdentity(file); ok {
 			baseNames[identity.name] = struct{}{}
 		}
 	}
+	baselineReset := slices.Contains(candidateFiles, baselineResetMarker) &&
+		!slices.Contains(baseFiles, baselineResetMarker)
 
 	for _, changed := range changedPaths {
-		if _, exists := basePaths[changed]; exists {
+		if _, exists := basePaths[changed]; exists && !baselineReset {
 			return fmt.Errorf("migration %s already exists on the comparison base and is immutable", changed)
 		}
 	}
@@ -87,6 +93,9 @@ func validateMigrationHistory(baseFiles, candidateFiles, changedPaths []string) 
 	byName := make(map[string]directions)
 	namesByNumber := make(map[string]map[string]struct{})
 	for _, file := range candidateFiles {
+		if file == baselineResetMarker {
+			continue
+		}
 		identity, ok := parseMigrationIdentity(file)
 		if !ok {
 			return fmt.Errorf("migration filename %s must match NNNNNN_description.(up|down).sql", file)
@@ -124,6 +133,12 @@ func validateMigrationHistory(baseFiles, candidateFiles, changedPaths []string) 
 		if !entry.up || !entry.down {
 			return fmt.Errorf("migration %s must have matching .up.sql and .down.sql files", name)
 		}
+	}
+	if baselineReset {
+		if len(byName) != 1 || len(numbers) != 1 || numbers[0] != "000001" {
+			return errors.New("baseline reset must leave exactly one 000001 migration pair")
+		}
+		return nil
 	}
 
 	var newNames []string

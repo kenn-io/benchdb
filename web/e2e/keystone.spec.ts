@@ -18,7 +18,7 @@ test("result renders the seeded series", async ({ page, request }) => {
   // January 2024; the trend default range is 3mo, so pin ?range=all to render
   // the full seeded series rather than the empty-range state.
   await page.goto(`${baseURL}/benchmarks/history/${target.resultId}?range=all`);
-  const canvas = page.locator(".chart-wrap canvas");
+  const canvas = page.locator('.fleet-chart canvas, .chart-wrap canvas').first();
   await expect(canvas).toBeVisible();
 
   // Deterministic mouse move over the chart canvas -> uPlot selects the nearest
@@ -38,6 +38,6 @@ test("result renders the seeded series", async ({ page, request }) => {
 
   // Deep-link reload survives (exercises the server's index.html SPA fallback).
   await page.reload();
-  await expect(page.locator(".chart-wrap canvas")).toBeVisible();
+  await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   expect(await page.locator("table.detail tbody tr").count()).toBeGreaterThanOrEqual(target.minimumSamples);
 });

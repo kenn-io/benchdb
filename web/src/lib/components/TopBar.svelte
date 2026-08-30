@@ -23,9 +23,13 @@
   }
 
   const nav: Array<{ label: string; href: string; route: Route["name"]; active: Array<Route["name"]> }> = [
-    { label: "Home", href: "/", route: "home", active: ["home", "run", "batch"] },
-    { label: "Benchmarks", href: "/series", route: "browse", active: ["browse", "trend", "series-leaf"] },
-    { label: "Results", href: "/results", route: "results-list", active: ["results-list", "result"] },
+    { label: "Runs", href: "/", route: "home", active: ["home", "run", "batch"] },
+    {
+      label: "Benchmarks",
+      href: "/series",
+      route: "browse",
+      active: ["browse", "trend", "benchmark-trend", "series-leaf", "results-list", "result"],
+    },
     { label: "Compare", href: "/compare", route: "compare", active: ["compare"] },
     { label: "Reports", href: "/ci/report", route: "ci-report", active: ["ci-report"] },
     { label: "Account", href: "/account", route: "account", active: ["account"] },
