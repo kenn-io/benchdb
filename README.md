@@ -26,7 +26,16 @@ The resulting `bin/benchdb` executable contains the server and CLI:
 ./bin/benchdb results submit results.json --server https://example.com
 ```
 
-Product and operator documentation lives under `docs/site/`.
+The documentation site has three layers:
+
+- `/` explains what BenchDB is and who it is for,
+- `/guide/` follows a result from benchmark process to CI decision,
+- `/docs/` contains task-oriented user, automation, and operator reference.
+
+Build all three layers with `make build-docs`, then use `make docs-serve` to
+preview them together. Source documentation lives under `docs/site/`; every
+published reference page is also emitted as raw Markdown for agents and other
+machine readers.
 
 ## Origin
 

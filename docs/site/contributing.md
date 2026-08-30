@@ -157,7 +157,9 @@ asserts painted charts, no desktop document overflow, visible mobile
 navigation, scrubbed volatile result IDs, and no leaked internal screenshot
 origin. CI runs the same screenshot capture path, checks the generated artifact
 directory for complete, nonblank PNGs, verifies that the Docker image uses the
-same exact Playwright pin as the web package, uploads those PNGs and the
-evidence JSON as the `benchdb-dashboard-screenshots` artifact, and publishes
-latest push captures to the orphan screenshot branch for the Pages build to
-restore.
+same exact Playwright pin as the web package, and uploads those PNGs and the
+evidence JSON as the `benchdb-dashboard-screenshots` artifact. The main-branch
+documentation workflow captures the same deterministic inventory from the
+revision being published and includes it in the GitHub Pages artifact. The
+orphan `docs-assets` branch remains limited to the curated product screenshot
+used by the marketing home page.
