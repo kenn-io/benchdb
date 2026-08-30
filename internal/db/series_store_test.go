@@ -26,6 +26,7 @@ func day(n int) time.Time {
 type seriesMember struct {
 	ts        time.Time
 	value     float64
+	unit      string
 	errored   bool
 	offBranch bool
 }
@@ -85,11 +86,15 @@ func seedSeriesRepo(
 		if m.errored {
 			errBytes = []byte(`{"x":1}`)
 		}
+		unit := m.unit
+		if unit == "" {
+			unit = "s"
+		}
 		id, err := st.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
 			CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
 			RunID: "run", RunTags: []byte(`{"name":"b"}`), CommitID: new(commitID),
 			CommitRepoUrl: repo, HistoryFingerprint: fp,
-			Timestamp: m.ts, Unit: new("s"), Data: []*float64{new(m.value)}, Error: errBytes,
+			Timestamp: m.ts, Unit: new(unit), Data: []*float64{new(m.value)}, Error: errBytes,
 		})
 		mustID(t, id, err)
 	}
@@ -712,6 +717,7 @@ func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *tes
 	assert.Equal(t, int64(3), first[0].PointCount)
 	assert.Equal(t, []string{"fp-fleet-a", "fp-fleet-b"}, first[0].HistoryFingerprints)
 	assert.Equal(t, []string{"m5", "m7"}, first[0].MachineNames)
+	assert.Equal(t, []string{"s"}, first[0].BenchmarkUnits)
 
 	cursorTS := first[0].LatestCommitTimestamp
 	second, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
@@ -724,6 +730,22 @@ func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *tes
 	history, err := st.SelectHistoryForBenchmark(ctx, first[0].BenchmarkID)
 	require.NoError(t, err)
 	assert.Len(t, history, 3)
+}
+
+func TestSelectBenchmarkPageRejectsMixedFleetUnits(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-seconds", "fleet-bench", `{}`, "m5", []seriesMember{
+		{ts: day(0), value: 1, unit: "s"},
+	})
+	seedSeries(t, st, ctx, "fp-bytes", "fleet-bench", `{}`, "m7", []seriesMember{
+		{ts: day(1), value: 2, unit: "B"},
+	})
+
+	page, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
+
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.ElementsMatch(t, []string{"s", "B"}, page[0].BenchmarkUnits)
 }
 
 // TestSelectSeriesPageRepositoryFilter asserts the repository filter matches the

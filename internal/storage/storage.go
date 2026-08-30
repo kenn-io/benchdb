@@ -725,6 +725,7 @@ type BenchmarkPageRow struct {
 	LatestUnit               *string
 	LatestData               []float64
 	PointCount               int64
+	BenchmarkUnits           []string
 	HistoryFingerprints      []string
 	MachineNames             []string
 	CaseName                 string

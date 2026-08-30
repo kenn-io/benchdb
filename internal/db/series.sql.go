@@ -135,6 +135,7 @@ counts AS (
   SELECT
     br.benchmark_id,
     count(*)::bigint AS point_count,
+    array_agg(DISTINCT coalesce(br.unit, '') ORDER BY coalesce(br.unit, ''))::text[] AS benchmark_units,
     array_agg(DISTINCT br.history_fingerprint ORDER BY br.history_fingerprint)::text[] AS history_fingerprints,
     array_agg(DISTINCT hw.name ORDER BY hw.name)::text[] AS machine_names
   FROM page p
@@ -160,6 +161,7 @@ SELECT
   p.latest_unit,
   p.latest_data,
   cnt.point_count,
+  cnt.benchmark_units,
   cnt.history_fingerprints,
   cnt.machine_names,
   cs.name AS case_name,
@@ -194,6 +196,7 @@ type SelectBenchmarkPageRow struct {
 	LatestUnit               *string
 	LatestData               []float64
 	PointCount               int64
+	BenchmarkUnits           []string
 	HistoryFingerprints      []string
 	MachineNames             []string
 	CaseName                 string
@@ -239,6 +242,7 @@ func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPa
 			&i.LatestUnit,
 			&i.LatestData,
 			&i.PointCount,
+			&i.BenchmarkUnits,
 			&i.HistoryFingerprints,
 			&i.MachineNames,
 			&i.CaseName,

@@ -123,8 +123,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 	byFingerprint := groupMembersByFingerprint(members)
 	items := make([]BenchmarkListItem, 0, len(rows))
 	for _, row := range rows {
-		segment := byFingerprint[row.LatestHistoryFingerprint]
-		unit, lessIsBetter := seriesIdentityUnit(segment)
+		unit, lessIsBetter := benchmarkIdentityUnit(row.BenchmarkUnits)
 		tags, err := jsonObject(row.CaseTags)
 		if err != nil {
 			return nil, err
@@ -137,7 +136,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		items = append(items, BenchmarkListItem{
 			BenchmarkID: row.BenchmarkID, Name: row.CaseName, Tags: tags,
 			Repository: row.CommitRepoURL, Unit: unit, LessIsBetter: lessIsBetter,
-			Status:         benchmarkStatus(row.HistoryFingerprints, byFingerprint),
+			Status:         benchmarkStatus(row.HistoryFingerprints, byFingerprint, unit, lessIsBetter),
 			LatestResultID: row.LatestResultID, LatestSVS: latestSVS,
 			LatestSVSType: latestSVSType,
 			MachineNames:  row.MachineNames, LatestCommitSha: row.LatestCommitSha,
@@ -152,6 +151,18 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		result.NextCursor = &BenchmarkCursor{Ts: last.LatestCommitTimestamp, ID: last.BenchmarkID}
 	}
 	return result, nil
+}
+
+func benchmarkIdentityUnit(units []string) (*string, *bool) {
+	if len(units) != 1 || units[0] == "" {
+		return nil, nil
+	}
+	unit := &units[0]
+	lessIsBetter := lessIsBetterPtr(unit)
+	if lessIsBetter == nil {
+		return nil, nil
+	}
+	return unit, lessIsBetter
 }
 
 func benchmarkPreview(
@@ -192,11 +203,18 @@ func benchmarkPreview(
 	return tracks
 }
 
-func benchmarkStatus(fingerprints []string, members map[string][]storage.HistoryRow) string {
+func benchmarkStatus(
+	fingerprints []string,
+	members map[string][]storage.HistoryRow,
+	unit *string,
+	lessIsBetter *bool,
+) string {
+	if unit == nil || lessIsBetter == nil {
+		return statusInsufficient
+	}
 	best := statusInsufficient
 	for _, fingerprint := range fingerprints {
 		segment := members[fingerprint]
-		unit, lessIsBetter := seriesIdentityUnit(segment)
 		status := seriesStatus(segment, unit, lessIsBetter)
 		if status == statusRegressed {
 			return statusRegressed

@@ -912,6 +912,7 @@ func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkList
 			LatestUnit:               row.LatestUnit,
 			LatestData:               row.LatestData,
 			PointCount:               row.PointCount,
+			BenchmarkUnits:           row.BenchmarkUnits,
 			HistoryFingerprints:      row.HistoryFingerprints,
 			MachineNames:             row.MachineNames,
 			CaseName:                 row.CaseName,

@@ -69,9 +69,25 @@ func TestSeriesStatus(t *testing.T) {
 func TestBenchmarkStatusUsesWorstFleetSegment(t *testing.T) {
 	stable := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
 	regressed := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s")
+	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
 	assert.Equal(t, statusRegressed, benchmarkStatus(
 		[]string{"stable-machine", "regressed-machine"},
 		map[string][]storage.HistoryRow{"stable-machine": stable, "regressed-machine": regressed},
+		unit,
+		lessIsBetter,
+	))
+}
+
+func TestBenchmarkStatusRejectsMixedFleetUnits(t *testing.T) {
+	seconds := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
+	nanoseconds := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "ns")
+	unit, lessIsBetter := benchmarkIdentityUnit([]string{"ns", "s"})
+
+	assert.Equal(t, statusInsufficient, benchmarkStatus(
+		[]string{"seconds-machine", "nanoseconds-machine"},
+		map[string][]storage.HistoryRow{"seconds-machine": seconds, "nanoseconds-machine": nanoseconds},
+		unit,
+		lessIsBetter,
 	))
 }
 
