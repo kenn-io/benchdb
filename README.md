@@ -4,12 +4,15 @@ BenchDB stores benchmark results, groups them into comparable series, and
 surfaces performance changes through an API, command-line interface, and web
 dashboard.
 
+Learn how it works at [benchdb.io](https://benchdb.io/) or start with the
+[quickstart](https://benchdb.io/docs/quickstart/).
+
 The maintained implementation is a Go service with an embedded Svelte web app,
 a generated Go client, and PostgreSQL storage. The Go module is
 `go.kenn.io/benchdb`.
 
-BenchDB is under active development. The repository remains private while the
-project identity, deployment, and product direction are established.
+BenchDB is under active development. Its command and storage interfaces can
+change before the first stable release.
 
 ## Build and test
 
