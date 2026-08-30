@@ -28,6 +28,7 @@ const detail: ResultDetail = {
   hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
   commit: {
     id: "c1",
+    is_default_branch: true,
     message: "tune",
     repository: "https://github.com/benchdb/demo",
     sha: "abc1234def",
