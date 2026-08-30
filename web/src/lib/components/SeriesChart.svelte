@@ -719,7 +719,7 @@
   .chart-overlay {
     position: absolute;
     pointer-events: none;
-    overflow: visible;
+    overflow: hidden;
     z-index: 2;
   }
   .chart-overlay .band-fill {

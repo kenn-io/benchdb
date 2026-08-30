@@ -16,6 +16,7 @@ pg_dump --format=custom --no-owner --no-acl \
   --file benchdb-recovery.dump "$OLD_BENCHDB_DATABASE_URL"
 pg_dump --format=custom --data-only --no-owner --no-acl \
   --exclude-table-data=public.schema_migrations \
+  --exclude-table-data=public.alembic_version \
   --file benchdb-data.dump "$OLD_BENCHDB_DATABASE_URL"
 ```
 
