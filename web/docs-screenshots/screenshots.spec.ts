@@ -228,7 +228,7 @@ async function getJSON<T>(request: APIRequestContext, url: string): Promise<T> {
 
 async function gotoReady(page: Page, url: string, heading: RegExp) {
   await page.goto(url);
-  await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+  await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
 }
 
 async function gotoTrend(page: Page, benchmarkID: string) {

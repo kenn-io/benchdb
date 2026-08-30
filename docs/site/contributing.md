@@ -158,8 +158,8 @@ navigation, scrubbed volatile result IDs, and no leaked internal screenshot
 origin. CI runs the same screenshot capture path, checks the generated artifact
 directory for complete, nonblank PNGs, verifies that the Docker image uses the
 same exact Playwright pin as the web package, and uploads those PNGs and the
-evidence JSON as the `benchdb-dashboard-screenshots` artifact. The main-branch
-documentation workflow captures the same deterministic inventory from the
-revision being published and includes it in the GitHub Pages artifact. The
+evidence JSON as the `benchdb-dashboard-screenshots` artifact. Release-ready
+captures live on the orphan `docs-screenshots` branch. The website workflow
+checks out and verifies that inventory before it builds the Vercel output. The
 orphan `docs-assets` branch remains limited to the curated product screenshot
 used by the marketing home page.

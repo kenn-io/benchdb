@@ -3,6 +3,7 @@ _build/
 _kpbuild/
 /var/
 /site/
+/.vercel/
 /website/assets/*.png
 /website/assets/.docs-assets.synced
 /.cache/
@@ -55,3 +56,6 @@ coverage.out
 
 # Superpowers brainstorm companion local mockups.
 /.superpowers/
+
+# Vercel creates a local deployment credential when linking the project.
+/.env.local

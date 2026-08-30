@@ -2,7 +2,7 @@
 
 This page is the shortest reliable entry point for an agent or script that
 needs to submit, inspect, or operate BenchDB. Read
-[`/llms.txt`](https://benchdb.kenn.io/llms.txt) for an index of every
+[`/llms.txt`](https://benchdb.io/llms.txt) for an index of every
 machine-readable documentation page.
 
 ## Mental model

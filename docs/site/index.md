@@ -36,9 +36,9 @@ The main surfaces are:
 | Integrate BenchDB from an agent or script | [Agent and automation guide](agents.md) |
 | Deploy and maintain a server | [Operations](operations.md) |
 
-The short [Guide to BenchDB](https://benchdb.kenn.io/guide/) follows one
+The short [Guide to BenchDB](https://benchdb.io/guide/) follows one
 benchmark result through the whole system. The
-[product page](https://benchdb.kenn.io/) is the quickest overview for someone
+[product page](https://benchdb.io/) is the quickest overview for someone
 deciding whether BenchDB fits their team.
 
 ## Supported surfaces
@@ -57,6 +57,6 @@ deciding whether BenchDB fits their team.
 
 Every rendered reference page has a raw Markdown twin. Replace the trailing
 slash in a docs URL with `.md`, or start at
-[`/llms.txt`](https://benchdb.kenn.io/llms.txt) for a complete index. The
+[`/llms.txt`](https://benchdb.io/llms.txt) for a complete index. The
 [agent and automation guide](agents.md) gives coding agents the shortest
 reliable path through the product contracts.
