@@ -63,10 +63,10 @@ result as a prebuilt static Vercel deployment.
 
 ## Origin
 
-BenchDB began as an independent fork of the Go rewrite developed on Conbench's
-`experimental-v2` branch. We are grateful to the Conbench contributors for that
-foundation and for the project's original vision of language-independent
-continuous benchmarking.
+BenchDB began as an independent fork of the Go rewrite developed on
+[Conbench](https://github.com/conbench/conbench)'s `experimental-v2` branch. We
+are grateful to the Conbench contributors for that foundation and for the
+project's original vision of language-independent continuous benchmarking.
 
 BenchDB is now developed independently for a different product direction. See
 [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE) for attribution and license terms.

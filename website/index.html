@@ -32,7 +32,32 @@
         <nav class="site-nav" aria-label="Primary navigation">
           <a href="/guide/">Guide</a>
           <a href="/docs/">Docs</a>
-          <a class="repo-link" href="https://github.com/kenn-io/benchdb">GitHub</a>
+          <a class="repo-link" href="https://github.com/kenn-io/benchdb">
+            <svg class="repo-mark" width="20" height="20" aria-hidden="true"><use href="/icons.svg#github"></use></svg>
+            <span class="repo-meta">
+              <span class="repo-name">kenn-io/benchdb</span>
+              <span class="repo-facts" data-repo-facts hidden>
+                <span class="repo-fact" data-repo-fact="version" hidden>
+                  <span class="sr-only">latest release</span>
+                  <svg width="11" height="11" aria-hidden="true"><use href="/icons.svg#tag"></use></svg>
+                  <span data-repo-fact-text></span>
+                </span>
+                <span class="repo-fact" data-repo-fact="stars" hidden>
+                  <span class="sr-only">stars</span>
+                  <svg width="11" height="11" aria-hidden="true"><use href="/icons.svg#star"></use></svg>
+                  <span data-repo-fact-text></span>
+                </span>
+                <span class="repo-fact" data-repo-fact="forks" hidden>
+                  <span class="sr-only">forks</span>
+                  <svg width="11" height="11" aria-hidden="true"><use href="/icons.svg#fork"></use></svg>
+                  <span data-repo-fact-text></span>
+                </span>
+              </span>
+            </span>
+          </a>
+          <a class="social-icon" href="https://discord.gg/nEB7VaAnU9" aria-label="BenchDB Discord">
+            <svg width="22" height="22" aria-hidden="true"><use href="/icons.svg#discord"></use></svg>
+          </a>
         </nav>
       </div>
     </header>
@@ -164,9 +189,10 @@
     <footer class="site-footer">
       <div class="container footer-inner">
         <div><strong>BenchDB</strong><span>Continuous performance testing with context.</span></div>
-        <nav aria-label="Footer navigation"><a href="/guide/">Guide</a><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/kenn-io/benchdb">GitHub</a></nav>
+        <nav aria-label="Footer navigation"><a href="/guide/">Guide</a><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/kenn-io/benchdb">GitHub</a><a href="https://discord.gg/nEB7VaAnU9">Discord</a></nav>
         <p>© 2026 <a href="https://kenn.io">Kenn Software LLC</a> · MIT License</p>
       </div>
     </footer>
+    <script type="module" src="/scripts/site.js"></script>
   </body>
 </html>
