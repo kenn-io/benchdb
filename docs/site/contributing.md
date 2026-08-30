@@ -106,6 +106,27 @@ placeholders such as
 available, because deleted generated SPA assets can otherwise leave stale
 `//go:embed` cache metadata that names old hashed files.
 
+### Website deployment
+
+The website is deployed through Vercel's CLI. Its GitHub workflow checks the
+complete tiered site but does not publish it.
+
+Link the repository root to the `benchdb.io` project once:
+
+```bash
+vercel link --yes --team kenn-software --project benchdb.io
+```
+
+Then build and deploy the exact local artifact:
+
+```bash
+make site-deploy
+```
+
+The build hydrates the curated product screenshot from the `docs-assets`
+branch, renders the product, guide, and reference layers, and stages that result
+as a prebuilt static Vercel deployment.
+
 ## Dashboard Product Principles
 
 The Svelte dashboard is an operational benchmarking workbench. It should feel
