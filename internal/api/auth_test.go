@@ -212,7 +212,7 @@ func TestCLIStartRejectsNonLoopbackRedirect(t *testing.T) {
 	for _, bad := range []string{
 		"https://evil.example/callback",
 		"http://localhost:5000/callback", // hostname, not a literal loopback IP
-		"http://10.0.0.5:5000/callback",
+		"http://192.0.2.5:5000/callback",
 	} {
 		resp := tapi.Get("/api/auth/cli-start?redirect_uri=" + url.QueryEscape(bad) + "&state=s")
 		assert.Equal(t, http.StatusBadRequest, resp.Code, bad)

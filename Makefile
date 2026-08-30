@@ -31,8 +31,12 @@ docs-link-check:
 docs-assets:
 	./scripts/sync_docs_assets.sh
 
+.PHONY: docs-screenshot-assets
+docs-screenshot-assets:
+	./scripts/sync_docs_screenshots.sh
+
 .PHONY: build-docs
-build-docs: check-zensical-version docs-link-check docs-screenshots-check docs-assets
+build-docs: check-zensical-version docs-link-check docs-assets docs-screenshot-assets
 
 .PHONY: build-docs-ci
 build-docs-ci: check-zensical-version docs-link-check docs-screenshots-check
