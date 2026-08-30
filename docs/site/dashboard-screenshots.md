@@ -6,7 +6,10 @@ data or hand-picked local state.
 
 The PNGs and evidence JSON are generated artifacts. They are not committed to
 the main development branch. CI uploads deterministic dashboard captures as a
-`benchdb-dashboard-screenshots` artifact for each run.
+`benchdb-dashboard-screenshots` artifact for each run. The main-branch site
+workflow captures the same inventory from the revision being published and
+refuses to build or deploy the site if any referenced image is absent or fails
+validation.
 
 Refresh the deterministic dashboard captures from a clean checkout with:
 
@@ -41,7 +44,9 @@ in the Docker image is checked against the exact `@playwright/test` pin in
 data.
 
 CI runs the same capture path and checks the generated artifact directory before
-upload.
+upload. The publishing workflow generates the inventory directly into the
+documentation source tree, verifies it, renders it into `site/docs/assets`, and
+then uploads the complete `site/` directory as the GitHub Pages artifact.
 
 The Playwright capture test also checks the page state before it writes an
 image:

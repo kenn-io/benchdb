@@ -70,7 +70,7 @@ jobs:
         with:
           version: "0.9.2"
           enable-cache: true
-      - run: make build-docs
+      - run: make build-docs-ci
 
   docs-screenshots:
     runs-on: ubuntu-latest

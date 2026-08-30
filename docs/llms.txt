@@ -1,0 +1,42 @@
+# BenchDB
+
+> BenchDB is a language-independent continuous benchmarking system. Benchmark
+> jobs publish structured JSON to a Go API backed by PostgreSQL. BenchDB groups
+> comparable measurements into histories and exposes them through a dashboard,
+> CLI, OpenAPI, and generated clients.
+
+The Guide is a short product workflow. The Docs links below are comprehensive
+task-oriented references. Every rendered page at `/docs/<page>/` is also served
+as raw Markdown at `/docs/<page>.md`.
+
+## Start here
+
+- [Documentation overview](https://benchdb.kenn.io/docs.md): Product model, supported surfaces, and audience map
+- [Quickstart](https://benchdb.kenn.io/docs/quickstart.md): Configure the CLI, submit one result, and find it in the dashboard
+- [Concepts](https://benchdb.kenn.io/docs/concepts.md): Results, series, runs, commits, comparisons, and health vocabulary
+- [Agent and automation guide](https://benchdb.kenn.io/docs/agents.md): Integration sequence, invariants, interfaces, and source-of-truth order
+
+## Publish and investigate
+
+- [Submitting results](https://benchdb.kenn.io/docs/submitting-results.md): Payload shape, file conventions, and retryable publication
+- [CI reporting](https://benchdb.kenn.io/docs/ci-reporting.md): CI selectors, baselines, GitHub publishing, statuses, and exit codes
+- [Browsing and comparing](https://benchdb.kenn.io/docs/browsing-and-comparing.md): Dashboard routes, trend inspection, run detail, exports, and comparisons
+- [Regression analysis](https://benchdb.kenn.io/docs/regression-analysis.md): Pairwise change, lookback z-scores, thresholds, and statuses
+- [Dashboard screenshots](https://benchdb.kenn.io/docs/dashboard-screenshots.md): Annotated views of the main dashboard workflows
+
+## Automate and operate
+
+- [Alerting](https://benchdb.kenn.io/docs/alerting.md): Scheduled regression evaluation and delivery
+- [API and SDK](https://benchdb.kenn.io/docs/api-and-sdk.md): OpenAPI and generated Go and TypeScript clients
+- [CLI reference](https://benchdb.kenn.io/docs/cli-reference.md): Supported command groups and option contracts
+- [Authentication and tokens](https://benchdb.kenn.io/docs/auth-and-tokens.md): OIDC users, reporter tokens, and token handling
+- [Operations](https://benchdb.kenn.io/docs/operations.md): Runtime configuration, containers, migrations, health, and deployment
+- [Production clone compatibility](https://benchdb.kenn.io/docs/prod-clone-compatibility.md): Compatibility constraints for cloned production data
+- [Storage roadmap](https://benchdb.kenn.io/docs/storage-roadmap.md): Current storage boundaries and planned direction
+- [Contributing](https://benchdb.kenn.io/docs/contributing.md): Local development and repository checks
+
+## Other
+
+- [BenchDB home](https://benchdb.kenn.io/): Product overview
+- [Guide to BenchDB](https://benchdb.kenn.io/guide/): The path from benchmark process to performance decision
+- [Source repository](https://github.com/kenn-io/benchdb): Source, issues, and releases

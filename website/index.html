@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BenchDB — continuous performance testing with context</title>
+    <meta
+      name="description"
+      content="BenchDB turns benchmark results into comparable histories, fleet-aware trends, and CI decisions. Bring any benchmark harness; publish structured JSON."
+    />
+    <link rel="canonical" href="https://benchdb.kenn.io/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/site.css" />
+    <meta property="og:title" content="BenchDB" />
+    <meta
+      property="og:description"
+      content="Continuous performance testing that keeps every result in context."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://benchdb.kenn.io/" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="BenchDB home">
+          <svg viewBox="0 0 40 40" role="img" aria-hidden="true">
+            <rect width="40" height="40" rx="10" />
+            <path d="M10 11h10c5 0 8 2 8 6 0 2.4-1.2 4.1-3.5 5 3 .8 4.5 2.8 4.5 5.6 0 4.3-3.2 6.4-8.8 6.4H10V11Zm7 5v4h3c1.7 0 2.6-.7 2.6-2s-.9-2-2.6-2h-3Zm0 9v4h3.7c1.8 0 2.8-.7 2.8-2s-1-2-2.8-2H17Z" />
+          </svg>
+          <span>BenchDB</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="/guide/">Guide</a>
+          <a href="/docs/">Docs</a>
+          <a class="repo-link" href="https://github.com/kenn-io/benchdb">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">BenchDB</p>
+            <h1>Continuous performance results, in context.</h1>
+            <p class="lede">
+              Store results from CI, scheduled machines, and local runs. Browse each
+              benchmark over time, compare machines and commits, and publish CI reports
+              through one API.
+            </p>
+            <div class="button-row">
+              <a class="button primary" href="/docs/quickstart/">Get started</a>
+              <a class="button secondary" href="/guide/">Read the guide</a>
+            </div>
+            <p class="fine-print">Language-independent · Go service · PostgreSQL · MIT licensed</p>
+          </div>
+
+          <figure class="product-shot">
+            <img
+              src="/assets/benchmark-series.png"
+              alt="BenchDB showing one benchmark across two machines, with calendar-time trends, rolling means, uncertainty bands, and a detected regression"
+              width="1378"
+              height="565"
+            />
+            <figcaption>Actual BenchDB interface with deterministic demo data.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="proof-strip">
+        <div class="container proof-grid">
+          <div><strong>Input</strong><span>Structured JSON</span></div>
+          <div><strong>Service</strong><span>Go and PostgreSQL</span></div>
+          <div><strong>Interfaces</strong><span>Web, CLI, and OpenAPI</span></div>
+          <div><strong>License</strong><span>MIT</span></div>
+        </div>
+      </section>
+
+      <section class="section workflow">
+        <div class="container">
+          <p class="eyebrow">How it works</p>
+          <h2>Measure, publish, and inspect.</h2>
+          <div class="three-up">
+            <article>
+              <span class="step-number">01</span>
+              <h3>Run benchmarks anywhere</h3>
+              <p>Your harness owns execution. BenchDB accepts result files from CI, scheduled fleets, or local experiments without dictating the benchmark framework.</p>
+            </article>
+            <article>
+              <span class="step-number">02</span>
+              <h3>Publish structured results</h3>
+              <p>The CLI sends measurements with run, commit, machine, unit, and benchmark identity. Publication can retry without repeating the measurement.</p>
+            </article>
+            <article>
+              <span class="step-number">03</span>
+              <h3>Decide with history</h3>
+              <p>Inspect trends across the fleet, compare results, and use history-aware CI reports to separate meaningful changes from ordinary noise.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section context-section">
+        <div class="container context-grid">
+          <div>
+            <p class="eyebrow">Result history</p>
+            <h2>Trace a measurement to its context.</h2>
+            <p class="section-lede">
+              BenchDB keeps measurements connected to the benchmark case, run,
+              repository commit, machine, unit, and comparable history. Start with the
+              signal and move to detail without reconstructing context from CI logs.
+            </p>
+            <a class="text-link" href="/docs/browsing-and-comparing/">Explore the dashboard workflow →</a>
+          </div>
+          <div class="context-stack">
+            <div class="context-row"><span class="context-icon">R</span><div><strong>Run</strong><small>Did the complete attempt publish, and did anything error?</small></div></div>
+            <div class="context-row"><span class="context-icon">#</span><div><strong>Result</strong><small>What exactly was measured, where, and with which raw values?</small></div></div>
+            <div class="context-row"><span class="context-icon">↗</span><div><strong>Series</strong><small>How does this measurement sit in calendar time across the fleet?</small></div></div>
+            <div class="context-row"><span class="context-icon">✓</span><div><strong>CI report</strong><small>Is the change stable, improved, regressed, or still insufficient?</small></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section interfaces">
+        <div class="container">
+          <p class="eyebrow">Interfaces</p>
+          <h2>Use the browser, CLI, or API.</h2>
+          <div class="four-up">
+            <article><span class="feature-mark">CLI</span><h3>Command-line client</h3><p>Submit files, create CI reports, compare results, list series, and export histories from one binary.</p></article>
+            <article><span class="feature-mark">API</span><h3>OpenAPI</h3><p>Use the HTTP contract directly or generate integrations in the language your systems already use.</p></article>
+            <article><span class="feature-mark">WEB</span><h3>Web interface</h3><p>Browse activity, trends, machines, results, and comparisons without reading raw payloads.</p></article>
+            <article><span class="feature-mark">ALERT</span><h3>Scheduled alerts</h3><p>Evaluate regression rules separately from delivery so monitoring fits your existing job system.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section audience">
+        <div class="container audience-grid">
+          <div class="audience-heading">
+            <p class="eyebrow">Documentation</p>
+            <h2>Start with your role.</h2>
+          </div>
+          <a class="audience-card" href="/docs/quickstart/"><span>New to BenchDB</span><strong>Submit a first result</strong><small>Build the CLI, configure a token, publish JSON, and find the result.</small></a>
+          <a class="audience-card" href="/docs/ci-reporting/"><span>CI owner</span><strong>Gate on performance</strong><small>Match report selectors to result metadata and choose the right baseline.</small></a>
+          <a class="audience-card" href="/docs/agents/"><span>Agent or integrator</span><strong>Use the machine-readable contract</strong><small>Follow the integration sequence, invariants, CLI, and OpenAPI surfaces.</small></a>
+          <a class="audience-card" href="/docs/operations/"><span>Operator</span><strong>Run the service</strong><small>Deploy the Go server and PostgreSQL, migrate safely, and monitor health.</small></a>
+        </div>
+      </section>
+
+      <section class="final-cta">
+        <div class="container final-panel">
+          <div>
+            <p class="eyebrow">Quickstart</p>
+            <h2>Publish your first benchmark result.</h2>
+          </div>
+          <div class="button-row">
+            <a class="button primary" href="/docs/quickstart/">Get started</a>
+            <a class="button secondary" href="https://github.com/kenn-io/benchdb">View source</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div><strong>BenchDB</strong><span>Continuous performance testing with context.</span></div>
+        <nav aria-label="Footer navigation"><a href="/guide/">Guide</a><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/kenn-io/benchdb">GitHub</a></nav>
+        <p>© 2026 <a href="https://kenn.io">Kenn Software LLC</a> · MIT License</p>
+      </div>
+    </footer>
+  </body>
+</html>
