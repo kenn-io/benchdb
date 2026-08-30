@@ -117,16 +117,21 @@ describe("SeriesChart", () => {
 
   it("zooms by horizontal brush and resets to the full time range", async () => {
     plotState.scaleCalls = [];
+    const onopen = vi.fn();
     const laterPoint = {
       ...boundaryPoint,
       resultId: "r2",
       chartMs: Date.parse("2026-01-11T00:00:00Z"),
     };
-    render(SeriesChart, { props: { points: [boundaryPoint, laterPoint] } });
+    const { container } = render(SeriesChart, {
+      props: { points: [boundaryPoint, laterPoint], onopen },
+    });
     const options = plotState.options as { cursor: { drag: { x: boolean; y: boolean; dist: number } } };
     expect(options.cursor.drag).toMatchObject({ x: true, y: false, dist: 8 });
 
     plotState.selectHook?.(plotState.instance);
+    await tick();
+    plotState.cursorHook?.(plotState.instance);
     await tick();
     await fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
 
@@ -137,6 +142,9 @@ describe("SeriesChart", () => {
         max: Date.parse("2026-01-11T00:00:00Z") / 1000,
       },
     }]);
+    expect(onopen).not.toHaveBeenCalled();
+    await fireEvent.click(container.querySelector(".chart-wrap")!);
+    expect(onopen).not.toHaveBeenCalled();
   });
 
   it("resolves hover through the active time scale after zoom", async () => {

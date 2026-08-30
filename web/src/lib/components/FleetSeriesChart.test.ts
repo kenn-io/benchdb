@@ -168,7 +168,8 @@ describe("FleetSeriesChart", () => {
 
   it("zooms by horizontal brush and resets to the full time range", async () => {
     plotState.scaleCalls = [];
-    render(FleetSeriesChart, {
+    const onopen = vi.fn();
+    const { container } = render(FleetSeriesChart, {
       props: {
         tracks: [{
           machineName: "machine-a",
@@ -178,12 +179,15 @@ describe("FleetSeriesChart", () => {
             point("day-11", 3, "2026-01-11T00:00:00Z"),
           ],
         }],
+        onopen,
       },
     });
     const options = plotState.options as { cursor: { drag: { x: boolean; y: boolean; dist: number } } };
     expect(options.cursor.drag).toMatchObject({ x: true, y: false, dist: 8 });
 
     plotState.selectHook?.(plotState.instance);
+    await tick();
+    plotState.cursorHook?.(plotState.instance);
     await tick();
     await fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
 
@@ -195,6 +199,9 @@ describe("FleetSeriesChart", () => {
       },
     }]);
     expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
+    expect(onopen).not.toHaveBeenCalled();
+    await fireEvent.click(container.querySelector(".fleet-chart")!);
+    expect(onopen).not.toHaveBeenCalled();
   });
 
   it("shows the nearest machine point and opens its result on click", async () => {

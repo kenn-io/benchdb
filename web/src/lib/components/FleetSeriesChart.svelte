@@ -305,7 +305,10 @@
     tip = null;
   }
 
-  function resetZoom() {
+  function resetZoom(event: MouseEvent) {
+    event.stopPropagation();
+    hovered = null;
+    tip = null;
     const xs = tracks.flatMap((track) => track.points.map((point) => point.chartMs / 1000));
     if (chart === undefined || xs.length === 0) return;
     zoomWindow = null;

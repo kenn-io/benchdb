@@ -504,7 +504,10 @@
     tip = null;
   }
 
-  function resetZoom() {
+  function resetZoom(event: MouseEvent) {
+    event.stopPropagation();
+    hoverIndex = null;
+    tip = null;
     if (chart === undefined || points.length === 0) return;
     zoomWindow = null;
     chart.setScale("x", {
