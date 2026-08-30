@@ -127,7 +127,7 @@ func TestCIReportForkPointUsesLookbackStatusNotPairwiseOnly(t *testing.T) {
 	require.Len(t, report.Runs[0].Comparisons, 1)
 	row := report.Runs[0].Comparisons[0]
 	assert.Equal(t, contender.ID, row.Contender.ResultID)
-	assert.Equal(t, "/benchmarks/history/"+contender.ID, row.Links.Series)
+	assert.Equal(t, "/series/"+contender.HistoryFingerprint, row.Links.Series)
 	require.NotNil(t, row.Baseline)
 	assert.Equal(t, baseline.ID, row.Baseline.ResultID)
 	require.NotNil(t, row.Baseline.CommitSHA)
