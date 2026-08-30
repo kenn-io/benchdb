@@ -31,6 +31,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     hash: "abcdef123456",
     repository: "https://github.com/apache/arrow",
     timestamp: "2026-01-02T00:00:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,

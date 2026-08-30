@@ -163,7 +163,8 @@ SELECT
   c.sha AS commit_sha,
   c.repository AS commit_repository,
   c.message AS commit_message,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
@@ -213,6 +214,7 @@ type GetBenchmarkResultDetailRow struct {
 	CommitRepository      *string
 	CommitMessage         *string
 	CommitTimestamp       *time.Time
+	CommitIsDefaultBranch bool
 }
 
 // The persisted result joined to its related entities, for the result-detail
@@ -261,6 +263,7 @@ func (q *Queries) GetBenchmarkResultDetail(ctx context.Context, id string) (GetB
 		&i.CommitRepository,
 		&i.CommitMessage,
 		&i.CommitTimestamp,
+		&i.CommitIsDefaultBranch,
 	)
 	return i, err
 }
@@ -379,7 +382,8 @@ SELECT
   c.author_name AS commit_author_name,
   c.author_login AS commit_author_login,
   c.author_avatar AS commit_author_avatar,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 LEFT JOIN commit c ON c.id = br.commit_id
@@ -404,25 +408,26 @@ type SelectBenchmarkResultsParams struct {
 }
 
 type SelectBenchmarkResultsRow struct {
-	ID                 string
-	RunID              string
-	RunReason          *string
-	RunTags            []byte
-	BatchID            *string
-	Timestamp          time.Time
-	Unit               *string
-	Data               []*float64
-	Error              []byte
-	HistoryFingerprint string
-	CaseName           string
-	CaseTags           []byte
-	CommitSha          *string
-	CommitRepository   *string
-	CommitMessage      *string
-	CommitAuthorName   *string
-	CommitAuthorLogin  *string
-	CommitAuthorAvatar *string
-	CommitTimestamp    *time.Time
+	ID                    string
+	RunID                 string
+	RunReason             *string
+	RunTags               []byte
+	BatchID               *string
+	Timestamp             time.Time
+	Unit                  *string
+	Data                  []*float64
+	Error                 []byte
+	HistoryFingerprint    string
+	CaseName              string
+	CaseTags              []byte
+	CommitSha             *string
+	CommitRepository      *string
+	CommitMessage         *string
+	CommitAuthorName      *string
+	CommitAuthorLogin     *string
+	CommitAuthorAvatar    *string
+	CommitTimestamp       *time.Time
+	CommitIsDefaultBranch bool
 }
 
 // Minimal list/search: optional run_id/batch_id/run_reason/timestamp filters, cursor
@@ -468,6 +473,7 @@ func (q *Queries) SelectBenchmarkResults(ctx context.Context, arg SelectBenchmar
 			&i.CommitAuthorLogin,
 			&i.CommitAuthorAvatar,
 			&i.CommitTimestamp,
+			&i.CommitIsDefaultBranch,
 		); err != nil {
 			return nil, err
 		}

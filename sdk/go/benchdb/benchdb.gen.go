@@ -454,11 +454,12 @@ type ClusterInfo struct {
 
 // Commit defines model for Commit.
 type Commit struct {
-	Id         string     `json:"id"`
-	Message    string     `json:"message"`
-	Repository string     `json:"repository"`
-	Sha        string     `json:"sha"`
-	Timestamp  *time.Time `json:"timestamp"`
+	Id              string     `json:"id"`
+	IsDefaultBranch bool       `json:"is_default_branch"`
+	Message         string     `json:"message"`
+	Repository      string     `json:"repository"`
+	Sha             string     `json:"sha"`
+	Timestamp       *time.Time `json:"timestamp"`
 }
 
 // CompareAnalysis defines model for CompareAnalysis.
@@ -611,13 +612,14 @@ type ListAlertRulesOutputBody struct {
 
 // ListCommit defines model for ListCommit.
 type ListCommit struct {
-	AuthorAvatar *string    `json:"author_avatar"`
-	AuthorLogin  *string    `json:"author_login"`
-	AuthorName   string     `json:"author_name"`
-	Hash         string     `json:"hash"`
-	Message      string     `json:"message"`
-	Repository   string     `json:"repository"`
-	Timestamp    *time.Time `json:"timestamp"`
+	AuthorAvatar    *string    `json:"author_avatar"`
+	AuthorLogin     *string    `json:"author_login"`
+	AuthorName      string     `json:"author_name"`
+	Hash            string     `json:"hash"`
+	IsDefaultBranch bool       `json:"is_default_branch"`
+	Message         string     `json:"message"`
+	Repository      string     `json:"repository"`
+	Timestamp       *time.Time `json:"timestamp"`
 }
 
 // ListTokensOutputBody defines model for ListTokensOutputBody.

@@ -797,6 +797,8 @@ components:
       properties:
         id:
           type: string
+        is_default_branch:
+          type: boolean
         message:
           type: string
         repository:
@@ -813,6 +815,7 @@ components:
         - repository
         - message
         - timestamp
+        - is_default_branch
       type: object
     CompareAnalysis:
       additionalProperties: false
@@ -1145,6 +1148,8 @@ components:
           type: string
         hash:
           type: string
+        is_default_branch:
+          type: boolean
         message:
           type: string
         repository:
@@ -1161,6 +1166,7 @@ components:
         - author_login
         - author_avatar
         - timestamp
+        - is_default_branch
       type: object
     ListTokensOutputBody:
       additionalProperties: false

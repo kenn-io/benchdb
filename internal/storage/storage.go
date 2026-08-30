@@ -515,6 +515,7 @@ type ResultDetailRow struct {
 	CommitRepository      *string
 	CommitMessage         *string
 	CommitTimestamp       *time.Time
+	CommitIsDefaultBranch bool
 }
 
 // BenchmarkHistoryRow is one fingerprint-local history member with the
@@ -585,25 +586,26 @@ type ListResultsParams struct {
 // computes the single value summary and has_error from Unit/Data/Error; the
 // commit columns are nil for a result without a commit.
 type ResultListRow struct {
-	ID                 string
-	RunID              string
-	RunReason          *string
-	RunTags            []byte
-	BatchID            *string
-	Timestamp          time.Time
-	Unit               *string
-	Data               []*float64
-	Error              []byte
-	HistoryFingerprint string
-	CaseName           string
-	CaseTags           []byte
-	CommitSha          *string
-	CommitRepository   *string
-	CommitMessage      *string
-	CommitAuthorName   *string
-	CommitAuthorLogin  *string
-	CommitAuthorAvatar *string
-	CommitTimestamp    *time.Time
+	ID                    string
+	RunID                 string
+	RunReason             *string
+	RunTags               []byte
+	BatchID               *string
+	Timestamp             time.Time
+	Unit                  *string
+	Data                  []*float64
+	Error                 []byte
+	HistoryFingerprint    string
+	CaseName              string
+	CaseTags              []byte
+	CommitSha             *string
+	CommitRepository      *string
+	CommitMessage         *string
+	CommitAuthorName      *string
+	CommitAuthorLogin     *string
+	CommitAuthorAvatar    *string
+	CommitTimestamp       *time.Time
+	CommitIsDefaultBranch bool
 }
 
 // RecentRunsParams bounds the landing-page run summary. CandidateResultCount

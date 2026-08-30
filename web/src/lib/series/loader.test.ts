@@ -127,7 +127,7 @@ describe("loadTrend", () => {
   it("resolves a result to its benchmark before loading fleet history", async () => {
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/benchmark-results/{id}") {
-        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123" } } };
+        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
       }
       if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
       throw new Error(`unexpected url ${url}`);
@@ -144,7 +144,7 @@ describe("loadTrend", () => {
           data: {
             benchmark_id: "benchmark-1",
             error: { message: "failed" },
-            commit: { sha: "abc123" },
+            commit: { sha: "abc123", is_default_branch: true },
           },
         };
       }
@@ -174,10 +174,27 @@ describe("loadTrend", () => {
     expect(GET).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects an off-branch result before loading unrelated default-branch history", async () => {
+    const result = {
+      benchmark_id: "benchmark-1",
+      error: null,
+      commit: { sha: "pr-sha", is_default_branch: false },
+    };
+    const GET = vi.fn(async (url: string) => {
+      if (url === "/api/benchmark-results/{id}") return { data: result };
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    await expect(
+      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "pr-result" }),
+    ).rejects.toThrow(/no comparable default-branch history/i);
+    expect(GET).toHaveBeenCalledTimes(1);
+  });
+
   it("reports an empty logical benchmark as unavailable history", async () => {
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/benchmark-results/{id}") {
-        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123" } } };
+        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
       }
       if (url === "/api/benchmarks/{benchmark_id}") {
         return { error: { detail: "not found" }, response: { status: 404 } };

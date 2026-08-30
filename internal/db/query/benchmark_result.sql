@@ -64,7 +64,8 @@ SELECT
   c.sha AS commit_sha,
   c.repository AS commit_repository,
   c.message AS commit_message,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
@@ -99,7 +100,8 @@ SELECT
   c.author_name AS commit_author_name,
   c.author_login AS commit_author_login,
   c.author_avatar AS commit_author_avatar,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM benchmark_result br
 JOIN "case" cs ON cs.id = br.case_id
 LEFT JOIN commit c ON c.id = br.commit_id

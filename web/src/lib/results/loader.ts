@@ -137,9 +137,13 @@ function toResultListRow(result: ResultItem): ResultListRow {
 export function resultTrendHref(result: {
   id: string;
   has_error: boolean;
-  commit?: { hash: string } | null;
+  commit?: { hash: string; is_default_branch: boolean } | null;
 }): string | null {
-  if (result.has_error || (result.commit?.hash.trim() ?? "") === "") return null;
+  if (
+    result.has_error ||
+    (result.commit?.hash.trim() ?? "") === "" ||
+    result.commit?.is_default_branch !== true
+  ) return null;
   return `/benchmarks/history/${encodeURIComponent(result.id)}`;
 }
 

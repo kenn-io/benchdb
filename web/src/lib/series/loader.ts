@@ -183,7 +183,7 @@ async function loadByResult(client: Client, resultId: string): Promise<TrendView
   if (detailRes.error || !detailRes.data) {
     throw new Error(`failed to load benchmark result ${resultId}`);
   }
-  if (detailRes.data.commit === null) {
+  if (detailRes.data.commit === null || detailRes.data.commit.is_default_branch !== true) {
     throw new Error(`benchmark result ${resultId} has no comparable default-branch history`);
   }
   return loadByBenchmark(client, detailRes.data.benchmark_id);

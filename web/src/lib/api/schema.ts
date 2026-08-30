@@ -750,6 +750,7 @@ export interface components {
         };
         Commit: {
             id: string;
+            is_default_branch: boolean;
             message: string;
             repository: string;
             sha: string;
@@ -937,6 +938,7 @@ export interface components {
             author_login: string | null;
             author_name: string;
             hash: string;
+            is_default_branch: boolean;
             message: string;
             repository: string;
             /** Format: date-time */

@@ -54,6 +54,7 @@ func TestResultDetail(t *testing.T) {
 	if assert.NotNil(t, d.Commit) {
 		assert.Equal(t, "abc123", d.Commit.Sha)
 		assert.Equal(t, testRepo, d.Commit.Repository)
+		assert.True(t, d.Commit.IsDefaultBranch)
 	}
 	if assert.NotNil(t, d.Unit) {
 		assert.Equal(t, "s", *d.Unit)
@@ -66,6 +67,21 @@ func TestResultDetail(t *testing.T) {
 	if assert.NotNil(t, d.SVS) {
 		assert.InDelta(t, 1.0, *d.SVS, 1e-9)
 		assert.Equal(t, "min", d.SVSType)
+	}
+}
+
+func TestResultDetailMarksOffBranchCommit(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	ing := service.NewIngester(store, offBranchProvider{forkPoint: "base-sha"})
+	reader := service.NewReader(store)
+
+	res, err := ing.Submit(ctx, withCommit("pr-sha"))
+	require.NoError(t, err)
+
+	detail, err := reader.ResultDetail(ctx, res.ID)
+	require.NoError(t, err)
+	if assert.NotNil(t, detail.Commit) {
+		assert.False(t, detail.Commit.IsDefaultBranch)
 	}
 }
 

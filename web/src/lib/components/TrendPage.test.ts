@@ -69,6 +69,7 @@ const detail = {
   tags: { name: "demo-benchmark", scale: "sf10" },
   context: { compiler: "gcc" },
   hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
+  commit: { sha: "sha-r1", is_default_branch: true },
   commit_repo_url: "https://github.com/benchdb/demo",
   unit: "s",
   less_is_better: true,

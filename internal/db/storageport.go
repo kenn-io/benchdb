@@ -323,6 +323,7 @@ func resultDetailFromRow(r GetBenchmarkResultDetailRow) storage.ResultDetailRow 
 		CommitRepository:      r.CommitRepository,
 		CommitMessage:         r.CommitMessage,
 		CommitTimestamp:       r.CommitTimestamp,
+		CommitIsDefaultBranch: r.CommitIsDefaultBranch,
 	}
 }
 
@@ -435,25 +436,26 @@ func resultListRowsFromRows(rows []SelectBenchmarkResultsRow) []storage.ResultLi
 	out := make([]storage.ResultListRow, len(rows))
 	for i, r := range rows {
 		out[i] = storage.ResultListRow{
-			ID:                 r.ID,
-			RunID:              r.RunID,
-			RunReason:          r.RunReason,
-			RunTags:            r.RunTags,
-			BatchID:            r.BatchID,
-			Timestamp:          r.Timestamp,
-			Unit:               r.Unit,
-			Data:               r.Data,
-			Error:              r.Error,
-			HistoryFingerprint: r.HistoryFingerprint,
-			CaseName:           r.CaseName,
-			CaseTags:           r.CaseTags,
-			CommitSha:          r.CommitSha,
-			CommitRepository:   r.CommitRepository,
-			CommitMessage:      r.CommitMessage,
-			CommitAuthorName:   r.CommitAuthorName,
-			CommitAuthorLogin:  r.CommitAuthorLogin,
-			CommitAuthorAvatar: r.CommitAuthorAvatar,
-			CommitTimestamp:    r.CommitTimestamp,
+			ID:                    r.ID,
+			RunID:                 r.RunID,
+			RunReason:             r.RunReason,
+			RunTags:               r.RunTags,
+			BatchID:               r.BatchID,
+			Timestamp:             r.Timestamp,
+			Unit:                  r.Unit,
+			Data:                  r.Data,
+			Error:                 r.Error,
+			HistoryFingerprint:    r.HistoryFingerprint,
+			CaseName:              r.CaseName,
+			CaseTags:              r.CaseTags,
+			CommitSha:             r.CommitSha,
+			CommitRepository:      r.CommitRepository,
+			CommitMessage:         r.CommitMessage,
+			CommitAuthorName:      r.CommitAuthorName,
+			CommitAuthorLogin:     r.CommitAuthorLogin,
+			CommitAuthorAvatar:    r.CommitAuthorAvatar,
+			CommitTimestamp:       r.CommitTimestamp,
+			CommitIsDefaultBranch: r.CommitIsDefaultBranch,
 		}
 	}
 	return out

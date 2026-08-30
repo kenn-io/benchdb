@@ -47,12 +47,13 @@ type Hardware struct {
 // the contract would claim commit is a required non-null object while the API
 // returns null for commitless results.
 type Commit struct {
-	_          struct{}   `json:"-" nullable:"true"`
-	ID         string     `json:"id"`
-	Sha        string     `json:"sha"`
-	Repository string     `json:"repository"`
-	Message    string     `json:"message"`
-	Timestamp  *time.Time `json:"timestamp"`
+	_               struct{}   `json:"-" nullable:"true"`
+	ID              string     `json:"id"`
+	Sha             string     `json:"sha"`
+	Repository      string     `json:"repository"`
+	Message         string     `json:"message"`
+	Timestamp       *time.Time `json:"timestamp"`
+	IsDefaultBranch bool       `json:"is_default_branch"`
 }
 
 // Aggregates is the persisted sample statistics block. Every field is nullable
@@ -407,11 +408,12 @@ func commitFromRow(row storage.ResultDetailRow) *Commit {
 		return nil
 	}
 	return &Commit{
-		ID:         *row.CommitID,
-		Sha:        derefString(row.CommitSha),
-		Repository: derefString(row.CommitRepository),
-		Message:    derefString(row.CommitMessage),
-		Timestamp:  row.CommitTimestamp,
+		ID:              *row.CommitID,
+		Sha:             derefString(row.CommitSha),
+		Repository:      derefString(row.CommitRepository),
+		Message:         derefString(row.CommitMessage),
+		Timestamp:       row.CommitTimestamp,
+		IsDefaultBranch: row.CommitIsDefaultBranch,
 	}
 }
 

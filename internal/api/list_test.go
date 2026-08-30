@@ -45,7 +45,24 @@ func TestListResultsOrderingAndFields(t *testing.T) {
 	assert.False(t, first.HasError)
 	require.NotNil(t, first.Commit)
 	assert.Equal(t, "c2", first.Commit.Hash)
+	assert.True(t, first.Commit.IsDefaultBranch)
 	assert.Nil(t, page.NextPageCursor, "non-full page has no next cursor")
+}
+
+func TestListResultsMarksOffBranchCommit(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	id := seedResult(t, tapi, seedOpts{sha: "pr-sha", ts: day(1), data: []float64{10}})
+	_, err := pool.Exec(ctx,
+		`UPDATE commit SET fork_point_sha = $1 WHERE repository = $2 AND sha = $3`,
+		"base-sha", defaultRepo, "pr-sha")
+	require.NoError(t, err)
+
+	page := listResults(t, tapi, "")
+	require.Len(t, page.Results, 1)
+	assert.Equal(t, id, page.Results[0].ID)
+	if assert.NotNil(t, page.Results[0].Commit) {
+		assert.False(t, page.Results[0].Commit.IsDefaultBranch)
+	}
 }
 
 func TestListResultsRunIDFilter(t *testing.T) {

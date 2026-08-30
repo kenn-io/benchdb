@@ -29,6 +29,7 @@ const result = (id: string, overrides: Record<string, unknown> = {}) => ({
     author_login: "contributor-a",
     author_avatar: "https://avatars.githubusercontent.com/u/12345?v=4",
     timestamp: "2026-01-02T00:00:00Z",
+    is_default_branch: true,
   },
   has_error: false,
   ...overrides,
