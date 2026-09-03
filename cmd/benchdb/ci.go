@@ -375,13 +375,14 @@ func githubCheckSummary(report *benchdb.CIReport, buildURL string) string {
 	if report.StatusReason != "" {
 		fmt.Fprintf(&b, "\n\nStatus reason: %s", report.StatusReason)
 	}
-	fmt.Fprintf(&b, "\n\nRuns: %d. Contender results: %d. Compared: %d. Analyzed: %d. Regressions: %d. Benchmark errors: %d.",
+	fmt.Fprintf(&b, "\n\nRuns: %d. Contender results: %d. Compared: %d. Analyzed: %d. Regressions: %d. Benchmark errors: %d. Missing baselines: %d.",
 		report.Summary.Runs,
 		report.Summary.ContenderResults,
 		report.Summary.Compared,
 		report.Summary.Analyzed,
 		report.Summary.Regressions,
 		report.Summary.BenchmarkErrors,
+		report.Summary.MissingBaseline,
 	)
 	if report.ReportUrl != "" {
 		fmt.Fprintf(&b, "\n\nBenchDB report: %s", report.ReportUrl)
@@ -396,6 +397,7 @@ func githubCheckDetails(report *benchdb.CIReport) string {
 	var b strings.Builder
 	writeGitHubRows(&b, "Benchmark errors", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusErrored), 10, report.ReportUrl, "")
 	writeGitHubRows(&b, "Benchmark regressions", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusRegressed), 10, report.ReportUrl, "")
+	writeGitHubRows(&b, "Missing baselines", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusMissingBaseline), 10, report.ReportUrl, "")
 	if b.Len() == 0 {
 		return ""
 	}
@@ -407,17 +409,21 @@ func githubPRComment(report *benchdb.CIReport, checkURL string, serverURL string
 	b.WriteString(ciReportIntro(report))
 	errors := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusErrored)
 	regressions := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusRegressed)
+	missingBaselines := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusMissingBaseline)
 	switch {
 	case len(errors) > 0:
 		fmt.Fprintf(&b, "There %s %d benchmark result%s with an error:", were(len(errors)), len(errors), pluralS(len(errors)))
 		writeGitHubRows(&b, "", errors, 2, report.ReportUrl, serverURL)
 	case report.Summary.ContenderResults == 0:
 		b.WriteString("None of the specified runs had any associated benchmark results.\n\n")
-	case report.Summary.Analyzed == 0:
-		b.WriteString("There were not enough matching historic benchmark results to make a call on whether there were regressions.\n\n")
 	case len(regressions) > 0:
 		fmt.Fprintf(&b, "There %s %d benchmark result%s indicating a performance regression:", were(len(regressions)), len(regressions), pluralS(len(regressions)))
 		writeGitHubRows(&b, "", regressions, 2, report.ReportUrl, serverURL)
+	case len(missingBaselines) > 0:
+		fmt.Fprintf(&b, "BenchDB could not compare %d benchmark result%s because matching baseline results were unavailable:", len(missingBaselines), pluralS(len(missingBaselines)))
+		writeGitHubRows(&b, "", missingBaselines, 2, report.ReportUrl, serverURL)
+	case report.Summary.Analyzed == 0:
+		b.WriteString("There were not enough matching historic benchmark results to make a call on whether there were regressions.\n\n")
 	default:
 		b.WriteString("There were no benchmark performance regressions.\n\n")
 	}
