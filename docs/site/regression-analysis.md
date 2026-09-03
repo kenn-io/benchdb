@@ -69,5 +69,6 @@ benchmark before enough history exists for the lookback model.
 | `missing_baseline` | No comparable baseline result was found. |
 | `not_comparable` | Results differ in a way that prevents comparison. |
 
-`skipped` CI reports are not failures. They mean BenchDB found results, but no
-row had enough history for z-score analysis.
+`skipped` CI reports are not failures. They mean every contender had a matching
+baseline, but no row had enough history for z-score analysis. Missing baseline
+coverage is `action_required`, not `skipped` or `success`.

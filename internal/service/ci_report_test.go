@@ -348,7 +348,7 @@ func TestCIReportPairwiseOnlyRegressionIsSkipped(t *testing.T) {
 	assert.Equal(t, 0, report.Summary.Analyzed)
 }
 
-func TestCIReportNoBaselineRunIsSkipped(t *testing.T) {
+func TestCIReportNoBaselineRunRequiresAction(t *testing.T) {
 	_, store, _, ctx := newIngester(t)
 	t0 := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
 	provider := ciCommitProvider{
@@ -373,7 +373,8 @@ func TestCIReportNoBaselineRunIsSkipped(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, service.CIReportStatusSkipped, report.Status)
+	assert.Equal(t, service.CIReportStatusActionRequired, report.Status)
+	assert.Equal(t, "baseline coverage is incomplete", report.StatusReason)
 	require.Len(t, report.Runs, 1)
 	assert.Nil(t, report.Runs[0].BaselineRunID)
 	if assert.NotNil(t, report.Runs[0].BaselineError) {
@@ -381,6 +382,51 @@ func TestCIReportNoBaselineRunIsSkipped(t *testing.T) {
 		assert.Equal(t, service.CIReportBaselineAncestorLimit, report.Runs[0].BaselineError.SearchedAncestorLimit)
 	}
 	assert.Equal(t, 1, report.Summary.MissingBaseline)
+	require.Len(t, report.Runs[0].Comparisons, 1)
+	require.NotNil(t, report.Runs[0].Comparisons[0].Reason)
+	assert.Equal(t, "searched 20 ancestors, no baseline run found", *report.Runs[0].Comparisons[0].Reason)
+}
+
+func TestCIReportPartialBaselineRequiresActionAndExplainsGap(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 3, 10, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"base": ciCommitInfo("base", nil, "base", t0),
+		"head": ciCommitInfo("head", new("base"), "base", t0.Add(24*time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	ciSubmit(t, ing, ctx, "baseline-run", "base", 10)
+	ciSubmit(t, ing, ctx, "ci-run", "head", 20)
+	missingReq := machineReq(samples(30, 31, 32), "s")
+	missingReq.RunID = "ci-run"
+	missingReq.BatchID = "ci-run-missing-batch"
+	missingReq.Tags["name"] = "other-benchmark"
+	missingReq.GitHub.Commit = "head"
+	_, err := ing.Submit(ctx, missingReq)
+	require.NoError(t, err)
+
+	report, err := service.NewCIReporter(store, "").Report(ctx, service.CIReportQuery{
+		RunIDs:         []string{"ci-run"},
+		BaselineRunIDs: []string{"baseline-run"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, service.CIReportStatusActionRequired, report.Status)
+	assert.Equal(t, "baseline coverage is incomplete", report.StatusReason)
+	assert.Equal(t, 2, report.Summary.ContenderResults)
+	assert.Equal(t, 1, report.Summary.Compared)
+	assert.Equal(t, 1, report.Summary.MissingBaseline)
+	require.Len(t, report.Runs, 1)
+	require.Len(t, report.Runs[0].Comparisons, 2)
+	var missing *service.CIReportComparison
+	for i := range report.Runs[0].Comparisons {
+		if report.Runs[0].Comparisons[i].Status == service.CIReportRowStatusMissingBaseline {
+			missing = &report.Runs[0].Comparisons[i]
+		}
+	}
+	require.NotNil(t, missing)
+	require.NotNil(t, missing.Reason)
+	assert.Equal(t, "selected baseline run does not contain a matching benchmark result", *missing.Reason)
 }
 
 func TestCIReportRejectsMixedRunSelector(t *testing.T) {

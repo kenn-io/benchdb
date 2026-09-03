@@ -32,6 +32,16 @@
     reason: string;
   }
 
+  interface MachineCoverage {
+    key: string;
+    name: string;
+    total: number;
+    compared: number;
+    missingBaseline: number;
+    benchmarkErrors: number;
+    notComparable: number;
+  }
+
   const CI_REPORT_INITIAL_ROWS = 200;
   const CI_REPORT_ROW_CHUNK = 200;
 
@@ -44,7 +54,7 @@
     "stable",
     "insufficient",
   ];
-  const ISSUE_STATUSES = ["regressed", "errored", "missing_baseline", "not_comparable"] as const;
+  const ISSUE_STATUSES = ["regressed", "errored", "not_comparable"] as const;
   const STATUS_LABELS: Record<RowStatus, string> = {
     regressed: "regressed",
     improved: "improved",
@@ -84,8 +94,12 @@
   );
   let filteredRuns = $derived(filteredReportRuns(runs));
   let filteredComparisons = $derived(filteredRuns.flatMap((entry) => entry.comparisons));
+  let detailedComparisonCount = $derived(
+    filteredRuns.reduce((sum, entry) => sum + detailedComparisons(entry.comparisons).length, 0),
+  );
   let filteredStatusCounts = $derived(countStatuses(filteredComparisons));
   let issueTargets = $derived(issueLinks(filteredRuns));
+  let machineCoverage = $derived(coverageByMachine(allComparisons));
 
   $effect(() => {
     if (!ready) {
@@ -138,6 +152,60 @@
       counts[row.status] += 1;
     }
     return counts;
+  }
+
+  function coverageByMachine(rows: ReportComparison[]): MachineCoverage[] {
+    const groups = new Map<string, MachineCoverage>();
+    for (const row of rows) {
+      const key = row.hardware.hash || row.hardware.id || row.hardware.name || "unknown-machine";
+      const current = groups.get(key) ?? {
+        key,
+        name: row.hardware.name || "Unknown machine",
+        total: 0,
+        compared: 0,
+        missingBaseline: 0,
+        benchmarkErrors: 0,
+        notComparable: 0,
+      };
+      current.total += 1;
+      switch (row.status) {
+        case "regressed":
+        case "improved":
+        case "stable":
+        case "insufficient":
+          current.compared += 1;
+          break;
+        case "missing_baseline":
+          current.missingBaseline += 1;
+          break;
+        case "errored":
+          current.benchmarkErrors += 1;
+          break;
+        case "not_comparable":
+          current.notComparable += 1;
+          break;
+      }
+      groups.set(key, current);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function detailedComparisons(rows: ReportComparison[]): ReportComparison[] {
+    if (statusFilter === "missing_baseline") {
+      return rows;
+    }
+    return rows.filter((row) => row.status !== "missing_baseline");
+  }
+
+  function missingBaselineComparisons(rows: ReportComparison[]): ReportComparison[] {
+    return rows.filter((row) => row.status === "missing_baseline");
+  }
+
+  function missingBaselineReason(rows: ReportComparison[]): string {
+    const reasons = Array.from(new Set(rows.map((row) => row.reason?.trim() ?? "").filter(Boolean)));
+    if (reasons.length === 1) return reasons[0] ?? "";
+    if (reasons.length > 1) return "The selected baseline has multiple coverage gaps.";
+    return "The selected baseline does not contain matching benchmark results.";
   }
 
   function filteredReportRuns(sourceRuns: ReportRun[]): FilteredRun[] {
@@ -340,16 +408,50 @@
 
     <p class="summary-line" aria-label="CI report summary">
       <span class="summary-item">{plural(r.summary.runs, "run")}</span>
-      <span class="summary-item">{plural(r.summary.contender_results, "contender result")}</span>
-      <span class="summary-item">{plural(r.summary.compared, "comparison")}</span>
+      <strong class="summary-item" class:alert={r.summary.compared < r.summary.contender_results}>
+        {r.summary.compared.toLocaleString()} of {r.summary.contender_results.toLocaleString()} compared
+      </strong>
       <span class="summary-item" class:alert={r.summary.regressions > 0}>{plural(r.summary.regressions, "regression")}</span>
-      <span class="summary-item">{filteredComparisons.length} shown</span>
+      <span class="summary-item">{plural(detailedComparisonCount, "result row")}</span>
     </p>
+
+    <section class="panel coverage-panel" aria-label="Comparison coverage">
+      <header>
+        <div>
+          <p class="eyebrow">Comparison coverage</p>
+          <h2>{r.summary.compared.toLocaleString()} of {r.summary.contender_results.toLocaleString()} results compared</h2>
+        </div>
+        {#if r.summary.missing_baseline > 0}
+          <p class="coverage-warning">{plural(r.summary.missing_baseline, "result has", "results have")} no matching baseline</p>
+        {/if}
+      </header>
+      <div class="coverage-grid">
+        {#each machineCoverage as coverage (coverage.key)}
+          <article class="coverage-card">
+            <div class="coverage-card-head">
+              <strong>{coverage.name}</strong>
+              <span>{coverage.compared.toLocaleString()} / {coverage.total.toLocaleString()}</span>
+            </div>
+            <progress
+              max={coverage.total}
+              value={coverage.compared}
+              aria-label={`${coverage.name}: ${coverage.compared} of ${coverage.total} results compared`}
+            ></progress>
+            <p>
+              {#if coverage.missingBaseline > 0}<span>{coverage.missingBaseline} missing baseline</span>{/if}
+              {#if coverage.benchmarkErrors > 0}<span>{coverage.benchmarkErrors} benchmark {coverage.benchmarkErrors === 1 ? "error" : "errors"}</span>{/if}
+              {#if coverage.notComparable > 0}<span>{coverage.notComparable} not comparable</span>{/if}
+              {#if coverage.compared === coverage.total}<span>complete</span>{/if}
+            </p>
+          </article>
+        {/each}
+      </div>
+    </section>
 
     <section class="panel controls-panel" aria-label="CI report controls">
       <div class="status-tabs" aria-label="Filter comparisons by status">
         <button type="button" aria-pressed={statusFilter === "all"} onclick={() => setStatusFilter("all")}>
-          <span>all</span>
+          <span>overview</span>
           <strong>{allComparisons.length.toLocaleString()}</strong>
         </button>
         {#each STATUS_FILTERS as status}
@@ -426,7 +528,9 @@
       {#each filteredRuns as entry (entry.run.run_id)}
         {@const run = entry.run}
         {@const comparisons = entry.comparisons}
-        {@const visibleComparisons = comparisons.slice(0, rowLimit(run.run_id))}
+        {@const missingComparisons = missingBaselineComparisons(comparisons)}
+        {@const tableComparisons = detailedComparisons(comparisons)}
+        {@const visibleComparisons = tableComparisons.slice(0, rowLimit(run.run_id))}
         {@const runCounts = countStatuses(comparisons)}
         {@const totalComparisons = runComparisons(run).length}
         <section class="panel run" aria-label={`Run ${run.run_id}`}>
@@ -451,9 +555,19 @@
             <p class="notice-line">{run.baseline_error.message}</p>
           {/if}
 
-          {#if comparisons.length > 0}
+          {#if missingComparisons.length > 0 && statusFilter !== "missing_baseline"}
+            <section class="baseline-gap" aria-label={`Missing baseline coverage for ${run.run_id}`}>
+              <div>
+                <strong>{plural(missingComparisons.length, "benchmark has", "benchmarks have")} no matching baseline result</strong>
+                {#if !run.baseline_error}<p>{missingBaselineReason(missingComparisons)}</p>{/if}
+              </div>
+              <button type="button" onclick={() => setStatusFilter("missing_baseline")}>Show affected benchmarks</button>
+            </section>
+          {/if}
+
+          {#if tableComparisons.length > 0}
             <p class="row-count">
-              {rowCountText(visibleComparisons.length, comparisons.length, totalComparisons)}
+              {rowCountText(visibleComparisons.length, tableComparisons.length, totalComparisons)}
             </p>
             <div class="comparison-list">
               <table class="data-table comparisons">
@@ -508,10 +622,10 @@
                 </tbody>
               </table>
             </div>
-            {#if visibleComparisons.length < comparisons.length}
+            {#if visibleComparisons.length < tableComparisons.length}
               <button type="button" class="button-pill more" onclick={() => showMore(run.run_id)}>Show more</button>
             {/if}
-          {:else}
+          {:else if missingComparisons.length === 0}
             <p class="empty">No comparison rows.</p>
           {/if}
         </section>
@@ -555,6 +669,92 @@
     flex-direction: column;
     gap: 10px;
     padding: 10px;
+  }
+  .coverage-panel {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  .coverage-panel > header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .coverage-panel h2 {
+    margin: 2px 0 0;
+    font-size: 1rem;
+  }
+  .coverage-warning {
+    margin: 0;
+    color: var(--c-warn-text);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+  .coverage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .coverage-card {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-bg-inset);
+  }
+  .coverage-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .coverage-card-head span {
+    color: var(--c-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .coverage-card progress {
+    width: 100%;
+    height: 6px;
+    border: 0;
+    accent-color: var(--c-accent);
+  }
+  .coverage-card p {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    color: var(--c-text-muted);
+    font-size: 0.75rem;
+  }
+  .baseline-gap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 10px 12px 0;
+    padding: 10px;
+    border: 1px solid color-mix(in srgb, var(--c-warning) 50%, var(--c-border-muted));
+    border-radius: var(--radius-sm);
+    background: var(--c-warn-bg);
+    color: var(--c-warn-text);
+  }
+  .baseline-gap p {
+    margin: 3px 0 0;
+    font-size: 0.78rem;
+  }
+  .baseline-gap button {
+    flex: none;
+    min-height: 30px;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    padding: 0 9px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
   }
   .status-tabs {
     display: flex;
@@ -798,6 +998,10 @@
     }
   }
   @media (max-width: 820px) {
+    .coverage-panel > header, .baseline-gap {
+      align-items: flex-start;
+      flex-direction: column;
+    }
     .field-row {
       grid-template-columns: 1fr;
     }

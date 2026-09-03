@@ -825,6 +825,10 @@ func (r *CIReporter) assembleComparisons(
 		selection := selections[row.RunID]
 		if selection.baselineRunID == nil {
 			comp.Status = CIReportRowStatusMissingBaseline
+			if selection.baselineError != nil {
+				reason := selection.baselineError.Message
+				comp.Reason = &reason
+			}
 			comparisons = append(comparisons, comp)
 			continue
 		}
@@ -832,6 +836,8 @@ func (r *CIReporter) assembleComparisons(
 		baselineRow, ok := baselineRows[baselineKey][row.HistoryFingerprint]
 		if !ok {
 			comp.Status = CIReportRowStatusMissingBaseline
+			reason := "selected baseline run does not contain a matching benchmark result"
+			comp.Reason = &reason
 			comparisons = append(comparisons, comp)
 			continue
 		}
@@ -1010,6 +1016,9 @@ func (r *CIReport) deriveStatus() CIReportStatus {
 	if r.Summary.Regressions > 0 {
 		return CIReportStatusFailure
 	}
+	if r.Summary.MissingBaseline > 0 {
+		return CIReportStatusActionRequired
+	}
 	if r.Summary.Analyzed == 0 {
 		return CIReportStatusSkipped
 	}
@@ -1030,6 +1039,8 @@ func (r *CIReport) deriveStatusReason() string {
 			return "benchmark errors require inspection"
 		case r.Summary.baselineActionErr > 0:
 			return "baseline commit metadata is incomplete"
+		case r.Summary.MissingBaseline > 0:
+			return "baseline coverage is incomplete"
 		default:
 			return "action required"
 		}

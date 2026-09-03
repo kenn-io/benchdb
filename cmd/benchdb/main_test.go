@@ -1783,6 +1783,52 @@ func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
 	assert.Contains(t, body, "The [full BenchDB report](https://github.com/org/repo/runs/82397297966) has more details.")
 }
 
+func TestGitHubOutputReportsMissingBaselineCoverage(t *testing.T) {
+	resultTime := time.Date(2026, 6, 19, 12, 48, 38, 0, time.UTC)
+	report := &benchdb.CIReport{
+		Status:       benchdb.CIReportStatusActionRequired,
+		StatusReason: "baseline coverage is incomplete",
+		ReportUrl:    "https://benchdb.example/ci/report?run_ids=run-1",
+		Summary: benchdb.CIReportSummary{
+			Runs:             1,
+			ContenderResults: 2,
+			Compared:         1,
+			Analyzed:         1,
+			MissingBaseline:  1,
+		},
+		Runs: &[]benchdb.CIReportRun{{
+			RunId: "run-1",
+			Comparisons: &[]benchdb.CIReportComparison{
+				{
+					Status:   benchdb.CIReportComparisonStatusMissingBaseline,
+					Name:     "latency",
+					Hardware: benchdb.Hardware{Name: "runner-arm64"},
+					Contender: benchdb.CIReportSide{
+						ResultId:        "result-1",
+						ResultTimestamp: resultTime,
+					},
+					Links: benchdb.CIReportRowLinks{Result: "/results/result-1"},
+				},
+				{Status: benchdb.CIReportComparisonStatusStable},
+			},
+		}},
+	}
+
+	comment := githubPRComment(report, "", "")
+	assert.Contains(t, comment, "BenchDB could not compare 1 benchmark result because matching baseline results were unavailable:")
+	assert.Contains(t, comment, "[`latency`](https://benchdb.example/results/result-1)")
+	assert.NotContains(t, comment, "not enough matching historic benchmark results")
+	assert.NotContains(t, comment, "There were no benchmark performance regressions")
+
+	report.Summary.Analyzed = 0
+	comment = githubPRComment(report, "", "")
+	assert.Contains(t, comment, "BenchDB could not compare 1 benchmark result because matching baseline results were unavailable:")
+	assert.NotContains(t, comment, "not enough matching historic benchmark results")
+
+	assert.Contains(t, githubCheckSummary(report, ""), "Missing baselines: 1.")
+	assert.Contains(t, githubCheckDetails(report), "## Missing baselines")
+}
+
 func TestCIReportGitHubClientPrefersAppCredentialsOverFallbackToken(t *testing.T) {
 	t.Setenv("GITHUB_API_TOKEN", "ghs_fallback")
 	t.Setenv("BENCHDB_CI_GITHUB_APP_ID", "12345")
