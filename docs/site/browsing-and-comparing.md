@@ -157,8 +157,10 @@ people open from pull request logs.
 
 Use the status buttons, hardware selector, and search box to narrow a large
 report to the rows that need attention. The issue shortcuts jump directly to
-the first visible regression, benchmark error, missing baseline, or
-not-comparable row, and each run section keeps its own filtered summary.
+the first visible regression, benchmark error, or not-comparable row. A
+coverage summary groups compared and missing results by machine. Missing
+baseline rows stay collapsed by default and can be revealed with the existing
+status filter.
 
 Large CI reports filter first, then render a bounded row set and reveal
 additional matching rows on demand. The report summary always describes the

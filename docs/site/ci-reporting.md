@@ -203,9 +203,13 @@ row. Precedence is:
    found, benchmark results contain error payloads, or commit metadata is
    missing enough that a requested baseline cannot be resolved.
 3. `failure`: at least one row has a lookback z-score regression.
-4. `skipped`: results exist, but no row has computable lookback z-score
+4. `action_required`: no matching baseline exists for one or more contender
+   results. A confirmed regression still takes precedence when incomplete
+   baseline coverage is the only other condition.
+5. `skipped`: results exist, every contender has a matching baseline, but no
+   row has computable lookback z-score
    analysis. Pairwise-only changes do not make a report pass or fail.
-5. `success`: at least one row has computable lookback z-score analysis and no
+6. `success`: at least one row has computable lookback z-score analysis and no
    higher-precedence condition applies.
 
 `compared` counts rows where both sides were present and pairwise comparison was

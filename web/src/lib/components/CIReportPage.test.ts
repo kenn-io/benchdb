@@ -191,7 +191,7 @@ function withComparisons(count: number, runID = "ci-run") {
 
   return {
     ...report,
-    summary: { ...report.summary, contender_results: count, missing_baseline: count },
+    summary: { ...report.summary, contender_results: count, compared: count, analyzed: count, regressions: count },
     runs: [
       {
         ...baseRun,
@@ -268,6 +268,8 @@ describe("CIReportPage", () => {
     await waitFor(() => screen.getByText("failure"));
 
     expect(screen.getByText("lookback regression detected")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /comparison coverage/i })).toHaveTextContent("1 of 1 results compared");
+    expect(screen.getByRole("progressbar", { name: /m5: 1 of 1 results compared/i })).toHaveValue(1);
     expect(screen.getAllByText("demo-bench").length).toBeGreaterThan(0);
     expect(screen.getByText("ci-run")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "result" })).toHaveAttribute("href", "/results/contender-id");
@@ -284,18 +286,22 @@ describe("CIReportPage", () => {
     GET.mockResolvedValue({ data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
 
-    await waitFor(() => screen.getByRole("button", { name: /all 4/i }));
+    await waitFor(() => screen.getByRole("button", { name: /overview 4/i }));
 
     expect(screen.getByLabelText(/search comparisons/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/machine/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /regressed 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /errored 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /missing baseline 1/i })).toBeInTheDocument();
+    const coverage = screen.getByRole("region", { name: /comparison coverage/i });
+    expect(within(coverage).getByText("2 of 4 results compared")).toBeInTheDocument();
+    expect(within(coverage).getByRole("progressbar", { name: /m6: 0 of 1 results compared/i })).toBeInTheDocument();
+    expect(within(coverage).getByText("1 missing baseline")).toBeInTheDocument();
     const queue = screen.getByRole("region", { name: /investigation queue/i });
-    expect(within(queue).getByText(/3 actionable comparisons/i)).toBeInTheDocument();
+    expect(within(queue).getByText(/2 actionable comparisons/i)).toBeInTheDocument();
     expect(within(queue).getByText("regress-bench")).toBeInTheDocument();
     expect(within(queue).getByText("errored-bench")).toBeInTheDocument();
-    expect(within(queue).getByText("missing-bench")).toBeInTheDocument();
+    expect(within(queue).queryByText("missing-bench")).toBeNull();
     expect(within(queue).getAllByText(/delta -233\.3% · z -10\.47/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /jump to regressed/i })).toHaveAttribute(
       "href",
@@ -305,14 +311,18 @@ describe("CIReportPage", () => {
       "href",
       "#ci-row-errored-ci-run-fp-errored",
     );
-    expect(screen.getByRole("link", { name: /jump to missing baseline/i })).toHaveAttribute(
-      "href",
-      "#ci-row-missing-baseline-ci-run-fp-missing",
-    );
+    const baselineGap = screen.getByRole("region", { name: /missing baseline coverage for ci-run/i });
+    expect(within(baselineGap).getByText(/1 benchmark has no matching baseline result/i)).toBeInTheDocument();
+    expect(within(baselineGap).getByText("no matching baseline result")).toBeInTheDocument();
+    expect(within(baselineGap).getByRole("button", { name: /show affected benchmarks/i })).toBeInTheDocument();
+    expect(screen.queryByText("missing-bench")).toBeNull();
     expect(screen.getAllByText(/4 matching comparisons/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/1 regressed/i)).toBeInTheDocument();
-    expect(screen.getByText(/1 benchmark error/i)).toBeInTheDocument();
-    expect(screen.getByText(/1 missing baseline/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/1 benchmark error/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1 missing baseline/i).length).toBeGreaterThan(0);
+
+    await fireEvent.click(within(baselineGap).getByRole("button", { name: /show affected benchmarks/i }));
+    expect(screen.getAllByText("missing-bench").length).toBeGreaterThan(0);
   });
 
   it("filters comparisons by status, machine, and search text", async () => {
@@ -325,12 +335,17 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("regress-bench")).toBeNull();
     expect(screen.queryByText("stable-bench")).toBeNull();
 
-    await fireEvent.click(screen.getByRole("button", { name: /all 4/i }));
+    await fireEvent.click(screen.getByRole("button", { name: /overview 4/i }));
     await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "m6" } });
-    expect(screen.getAllByText("missing-bench").length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: /missing baseline coverage for ci-run/i })).toBeInTheDocument();
+    expect(screen.queryByText("missing-bench")).toBeNull();
     expect(screen.queryByText("errored-bench")).toBeNull();
 
+    await fireEvent.click(screen.getByRole("button", { name: /missing baseline 1/i }));
+    expect(screen.getAllByText("missing-bench").length).toBeGreaterThan(0);
+
     await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "all" } });
+    await fireEvent.click(screen.getByRole("button", { name: /overview 4/i }));
     await fireEvent.input(screen.getByLabelText(/search comparisons/i), { target: { value: "stable" } });
     expect(screen.getAllByText("stable-bench").length).toBeGreaterThan(0);
     expect(screen.queryByText("missing-bench")).toBeNull();
