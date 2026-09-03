@@ -429,6 +429,50 @@ func TestCIReportPartialBaselineRequiresActionAndExplainsGap(t *testing.T) {
 	assert.Equal(t, "selected baseline run does not contain a matching benchmark result", *missing.Reason)
 }
 
+func TestCIReportPrefersCompleteBaselineOverNewerPartialRun(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"older":     ciCommitInfo("older", nil, "older", t0),
+		"complete":  ciCommitInfo("complete", new("older"), "complete", t0.Add(24*time.Hour)),
+		"partial":   ciCommitInfo("partial", new("complete"), "partial", t0.Add(48*time.Hour)),
+		"contender": ciCommitInfo("contender", new("complete"), "complete", t0.Add(72*time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	ciSubmit(t, ing, ctx, "complete-baseline", "complete", 10)
+	completeSecond := machineReq(samples(20, 21, 22), "s")
+	completeSecond.RunID = "complete-baseline"
+	completeSecond.BatchID = "complete-baseline-second"
+	completeSecond.Tags["name"] = "second-benchmark"
+	completeSecond.GitHub.Commit = "complete"
+	_, err := ing.Submit(ctx, completeSecond)
+	require.NoError(t, err)
+	ciSubmit(t, ing, ctx, "partial-baseline", "partial", 30)
+	ciSubmit(t, ing, ctx, "ci-run", "contender", 40)
+	contenderSecond := machineReq(samples(50, 51, 52), "s")
+	contenderSecond.RunID = "ci-run"
+	contenderSecond.BatchID = "ci-run-second"
+	contenderSecond.Tags["name"] = "second-benchmark"
+	contenderSecond.GitHub.Commit = "contender"
+	_, err = ing.Submit(ctx, contenderSecond)
+	require.NoError(t, err)
+
+	report, err := service.NewCIReporter(store, "").Report(ctx, service.CIReportQuery{
+		Repository: testRepo,
+		CommitSHA:  "contender",
+		Baseline:   service.CIReportBaselineLatestDefault,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, report.Runs, 1)
+	require.NotNil(t, report.Runs[0].BaselineRunID)
+	assert.Equal(t, "complete-baseline", *report.Runs[0].BaselineRunID)
+	require.NotNil(t, report.Runs[0].BaselineCommit)
+	assert.Equal(t, "complete", report.Runs[0].BaselineCommit.Sha)
+	assert.Equal(t, 2, report.Summary.Compared)
+	assert.Zero(t, report.Summary.MissingBaseline)
+}
+
 func TestCIReportRejectsMixedRunSelector(t *testing.T) {
 	_, store, _, ctx := newIngester(t)
 	ing := service.NewIngester(store, commit.LocalProvider{})
