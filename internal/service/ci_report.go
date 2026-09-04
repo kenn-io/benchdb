@@ -473,13 +473,14 @@ type ciReportBaselineSelection struct {
 }
 
 type ciReportBaselineCandidate struct {
-	runID           string
-	commitID        string
-	runReason       *string
-	commit          storage.CIReportCommitRow
-	depth           int
-	resultTimestamp time.Time
-	sameReason      bool
+	runID                    string
+	commitID                 string
+	runReason                *string
+	commit                   storage.CIReportCommitRow
+	depth                    int
+	resultTimestamp          time.Time
+	matchingFingerprintCount int
+	sameReason               bool
 }
 
 func (r *CIReporter) selectBaselineRuns(
@@ -724,6 +725,7 @@ func (r *CIReporter) findBaselineRun(
 			return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline candidate rows: %w", err)
 		}
 		latestByRunKey := map[string]time.Time{}
+		fingerprintsByRunKey := map[string]map[string]bool{}
 		for _, row := range rows {
 			if !fingerprints[row.HistoryFingerprint] {
 				continue
@@ -735,13 +737,18 @@ func (r *CIReporter) findBaselineRun(
 			if ts, ok := latestByRunKey[key]; !ok || row.ResultTimestamp.After(ts) {
 				latestByRunKey[key] = row.ResultTimestamp
 			}
+			if fingerprintsByRunKey[key] == nil {
+				fingerprintsByRunKey[key] = map[string]bool{}
+			}
+			fingerprintsByRunKey[key][row.HistoryFingerprint] = true
 		}
 		for runKey, ts := range latestByRunKey {
 			meta := runMeta[runKey]
 			candidates = append(candidates, ciReportBaselineCandidate{
 				runID: meta.RunID, commitID: metaCommitID(meta), runReason: meta.RunReason, commit: c, depth: depth,
-				resultTimestamp: ts,
-				sameReason:      sameStringPtr(contender.RunReason, meta.RunReason),
+				resultTimestamp:          ts,
+				matchingFingerprintCount: len(fingerprintsByRunKey[runKey]),
+				sameReason:               sameStringPtr(contender.RunReason, meta.RunReason),
 			})
 		}
 	}
@@ -750,6 +757,9 @@ func (r *CIReporter) findBaselineRun(
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
+		if a.matchingFingerprintCount != b.matchingFingerprintCount {
+			return a.matchingFingerprintCount > b.matchingFingerprintCount
+		}
 		if a.sameReason != b.sameReason {
 			return a.sameReason
 		}

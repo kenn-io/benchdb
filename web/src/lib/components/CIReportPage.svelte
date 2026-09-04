@@ -416,36 +416,42 @@
     </p>
 
     <section class="panel coverage-panel" aria-label="Comparison coverage">
-      <header>
-        <div>
-          <p class="eyebrow">Comparison coverage</p>
-          <h2>{r.summary.compared.toLocaleString()} of {r.summary.contender_results.toLocaleString()} results compared</h2>
+      <details open={r.summary.compared < r.summary.contender_results}>
+        <summary>
+          <span class="coverage-summary-main">
+            <strong>Coverage</strong>
+            <span>{r.summary.compared.toLocaleString()} / {r.summary.contender_results.toLocaleString()} compared</span>
+          </span>
+          {#if r.summary.compared < r.summary.contender_results}
+            <span class="coverage-warning">
+              {plural(r.summary.contender_results - r.summary.compared, "result")} not compared
+            </span>
+          {:else}
+            <span class="coverage-complete">{plural(machineCoverage.length, "machine")}</span>
+          {/if}
+        </summary>
+        <div class="coverage-grid">
+          {#each machineCoverage as coverage (coverage.key)}
+            <article class="coverage-card">
+              <div class="coverage-card-head">
+                <strong>{coverage.name}</strong>
+                <span>{coverage.compared.toLocaleString()} / {coverage.total.toLocaleString()}</span>
+              </div>
+              <progress
+                max={coverage.total}
+                value={coverage.compared}
+                aria-label={`${coverage.name}: ${coverage.compared} of ${coverage.total} results compared`}
+              ></progress>
+              <p>
+                {#if coverage.missingBaseline > 0}<span>{coverage.missingBaseline} missing baseline</span>{/if}
+                {#if coverage.benchmarkErrors > 0}<span>{coverage.benchmarkErrors} benchmark {coverage.benchmarkErrors === 1 ? "error" : "errors"}</span>{/if}
+                {#if coverage.notComparable > 0}<span>{coverage.notComparable} not comparable</span>{/if}
+                {#if coverage.compared === coverage.total}<span>complete</span>{/if}
+              </p>
+            </article>
+          {/each}
         </div>
-        {#if r.summary.missing_baseline > 0}
-          <p class="coverage-warning">{plural(r.summary.missing_baseline, "result has", "results have")} no matching baseline</p>
-        {/if}
-      </header>
-      <div class="coverage-grid">
-        {#each machineCoverage as coverage (coverage.key)}
-          <article class="coverage-card">
-            <div class="coverage-card-head">
-              <strong>{coverage.name}</strong>
-              <span>{coverage.compared.toLocaleString()} / {coverage.total.toLocaleString()}</span>
-            </div>
-            <progress
-              max={coverage.total}
-              value={coverage.compared}
-              aria-label={`${coverage.name}: ${coverage.compared} of ${coverage.total} results compared`}
-            ></progress>
-            <p>
-              {#if coverage.missingBaseline > 0}<span>{coverage.missingBaseline} missing baseline</span>{/if}
-              {#if coverage.benchmarkErrors > 0}<span>{coverage.benchmarkErrors} benchmark {coverage.benchmarkErrors === 1 ? "error" : "errors"}</span>{/if}
-              {#if coverage.notComparable > 0}<span>{coverage.notComparable} not comparable</span>{/if}
-              {#if coverage.compared === coverage.total}<span>complete</span>{/if}
-            </p>
-          </article>
-        {/each}
-      </div>
+      </details>
     </section>
 
     <section class="panel controls-panel" aria-label="CI report controls">
@@ -671,22 +677,28 @@
     padding: 10px;
   }
   .coverage-panel {
-    display: grid;
-    gap: 12px;
-    padding: 12px;
+    padding: 0;
+    overflow: hidden;
   }
-  .coverage-panel > header {
+  .coverage-panel summary {
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 12px;
+    padding: 9px 12px;
+    cursor: pointer;
   }
-  .coverage-panel h2 {
-    margin: 2px 0 0;
-    font-size: 1rem;
+  .coverage-summary-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .coverage-summary-main span, .coverage-complete {
+    color: var(--c-text-muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
   }
   .coverage-warning {
-    margin: 0;
     color: var(--c-warn-text);
     font-size: 0.8rem;
     font-weight: 700;
@@ -695,11 +707,13 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 8px;
+    padding: 10px;
+    border-top: 1px solid var(--c-border-muted);
   }
   .coverage-card {
     display: grid;
-    gap: 8px;
-    padding: 10px;
+    gap: 6px;
+    padding: 8px 10px;
     border: 1px solid var(--c-border-muted);
     border-radius: var(--radius-sm);
     background: var(--c-bg-inset);
@@ -998,7 +1012,7 @@
     }
   }
   @media (max-width: 820px) {
-    .coverage-panel > header, .baseline-gap {
+    .coverage-panel summary, .baseline-gap {
       align-items: flex-start;
       flex-direction: column;
     }
