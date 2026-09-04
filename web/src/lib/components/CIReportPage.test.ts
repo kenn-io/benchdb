@@ -268,7 +268,9 @@ describe("CIReportPage", () => {
     await waitFor(() => screen.getByText("failure"));
 
     expect(screen.getByText("lookback regression detected")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /comparison coverage/i })).toHaveTextContent("1 of 1 results compared");
+    const coverage = screen.getByRole("region", { name: /comparison coverage/i });
+    expect(coverage).toHaveTextContent("1 / 1 compared");
+    expect(within(coverage).getByText("Coverage").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByRole("progressbar", { name: /m5: 1 of 1 results compared/i })).toHaveValue(1);
     expect(screen.getAllByText("demo-bench").length).toBeGreaterThan(0);
     expect(screen.getByText("ci-run")).toBeInTheDocument();
@@ -294,7 +296,8 @@ describe("CIReportPage", () => {
     expect(screen.getByRole("button", { name: /errored 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /missing baseline 1/i })).toBeInTheDocument();
     const coverage = screen.getByRole("region", { name: /comparison coverage/i });
-    expect(within(coverage).getByText("2 of 4 results compared")).toBeInTheDocument();
+    expect(within(coverage).getByText("2 / 4 compared")).toBeInTheDocument();
+    expect(within(coverage).getByText("Coverage").closest("details")).toHaveAttribute("open");
     expect(within(coverage).getByRole("progressbar", { name: /m6: 0 of 1 results compared/i })).toBeInTheDocument();
     expect(within(coverage).getByText("1 missing baseline")).toBeInTheDocument();
     const queue = screen.getByRole("region", { name: /investigation queue/i });
