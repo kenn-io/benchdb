@@ -37,7 +37,7 @@
   let ruleBaseline = $state("fork_point");
   let ruleRunReason = $state("");
   let ruleThreshold = $state("5");
-  let ruleThresholdZ = $state("5");
+  let ruleThresholdZ = $state("2");
   let ruleEnabled = $state(true);
   let eventRequestToken = 0;
 
@@ -205,7 +205,7 @@
     ruleRunReason = "";
     ruleBaseline = "fork_point";
     ruleThreshold = "5";
-    ruleThresholdZ = "5";
+      ruleThresholdZ = "2";
     ruleEnabled = true;
   }
 
