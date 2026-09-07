@@ -590,12 +590,23 @@
     </section>
 
     <section class="panel chart-panel" aria-label="Comparison trend">
-      <SeriesChart points={m.points} height={160} markedIndices={m.marked} />
+      <div class="comparison-key">
+        <a class="baseline-key" href={`/results/${m.baseline.id}`} onclick={(e) => go(e, `/results/${m.baseline.id}`)}>● Baseline · {m.baseline.svsText}</a>
+        <a class="contender-key" href={`/results/${m.contender.id}`} onclick={(e) => go(e, `/results/${m.contender.id}`)}>◆ Contender · {m.contender.svsText}</a>
+        <span>Default-branch history and rolling statistics. Selected results are shown separately.</span>
+      </div>
+      <SeriesChart points={m.points} height={280} comparisonMarkers={m.markers} onopen={(id) => navigate(`/results/${id}`)} />
     </section>
   </main>
 {/if}
 
 <style>
+  .comparison-key { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 12px 10px 0; font-size: 13px; }
+  .comparison-key a { font-weight: 600; text-decoration: none; }
+  .comparison-key a:hover { text-decoration: underline; }
+  .baseline-key { color: var(--c-accent); }
+  .contender-key { color: var(--c-trend-mean); }
+  .comparison-key span { color: var(--c-text-muted); font-size: 12px; }
   .compare-page {
     gap: 12px;
   }

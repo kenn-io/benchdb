@@ -9,9 +9,20 @@ import {
   tooltipLeftForCursor,
   tooltipTopForCursor,
   zeroBasedValueRange,
+  comparisonTimeRange,
 } from "./chart-geometry";
 
 describe("chart geometry", () => {
+  it("pads both comparison endpoints, including an off-branch result beyond history", () => {
+    const range = comparisonTimeRange([100_000, 200_000], [
+      { role: "baseline", resultId: "a", chartMs: 200_000, value: 10, unit: "s" },
+      { role: "contender", resultId: "b", chartMs: 900_000, value: 20, unit: "s" },
+    ]);
+    expect(range).toEqual({ min: 20, max: 980 });
+    expect(comparisonTimeRange([], [
+      { role: "contender", resultId: "b", chartMs: 900_000, value: 20, unit: "s" },
+    ])).toEqual({ min: 840, max: 960 });
+  });
   it("maps a moving commit-order cursor value to the nearest data index", () => {
     expect(indexForCursorValue(0, 10)).toBe(0);
     expect(indexForCursorValue(4.4, 10)).toBe(4);

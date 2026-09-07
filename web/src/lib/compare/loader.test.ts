@@ -123,6 +123,21 @@ describe("loadCompare", () => {
     });
   });
 
+  it("keeps selected results separate when a PR contender is absent from main history", async () => {
+    const client = fakeClient({
+      "/api/history/{benchmark_result_id}": {
+        data: { history_fingerprint: "fp1", samples: [sample("b1", 1)] },
+      },
+    });
+    const vm = await loadCompare(client, QUERY);
+    expect(vm.points.map((point) => point.resultId)).toEqual(["b1"]);
+    expect(vm.markers.map((marker) => [marker.role, marker.resultId])).toEqual([
+      ["baseline", "b1"], ["contender", "c1"],
+    ]);
+    expect(vm.markers[1]?.chartMs).toBe(Date.parse("2024-01-07T12:00:00Z"));
+    expect(vm.points[0]?.stats.rollingMean).toBeNull();
+  });
+
   it("throws NotComparableError with the endpoint reason on a 422, before any other fetch", async () => {
     const client = fakeClient({
       "/api/compare/benchmark-results": {
@@ -163,6 +178,7 @@ describe("loadCompare", () => {
     const vm = await loadCompare(client, QUERY);
     expect(vm.points).toEqual([]);
     expect(vm.marked).toEqual([]);
+    expect(vm.markers).toHaveLength(2);
   });
 
   it("keeps the mini-trend in the comparison unit", async () => {

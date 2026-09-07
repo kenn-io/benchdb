@@ -11,6 +11,8 @@
     type ValueRange,
     observedValueRange,
     zeroBasedValueRange,
+    comparisonTimeRange,
+    type ComparisonMarker,
   } from "../series/chart-geometry";
   import {
     pointTooltip,
@@ -33,6 +35,7 @@
     selectedIndex = null,
     currentResultId = null,
     markedIndices = [],
+    comparisonMarkers = [],
     onselect,
     onopen,
   }: {
@@ -43,6 +46,7 @@
     selectedIndex?: number | null;
     currentResultId?: string | null;
     markedIndices?: number[];
+    comparisonMarkers?: ComparisonMarker[];
     onselect?: (index: number) => void;
     onopen?: (resultId: string) => void;
   } = $props();
@@ -65,6 +69,10 @@
   let resizeObserver: ResizeObserver | undefined;
   let plotBox = $state({ left: 0, top: 0, width: 0, height: 0 });
   let zoomWindow = $state<{ min: number; max: number } | null>(null);
+  let fullDomain = $derived(comparisonMarkers.length > 0
+    ? comparisonTimeRange(points.map((point) => point.chartMs), comparisonMarkers)
+    : points.length < 2 ? null : { min: points[0]!.chartMs / 1000, max: points[points.length - 1]!.chartMs / 1000 });
+  let activeDomain = $derived(zoomWindow ?? fullDomain);
 
   /** cssVar resolves a design token for canvas drawing (canvas cannot read CSS
    * custom properties); the fallback keeps jsdom and detached nodes working. */
@@ -159,17 +167,15 @@
   // Cache the Y range so hover movement does not re-scan the whole
   // history on every cursor change; it only recomputes when points/sigma change.
   let overlayRange = $derived(
-    (zeroBased ? zeroBasedValueRange : observedValueRange)(trendYRangeValues(points, sigma)),
+    (zeroBased ? zeroBasedValueRange : observedValueRange)([
+      ...trendYRangeValues(points, sigma), ...comparisonMarkers.map((marker) => marker.value),
+    ], comparisonMarkers.length > 0 ? 0.15 : undefined),
   );
 
-  function overlayX(point: SeriesPoint): number {
-    if (points.length === 1) return plotBox.width / 2;
-    const first = zoomWindow?.min === undefined
-      ? (points[0]?.chartMs ?? point.chartMs)
-      : zoomWindow.min * 1000;
-    const last = zoomWindow?.max === undefined
-      ? (points[points.length - 1]?.chartMs ?? point.chartMs)
-      : zoomWindow.max * 1000;
+  function overlayX(point: { chartMs: number }): number {
+    if (activeDomain === null) return plotBox.width / 2;
+    const first = activeDomain.min * 1000;
+    const last = activeDomain.max * 1000;
     const span = last - first || 1;
     return ((point.chartMs - first) / span) * plotBox.width;
   }
@@ -315,8 +321,8 @@
   function hoveredIndex(u: uPlot): number | null {
     const left = u.cursor.left;
     if (left == null || left < 0 || points.length === 0) return null;
-    const min = zoomWindow?.min ?? points[0]!.chartMs / 1000;
-    const max = zoomWindow?.max ?? points[points.length - 1]!.chartMs / 1000;
+    const min = activeDomain?.min ?? points[0]!.chartMs / 1000;
+    const max = activeDomain?.max ?? points[points.length - 1]!.chartMs / 1000;
     const dpr = window.devicePixelRatio || 1;
     const width = u.bbox.width / dpr;
     if (width <= 0) return null;
@@ -370,8 +376,8 @@
       grid: { stroke: gridColor, width: 1 },
     };
     const xScale: uPlot.Scale = { time: true };
-    if (zoomWindow !== null) {
-      const { min, max } = zoomWindow;
+    if (activeDomain !== null) {
+      const { min, max } = activeDomain;
       xScale.range = () => [min, max];
     }
     return {
@@ -397,7 +403,7 @@
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
           values: (_u, ticks) => ticks.map((t) =>
-            points[0]?.unit === "B"
+            (points[0]?.unit ?? comparisonMarkers[0]?.unit) === "B"
               ? formatMeasurement(Number(t), "B")
               : compactAxisValue(Number(t)),
           ),
@@ -434,12 +440,8 @@
   // selection changes must only trigger the redraw effect below, not a rebuild.
   $effect(() => {
     const data = trendChartData(points, sigma);
-    const domain = points.length < 2
-      ? null
-      : {
-          min: points[0]!.chartMs / 1000,
-          max: points[points.length - 1]!.chartMs / 1000,
-        };
+    const domain = fullDomain;
+    void overlayRange;
     const currentZoom = untrack(() => zoomWindow);
     const nextZoom = clampRangeToDomain(currentZoom, domain);
     if (nextZoom !== currentZoom) zoomWindow = nextZoom;
@@ -508,9 +510,9 @@
     event.stopPropagation();
     hoverIndex = null;
     tip = null;
-    if (chart === undefined || points.length === 0) return;
+    if (chart === undefined) return;
     zoomWindow = null;
-    chart.setScale("x", {
+    chart.setScale("x", fullDomain ?? {
       min: points[0]!.chartMs / 1000,
       max: points[points.length - 1]!.chartMs / 1000,
     });
@@ -542,6 +544,22 @@
   </div>
   <div class="plot-host" bind:this={plotHost}>
     <div bind:this={host}></div>
+    {#if overlayRange !== null && activeDomain !== null && plotBox.width > 0}
+      {#each comparisonMarkers as marker (marker.role)}
+        {#if marker.chartMs / 1000 >= activeDomain.min && marker.chartMs / 1000 <= activeDomain.max}
+          <button
+            type="button"
+            class="comparison-marker"
+            class:baseline={marker.role === "baseline"}
+            class:contender={marker.role === "contender"}
+            style={`left:${plotBox.left + overlayX(marker)}px;top:${plotBox.top + overlayY(marker.value, overlayRange)}px`}
+            aria-label={`${marker.role === "baseline" ? "Baseline" : "Contender"}: ${formatMeasurement(marker.value, marker.unit)}`}
+            title={`${marker.role === "baseline" ? "Baseline" : "Contender"}: ${formatMeasurement(marker.value, marker.unit)} · ${new Date(marker.chartMs).toISOString()} · Click to open result`}
+            onclick={(event) => { event.stopPropagation(); onopen?.(marker.resultId); }}
+          ></button>
+        {/if}
+      {/each}
+    {/if}
     {#if svsOverlayPath !== "" || sigmaBandPaths.length > 0 || rawPoints.length > 0 || svsPoints.length > 0 || currentPoint || hoverPoint}
       <svg
         class="chart-overlay"
@@ -605,6 +623,20 @@
 </div>
 
 <style>
+  .comparison-marker {
+    position: absolute;
+    z-index: 3;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 3px solid var(--c-surface);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2px currentColor;
+  }
+  .comparison-marker.baseline { border-radius: 50%; color: var(--c-accent); background: var(--c-accent); }
+  .comparison-marker.contender { color: var(--c-trend-mean); background: var(--c-trend-mean); transform: translate(-50%, -50%) rotate(45deg); }
+  .comparison-marker:focus-visible { outline: 2px solid var(--c-text); outline-offset: 5px; }
   .chart-wrap {
     position: relative;
     padding: 10px 10px 6px;
