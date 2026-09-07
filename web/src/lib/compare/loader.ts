@@ -1,7 +1,8 @@
 import type { createBenchDBClient } from "../api/client";
 import type { components } from "../api/schema";
 import type { SeriesStatus } from "../browse/transform";
-import { loadResult, type ResultViewModel } from "../result/loader";
+import { resultViewModelFromDetail, type ResultViewModel } from "../result/loader";
+import type { ComparisonMarker } from "../series/chart-geometry";
 import type { CompareQuery } from "../router";
 import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../series/transform";
 import { markedIndices, verdictStatus } from "./transform";
@@ -26,6 +27,18 @@ export interface CompareViewModel {
   contender: ResultViewModel;
   points: SeriesPoint[];
   marked: number[];
+  markers: ComparisonMarker[];
+}
+
+async function fetchSelectedResult(client: Client, id: string, role: ComparisonMarker["role"]) {
+  const res = await client.GET("/api/benchmark-results/{id}", { params: { path: { id } } });
+  if (res.error || !res.data) throw new Error(`failed to load benchmark result ${id}`);
+  const detail = res.data;
+  const chartMs = Date.parse(detail.commit?.timestamp ?? detail.timestamp);
+  const marker: ComparisonMarker | null = detail.single_value_summary === null || detail.unit === null || !Number.isFinite(chartMs)
+    ? null
+    : { role, resultId: id, chartMs, value: detail.single_value_summary, unit: detail.unit };
+  return { result: resultViewModelFromDetail(detail), marker };
 }
 
 async function fetchVerdicts(client: Client, query: CompareQuery): Promise<CompareResult> {
@@ -61,14 +74,15 @@ async function fetchPoints(client: Client, resultId: string, unit: string): Prom
 
 /** loadCompare resolves the verdicts first — the endpoint's 422 throws
  * NotComparableError before anything else loads — then both sides' identities
- * (via loadResult, the same shaping the result page uses) and the series
- * membership for the mini-trend in parallel. Throws a plain Error for other
+ * (using the result page's view model) and default-branch history in parallel.
+ * Selected markers come from result detail, not history membership, and never
+ * enter the rolling statistics. Throws a plain Error for other
  * failures; the page owns presentation. */
 export async function loadCompare(client: Client, query: CompareQuery): Promise<CompareViewModel> {
   const verdicts = await fetchVerdicts(client, query);
   const [baseline, contender, points] = await Promise.all([
-    loadResult(client, query.baseline),
-    loadResult(client, query.contender),
+    fetchSelectedResult(client, query.baseline, "baseline"),
+    fetchSelectedResult(client, query.contender, "contender"),
     fetchPoints(client, query.baseline, verdicts.unit),
   ]);
   return {
@@ -77,8 +91,9 @@ export async function loadCompare(client: Client, query: CompareQuery): Promise<
     pairwise: verdicts.analysis.pairwise,
     unit: verdicts.unit,
     lessIsBetter: verdicts.less_is_better,
-    baseline,
-    contender,
+    baseline: baseline.result,
+    contender: contender.result,
+    markers: [baseline.marker, contender.marker].filter((marker): marker is ComparisonMarker => marker !== null),
     points,
     marked: markedIndices(points, [query.baseline, query.contender]),
   };

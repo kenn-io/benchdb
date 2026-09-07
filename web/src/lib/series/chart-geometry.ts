@@ -48,6 +48,23 @@ export interface ValueRange {
   max: number;
 }
 
+export interface ComparisonMarker {
+  role: "baseline" | "contender";
+  resultId: string;
+  chartMs: number;
+  value: number;
+  unit: string;
+}
+
+/** Include selected results without adding them to default-branch history. */
+export function comparisonTimeRange(historyTimes: number[], markers: ComparisonMarker[]): ValueRange | null {
+  const extent = finiteValueExtent([...historyTimes, ...markers.map((marker) => marker.chartMs)]);
+  if (extent === null) return null;
+  // Room for the endpoint symbols; a lone instant still needs a real time axis.
+  const padding = Math.max((extent.max - extent.min) * 0.1, 60_000);
+  return { min: (extent.min - padding) / 1000, max: (extent.max + padding) / 1000 };
+}
+
 function finiteValueExtent(values: readonly number[]): ValueRange | null {
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
