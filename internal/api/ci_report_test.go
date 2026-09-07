@@ -59,6 +59,52 @@ func TestCIReportEndpointReturnsReport(t *testing.T) {
 	assert.Equal(t, 1, report.Summary.Analyzed)
 }
 
+func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
+	tapi, pool, ctx := seedCIReportAPI(t, "")
+	api.NewReadHandler(service.NewReader(db.NewStore(pool))).Register(tapi)
+	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{10}})
+	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{20}})
+	baseline := seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c3", ts: day(3), data: []float64{30}})
+	contender := seedResult(t, tapi, seedOpts{runID: "contender", sha: "c4", ts: day(4), data: []float64{50}})
+	// The contender is off the default branch. A later default-branch result
+	// must not enter the historical window of this explicit comparison.
+	_, err := pool.Exec(ctx, `UPDATE commit SET parent = 'c3', fork_point_sha = 'c3' WHERE repository = $1 AND sha = 'c4'`, defaultRepo)
+	require.NoError(t, err)
+	seedResult(t, tapi, seedOpts{runID: "future", sha: "c5", ts: day(5), data: []float64{1000}})
+
+	for _, tt := range []struct {
+		name       string
+		query      string
+		threshold  float64
+		regression bool
+		status     service.CIReportStatus
+	}{
+		{"default", "", 3, true, service.CIReportStatusFailure},
+		{"explicit override", "&threshold_z=5", 5, false, service.CIReportStatusSuccess},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			report := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids=contender&baseline_run_ids=baseline"+tt.query))
+			assert.Equal(t, tt.status, report.Status)
+			assert.InDelta(t, tt.threshold, report.ThresholdZ, 1e-9)
+			require.Len(t, report.Runs, 1)
+			require.Len(t, report.Runs[0].Comparisons, 1)
+			row := report.Runs[0].Comparisons[0]
+			require.NotNil(t, row.Analysis)
+			lookback := row.Analysis.LookbackZScore
+			require.NotNil(t, lookback)
+			// Trailing mean 20, residual standard deviation sqrt(175/3).
+			assert.InDelta(t, -3.928, lookback.ZScore, 0.001)
+			assert.Equal(t, tt.regression, lookback.RegressionIndicated)
+
+			response := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender + tt.query)
+			require.Equal(t, http.StatusOK, response.Code)
+			var comparison service.CompareResult
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparison))
+			assert.Equal(t, lookback, comparison.Analysis.LookbackZScore)
+		})
+	}
+}
+
 func TestCIReportEndpointAcceptsExplicitBaselineRunIDs(t *testing.T) {
 	tapi, _, _ := seedCIReportAPI(t, "https://benchdb.example/")
 	seedResult(t, tapi, seedOpts{runID: "history-run", sha: "c1", ts: day(1), data: []float64{10}})

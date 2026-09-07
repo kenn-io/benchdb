@@ -108,7 +108,7 @@ func TestVerdictsFromFormula(t *testing.T) {
 	// baseline 0 -> nil (divide-by-zero guard).
 	assert.Nil(t, PairwiseVerdict(0.0, 1.0, false, PairwisePercentThresholdDefault))
 
-	// lookback: oriented z, strict > threshold (5). Strongly negative -> regression.
+	// lookback: oriented z, strict > threshold. Strongly negative -> regression.
 	lb := LookbackZVerdict(p(-7.0), ZScoreThresholdDefault)
 	require.NotNil(t, lb)
 	assert.True(t, lb.RegressionIndicated)
@@ -123,8 +123,8 @@ func TestVerdictsFromFormula(t *testing.T) {
 	assert.False(t, lb.RegressionIndicated)
 	assert.True(t, lb.ImprovementIndicated)
 
-	// Exactly -5 is NOT indicated (strict >).
-	lb = LookbackZVerdict(p(-5.0), ZScoreThresholdDefault)
+	// Exactly at the negative threshold is NOT indicated (strict >).
+	lb = LookbackZVerdict(p(-ZScoreThresholdDefault), ZScoreThresholdDefault)
 	require.NotNil(t, lb)
 	assert.False(t, lb.RegressionIndicated)
 	assert.False(t, lb.ImprovementIndicated)

@@ -44,7 +44,7 @@ type CIReportInput struct {
 	BaselineRunIDs string             `query:"baseline_run_ids" doc:"Comma-separated explicit baseline run IDs, paired by position with run_ids."`
 	Baseline       string             `query:"baseline" enum:"fork_point,parent,latest_default" doc:"Automatic baseline selector."`
 	Threshold      optionalFloatParam `query:"threshold" doc:"Pairwise percent-change threshold. Defaults to 5."`
-	ThresholdZ     optionalFloatParam `query:"threshold_z" doc:"Lookback z-score threshold. Defaults to 5."`
+	ThresholdZ     optionalFloatParam `query:"threshold_z" doc:"Lookback z-score threshold. Defaults to 3."`
 }
 
 type optionalFloatParam struct {
