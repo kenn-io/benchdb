@@ -205,7 +205,7 @@
     ruleRunReason = "";
     ruleBaseline = "fork_point";
     ruleThreshold = "5";
-      ruleThresholdZ = "2";
+    ruleThresholdZ = "2";
     ruleEnabled = true;
   }
 
