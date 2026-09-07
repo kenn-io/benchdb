@@ -10,12 +10,12 @@ import (
 )
 
 // CompareInput is the compare query: two explicit result ids and the two
-// thresholds (5 percent and 3 standard deviations). A read, so GET with query params.
+// thresholds (5 percent and 2 standard deviations). A read, so GET with query params.
 type CompareInput struct {
 	BaselineResultID  string  `query:"baseline_result_id" required:"true" doc:"Baseline benchmark result id."`
 	ContenderResultID string  `query:"contender_result_id" required:"true" doc:"Contender benchmark result id."`
 	Threshold         float64 `query:"threshold" default:"5" doc:"Pairwise percent-change threshold."`
-	ThresholdZ        float64 `query:"threshold_z" default:"3" doc:"Lookback z-score threshold."`
+	ThresholdZ        float64 `query:"threshold_z" default:"2" doc:"Lookback z-score threshold."`
 }
 
 // CompareOutput carries a compare result body.

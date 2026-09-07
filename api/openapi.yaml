@@ -2756,12 +2756,12 @@ paths:
             description: Pairwise percent-change threshold. Defaults to 5.
             format: double
             type: number
-        - description: Lookback z-score threshold. Defaults to 3.
+        - description: Lookback z-score threshold. Defaults to 2.
           explode: false
           in: query
           name: threshold_z
           schema:
-            description: Lookback z-score threshold. Defaults to 3.
+            description: Lookback z-score threshold. Defaults to 2.
             format: double
             type: number
       responses:
@@ -2812,7 +2812,7 @@ paths:
           in: query
           name: threshold_z
           schema:
-            default: 3
+            default: 2
             description: Lookback z-score threshold.
             format: double
             type: number

@@ -537,7 +537,7 @@
           type="number"
           min="0.1"
           step="0.1"
-          value={query.thresholdZ ?? m.lookback?.z_threshold ?? 3}
+          value={query.thresholdZ ?? m.lookback?.z_threshold ?? 2}
           onchange={(e) => setThreshold({ thresholdZ: positive(e.currentTarget.value) })}
         />
       </label>

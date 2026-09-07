@@ -1046,7 +1046,7 @@ type GetCiReportParams struct {
 	// Threshold Pairwise percent-change threshold. Defaults to 5.
 	Threshold *float64 `form:"threshold,omitempty" json:"threshold,omitempty"`
 
-	// ThresholdZ Lookback z-score threshold. Defaults to 3.
+	// ThresholdZ Lookback z-score threshold. Defaults to 2.
 	ThresholdZ *float64 `form:"threshold_z,omitempty" json:"threshold_z,omitempty"`
 }
 

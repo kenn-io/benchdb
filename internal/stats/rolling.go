@@ -11,7 +11,7 @@ import (
 const (
 	DistributionCommitsDefault      = 100
 	PairwisePercentThresholdDefault = 5.0
-	ZScoreThresholdDefault          = 3.0
+	ZScoreThresholdDefault          = 2.0
 	shiftZScoreThreshold            = 5.0
 )
 

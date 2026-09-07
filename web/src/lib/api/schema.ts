@@ -1966,7 +1966,7 @@ export interface operations {
                 baseline?: "fork_point" | "parent" | "latest_default";
                 /** @description Pairwise percent-change threshold. Defaults to 5. */
                 threshold?: number;
-                /** @description Lookback z-score threshold. Defaults to 3. */
+                /** @description Lookback z-score threshold. Defaults to 2. */
                 threshold_z?: number;
             };
             header?: never;

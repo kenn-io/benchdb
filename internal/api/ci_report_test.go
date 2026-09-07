@@ -65,7 +65,7 @@ func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{20}})
 	baseline := seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c3", ts: day(3), data: []float64{30}})
-	contender := seedResult(t, tapi, seedOpts{runID: "contender", sha: "c4", ts: day(4), data: []float64{50}})
+	contender := seedResult(t, tapi, seedOpts{runID: "contender", sha: "c4", ts: day(4), data: []float64{40}})
 	// The contender is off the default branch. A later default-branch result
 	// must not enter the historical window of this explicit comparison.
 	_, err := pool.Exec(ctx, `UPDATE commit SET parent = 'c3', fork_point_sha = 'c3' WHERE repository = $1 AND sha = 'c4'`, defaultRepo)
@@ -79,8 +79,8 @@ func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 		regression bool
 		status     service.CIReportStatus
 	}{
-		{"default", "", 3, true, service.CIReportStatusFailure},
-		{"explicit override", "&threshold_z=5", 5, false, service.CIReportStatusSuccess},
+		{"default", "", 2, true, service.CIReportStatusFailure},
+		{"explicit override", "&threshold_z=3", 3, false, service.CIReportStatusSuccess},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			report := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids=contender&baseline_run_ids=baseline"+tt.query))
@@ -93,7 +93,7 @@ func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 			lookback := row.Analysis.LookbackZScore
 			require.NotNil(t, lookback)
 			// Trailing mean 20, residual standard deviation sqrt(175/3).
-			assert.InDelta(t, -3.928, lookback.ZScore, 0.001)
+			assert.InDelta(t, -2.619, lookback.ZScore, 0.001)
 			assert.Equal(t, tt.regression, lookback.RegressionIndicated)
 
 			response := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender + tt.query)

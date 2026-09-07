@@ -49,8 +49,8 @@ thresholds. Otherwise the row is `insufficient`.
 ## Thresholds
 
 Both pairwise percent change and lookback z-score use strict thresholds. The
-default lookback threshold is **3 standard deviations**: a z-score below `-3`
-is a regression and a score above `3` is an improvement. Exactly `-3` or `3`
+default lookback threshold is **2 standard deviations**: a z-score below `-2`
+is a regression and a score above `2` is an improvement. Exactly `-2` or `2`
 does not cross the threshold. This applies to CI reports, comparisons, and
 series verdicts. Automatic distribution-shift detection remains separate.
 
