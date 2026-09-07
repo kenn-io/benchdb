@@ -61,7 +61,7 @@ type CompareResult struct {
 }
 
 // Compare loads two results, validates they are comparable, and returns the
-// pairwise + lookback-z analysis. thresholds default to 5.0 at the API layer.
+// pairwise + lookback-z analysis. The API defaults to 5 percent and 2 standard deviations.
 func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, threshold, thresholdZ float64) (*CompareResult, error) {
 	baseline, err := r.loadCompareResult(ctx, baselineID)
 	if err != nil {

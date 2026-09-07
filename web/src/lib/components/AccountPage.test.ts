@@ -134,6 +134,29 @@ describe("AccountPage", () => {
     expect(screen.queryByText("ci token")).toBeNull();
   });
 
+  it("uses the two-sigma default for initial and subsequent alert rules", async () => {
+    mockSignedIn();
+    POST.mockImplementation((_path: string, { body }) =>
+      Promise.resolve({ data: { ...alertRule, ...body, id: body.name } }),
+    );
+
+    render(AccountPage);
+    await waitFor(() => expect(screen.getByText("Arrow nightly")).toBeInTheDocument());
+
+    for (const name of ["First rule", "Second rule"]) {
+      await fireEvent.input(screen.getByLabelText(/rule name/i), { target: { value: name } });
+      await fireEvent.input(screen.getByLabelText(/repository/i), {
+        target: { value: "https://github.com/apache/arrow" },
+      });
+      await fireEvent.submit(screen.getByTestId("alert-create-form"));
+
+      await waitFor(() => expect(screen.getByText(name)).toBeInTheDocument());
+      expect(POST).toHaveBeenLastCalledWith("/api/alert-rules", {
+        body: expect.objectContaining({ name, threshold_z: 2 }),
+      });
+    }
+  });
+
   it("creates alert rules and drills into alert events", async () => {
     mockSignedIn();
     POST.mockResolvedValueOnce({

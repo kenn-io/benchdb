@@ -48,10 +48,23 @@ thresholds. Otherwise the row is `insufficient`.
 
 ## Thresholds
 
-Both pairwise percent change and lookback z-score use strict thresholds. At the
-default z threshold of `5.0`, a z-score must be less than `-5.0` to be a
-regression or greater than `5.0` to be an improvement. Exactly `-5.0` or `5.0`
-is not a verdict breach.
+Both pairwise percent change and lookback z-score use strict thresholds. The
+default lookback threshold is **2 standard deviations**: a z-score below `-2`
+is a regression and a score above `2` is an improvement. Exactly `-2` or `2`
+does not cross the threshold. This applies to CI reports, comparisons, and
+series verdicts. Automatic distribution-shift detection remains separate.
+
+The previous default of 5 could classify a slowdown more than four standard
+deviations above the trailing trend as stable. The default is now more sensitive;
+existing measurements need no migration or resubmission. Explicit `threshold_z`
+API parameters and `benchdb ci report --threshold-z` overrides still take
+precedence. The comparison page also exposes this control.
+
+These scores describe deviations from historical performance, not a guarantee
+that a code change caused the slowdown. A one-standard-deviation breach alone
+is not the default incident threshold. For automated incident handling, confirm
+the measurement and keep the selected threshold visible. `stable` means within
+that threshold, not identical performance or proof that no slowdown exists.
 
 Pairwise percent change is useful for magnitude and quick inspection, but it
 does not make a CI report fail by itself. That avoids failing a new or noisy

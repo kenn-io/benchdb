@@ -6,11 +6,12 @@ import (
 	"time"
 )
 
-// Engine defaults (legacy config.py / api/compare.py).
+// Verdict sensitivity is separate from distribution-shift detection: a result
+// can warrant investigation before it is evidence of a new distribution.
 const (
 	DistributionCommitsDefault      = 100
 	PairwisePercentThresholdDefault = 5.0
-	ZScoreThresholdDefault          = 5.0
+	ZScoreThresholdDefault          = 2.0
 	shiftZScoreThreshold            = 5.0
 )
 

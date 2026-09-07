@@ -107,7 +107,7 @@ func TestAlertRuleAPIUserOwnedCRUDAndEvents(t *testing.T) {
 	assert.Contains(t, resp.Body.String(), "Arrow nightly")
 	assert.Contains(t, resp.Body.String(), `"enabled":false`)
 	assert.Contains(t, resp.Body.String(), `"threshold":5`)
-	assert.Contains(t, resp.Body.String(), `"threshold_z":5`)
+	assert.Contains(t, resp.Body.String(), `"threshold_z":2`)
 	var updated struct {
 		State           string
 		LastEvaluatedAt *time.Time `json:"last_evaluated_at"`
