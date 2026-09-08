@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -12,14 +13,13 @@ import (
 const (
 	recentRunsPageSizeDefault = 25
 	recentRunsPageSizeMax     = 100
-	recentRunsCandidateMin    = int32(50000)
-	recentRunsCandidateMax    = int32(250000)
-	recentRunsCandidateFactor = int32(5000)
 	recentRunsAttentionLimit  = 5
 )
 
 // RecentRunsQuery is the parsed recent-runs input.
 type RecentRunsQuery struct {
+	Search           string
+	Offset           int32
 	PageSize         int
 	IncludeAttention bool
 	Repository       *string
@@ -67,6 +67,7 @@ type RecentRunListItem struct {
 
 // RecentRunsPage is the GET /api/runs/recent response.
 type RecentRunsPage struct {
+	HasMore      bool                      `json:"has_more"`
 	Runs         []RecentRunListItem       `json:"runs"`
 	Repositories []RecentRunRepositoryItem `json:"repositories"`
 }
@@ -87,9 +88,10 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	}
 
 	rows, err := r.store.SelectRecentRuns(ctx, storage.RecentRunsParams{
-		CandidateResultCount: recentRunsCandidateCount(pageSize, q.Repository),
-		PageSize:             int32(pageSize),
-		Repository:           q.Repository,
+		Search:     strings.TrimSpace(q.Search),
+		Offset:     max(q.Offset, 0),
+		PageSize:   int32(pageSize + 1),
+		Repository: q.Repository,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list recent runs: %w", err)
@@ -99,6 +101,10 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 		return nil, fmt.Errorf("list recent run repositories: %w", err)
 	}
 
+	hasMore := len(rows) > pageSize
+	if hasMore {
+		rows = rows[:pageSize]
+	}
 	items := make([]RecentRunListItem, 0, len(rows))
 	for _, row := range rows {
 		item, err := recentRunListItem(row)
@@ -110,7 +116,7 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	if q.IncludeAttention {
 		r.attachRecentRunAttention(ctx, items)
 	}
-	return &RecentRunsPage{Runs: items, Repositories: recentRunRepositoryItems(repositories)}, nil
+	return &RecentRunsPage{HasMore: hasMore, Runs: items, Repositories: recentRunRepositoryItems(repositories)}, nil
 }
 
 func recentRunRepositoryItems(rows []storage.RecentRunRepositoryRow) []RecentRunRepositoryItem {
@@ -119,20 +125,6 @@ func recentRunRepositoryItems(rows []storage.RecentRunRepositoryRow) []RecentRun
 		items = append(items, RecentRunRepositoryItem{Repository: row.Repository})
 	}
 	return items
-}
-
-func recentRunsCandidateCount(pageSize int, repository *string) int32 {
-	if repository != nil {
-		return recentRunsCandidateMax
-	}
-	limit := int32(pageSize) * recentRunsCandidateFactor
-	if limit < recentRunsCandidateMin {
-		return recentRunsCandidateMin
-	}
-	if limit > recentRunsCandidateMax {
-		return recentRunsCandidateMax
-	}
-	return limit
 }
 
 func (r *Reader) attachRecentRunAttention(ctx context.Context, items []RecentRunListItem) {

@@ -115,25 +115,22 @@ ORDER BY br.id DESC
 LIMIT sqlc.arg('page_size');
 
 -- name: SelectRecentRuns :many
--- Landing-page run summaries. Discover candidate run IDs from the newest result
--- rows using the timestamp index, then aggregate the selected run IDs exactly via
--- the run_id index. Repository filtering is applied after the bounded candidate
--- scan because commit_repo_url is not indexed in the frozen production schema.
--- This keeps the home page fast while still producing exact counts for the runs
--- shown on the page.
-WITH candidate_rows AS MATERIALIZED (
-  SELECT br.run_id, br."timestamp", br.commit_repo_url
-  FROM benchmark_result br
-  ORDER BY br."timestamp" DESC, br.id DESC
-  LIMIT sqlc.arg('candidate_result_count')
+-- Search all history before pagination so older commits remain discoverable.
+-- Aggregate result counts only for the selected run IDs.
+WITH matching_commits AS MATERIALIZED (
+  SELECT c.id FROM commit c
+  WHERE sqlc.arg('search')::text <> ''
+    AND strpos(lower(rtrim(c.repository, '/') || '/commit/' || c.sha), lower(sqlc.arg('search')::text)) > 0
 ),
 selected_runs AS MATERIALIZED (
-  SELECT cr.run_id, max(cr."timestamp") AS candidate_last_timestamp
-  FROM candidate_rows cr
-  WHERE (sqlc.narg('repository')::text IS NULL OR cr.commit_repo_url = sqlc.narg('repository')::text)
-  GROUP BY cr.run_id
-  ORDER BY max(cr."timestamp") DESC, cr.run_id DESC
+  SELECT br.run_id, max(br."timestamp") AS candidate_last_timestamp
+  FROM benchmark_result br
+  WHERE (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
+  GROUP BY br.run_id
+  HAVING sqlc.arg('search')::text = '' OR bool_or(br.commit_id IN (SELECT id FROM matching_commits))
+  ORDER BY max(br."timestamp") DESC, br.run_id DESC
   LIMIT sqlc.arg('page_size')
+  OFFSET sqlc.arg('offset_count')
 ),
 run_agg AS MATERIALIZED (
   SELECT

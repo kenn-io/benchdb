@@ -233,9 +233,11 @@ func TestListRecentRunsGroupsResultsByRun(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
 	require.Len(t, page.Runs, 2)
-	var raw map[string][]map[string]any
+	var raw struct {
+		Runs []map[string]any `json:"runs"`
+	}
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &raw))
-	require.NotContains(t, raw["runs"][0], "batch_ids", "recent runs must not return an unbounded batch id list")
+	require.NotContains(t, raw.Runs[0], "batch_ids", "recent runs must not return an unbounded batch id list")
 
 	assert.Equal(t, "run-a", page.Runs[0].RunID)
 	assert.Equal(t, "nightly", *page.Runs[0].RunReason)
@@ -319,9 +321,11 @@ func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
 
 	resp := tapi.Get("/api/runs/recent?page_size=10")
 	require.Equal(t, http.StatusOK, resp.Code, "recent runs: %s", resp.Body.String())
-	var raw map[string][]map[string]any
+	var raw struct {
+		Runs []map[string]any `json:"runs"`
+	}
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &raw))
-	require.NotContains(t, raw["runs"][0], "attention", "attention is opt-in for the home dashboard")
+	require.NotContains(t, raw.Runs[0], "attention", "attention is opt-in for the home dashboard")
 
 	resp = tapi.Get("/api/runs/recent?page_size=10&include_attention=true")
 	require.Equal(t, http.StatusOK, resp.Code, "recent runs with attention: %s", resp.Body.String())
@@ -367,4 +371,46 @@ func recentRepositoryURLs(rows []struct {
 		out = append(out, row.Repository)
 	}
 	return out
+}
+
+func TestListRecentRunsSearchAndPagination(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	for _, run := range []struct {
+		id, sha string
+		day     int
+	}{
+		{"old-run", "abcdef123456", 1}, {"middle-run", "abcdef999999", 2}, {"new-run", "fedcba123456", 3},
+	} {
+		seedResult(t, tapi, seedOpts{sha: run.sha, ts: day(run.day), data: []float64{10}, runID: run.id})
+	}
+	for _, tc := range []struct {
+		query, id string
+		more      bool
+	}{
+		{"page_size=1", "new-run", true},
+		{"page_size=1&offset=1", "middle-run", true},
+		{"page_size=1&offset=2", "old-run", false},
+		{"page_size=1&q=ABCDEF", "middle-run", true},
+		{"page_size=1&q=abcdef&offset=1", "old-run", false},
+		{"q=" + url.QueryEscape(defaultRepo+"/commit/abcdef123"), "old-run", false},
+		{"q=" + url.QueryEscape("commit/abcdef123"), "old-run", false},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			resp := tapi.Get("/api/runs/recent?" + tc.query)
+			require.Equal(t, http.StatusOK, resp.Code)
+			var page struct {
+				Runs    []service.RecentRunListItem `json:"runs"`
+				HasMore bool                        `json:"has_more"`
+			}
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+			require.Len(t, page.Runs, 1)
+			assert.Equal(t, tc.id, page.Runs[0].RunID)
+			assert.Equal(t, tc.more, page.HasMore)
+		})
+	}
+	resp := tapi.Get("/api/runs/recent?q=abcdef&repository=" + url.QueryEscape("https://github.com/another/project"))
+	require.Equal(t, http.StatusOK, resp.Code)
+	var page service.RecentRunsPage
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+	assert.Empty(t, page.Runs)
 }

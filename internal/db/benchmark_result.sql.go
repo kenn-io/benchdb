@@ -486,19 +486,20 @@ func (q *Queries) SelectBenchmarkResults(ctx context.Context, arg SelectBenchmar
 }
 
 const selectRecentRuns = `-- name: SelectRecentRuns :many
-WITH candidate_rows AS MATERIALIZED (
-  SELECT br.run_id, br."timestamp", br.commit_repo_url
-  FROM benchmark_result br
-  ORDER BY br."timestamp" DESC, br.id DESC
-  LIMIT $2
+WITH matching_commits AS MATERIALIZED (
+  SELECT c.id FROM commit c
+  WHERE $2::text <> ''
+    AND strpos(lower(rtrim(c.repository, '/') || '/commit/' || c.sha), lower($2::text)) > 0
 ),
 selected_runs AS MATERIALIZED (
-  SELECT cr.run_id, max(cr."timestamp") AS candidate_last_timestamp
-  FROM candidate_rows cr
-  WHERE ($1::text IS NULL OR cr.commit_repo_url = $1::text)
-  GROUP BY cr.run_id
-  ORDER BY max(cr."timestamp") DESC, cr.run_id DESC
-  LIMIT $3
+  SELECT br.run_id, max(br."timestamp") AS candidate_last_timestamp
+  FROM benchmark_result br
+  WHERE ($1::text IS NULL OR br.commit_repo_url = $1::text)
+  GROUP BY br.run_id
+  HAVING $2::text = '' OR bool_or(br.commit_id IN (SELECT id FROM matching_commits))
+  ORDER BY max(br."timestamp") DESC, br.run_id DESC
+  LIMIT $4
+  OFFSET $3
 ),
 run_agg AS MATERIALIZED (
   SELECT
@@ -551,9 +552,10 @@ ORDER BY a.last_result_at DESC, a.run_id DESC
 `
 
 type SelectRecentRunsParams struct {
-	Repository           *string
-	CandidateResultCount int32
-	PageSize             int32
+	Repository  *string
+	Search      string
+	OffsetCount int32
+	PageSize    int32
 }
 
 type SelectRecentRunsRow struct {
@@ -579,14 +581,15 @@ type SelectRecentRunsRow struct {
 	CommitTimestamp    *time.Time
 }
 
-// Landing-page run summaries. Discover candidate run IDs from the newest result
-// rows using the timestamp index, then aggregate the selected run IDs exactly via
-// the run_id index. Repository filtering is applied after the bounded candidate
-// scan because commit_repo_url is not indexed in the frozen production schema.
-// This keeps the home page fast while still producing exact counts for the runs
-// shown on the page.
+// Search all history before pagination so older commits remain discoverable.
+// Aggregate result counts only for the selected run IDs.
 func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsParams) ([]SelectRecentRunsRow, error) {
-	rows, err := q.db.Query(ctx, selectRecentRuns, arg.Repository, arg.CandidateResultCount, arg.PageSize)
+	rows, err := q.db.Query(ctx, selectRecentRuns,
+		arg.Repository,
+		arg.Search,
+		arg.OffsetCount,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
