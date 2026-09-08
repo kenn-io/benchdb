@@ -56,6 +56,7 @@ export interface RecentRunAttentionViewModel {
 }
 
 export interface RecentRunsViewModel {
+  hasMore: boolean;
   runs: RecentRunViewModel[];
   repositories: RecentRunRepositoryViewModel[];
 }
@@ -67,6 +68,8 @@ export interface RecentRunRepositoryViewModel {
 
 export interface RecentRunsQuery {
   repository: string;
+  q?: string;
+  offset?: number;
 }
 
 export const RECENT_RUNS_PAGE_SIZE = 25;
@@ -83,10 +86,14 @@ export async function listRecentRuns(
     page_size: number;
     include_attention: boolean;
     repository?: string;
+    q?: string;
+    offset?: number;
   } = { page_size: RECENT_RUNS_PAGE_SIZE, include_attention: true };
   if (query.repository !== "") {
     apiQuery.repository = query.repository;
   }
+  if (query.q) apiQuery.q = query.q;
+  if (query.offset) apiQuery.offset = query.offset;
   const res = await client.GET("/api/runs/recent", {
     params: { query: apiQuery },
   });
@@ -94,6 +101,7 @@ export async function listRecentRuns(
     throw recentRunsError(res);
   }
   return {
+    hasMore: res.data.has_more,
     runs: (res.data.runs ?? []).map(toRecentRunViewModel),
     repositories: (((res.data as { repositories?: RecentRunRepository[] }).repositories ?? [])
       .map(toRecentRunRepositoryViewModel)),

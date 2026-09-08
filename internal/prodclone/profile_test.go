@@ -12,6 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.kenn.io/benchdb/internal/db"
+	"go.kenn.io/benchdb/internal/dbtest"
+	"go.kenn.io/benchdb/internal/seed"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 func TestRunProfileCollectsHTTPSQLPlansAndRelationSizes(t *testing.T) {
@@ -49,6 +54,9 @@ func TestRunProfileCollectsHTTPSQLPlansAndRelationSizes(t *testing.T) {
 	assert.Contains(t, paths, "/api/series?page_size=10&q=tpch")
 	assert.Contains(t, paths, "/api/runs/recent?page_size=25")
 	assert.Contains(t, paths, "/api/runs/recent?page_size=100")
+	assert.Contains(t, paths, "/api/runs/recent?offset=25&page_size=25")
+	assert.Contains(t, paths, "/api/runs/recent?offset=0&page_size=25&q=sha-re")
+	assert.Contains(t, paths, "/api/runs/recent?offset=25&page_size=25&q=sha-re")
 	assert.Contains(t, paths, "/api/ci/report?commit_sha=sha-recent&repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fprod-sample&run_ids=sample-run")
 	assert.NotEmpty(t, result.HTTPTimings)
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "RecentRunsPage25 cold")
@@ -286,4 +294,48 @@ func (r *fakeRows) RawValues() [][]byte {
 
 func (r *fakeRows) Conn() *pgx.Conn {
 	return nil
+}
+
+func TestRecentRunsProfilerMatchesEndpointSelection(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	store := db.NewStore(pool)
+	summary, err := seed.Run(ctx, store)
+	require.NoError(t, err)
+	ref := summary.ProductSmoke.CIRegressionCommitSHA[:6]
+	expected := map[string]storage.RecentRunsParams{
+		"RecentRunsPage25":         {PageSize: 26},
+		"RecentRunsPage100":        {PageSize: 101},
+		"RecentRunsPage2":          {PageSize: 26, Offset: 25},
+		"RecentRunsSearchOffset0":  {PageSize: 26, Search: ref},
+		"RecentRunsSearchOffset25": {PageSize: 26, Search: ref, Offset: 25},
+	}
+	for _, query := range profileSQLQueries(profileSamples{ciReportCommitSHA: summary.ProductSmoke.CIRegressionCommitSHA}) {
+		params, ok := expected[query.name]
+		if !ok {
+			continue
+		}
+		t.Run(query.name, func(t *testing.T) {
+			endpointRows, err := store.SelectRecentRuns(ctx, params)
+			require.NoError(t, err)
+			rows, err := pool.Query(ctx, query.sql, query.args...)
+			require.NoError(t, err)
+			defer rows.Close()
+			actual := []string{}
+			for rows.Next() {
+				values, err := rows.Values()
+				require.NoError(t, err)
+				actual = append(actual, values[0].(string))
+			}
+			require.NoError(t, rows.Err())
+			want := []string{}
+			for _, row := range endpointRows {
+				want = append(want, row.RunID)
+			}
+			assert.Equal(t, want, actual)
+			_, failure := explainProfileSQLQuery(ctx, pool, query)
+			require.Nil(t, failure)
+		})
+		delete(expected, query.name)
+	}
+	require.Empty(t, expected, "all recent-run profile cases must execute")
 }

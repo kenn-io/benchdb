@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import {
     listRecentRuns,
+    RECENT_RUNS_PAGE_SIZE,
     type RecentRunAttentionViewModel,
     type RecentRunRepositoryViewModel,
     type RecentRunViewModel,
@@ -20,6 +21,8 @@
 
   const client = $derived(createBenchDBClient(baseUrl));
 
+  let search = $state(untrack(() => query.q));
+  let hasMore = $state(false);
   let runs = $state<RecentRunViewModel[]>([]);
   let repositories = $state<RecentRunRepositoryViewModel[]>([]);
   let loading = $state(true);
@@ -35,6 +38,7 @@
     try {
       const page = await listRecentRuns(client, query);
       runs = page.runs;
+      hasMore = page.hasMore;
       repositories = page.repositories;
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
@@ -105,12 +109,21 @@
   }
 
   function projectHref(repository: string): string {
-    return `/${formatHomeQuery({ repository })}`;
+    return `/${formatHomeQuery({ repository, q: query.q })}`;
   }
 
   function setRepository(e: Event) {
     const repository = e.currentTarget instanceof HTMLSelectElement ? e.currentTarget.value : "";
     navigate(projectHref(repository));
+  }
+
+  function submitSearch(e: SubmitEvent) {
+    e.preventDefault();
+    navigate(`/${formatHomeQuery({ repository: query.repository, q: search.trim() })}`);
+  }
+
+  function pageHref(offset: number): string {
+    return `/${formatHomeQuery({ ...query, offset })}`;
   }
 
   function attentionStatusLabel(attention: RecentRunAttentionViewModel): string {
@@ -155,14 +168,28 @@
     </div>
   </header>
 
+  <form class="run-search" onsubmit={submitSearch} role="search">
+    <label for="commit-search">Find a commit</label>
+    <div class="search-controls">
+      <input id="commit-search" type="search" bind:value={search} maxlength="2048"
+        placeholder="Commit SHA or part of a commit URL" aria-describedby="commit-search-help" />
+      <button type="submit">Search</button>
+      {#if query.q}
+        <a href={`/${formatHomeQuery({ repository: query.repository })}`}
+          onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository })}`)}>Clear search</a>
+      {/if}
+    </div>
+    <p id="commit-search-help">Search all runs, including older commits. Paste a full URL, a URL fragment, or a SHA.</p>
+  </form>
+
   {#if errorMsg}
     <p class="error">Failed to load recent runs: {errorMsg}</p>
   {:else if loading}
     <p>Loading…</p>
   {:else if runs.length === 0}
     <section class="panel empty-panel">
-      <h2>No recent runs</h2>
-      <p>Submitted benchmark results will appear here once a run is available.</p>
+      <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No recent runs"}</h2>
+      <p>{query.q ? "Try a shorter SHA or URL fragment, or choose All projects." : "Submitted benchmark results will appear here once a run is available."}</p>
       <a href="/series" onclick={(e) => go(e, "/series")}>Browse benchmark series</a>
     </section>
   {:else}
@@ -360,9 +387,55 @@
       </table>
     </section>
   {/if}
+  {#if !loading && !errorMsg && (runs.length > 0 || query.offset > 0)}
+    <nav class="run-pagination" aria-label="Run pages">
+      {#if query.offset > 0}
+        <a href={pageHref(Math.max(0, query.offset - RECENT_RUNS_PAGE_SIZE))}
+          onclick={(e) => go(e, pageHref(Math.max(0, query.offset - RECENT_RUNS_PAGE_SIZE)))}>Previous</a>
+      {:else}<span aria-disabled="true">Previous</span>{/if}
+      <span aria-live="polite">{runs.length ? `Runs ${query.offset + 1}–${query.offset + runs.length}` : "No more runs"}</span>
+      {#if hasMore}
+        <a href={pageHref(query.offset + RECENT_RUNS_PAGE_SIZE)}
+          onclick={(e) => go(e, pageHref(query.offset + RECENT_RUNS_PAGE_SIZE))}>Next</a>
+      {:else}<span aria-disabled="true">Next</span>{/if}
+    </nav>
+  {/if}
 </main>
 
 <style>
+  .run-search { display: grid; gap: 6px; flex-shrink: 0; }
+  .run-search label { font-weight: 650; }
+  .search-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .search-controls input {
+    flex: 1;
+    min-width: min(100%, 240px);
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    font: inherit;
+  }
+  .search-controls input::placeholder { color: var(--c-text-muted); }
+  .search-controls button {
+    min-height: 36px;
+    padding: 6px 16px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--radius-sm);
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  .search-controls button:hover { background: var(--c-accent-strong); }
+  .search-controls :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  .run-search p { margin: 0; color: var(--c-text-muted); font-size: 0.8rem; }
+  .run-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-shrink: 0; }
+  .run-pagination a { padding: 8px; }
+  .run-pagination [aria-disabled] { color: var(--c-text-muted); padding: 8px; }
+
   .home-page {
     gap: 12px;
     height: 100%;

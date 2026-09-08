@@ -52,6 +52,8 @@ export interface NotFoundRoute {
 
 export interface HomeQuery {
   repository: string;
+  q: string;
+  offset: number;
 }
 
 export interface HomeRoute {
@@ -274,7 +276,7 @@ export function formatCompareQuery(query: CompareQuery): string {
 }
 
 export const DEFAULT_BROWSE_QUERY: BrowseQuery = { q: "", hardware: "", repository: "", window: "all" };
-export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "" };
+export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0 };
 export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
   runID: "",
   batchID: "",
@@ -287,12 +289,19 @@ const BROWSE_WINDOWS: readonly BrowseWindow[] = ["all", "30d", "3mo", "1y"];
 
 export function parseHomeQuery(search: string): HomeQuery {
   const params = new URLSearchParams(search);
-  return { repository: params.get("repository") ?? "" };
+  const offset = Number(params.get("offset"));
+  return {
+    repository: params.get("repository") ?? "",
+    q: (params.get("q") ?? "").trim(),
+    offset: Number.isSafeInteger(offset) && offset > 0 && offset <= 2147483647 ? offset : 0,
+  };
 }
 
-export function formatHomeQuery(query: HomeQuery): string {
+export function formatHomeQuery(query: Partial<HomeQuery>): string {
   const params = new URLSearchParams();
-  if (query.repository !== "") params.set("repository", query.repository);
+  if (query.repository) params.set("repository", query.repository);
+  if (query.q) params.set("q", query.q);
+  if (query.offset) params.set("offset", String(query.offset));
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
 }

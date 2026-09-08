@@ -723,6 +723,7 @@ type RecentRunRepositoryItem struct {
 type RecentRunsPage struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema       *string                    `json:"$schema,omitempty"`
+	HasMore      bool                       `json:"has_more"`
 	Repositories *[]RecentRunRepositoryItem `json:"repositories"`
 	Runs         *[]RecentRunListItem       `json:"runs"`
 }
@@ -1083,6 +1084,12 @@ type SubmitResultParams struct {
 
 // ListRecentRunsParams defines parameters for ListRecentRuns.
 type ListRecentRunsParams struct {
+	// Q Find runs by a commit SHA or any part of a commit URL (case-insensitive).
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Offset Number of matching runs to skip.
+	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
+
 	// PageSize Page size (max 100).
 	PageSize *int64 `form:"page_size,omitempty" json:"page_size,omitempty"`
 
@@ -3406,6 +3413,30 @@ func NewListRecentRunsRequest(server string, params *ListRecentRunsParams) (*htt
 		// styled parameters, preserving literal commas as delimiters
 		// per the OpenAPI spec (e.g. "color=blue,black,brown").
 		var rawQueryFragments []string
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
 
 		if params.PageSize != nil {
 

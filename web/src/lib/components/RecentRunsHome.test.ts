@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_HOME_QUERY } from "../router";
 import RecentRunsHome from "./RecentRunsHome.svelte";
 
 const GET = vi.fn();
@@ -124,7 +125,7 @@ describe("RecentRunsHome", () => {
     });
 
     render(RecentRunsHome, {
-      props: { query: { repository: "https://github.com/apache/arrow-go" } },
+      props: { query: { ...DEFAULT_HOME_QUERY, repository: "https://github.com/apache/arrow-go" } },
     });
 
     await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
@@ -209,4 +210,27 @@ describe("RecentRunsHome", () => {
     await waitFor(() => expect(screen.getByText(/failed to load recent runs/i)).toBeInTheDocument());
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
   });
+});
+
+it("submits a commit URL search and resets pagination", async () => {
+  GET.mockResolvedValueOnce({ data: { runs: [], repositories: [], has_more: false } });
+  render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, offset: 25 } } });
+  await fireEvent.input(screen.getByRole("searchbox"), { target: { value: " commit/abcdef " } });
+  await fireEvent.submit(screen.getByRole("search"));
+  expect(new URLSearchParams(location.search).get("q")).toBe("commit/abcdef");
+  expect(new URLSearchParams(location.search).has("offset")).toBe(false);
+});
+
+it("keeps the search and project when paging to older runs", async () => {
+  GET.mockResolvedValueOnce({ data: { runs: [run()], repositories: [], has_more: true } });
+  render(RecentRunsHome, { props: { query: { repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25 } } });
+  await waitFor(() => expect(screen.getByRole("link", { name: "Next" })).toBeInTheDocument());
+  expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { query: {
+    page_size: 25, include_attention: true, repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25,
+  } } });
+  await fireEvent.click(screen.getByRole("link", { name: "Next" }));
+  const params = new URLSearchParams(location.search);
+  expect(params.get("offset")).toBe("50");
+  expect(params.get("q")).toBe("abcdef");
+  expect(params.get("repository")).toBe("https://github.com/apache/arrow");
 });

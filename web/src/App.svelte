@@ -39,7 +39,7 @@
 
   <div class="app-content">
     {#if route.name === "home"}
-      {#key route.query.repository}
+      {#key JSON.stringify(route.query)}
         <RecentRunsHome query={route.query} />
       {/key}
     {:else if route.name === "browse"}

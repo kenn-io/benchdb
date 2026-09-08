@@ -782,9 +782,10 @@ func (s *Store) SelectBenchmarkResults(ctx context.Context, p storage.ListResult
 // SelectRecentRuns returns grouped run summaries for the landing page.
 func (s *Store) SelectRecentRuns(ctx context.Context, p storage.RecentRunsParams) ([]storage.RecentRunRow, error) {
 	rows, err := s.q.SelectRecentRuns(ctx, SelectRecentRunsParams{
-		CandidateResultCount: p.CandidateResultCount,
-		PageSize:             p.PageSize,
-		Repository:           p.Repository,
+		Search:      p.Search,
+		OffsetCount: p.Offset,
+		PageSize:    p.PageSize,
+		Repository:  p.Repository,
 	})
 	if err != nil {
 		return nil, err

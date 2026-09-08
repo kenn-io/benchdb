@@ -608,13 +608,12 @@ type ResultListRow struct {
 	CommitIsDefaultBranch bool
 }
 
-// RecentRunsParams bounds the landing-page run summary. CandidateResultCount
-// is the number of newest benchmark_result rows to scan for run IDs before
-// exact aggregation of the selected runs.
+// RecentRunsParams selects a page of matching runs, newest first.
 type RecentRunsParams struct {
-	CandidateResultCount int32
-	PageSize             int32
-	Repository           *string
+	Search     string
+	Offset     int32
+	PageSize   int32
+	Repository *string
 }
 
 // RecentRunRepositoryRow is one repository with benchmark results for the home

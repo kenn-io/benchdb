@@ -55,12 +55,12 @@ describe("browse route", () => {
   it("matches / as the recent-runs home", () => {
     expect(matchRoute("/")).toEqual({
       name: "home",
-      query: { repository: "" },
+      query: { repository: "", q: "", offset: 0 },
     });
   });
 
   it("parses and formats the home repository selector", () => {
-    const query = { repository: "https://github.com/apache/arrow-go" };
+    const query = { repository: "https://github.com/apache/arrow-go", q: "", offset: 0 };
     expect(matchRoute("/", "?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow-go")).toEqual({
       name: "home",
       query,

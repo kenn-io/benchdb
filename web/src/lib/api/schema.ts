@@ -1062,6 +1062,7 @@ export interface components {
              * @example https://example.com/schemas/RecentRunsPage.json
              */
             readonly $schema?: string;
+            has_more: boolean;
             repositories: components["schemas"]["RecentRunRepositoryItem"][] | null;
             runs: components["schemas"]["RecentRunListItem"][] | null;
         };
@@ -2167,6 +2168,10 @@ export interface operations {
     "list-recent-runs": {
         parameters: {
             query?: {
+                /** @description Find runs by a commit SHA or any part of a commit URL (case-insensitive). */
+                q?: string;
+                /** @description Number of matching runs to skip. */
+                offset?: number;
                 /** @description Page size (max 100). */
                 page_size?: number;
                 /** @description Include bounded CI attention summaries for the newest runs. */

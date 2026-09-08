@@ -1510,6 +1510,8 @@ components:
           format: uri
           readOnly: true
           type: string
+        has_more:
+          type: boolean
         repositories:
           items:
             $ref: "#/components/schemas/RecentRunRepositoryItem"
@@ -1523,6 +1525,7 @@ components:
             - array
             - "null"
       required:
+        - has_more
         - runs
         - repositories
       type: object
@@ -2936,6 +2939,24 @@ paths:
     get:
       operationId: list-recent-runs
       parameters:
+        - description: Find runs by a commit SHA or any part of a commit URL (case-insensitive).
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Find runs by a commit SHA or any part of a commit URL (case-insensitive).
+            maxLength: 2048
+            type: string
+        - description: Number of matching runs to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Number of matching runs to skip.
+            format: int32
+            minimum: 0
+            type: integer
         - description: Page size (max 100).
           explode: false
           in: query
