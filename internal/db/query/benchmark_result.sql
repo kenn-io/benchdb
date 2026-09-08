@@ -120,15 +120,38 @@ LIMIT sqlc.arg('page_size');
 WITH matching_commits AS MATERIALIZED (
   SELECT c.id FROM commit c
   WHERE sqlc.arg('search')::text <> ''
-    AND strpos(lower(rtrim(c.repository, '/') || '/commit/' || c.sha), lower(sqlc.arg('search')::text)) > 0
+    AND (rtrim(c.repository, '/') || '/commit/' || c.sha) ILIKE
+      '%' || replace(replace(replace(sqlc.arg('search')::text, '!', '!!'), '%', '!%'), '_', '!_') || '%' ESCAPE '!'
+),
+matching_runs AS MATERIALIZED (
+  SELECT DISTINCT br.run_id
+  FROM benchmark_result br
+  WHERE br.commit_id IN (SELECT id FROM matching_commits)
+    AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
+),
+-- The empty-ref and matching-ref cases share the same paging and aggregation.
+-- For a ref, calculate recency per matching run through its run_id index.
+candidate_runs AS (
+  SELECT br.run_id, max(br."timestamp") AS last_result_at
+  FROM benchmark_result br
+  WHERE sqlc.arg('search')::text = ''
+    AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
+  GROUP BY br.run_id
+  UNION ALL
+  SELECT mr.run_id, latest.last_result_at
+  FROM matching_runs mr
+  CROSS JOIN LATERAL (
+    SELECT max(br."timestamp") AS last_result_at
+    FROM benchmark_result br
+    WHERE br.run_id = mr.run_id
+      AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
+  ) latest
+  WHERE sqlc.arg('search')::text <> ''
 ),
 selected_runs AS MATERIALIZED (
-  SELECT br.run_id, max(br."timestamp") AS candidate_last_timestamp
-  FROM benchmark_result br
-  WHERE (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
-  GROUP BY br.run_id
-  HAVING sqlc.arg('search')::text = '' OR bool_or(br.commit_id IN (SELECT id FROM matching_commits))
-  ORDER BY max(br."timestamp") DESC, br.run_id DESC
+  SELECT cr.run_id
+  FROM candidate_runs cr
+  ORDER BY cr.last_result_at DESC, cr.run_id DESC
   LIMIT sqlc.arg('page_size')
   OFFSET sqlc.arg('offset_count')
 ),

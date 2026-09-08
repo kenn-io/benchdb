@@ -489,15 +489,36 @@ const selectRecentRuns = `-- name: SelectRecentRuns :many
 WITH matching_commits AS MATERIALIZED (
   SELECT c.id FROM commit c
   WHERE $2::text <> ''
-    AND strpos(lower(rtrim(c.repository, '/') || '/commit/' || c.sha), lower($2::text)) > 0
+    AND (rtrim(c.repository, '/') || '/commit/' || c.sha) ILIKE
+      '%' || replace(replace(replace($2::text, '!', '!!'), '%', '!%'), '_', '!_') || '%' ESCAPE '!'
+),
+matching_runs AS MATERIALIZED (
+  SELECT DISTINCT br.run_id
+  FROM benchmark_result br
+  WHERE br.commit_id IN (SELECT id FROM matching_commits)
+    AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
+),
+candidate_runs AS (
+  SELECT br.run_id, max(br."timestamp") AS last_result_at
+  FROM benchmark_result br
+  WHERE $2::text = ''
+    AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
+  GROUP BY br.run_id
+  UNION ALL
+  SELECT mr.run_id, latest.last_result_at
+  FROM matching_runs mr
+  CROSS JOIN LATERAL (
+    SELECT max(br."timestamp") AS last_result_at
+    FROM benchmark_result br
+    WHERE br.run_id = mr.run_id
+      AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
+  ) latest
+  WHERE $2::text <> ''
 ),
 selected_runs AS MATERIALIZED (
-  SELECT br.run_id, max(br."timestamp") AS candidate_last_timestamp
-  FROM benchmark_result br
-  WHERE ($1::text IS NULL OR br.commit_repo_url = $1::text)
-  GROUP BY br.run_id
-  HAVING $2::text = '' OR bool_or(br.commit_id IN (SELECT id FROM matching_commits))
-  ORDER BY max(br."timestamp") DESC, br.run_id DESC
+  SELECT cr.run_id
+  FROM candidate_runs cr
+  ORDER BY cr.last_result_at DESC, cr.run_id DESC
   LIMIT $4
   OFFSET $3
 ),
@@ -583,6 +604,8 @@ type SelectRecentRunsRow struct {
 
 // Search all history before pagination so older commits remain discoverable.
 // Aggregate result counts only for the selected run IDs.
+// The empty-ref and matching-ref cases share the same paging and aggregation.
+// For a ref, calculate recency per matching run through its run_id index.
 func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsParams) ([]SelectRecentRunsRow, error) {
 	rows, err := q.db.Query(ctx, selectRecentRuns,
 		arg.Repository,

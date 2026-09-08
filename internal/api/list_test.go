@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -413,4 +414,34 @@ func TestListRecentRunsSearchAndPagination(t *testing.T) {
 	var page service.RecentRunsPage
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
 	assert.Empty(t, page.Runs)
+}
+
+func TestRecentRunSearchOrdersWholeRunsBeforePagination(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedResult(t, tapi, seedOpts{sha: "abcdef111111", ts: day(1), data: []float64{10}, runID: "updated-run"})
+	seedResult(t, tapi, seedOpts{sha: "abcdef222222", ts: day(2), data: []float64{10}, runID: "other-run"})
+	seedResult(t, tapi, seedOpts{sha: "999999111111", ts: day(3), data: []float64{10}, runID: "updated-run"})
+	for offset, expected := range []string{"updated-run", "other-run"} {
+		resp := tapi.Get(fmt.Sprintf("/api/runs/recent?q=abcdef&page_size=1&offset=%d", offset))
+		require.Equal(t, http.StatusOK, resp.Code)
+		var page service.RecentRunsPage
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+		require.Len(t, page.Runs, 1)
+		assert.Equal(t, expected, page.Runs[0].RunID)
+		if offset == 0 {
+			assert.EqualValues(t, 2, page.Runs[0].ResultCount)
+		}
+	}
+}
+
+func TestRecentRunSearchTreatsWildcardsAsLiteralText(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedResult(t, tapi, seedOpts{sha: "abcdef111111", ts: day(1), data: []float64{10}, runID: "literal-run"})
+	for _, ref := range []string{"%", "_", "!"} {
+		resp := tapi.Get("/api/runs/recent?q=" + url.QueryEscape(ref))
+		require.Equal(t, http.StatusOK, resp.Code)
+		var page service.RecentRunsPage
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+		assert.Empty(t, page.Runs, "search %q must not match arbitrary characters", ref)
+	}
 }
