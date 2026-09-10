@@ -196,6 +196,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark-results/{id}/artifacts/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a result diagnostic artifact */
+        get: operations["download-result-artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmarks": {
         parameters: {
             query?: never;
@@ -496,6 +513,23 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             user_id: string;
+        };
+        ArtifactInput: {
+            /** @description Base64-encoded artifact content. */
+            data: string;
+            /** @enum {string} */
+            kind: "cpu-profile" | "memory-profile" | "diagnostics";
+            /** @enum {string} */
+            media_type: "application/vnd.google.pprof" | "application/json";
+            name: string;
+        };
+        ArtifactMetadata: {
+            kind: string;
+            media_type: string;
+            name: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
         };
         BenchmarkHistory: {
             /**
@@ -1073,6 +1107,7 @@ export interface components {
              * @example https://example.com/schemas/ResultDetail.json
              */
             readonly $schema?: string;
+            artifacts?: components["schemas"]["ArtifactMetadata"][] | null;
             batch_id: string | null;
             benchmark_id: string;
             change_annotations: {
@@ -1232,6 +1267,7 @@ export interface components {
              * @example https://example.com/schemas/SubmitRequest.json
              */
             readonly $schema?: string;
+            artifacts?: components["schemas"]["ArtifactInput"][] | null;
             batch_id?: string;
             change_annotations?: {
                 [key: string]: unknown;
@@ -1862,6 +1898,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "download-result-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original artifact bytes */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/vnd.google.pprof": string;
+                };
             };
             /** @description Error */
             default: {

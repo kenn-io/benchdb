@@ -17,6 +17,45 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ArtifactInputKind.
+const (
+	CpuProfile    ArtifactInputKind = "cpu-profile"
+	Diagnostics   ArtifactInputKind = "diagnostics"
+	MemoryProfile ArtifactInputKind = "memory-profile"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactInputKind enum.
+func (e ArtifactInputKind) Valid() bool {
+	switch e {
+	case CpuProfile:
+		return true
+	case Diagnostics:
+		return true
+	case MemoryProfile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ArtifactInputMediaType.
+const (
+	Applicationjson           ArtifactInputMediaType = "application/json"
+	ApplicationvndGooglePprof ArtifactInputMediaType = "application/vnd.google.pprof"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactInputMediaType enum.
+func (e ArtifactInputMediaType) Valid() bool {
+	switch e {
+	case Applicationjson:
+		return true
+	case ApplicationvndGooglePprof:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BenchmarkListItemStatus.
 const (
 	BenchmarkListItemStatusImproved     BenchmarkListItemStatus = "improved"
@@ -224,6 +263,30 @@ type AlertRuleView struct {
 	ThresholdZ      float64    `json:"threshold_z"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	UserId          string     `json:"user_id"`
+}
+
+// ArtifactInput defines model for ArtifactInput.
+type ArtifactInput struct {
+	// Data Base64-encoded artifact content.
+	Data      string                 `json:"data"`
+	Kind      ArtifactInputKind      `json:"kind"`
+	MediaType ArtifactInputMediaType `json:"media_type"`
+	Name      string                 `json:"name"`
+}
+
+// ArtifactInputKind defines model for ArtifactInput.Kind.
+type ArtifactInputKind string
+
+// ArtifactInputMediaType defines model for ArtifactInput.MediaType.
+type ArtifactInputMediaType string
+
+// ArtifactMetadata defines model for ArtifactMetadata.
+type ArtifactMetadata struct {
+	Kind      string `json:"kind"`
+	MediaType string `json:"media_type"`
+	Name      string `json:"name"`
+	Sha256    string `json:"sha256"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // BenchmarkHistory defines model for BenchmarkHistory.
@@ -732,6 +795,7 @@ type RecentRunsPage struct {
 type ResultDetail struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema                 *string                 `json:"$schema,omitempty"`
+	Artifacts              *[]ArtifactMetadata     `json:"artifacts,omitempty"`
 	BatchId                *string                 `json:"batch_id"`
 	BenchmarkId            string                  `json:"benchmark_id"`
 	ChangeAnnotations      map[string]interface{}  `json:"change_annotations"`
@@ -849,6 +913,7 @@ type SubmitOutputBody struct {
 type SubmitRequest struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema                *string                 `json:"$schema,omitempty"`
+	Artifacts             *[]ArtifactInput        `json:"artifacts,omitempty"`
 	BatchId               *string                 `json:"batch_id,omitempty"`
 	ChangeAnnotations     *map[string]interface{} `json:"change_annotations,omitempty"`
 	ClusterInfo           *ClusterInfo            `json:"cluster_info,omitempty"`
@@ -1300,6 +1365,9 @@ type ClientInterface interface {
 
 	UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DownloadResultArtifact request
+	DownloadResultArtifact(ctx context.Context, id string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListBenchmarks request
 	ListBenchmarks(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1577,6 +1645,18 @@ func (c *Client) UpdateResultWithBody(ctx context.Context, id string, params *Up
 
 func (c *Client) UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateResultRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DownloadResultArtifact(ctx context.Context, id string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadResultArtifactRequest(c.Server, id, name)
 	if err != nil {
 		return nil, err
 	}
@@ -2823,6 +2903,47 @@ func NewUpdateResultRequestWithBody(server string, id string, params *UpdateResu
 	return req, nil
 }
 
+// NewDownloadResultArtifactRequest generates requests for DownloadResultArtifact
+func NewDownloadResultArtifactRequest(server string, id string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmark-results/%s/artifacts/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListBenchmarksRequest generates requests for ListBenchmarks
 func NewListBenchmarksRequest(server string, params *ListBenchmarksParams) (*http.Request, error) {
 	var err error
@@ -3966,6 +4087,9 @@ type ClientWithResponsesInterface interface {
 
 	UpdateResultWithResponse(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateResultResponse, error)
 
+	// DownloadResultArtifactWithResponse request
+	DownloadResultArtifactWithResponse(ctx context.Context, id string, name string, reqEditors ...RequestEditorFn) (*DownloadResultArtifactResponse, error)
+
 	// ListBenchmarksWithResponse request
 	ListBenchmarksWithResponse(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*ListBenchmarksResponse, error)
 
@@ -4497,6 +4621,37 @@ func (r UpdateResultResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateResultResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DownloadResultArtifactResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *interface{}
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadResultArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadResultArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DownloadResultArtifactResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5110,6 +5265,15 @@ func (c *ClientWithResponses) UpdateResultWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseUpdateResultResponse(rsp)
+}
+
+// DownloadResultArtifactWithResponse request returning *DownloadResultArtifactResponse
+func (c *ClientWithResponses) DownloadResultArtifactWithResponse(ctx context.Context, id string, name string, reqEditors ...RequestEditorFn) (*DownloadResultArtifactResponse, error) {
+	rsp, err := c.DownloadResultArtifact(ctx, id, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadResultArtifactResponse(rsp)
 }
 
 // ListBenchmarksWithResponse request returning *ListBenchmarksResponse
@@ -5734,6 +5898,42 @@ func ParseUpdateResultResponse(rsp *http.Response) (*UpdateResultResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDownloadResultArtifactResponse parses an HTTP response from a DownloadResultArtifactWithResponse call
+func ParseDownloadResultArtifactResponse(rsp *http.Response) (*DownloadResultArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadResultArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	case rsp.StatusCode == 200:
+		// Content-type (application/vnd.google.pprof) unsupported
 
 	}
 

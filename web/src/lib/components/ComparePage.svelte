@@ -25,6 +25,7 @@
     navigate,
     type CompareQuery,
   } from "../router";
+  import DiagnosticArtifacts from "./DiagnosticArtifacts.svelte";
   import SeriesChart from "./SeriesChart.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -584,6 +585,11 @@
               <td data-label="baseline">{m.baseline.runId}{m.baseline.runReason ? ` (${m.baseline.runReason})` : ""}</td>
               <td data-label="contender">{m.contender.runId}{m.contender.runReason ? ` (${m.contender.runReason})` : ""}</td>
             </tr>
+            <tr class="diagnostics-row">
+              <th>diagnostics</th>
+              <td data-label="baseline"><DiagnosticArtifacts result={m.baseline} {baseUrl} /></td>
+              <td data-label="contender"><DiagnosticArtifacts result={m.contender} {baseUrl} /></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -912,6 +918,10 @@
     padding: 0.3rem 0.8rem 0.3rem 0;
     border-bottom: 1px solid var(--c-border);
     overflow-wrap: anywhere;
+  }
+  .sides .diagnostics-row th,
+  .sides .diagnostics-row td {
+    vertical-align: top;
   }
   .sides thead th {
     color: var(--c-text-muted);

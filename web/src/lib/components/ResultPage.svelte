@@ -11,6 +11,7 @@
   } from "../result/loader";
   import { interceptNavClick, navigate } from "../router";
   import { flagsText, type SeriesPoint } from "../series/transform";
+  import DiagnosticArtifacts from "./DiagnosticArtifacts.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
   import MeasurementValue from "./MeasurementValue.svelte";
   import SeriesChart from "./SeriesChart.svelte";
@@ -358,6 +359,11 @@
           <pre>{JSON.stringify(vm.error, null, 2)}</pre>
         </div>
       {/if}
+    </section>
+
+    <section class="panel result-section" aria-label="Diagnostics">
+      <h2>Diagnostics</h2>
+      <DiagnosticArtifacts result={vm} {baseUrl} />
     </section>
 
     <section class="result-facts" aria-label="Result facts">

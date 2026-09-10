@@ -48,6 +48,31 @@ Useful production payloads should also include:
 - `github.repository` and `github.commit`: required for commit-wide CI reports,
 - `github.pr_number` or `github.branch`: useful for display and audit.
 
+## Diagnostic artifacts
+
+A result may include an `artifacts` array. Each entry has `name`, `kind`,
+`media_type`, and base64-encoded `data`. Use `cpu-profile` or `memory-profile`
+with `application/vnd.google.pprof`, or `diagnostics` with `application/json`.
+Names must be unique lowercase filenames using letters, digits, dots, or
+hyphens, starting with a letter or digit, with at most 96 characters.
+
+BenchDB accepts up to 16 artifacts, at most 16 MiB each and 32 MiB combined per
+result. The result submission body limit is 48 MiB to allow base64 encoding.
+The publisher must remove private data before submission. Artifacts have the
+same read access as their result.
+
+Artifacts are stored atomically with the result and included in its submission
+replay check. Changing an attachment under the same submission key returns a
+conflict. Attachments do not affect series fingerprints, statistics, or gates.
+Collect profiles in a separate run when profiling would affect measurements.
+
+Result details include artifact names, kinds, sizes, and SHA-256 checksums.
+Result and comparison pages link to downloads through
+`GET /api/benchmark-results/{id}/artifacts/{name}`. The endpoint returns the
+original bytes with the declared media type and checksum as its ETag.
+Deleting a result also deletes its artifacts. There is no separate artifact
+retention policy, so include their size in database capacity planning.
+
 ## Multi-Result Submission
 
 Object-per-file output is still a good default:

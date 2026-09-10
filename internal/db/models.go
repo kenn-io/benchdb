@@ -162,6 +162,15 @@ type Info struct {
 	Tags []byte
 }
 
+type ResultArtifact struct {
+	ResultID  string
+	Name      string
+	Kind      string
+	MediaType string
+	Sha256    string
+	Data      []byte
+}
+
 type User struct {
 	ID       string
 	Email    string

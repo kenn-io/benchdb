@@ -73,28 +73,29 @@ type Aggregates struct {
 // ResultDetail is the GET /api/benchmark-results/{id} response: the persisted
 // result with its related entities and the computed single value summary.
 type ResultDetail struct {
-	ID                 string         `json:"id"`
-	BenchmarkID        string         `json:"benchmark_id"`
-	RunID              string         `json:"run_id"`
-	RunTags            map[string]any `json:"run_tags"`
-	RunReason          *string        `json:"run_reason"`
-	BatchID            *string        `json:"batch_id"`
-	Timestamp          time.Time      `json:"timestamp"`
-	CommitRepoURL      string         `json:"commit_repo_url"`
-	HistoryFingerprint string         `json:"history_fingerprint"`
-	Tags               map[string]any `json:"tags"`
-	Context            map[string]any `json:"context"`
-	Info               map[string]any `json:"info"`
-	Hardware           Hardware       `json:"hardware"`
-	Commit             *Commit        `json:"commit"`
-	Unit               *string        `json:"unit"`
-	LessIsBetter       *bool          `json:"less_is_better"`
-	TimeUnit           *string        `json:"time_unit"`
-	Iterations         *int32         `json:"iterations"`
-	Data               []*float64     `json:"data"`
-	Times              []*float64     `json:"times"`
-	Stats              Aggregates     `json:"stats"`
-	Error              map[string]any `json:"error" nullable:"true"`
+	Artifacts          []storage.ArtifactMetadata `json:"artifacts,omitempty"`
+	ID                 string                     `json:"id"`
+	BenchmarkID        string                     `json:"benchmark_id"`
+	RunID              string                     `json:"run_id"`
+	RunTags            map[string]any             `json:"run_tags"`
+	RunReason          *string                    `json:"run_reason"`
+	BatchID            *string                    `json:"batch_id"`
+	Timestamp          time.Time                  `json:"timestamp"`
+	CommitRepoURL      string                     `json:"commit_repo_url"`
+	HistoryFingerprint string                     `json:"history_fingerprint"`
+	Tags               map[string]any             `json:"tags"`
+	Context            map[string]any             `json:"context"`
+	Info               map[string]any             `json:"info"`
+	Hardware           Hardware                   `json:"hardware"`
+	Commit             *Commit                    `json:"commit"`
+	Unit               *string                    `json:"unit"`
+	LessIsBetter       *bool                      `json:"less_is_better"`
+	TimeUnit           *string                    `json:"time_unit"`
+	Iterations         *int32                     `json:"iterations"`
+	Data               []*float64                 `json:"data"`
+	Times              []*float64                 `json:"times"`
+	Stats              Aggregates                 `json:"stats"`
+	Error              map[string]any             `json:"error" nullable:"true"`
 
 	OptionalBenchmarkInfo map[string]any `json:"optional_benchmark_info" nullable:"true"`
 	Validation            map[string]any `json:"validation" nullable:"true"`
@@ -266,7 +267,11 @@ func (r *Reader) ResultDetail(ctx context.Context, id string) (*ResultDetail, er
 		return nil, err
 	}
 
-	return &ResultDetail{
+	artifacts, err := r.store.ListResultArtifacts(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load result artifacts: %w", err)
+	}
+	return &ResultDetail{Artifacts: artifacts,
 		ID:                 row.ID,
 		BenchmarkID:        stats.BenchmarkID(row.CaseID, row.CommitRepoUrl),
 		RunID:              row.RunID,

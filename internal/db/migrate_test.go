@@ -14,7 +14,19 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 1
+const latestMigrationVersion = 2
+
+func TestMigrateAddsArtifactsToExistingBaseline(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	createMigrationLedger(t, ctx, pool, 1, false)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	var artifactsExist bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_regclass('public.result_artifact') IS NOT NULL`).Scan(&artifactsExist))
+	assert.True(t, artifactsExist)
+}
 
 func TestMigrateCreatesAndRecordsFreshBaseline(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)

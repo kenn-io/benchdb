@@ -34,6 +34,7 @@ func NewHandler(ingester *service.Ingester, reader *service.Reader, authn *auth.
 func (h *Handler) Register(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID:   "submit-result",
+		MaxBodyBytes:  48 << 20,
 		Summary:       "Submit a benchmark result",
 		Method:        http.MethodPost,
 		Path:          "/api/results",
