@@ -36,6 +36,9 @@ func (h *ArtifactHandler) Register(api huma.API) {
 	}, h.upload)
 	huma.Register(api, huma.Operation{
 		OperationID: "download-result-artifact", Summary: "Download a diagnostic attachment",
+		// Successful artifacts may themselves be JSON, including problem+json.
+		// Explicit error statuses keep clients from decoding those bytes as errors.
+		Errors: []int{http.StatusNotFound, http.StatusServiceUnavailable},
 		Method: http.MethodGet, Path: "/api/benchmark-results/{id}/artifacts/{artifact_id}",
 		Responses: map[string]*huma.Response{"200": {Description: "Original artifact bytes", Content: map[string]*huma.MediaType{
 			"application/octet-stream": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
