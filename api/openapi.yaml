@@ -2686,7 +2686,7 @@ paths:
             type: integer
       requestBody:
         content:
-          application/octet-stream:
+          "*/*":
             schema:
               contentMediaType: application/octet-stream
               format: binary
@@ -2754,7 +2754,7 @@ paths:
       responses:
         "200":
           content:
-            application/octet-stream:
+            "*/*":
               schema:
                 contentMediaType: application/octet-stream
                 format: binary

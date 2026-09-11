@@ -24,6 +24,7 @@ import (
 	"go.kenn.io/benchdb/internal/blob"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
+	"go.kenn.io/benchdb/sdk/go/benchdb"
 )
 
 func TestArtifactStorageLifecycle(t *testing.T) {
@@ -105,6 +106,36 @@ func TestArtifactStorageLifecycle(t *testing.T) {
 	_, err = io.Copy(original, file)
 	require.NoError(t, err)
 	assert.Equal(t, hex.EncodeToString(original.Sum(nil)), metadata.SHA256)
+
+	sdk, err := benchdb.NewClientWithResponses(server.URL)
+	require.NoError(t, err)
+	for _, tc := range []struct{ mediaType, body string }{
+		{"application/json", `[1,2,3]`},
+		{"application/problem+json", `{"detail":"captured diagnostic"}`},
+		{"application/vnd.google.pprof", "profile bytes"},
+		{"text/plain; charset=utf-8", "profile notes"},
+	} {
+		t.Run(tc.mediaType, func(t *testing.T) {
+			uploaded, err := sdk.UploadResultArtifactWithBodyWithResponse(ctx, result.ID, &benchdb.UploadResultArtifactParams{
+				Name: "diagnostic", Authorization: new("Bearer " + testToken),
+			}, tc.mediaType, strings.NewReader(tc.body))
+			require.NoError(t, err)
+			require.Equal(t, http.StatusCreated, uploaded.StatusCode(), string(uploaded.Body))
+			require.NotNil(t, uploaded.JSON201)
+			assert.Equal(t, tc.mediaType, uploaded.JSON201.MediaType)
+			artifactID := uploaded.JSON201.Id
+			downloaded, err := sdk.DownloadResultArtifactWithResponse(ctx, result.ID, artifactID)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, downloaded.StatusCode())
+			assert.Equal(t, tc.mediaType, downloaded.HTTPResponse.Header.Get("Content-Type"))
+			assert.Equal(t, tc.body, string(downloaded.Body))
+			deleted, err := sdk.DeleteResultArtifactWithResponse(ctx, result.ID, artifactID, &benchdb.DeleteResultArtifactParams{
+				Authorization: new("Bearer " + testToken),
+			})
+			require.NoError(t, err)
+			require.Equal(t, http.StatusNoContent, deleted.StatusCode())
+		})
+	}
 
 	// Each upload gets an identity, even when filenames repeat. Empty files
 	// and arbitrary kinds/media types are valid attachments.

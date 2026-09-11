@@ -31,7 +31,7 @@ func (h *ArtifactHandler) Register(api huma.API) {
 		Method: http.MethodPost, Path: "/api/benchmark-results/{id}/artifacts", DefaultStatus: http.StatusCreated,
 		MaxBodyBytes: -1, BodyReadTimeout: -1,
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{
-			"application/octet-stream": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+			"*/*": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
 		}},
 	}, h.upload)
 	huma.Register(api, huma.Operation{
@@ -41,7 +41,7 @@ func (h *ArtifactHandler) Register(api huma.API) {
 		Errors: []int{http.StatusNotFound, http.StatusServiceUnavailable},
 		Method: http.MethodGet, Path: "/api/benchmark-results/{id}/artifacts/{artifact_id}",
 		Responses: map[string]*huma.Response{"200": {Description: "Original artifact bytes", Content: map[string]*huma.MediaType{
-			"application/octet-stream": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+			"*/*": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
 		}}},
 	}, h.download)
 	huma.Register(api, huma.Operation{

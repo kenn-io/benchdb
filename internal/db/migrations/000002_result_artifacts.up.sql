@@ -1,6 +1,6 @@
 CREATE TABLE result_artifact (
     id uuid PRIMARY KEY,
-    result_id varchar(32) NOT NULL REFERENCES benchmark_result(id) ON DELETE CASCADE,
+    result_id varchar(50) NOT NULL REFERENCES benchmark_result(id) ON DELETE CASCADE,
     name text NOT NULL,
     kind text NOT NULL,
     media_type text NOT NULL,
