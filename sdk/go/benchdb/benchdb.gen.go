@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2997,7 +2998,12 @@ func NewUploadResultArtifactRequestWithBody(server string, id string, params *Up
 				return nil, err
 			}
 
-			req.Header.Set("Content-Length", headerParam2)
+			// net/http sends this field, not a Content-Length entry in Header.
+			req.ContentLength, err = strconv.ParseInt(headerParam2, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
 		}
 
 	}

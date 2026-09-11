@@ -2,8 +2,11 @@ package benchdb_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +14,54 @@ import (
 
 	"go.kenn.io/benchdb/sdk/go/benchdb"
 )
+
+func TestUploadArtifactContentLength(t *testing.T) {
+	const payload = "profile bytes"
+	for _, tc := range []struct {
+		name   string
+		length *int64
+		file   bool
+	}{
+		{name: "reader with length", length: new(int64(len(payload)))},
+		{name: "file with length", length: new(int64(len(payload))), file: true},
+		{name: "unknown length"},
+		{name: "explicit unknown length", length: new(int64(-1))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := io.LimitReader(strings.NewReader(payload), int64(len(payload)))
+			if tc.file {
+				file, err := os.CreateTemp(t.TempDir(), "profile-*")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = file.Close() })
+				_, err = file.WriteString(payload)
+				require.NoError(t, err)
+				_, err = file.Seek(0, io.SeekStart)
+				require.NoError(t, err)
+				body = file
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				wantLength := int64(-1)
+				if tc.length != nil {
+					wantLength = *tc.length
+				}
+				assert.Equal(t, wantLength, r.ContentLength)
+				data, err := io.ReadAll(r.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, payload, string(data))
+				w.WriteHeader(http.StatusCreated)
+			}))
+			defer server.Close()
+			client, err := benchdb.NewClient(server.URL)
+			require.NoError(t, err)
+			response, err := client.UploadResultArtifactWithBody(t.Context(), "result-1", &benchdb.UploadResultArtifactParams{
+				Name: "profile.bin", ContentLength: tc.length,
+			}, "application/octet-stream", body)
+			require.NoError(t, err)
+			defer func() { _ = response.Body.Close() }()
+			assert.Equal(t, http.StatusCreated, response.StatusCode)
+		})
+	}
+}
 
 func TestDownloadArtifactPreservesJSONBytes(t *testing.T) {
 	for _, tc := range []struct{ name, mediaType, body string }{
