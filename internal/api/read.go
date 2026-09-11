@@ -27,18 +27,6 @@ func NewReadHandler(reader *service.Reader) *ReadHandler {
 // Register wires the read operations onto a huma API.
 func (h *ReadHandler) Register(api huma.API) {
 	huma.Register(api, huma.Operation{
-		OperationID: "download-result-artifact",
-		Summary:     "Download a result diagnostic artifact",
-		Method:      http.MethodGet,
-		Path:        "/api/benchmark-results/{id}/artifacts/{name}",
-		Responses: map[string]*huma.Response{
-			"200": {Description: "Original artifact bytes", Content: map[string]*huma.MediaType{
-				"application/vnd.google.pprof": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
-				"application/json":             {Schema: &huma.Schema{}},
-			}},
-		},
-	}, h.downloadArtifact)
-	huma.Register(api, huma.Operation{
 		OperationID: "get-benchmark-result",
 		Summary:     "Get a benchmark result",
 		Method:      http.MethodGet,

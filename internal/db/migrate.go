@@ -63,8 +63,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) (returnErr error) {
 	}
 
 	databaseDriver, err := migratepgx.WithInstance(sqlDB, &migratepgx.Config{
-		MigrationsTable:       migrationTableName,
-		MultiStatementEnabled: true,
+		// Send the migration as a whole so PostgreSQL parses semicolons inside
+		// function bodies. The driver's optional splitter is not SQL-aware.
+		MigrationsTable: migrationTableName,
 	})
 	if err != nil {
 		_ = sqlDB.Close()

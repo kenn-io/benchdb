@@ -187,7 +187,7 @@ describe("ComparePage", () => {
         return { data: {
           ...detail(id),
           info: { diagnostics: { state: id === "b1" ? "unsupported" : "complete" } },
-          artifacts: id === "b1" ? [] : [{ name: "worker-1-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
+          artifacts: id === "b1" ? [] : [{ id: "artifact-1", name: "worker-1-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
         } };
       }
       return previous(url, opts);
@@ -195,7 +195,7 @@ describe("ComparePage", () => {
     render(ComparePage, { props: { query: QUERY } });
     const row = await screen.findByRole("row", { name: /diagnostics.*worker profiles unavailable/i });
     expect(within(row).getByText("Diagnostic capture complete.").closest("td")).toHaveAttribute("data-label", "contender");
-    expect(within(row).getByRole("link", { name: "worker-1-cpu.pprof" })).toHaveAttribute("href", "/api/benchmark-results/c1/artifacts/worker-1-cpu.pprof");
+    expect(within(row).getByRole("link", { name: "worker-1-cpu.pprof" })).toHaveAttribute("href", "/api/benchmark-results/c1/artifacts/artifact-1");
   });
 
   it("renders the benchmark picker when ids are missing, without calling the API", () => {

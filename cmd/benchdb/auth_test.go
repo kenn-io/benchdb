@@ -57,7 +57,7 @@ func TestAuthLoginLoopback(t *testing.T) {
 		false, "https://app.example", api.NewCodeStore(), false,
 	)
 	authn := auth.New("", false, store, sessions)
-	handler = server.New(store, authn, commit.LocalProvider{}, authHandler)
+	handler = server.New(store, authn, commit.LocalProvider{}, authHandler, nil)
 
 	// Inject a programmatic browser: follow the cli-start URL through every
 	// redirect with a cookie jar (so the pending cookie reaches the callback).

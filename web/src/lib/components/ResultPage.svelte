@@ -363,7 +363,7 @@
 
     <section class="panel result-section" aria-label="Diagnostics">
       <h2>Diagnostics</h2>
-      <DiagnosticArtifacts result={vm} {baseUrl} />
+      <DiagnosticArtifacts result={vm} {baseUrl} {canWrite} />
     </section>
 
     <section class="result-facts" aria-label="Result facts">

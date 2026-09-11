@@ -7,45 +7,112 @@ package db
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
+const deleteResultArtifact = `-- name: DeleteResultArtifact :one
+DELETE FROM result_artifact WHERE result_id = $1 AND id = $2 RETURNING object_key
+`
+
+type DeleteResultArtifactParams struct {
+	ResultID string
+	ID       uuid.UUID
+}
+
+func (q *Queries) DeleteResultArtifact(ctx context.Context, arg DeleteResultArtifactParams) (string, error) {
+	row := q.db.QueryRow(ctx, deleteResultArtifact, arg.ResultID, arg.ID)
+	var object_key string
+	err := row.Scan(&object_key)
+	return object_key, err
+}
+
 const getResultArtifact = `-- name: GetResultArtifact :one
-SELECT name, kind, media_type, sha256, data
-FROM result_artifact WHERE result_id = $1 AND name = $2
+SELECT id, result_id, name, kind, media_type, sha256, size_bytes, object_key FROM result_artifact WHERE result_id = $1 AND id = $2
 `
 
 type GetResultArtifactParams struct {
 	ResultID string
-	Name     string
+	ID       uuid.UUID
 }
 
-type GetResultArtifactRow struct {
-	Name      string
-	Kind      string
-	MediaType string
-	Sha256    string
-	Data      []byte
-}
-
-func (q *Queries) GetResultArtifact(ctx context.Context, arg GetResultArtifactParams) (GetResultArtifactRow, error) {
-	row := q.db.QueryRow(ctx, getResultArtifact, arg.ResultID, arg.Name)
-	var i GetResultArtifactRow
+func (q *Queries) GetResultArtifact(ctx context.Context, arg GetResultArtifactParams) (ResultArtifact, error) {
+	row := q.db.QueryRow(ctx, getResultArtifact, arg.ResultID, arg.ID)
+	var i ResultArtifact
 	err := row.Scan(
+		&i.ID,
+		&i.ResultID,
 		&i.Name,
 		&i.Kind,
 		&i.MediaType,
 		&i.Sha256,
-		&i.Data,
+		&i.SizeBytes,
+		&i.ObjectKey,
 	)
 	return i, err
 }
 
+const insertResultArtifact = `-- name: InsertResultArtifact :exec
+INSERT INTO result_artifact (id, result_id, name, kind, media_type, sha256, size_bytes, object_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type InsertResultArtifactParams struct {
+	ID        uuid.UUID
+	ResultID  string
+	Name      string
+	Kind      string
+	MediaType string
+	Sha256    string
+	SizeBytes int64
+	ObjectKey string
+}
+
+func (q *Queries) InsertResultArtifact(ctx context.Context, arg InsertResultArtifactParams) error {
+	_, err := q.db.Exec(ctx, insertResultArtifact,
+		arg.ID,
+		arg.ResultID,
+		arg.Name,
+		arg.Kind,
+		arg.MediaType,
+		arg.Sha256,
+		arg.SizeBytes,
+		arg.ObjectKey,
+	)
+	return err
+}
+
+const listArtifactGarbage = `-- name: ListArtifactGarbage :many
+SELECT object_key FROM artifact_garbage ORDER BY object_key
+`
+
+func (q *Queries) ListArtifactGarbage(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listArtifactGarbage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var object_key string
+		if err := rows.Scan(&object_key); err != nil {
+			return nil, err
+		}
+		items = append(items, object_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listResultArtifacts = `-- name: ListResultArtifacts :many
-SELECT name, kind, media_type, sha256, octet_length(data)::bigint AS size_bytes
-FROM result_artifact WHERE result_id = $1 ORDER BY name
+SELECT id, name, kind, media_type, sha256, size_bytes
+FROM result_artifact WHERE result_id = $1 ORDER BY name, id
 `
 
 type ListResultArtifactsRow struct {
+	ID        uuid.UUID
 	Name      string
 	Kind      string
 	MediaType string
@@ -63,6 +130,7 @@ func (q *Queries) ListResultArtifacts(ctx context.Context, resultID string) ([]L
 	for rows.Next() {
 		var i ListResultArtifactsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Name,
 			&i.Kind,
 			&i.MediaType,
@@ -77,4 +145,22 @@ func (q *Queries) ListResultArtifacts(ctx context.Context, resultID string) ([]L
 		return nil, err
 	}
 	return items, nil
+}
+
+const queueArtifactGarbage = `-- name: QueueArtifactGarbage :exec
+INSERT INTO artifact_garbage (object_key) VALUES ($1) ON CONFLICT DO NOTHING
+`
+
+func (q *Queries) QueueArtifactGarbage(ctx context.Context, objectKey string) error {
+	_, err := q.db.Exec(ctx, queueArtifactGarbage, objectKey)
+	return err
+}
+
+const removeArtifactGarbage = `-- name: RemoveArtifactGarbage :exec
+DELETE FROM artifact_garbage WHERE object_key = $1
+`
+
+func (q *Queries) RemoveArtifactGarbage(ctx context.Context, objectKey string) error {
+	_, err := q.db.Exec(ctx, removeArtifactGarbage, objectKey)
+	return err
 }

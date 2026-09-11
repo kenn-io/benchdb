@@ -37,7 +37,7 @@ func TestServerServesSeededHistory(t *testing.T) {
 	s, err := seed.Run(ctx, store)
 	require.NoError(t, err)
 
-	handler := server.New(store, auth.New("", true, store, nil), commit.LocalProvider{}, noAuthHandler())
+	handler := server.New(store, auth.New("", true, store, nil), commit.LocalProvider{}, noAuthHandler(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
@@ -77,7 +77,7 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 	userID := dbtest.SeedUser(t, ctx, pool)
 	authn := auth.New("static-op", false, store, sessions)
 	authHandler := api.NewAuthHandler(nil, store, sessions, auth.NewSigner("sek"), false, "", api.NewCodeStore(), false)
-	handler := server.New(store, authn, commit.LocalProvider{}, authHandler)
+	handler := server.New(store, authn, commit.LocalProvider{}, authHandler, nil)
 
 	detail := getAPI[service.ResultDetail](t, handler, "/api/benchmark-results/"+url.PathEscape(targets.LatestResultID))
 	assert.Equal(t, targets.LatestResultID, detail.ID)

@@ -196,18 +196,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/benchmark-results/{id}/artifacts/{name}": {
+    "/api/benchmark-results/{id}/artifacts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Download a result diagnostic artifact */
+        get?: never;
+        put?: never;
+        /** Upload a diagnostic attachment as raw bytes */
+        post: operations["upload-result-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/benchmark-results/{id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a diagnostic attachment */
         get: operations["download-result-artifact"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete an attachment without deleting its benchmark result */
+        delete: operations["delete-result-artifact"];
         options?: never;
         head?: never;
         patch?: never;
@@ -514,16 +532,14 @@ export interface components {
             updated_at: string;
             user_id: string;
         };
-        ArtifactInput: {
-            /** @description Base64-encoded artifact content. */
-            data: string;
-            /** @enum {string} */
-            kind: "cpu-profile" | "memory-profile" | "diagnostics";
-            /** @enum {string} */
-            media_type: "application/vnd.google.pprof" | "application/json";
-            name: string;
-        };
         ArtifactMetadata: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ArtifactMetadata.json
+             */
+            readonly $schema?: string;
+            id: string;
             kind: string;
             media_type: string;
             name: string;
@@ -1267,7 +1283,6 @@ export interface components {
              * @example https://example.com/schemas/SubmitRequest.json
              */
             readonly $schema?: string;
-            artifacts?: components["schemas"]["ArtifactInput"][] | null;
             batch_id?: string;
             change_annotations?: {
                 [key: string]: unknown;
@@ -1910,13 +1925,57 @@ export interface operations {
             };
         };
     };
+    "upload-result-artifact": {
+        parameters: {
+            query: {
+                name: string;
+                kind?: string;
+            };
+            header?: {
+                Authorization?: string;
+                "Content-Type"?: string;
+                "Content-Length"?: number;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: {
+                benchdb_session?: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactMetadata"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "download-result-artifact": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 id: string;
-                name: string;
+                artifact_id: string;
             };
             cookie?: never;
         };
@@ -1926,14 +1985,48 @@ export interface operations {
             200: {
                 headers: {
                     "Content-Disposition"?: string;
+                    "Content-Length"?: number;
                     "Content-Type"?: string;
                     ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                    "application/vnd.google.pprof": string;
+                    "application/octet-stream": string;
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-result-artifact": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+            };
+            path: {
+                id: string;
+                artifact_id: string;
+            };
+            cookie?: {
+                benchdb_session?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

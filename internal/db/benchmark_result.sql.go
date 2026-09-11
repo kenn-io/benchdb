@@ -269,7 +269,6 @@ func (q *Queries) GetBenchmarkResultDetail(ctx context.Context, id string) (GetB
 }
 
 const insertBenchmarkResult = `-- name: InsertBenchmarkResult :one
-WITH inserted AS (
 INSERT INTO benchmark_result (
   id, case_id, context_id, info_id, hardware_id,
   run_id, run_tags, run_reason, commit_id, commit_repo_url, history_fingerprint,
@@ -286,14 +285,6 @@ VALUES (
   $28, $29, $30, $31, $32
 )
 RETURNING id
-), artifacts AS (
-    INSERT INTO result_artifact (result_id, name, kind, media_type, sha256, data)
-    SELECT inserted.id, artifact.name, artifact.kind, artifact.media_type,
-           artifact.sha256, decode(artifact.data, 'base64')
-    FROM inserted CROSS JOIN jsonb_to_recordset($33::jsonb)
-        AS artifact(name text, kind text, media_type text, sha256 text, data text)
-)
-SELECT id FROM inserted
 `
 
 type InsertBenchmarkResultParams struct {
@@ -329,7 +320,6 @@ type InsertBenchmarkResultParams struct {
 	ChangeAnnotations       []byte
 	SubmissionKey           *string
 	SubmissionPayloadSha256 *string
-	Artifacts               []byte
 }
 
 func (q *Queries) InsertBenchmarkResult(ctx context.Context, arg InsertBenchmarkResultParams) (string, error) {
@@ -366,7 +356,6 @@ func (q *Queries) InsertBenchmarkResult(ctx context.Context, arg InsertBenchmark
 		arg.ChangeAnnotations,
 		arg.SubmissionKey,
 		arg.SubmissionPayloadSha256,
-		arg.Artifacts,
 	)
 	var id string
 	err := row.Scan(&id)

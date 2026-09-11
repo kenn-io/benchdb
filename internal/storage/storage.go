@@ -30,7 +30,6 @@ var ErrConflict = errors.New("storage: entity conflict")
 // so the insert-params types below carry no ID.
 type Store interface {
 	ListResultArtifacts(ctx context.Context, resultID string) ([]ArtifactMetadata, error)
-	GetResultArtifact(ctx context.Context, resultID, name string) (Artifact, error)
 	GetOrCreateCase(ctx context.Context, name string, tags []byte) (string, error)
 	GetOrCreateContext(ctx context.Context, tags []byte) (string, error)
 	GetOrCreateInfo(ctx context.Context, tags []byte) (string, error)
@@ -145,7 +144,6 @@ type UpdateUnknownCommitParams struct {
 // InsertBenchmarkResultParams is the columns for a new benchmark_result row.
 // The adapter generates the primary key, so callers leave it out.
 type InsertBenchmarkResultParams struct {
-	Artifacts               []Artifact
 	CaseID                  string
 	ContextID               string
 	InfoID                  string

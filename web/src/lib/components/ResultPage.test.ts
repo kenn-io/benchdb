@@ -129,11 +129,11 @@ describe("ResultPage", () => {
     mockPage({
       ...detail,
       info: { diagnostics: { state: "unsupported", failure_class: "worker-profiles-unavailable" } },
-      artifacts: [{ name: "cli-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
+      artifacts: [{ id: "artifact-1", name: "cli-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
     });
     render(ResultPage, { props: { resultId: "r1", baseUrl: "https://bench.example/" } });
     const link = await screen.findByRole("link", { name: "cli-cpu.pprof" });
-    expect(link).toHaveAttribute("href", "https://bench.example/api/benchmark-results/r1/artifacts/cli-cpu.pprof");
+    expect(link).toHaveAttribute("href", "https://bench.example/api/benchmark-results/r1/artifacts/artifact-1");
     expect(link).toHaveAttribute("download", "cli-cpu.pprof");
     expect(screen.getByRole("region", { name: "Diagnostics" })).toHaveTextContent("Worker profiles unavailable for this revision.");
   });

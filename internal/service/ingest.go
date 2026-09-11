@@ -67,10 +67,6 @@ func NewIngester(store storage.Store, commits commit.Provider) *Ingester {
 // partial-data error), get-or-create the related entities, resolve the commit,
 // compute the fingerprint, and insert the result row.
 func (i *Ingester) Submit(ctx context.Context, req SubmitRequest) (*Result, error) {
-	artifacts, err := prepareArtifacts(req.Artifacts)
-	if err != nil {
-		return nil, err
-	}
 	canonicalHash := ""
 	if req.SubmissionKey != "" {
 		if utf8.RuneCountInString(req.SubmissionKey) > maxSubmissionKeyLength {
@@ -160,7 +156,6 @@ func (i *Ingester) Submit(ctx context.Context, req SubmitRequest) (*Result, erro
 		return nil, err
 	}
 
-	ins.Artifacts = artifacts
 	id, err := i.store.InsertBenchmarkResult(ctx, ins)
 	if errors.Is(err, storage.ErrConflict) && req.SubmissionKey != "" {
 		existing, lookupErr := i.store.GetBenchmarkResultBySubmissionKey(ctx, req.SubmissionKey)

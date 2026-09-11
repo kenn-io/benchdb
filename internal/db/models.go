@@ -6,6 +6,8 @@ package db
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type AlertDelivery struct {
@@ -62,6 +64,10 @@ type ApiToken struct {
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
 	RevokedAt   *time.Time
+}
+
+type ArtifactGarbage struct {
+	ObjectKey string
 }
 
 type BenchmarkResult struct {
@@ -163,12 +169,14 @@ type Info struct {
 }
 
 type ResultArtifact struct {
+	ID        uuid.UUID
 	ResultID  string
 	Name      string
 	Kind      string
 	MediaType string
 	Sha256    string
-	Data      []byte
+	SizeBytes int64
+	ObjectKey string
 }
 
 type User struct {
