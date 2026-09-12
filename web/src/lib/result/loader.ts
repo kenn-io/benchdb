@@ -18,6 +18,8 @@ export interface ResultViewModel {
   name: string;
   paramsText: string;
   context: Record<string, unknown>;
+  artifacts: NonNullable<ResultDetail["artifacts"]>;
+  diagnostics: Record<string, unknown> | null;
   svs: number | null;
   svsText: string;
   svsType: string;
@@ -95,6 +97,10 @@ export function resultViewModelFromDetail(
     name,
     paramsText: tagsText(tags),
     context: d.context,
+    artifacts: d.artifacts ?? [],
+    diagnostics: typeof d.info["diagnostics"] === "object" && d.info["diagnostics"] !== null
+      ? d.info["diagnostics"] as Record<string, unknown>
+      : null,
     svs,
     svsText: formatMeasurement(svs, d.unit),
     svsType: d.single_value_summary_type,

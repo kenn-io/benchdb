@@ -636,6 +636,7 @@ func (s *Store) InsertBenchmarkResult(ctx context.Context, p storage.InsertBench
 	}
 	dbp := toInsertBenchmarkResultParams(p)
 	dbp.ID = id
+
 	inserted, err := s.q.InsertBenchmarkResult(ctx, dbp)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.ConstraintName == "benchmark_result_submission_key_index" {

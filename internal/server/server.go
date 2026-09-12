@@ -25,8 +25,8 @@ import (
 // and health endpoints registered, using the given commit provider for
 // ingestion (GitHub-backed in production when GITHUB_API_TOKEN is set,
 // LocalProvider otherwise).
-func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, publicBaseURL ...string) http.Handler {
-	return newHandler(store, authn, provider, authHandler, web.DistFS(), publicBaseURL...)
+func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
+	return newHandler(store, authn, provider, authHandler, web.DistFS(), artifacts, publicBaseURL...)
 }
 
 // newHandler builds the mux with the huma API plus the SPA catch-all at "/".
@@ -39,9 +39,9 @@ func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, a
 // than huma's 405/Allow, because the catch-all matches every method. Restoring
 // 405 would mean nested muxes that hard-code huma's doc routes; the single mux
 // is the deliberate trade-off. The catch-all never serves HTML for /api paths.
-func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, assets fs.FS, publicBaseURL ...string) http.Handler {
+func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, assets fs.FS, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
 	mux := http.NewServeMux()
-	register(humago.New(mux, humaConfig()), store, authn, provider, authHandler, firstString(publicBaseURL))
+	register(humago.New(mux, humaConfig()), store, authn, provider, authHandler, artifacts, firstString(publicBaseURL))
 	metrics := newMetricsRecorder(provider)
 	mux.HandleFunc("/metrics", metrics.serveMetrics)
 	mux.Handle("/", spaHandler(assets))
@@ -55,7 +55,7 @@ func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Prov
 func specAPI() huma.API {
 	humaAPI := humago.New(http.NewServeMux(), humaConfig())
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	register(humaAPI, nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, "")
+	register(humaAPI, nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, service.NewArtifacts(nil, nil), "")
 	return humaAPI
 }
 
@@ -137,8 +137,12 @@ func humaConfig() huma.Config {
 // register wires the write, read, and health operations onto a huma API. New
 // and OpenAPISpec share it so the served routes and the emitted spec cannot
 // drift.
-func register(humaAPI huma.API, store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, publicBaseURL string) {
+func register(humaAPI huma.API, store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL string) {
 	reader := service.NewReader(store)
+	if artifacts == nil {
+		artifacts = service.NewArtifacts(store, nil)
+	}
+	api.NewArtifactHandler(artifacts, authn).Register(humaAPI)
 	api.NewHandler(service.NewIngester(store, provider), reader, authn).Register(humaAPI)
 	api.NewReadHandler(reader).Register(humaAPI)
 	api.NewCIReportHandler(service.NewCIReporter(store, publicBaseURL)).Register(humaAPI)

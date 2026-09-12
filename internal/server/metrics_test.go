@@ -16,7 +16,7 @@ import (
 
 func TestMetricsEndpointReportsRequests(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets())
+	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
@@ -35,7 +35,7 @@ func TestMetricsEndpointReportsRequests(t *testing.T) {
 
 func TestMetricsEndpointReportsUnknownCommitCountForLocalProvider(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets())
+	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -48,7 +48,7 @@ func TestMetricsEndpointReportsUnknownCommitCountForLocalProvider(t *testing.T) 
 
 func TestMetricsEndpointReportsUnknownCommitCountFromProvider(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), fakeUnknownCommitProvider{count: 42}, authHandler, testAssets())
+	handler := newHandler(nil, auth.New("", true, nil, nil), fakeUnknownCommitProvider{count: 42}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -58,7 +58,7 @@ func TestMetricsEndpointReportsUnknownCommitCountFromProvider(t *testing.T) {
 
 func TestMetricsRouteLabelsAvoidRawIDs(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets())
+	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/unknown/abc123", nil))
@@ -81,7 +81,7 @@ func TestMetricsRouteLabelsAlertRulePaths(t *testing.T) {
 
 func TestMetricsMethodLabelsAvoidRawInput(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets())
+	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("BREW", "/api/ping", nil))

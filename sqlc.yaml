@@ -11,6 +11,10 @@ sql:
         emit_pointers_for_null_types: true
         emit_empty_slices: true
         overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
           # The aggregate columns and per-iteration data/times are floats in the
           # stats core; map numeric -> float64 (and numeric[] -> []float64).
           - db_type: "pg_catalog.numeric"

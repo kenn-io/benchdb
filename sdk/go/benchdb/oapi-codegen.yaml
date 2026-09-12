@@ -7,3 +7,6 @@ output: sdk/go/benchdb/benchdb.gen.go
 generate:
   models: true
   client: true
+output-options:
+  user-templates:
+    client.tmpl: sdk/go/benchdb/templates/client.tmpl

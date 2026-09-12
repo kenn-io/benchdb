@@ -29,6 +29,7 @@ var ErrConflict = errors.New("storage: entity conflict")
 // ingestion and read services need. Implementations own primary-key generation,
 // so the insert-params types below carry no ID.
 type Store interface {
+	ListResultArtifacts(ctx context.Context, resultID string) ([]ArtifactMetadata, error)
 	GetOrCreateCase(ctx context.Context, name string, tags []byte) (string, error)
 	GetOrCreateContext(ctx context.Context, tags []byte) (string, error)
 	GetOrCreateInfo(ctx context.Context, tags []byte) (string, error)

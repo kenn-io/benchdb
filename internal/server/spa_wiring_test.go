@@ -24,7 +24,7 @@ func TestNewHandlerServesAPIAndSPA(t *testing.T) {
 		"index.html": {Data: []byte("<!doctype html><title>benchdb</title>")},
 	}
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
-	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, assets)
+	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, assets, nil)
 
 	t.Run("api ping wins over the SPA catch-all", func(t *testing.T) {
 		rec := httptest.NewRecorder()

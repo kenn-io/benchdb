@@ -196,6 +196,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark-results/{id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload a diagnostic attachment as raw bytes */
+        post: operations["upload-result-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/benchmark-results/{id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a diagnostic attachment */
+        get: operations["download-result-artifact"];
+        put?: never;
+        post?: never;
+        /** Delete an attachment without deleting its benchmark result */
+        delete: operations["delete-result-artifact"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmarks": {
         parameters: {
             query?: never;
@@ -496,6 +531,21 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             user_id: string;
+        };
+        ArtifactMetadata: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ArtifactMetadata.json
+             */
+            readonly $schema?: string;
+            id: string;
+            kind: string;
+            media_type: string;
+            name: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
         };
         BenchmarkHistory: {
             /**
@@ -1073,6 +1123,7 @@ export interface components {
              * @example https://example.com/schemas/ResultDetail.json
              */
             readonly $schema?: string;
+            artifacts?: components["schemas"]["ArtifactMetadata"][] | null;
             batch_id: string | null;
             benchmark_id: string;
             change_annotations: {
@@ -1849,6 +1900,147 @@ export interface operations {
             };
             path: {
                 id: string;
+            };
+            cookie?: {
+                benchdb_session?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "upload-result-artifact": {
+        parameters: {
+            query: {
+                name: string;
+                kind?: string;
+            };
+            header?: {
+                Authorization?: string;
+                "Content-Type"?: string;
+                "Content-Length"?: number;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: {
+                benchdb_session?: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "*/*": string;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactMetadata"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "download-result-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original artifact bytes */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Length"?: number;
+                    "Content-Type"?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-result-artifact": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+            };
+            path: {
+                id: string;
+                artifact_id: string;
             };
             cookie?: {
                 benchdb_session?: string;

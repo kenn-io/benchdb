@@ -2367,7 +2367,7 @@ func TestDecodeFixtureRequests(t *testing.T) {
 func TestSubmitIntegration(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	tests := []struct {
@@ -2536,7 +2536,7 @@ func TestSubmitArrayFileSubmitsEachResult(t *testing.T) {
 func TestSubmitPreservesExplicitNullError(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	raw, err := os.ReadFile(filepath.Join("testdata", "result.json"))
@@ -2562,7 +2562,7 @@ func TestSubmitPreservesExplicitNullError(t *testing.T) {
 func TestResultsGetIntegration(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	var submitStdout, submitStderr bytes.Buffer
@@ -2783,7 +2783,7 @@ func TestHistoryExportCommandOutputFile(t *testing.T) {
 func TestCIReportCommandIntegration(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), "https://benchdb.example"))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil, "https://benchdb.example"))
 	t.Cleanup(srv.Close)
 	repo := "https://github.com/benchdb/demo"
 
@@ -2898,7 +2898,7 @@ func TestCIReportCommandIntegration(t *testing.T) {
 func TestResultsGetNotFound(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	var stdout, stderr bytes.Buffer
@@ -2916,7 +2916,7 @@ func TestResultsGetNotFound(t *testing.T) {
 func TestSubmitMultiFileIntegration(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	tempDir := t.TempDir()
@@ -2993,7 +2993,7 @@ func TestSubmitPartialFailureDoesNotMasqueradeAsLoginFailure(t *testing.T) {
 func TestSubmitRejectsBadAuth(t *testing.T) {
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	var stdout, stderr bytes.Buffer
@@ -3012,7 +3012,7 @@ func newCLITestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	pool, _ := dbtest.NewPool(t)
 	store := db.NewStore(pool)
-	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler()))
+	srv := httptest.NewServer(server.New(store, auth.New(testToken, false, store, nil), commit.LocalProvider{}, noAuthHandler(), nil))
 	t.Cleanup(srv.Close)
 	return srv
 }

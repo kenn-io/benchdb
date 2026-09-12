@@ -47,15 +47,18 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"go.kenn.io/benchdb/internal/api"
 	"go.kenn.io/benchdb/internal/auth"
+	"go.kenn.io/benchdb/internal/blob"
 	"go.kenn.io/benchdb/internal/commit"
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/oidcauth"
 	"go.kenn.io/benchdb/internal/seed"
 	"go.kenn.io/benchdb/internal/server"
+	"go.kenn.io/benchdb/internal/service"
 )
 
 // Run starts the BenchDB backend and blocks until it exits or ctx is canceled.
@@ -86,6 +89,22 @@ func Run(ctx context.Context) error {
 	}
 
 	store := db.NewStore(pool)
+	var blobs service.ArtifactBlobs
+	if bucket := os.Getenv("BENCHDB_ARTIFACT_BUCKET"); bucket != "" {
+		endpoint := os.Getenv("BENCHDB_ARTIFACT_ENDPOINT")
+		if endpoint == "" {
+			endpoint = "https://s3.amazonaws.com"
+		}
+		blobs, err = blob.NewS3(endpoint, bucket, os.Getenv("AWS_REGION"), credentials.NewChainCredentials([]credentials.Provider{&credentials.EnvAWS{}, &credentials.IAM{}}))
+		if err != nil {
+			return fmt.Errorf("configure artifact storage: %w", err)
+		}
+	}
+	artifacts := service.NewArtifacts(store, blobs)
+	collectorCtx, stopCollector := context.WithCancel(ctx)
+	collectorDone := make(chan struct{})
+	go func() { defer close(collectorDone); artifacts.RunCollector(collectorCtx) }()
+	defer func() { stopCollector(); <-collectorDone }()
 
 	var sessionSigner *auth.SessionSigner
 	if cfg.sessionSecret != "" {
@@ -138,7 +157,7 @@ func Run(ctx context.Context) error {
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
-		Handler:           server.New(store, authn, provider, authHandler, cfg.baseURL),
+		Handler:           server.New(store, authn, provider, authHandler, artifacts, cfg.baseURL),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

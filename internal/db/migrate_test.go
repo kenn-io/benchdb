@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,7 +15,17 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 1
+const latestMigrationVersion = 2
+
+func TestMigrateAddsArtifactsToExistingBaseline(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	createMigrationLedger(t, ctx, pool, 1, false)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	assertCurrentBaseline(t, ctx, pool)
+}
 
 func TestMigrateCreatesAndRecordsFreshBaseline(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -160,6 +171,7 @@ func assertCurrentMigration(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCurrentBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
+	resultID := strings.Repeat("r", 50)
 	var submissionKey, submissionHash, benchmarkID string
 	require.NoError(t, pool.QueryRow(ctx, `
 		WITH inserted_case AS (
@@ -177,15 +189,27 @@ func assertCurrentBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 			submission_key, submission_payload_sha256
 		)
 		SELECT
-			'result-1', inserted_case.id, inserted_context.id, inserted_info.id,
+			$1, inserted_case.id, inserted_context.id, inserted_info.id,
 			inserted_hardware.id, 'run-1', '{}', now(),
 			'https://example.com/org/repo', 'fingerprint-1', 'submission-1', repeat('a', 64)
 		FROM inserted_case, inserted_context, inserted_info, inserted_hardware
 		RETURNING submission_key, submission_payload_sha256, benchmark_id
-	`).Scan(&submissionKey, &submissionHash, &benchmarkID))
+	`, resultID).Scan(&submissionKey, &submissionHash, &benchmarkID))
 	assert.Equal(t, "submission-1", submissionKey)
 	assert.Len(t, submissionHash, 64)
 	assert.NotEmpty(t, benchmarkID)
+
+	var attachedResultID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO public.result_artifact (
+			id, result_id, name, kind, media_type, sha256, size_bytes, object_key
+		) VALUES (
+			'00000000-0000-4000-8000-000000000001', $1, 'profile.json', 'diagnostics',
+			'application/json', repeat('a', 64), 2, 'artifacts/profile.json'
+		)
+		RETURNING result_id
+	`, resultID).Scan(&attachedResultID))
+	assert.Equal(t, resultID, attachedResultID)
 }
 
 func assertTableMissing(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) {

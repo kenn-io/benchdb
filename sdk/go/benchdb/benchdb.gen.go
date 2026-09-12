@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,6 +225,18 @@ type AlertRuleView struct {
 	ThresholdZ      float64    `json:"threshold_z"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	UserId          string     `json:"user_id"`
+}
+
+// ArtifactMetadata defines model for ArtifactMetadata.
+type ArtifactMetadata struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema    *string `json:"$schema,omitempty"`
+	Id        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	MediaType string  `json:"media_type"`
+	Name      string  `json:"name"`
+	Sha256    string  `json:"sha256"`
+	SizeBytes int64   `json:"size_bytes"`
 }
 
 // BenchmarkHistory defines model for BenchmarkHistory.
@@ -732,6 +745,7 @@ type RecentRunsPage struct {
 type ResultDetail struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema                 *string                 `json:"$schema,omitempty"`
+	Artifacts              *[]ArtifactMetadata     `json:"artifacts,omitempty"`
 	BatchId                *string                 `json:"batch_id"`
 	BenchmarkId            string                  `json:"benchmark_id"`
 	ChangeAnnotations      map[string]interface{}  `json:"change_annotations"`
@@ -996,6 +1010,22 @@ type DeleteResultParams struct {
 // UpdateResultParams defines parameters for UpdateResult.
 type UpdateResultParams struct {
 	// Authorization Bearer token, e.g. 'Bearer <token>'.
+	Authorization  *string `json:"Authorization,omitempty"`
+	BenchdbSession *string `form:"benchdb_session,omitempty" json:"benchdb_session,omitempty"`
+}
+
+// UploadResultArtifactParams defines parameters for UploadResultArtifact.
+type UploadResultArtifactParams struct {
+	Name           string  `form:"name" json:"name"`
+	Kind           *string `form:"kind,omitempty" json:"kind,omitempty"`
+	Authorization  *string `json:"Authorization,omitempty"`
+	ContentType    *string `json:"Content-Type,omitempty"`
+	ContentLength  *int64  `json:"Content-Length,omitempty"`
+	BenchdbSession *string `form:"benchdb_session,omitempty" json:"benchdb_session,omitempty"`
+}
+
+// DeleteResultArtifactParams defines parameters for DeleteResultArtifact.
+type DeleteResultArtifactParams struct {
 	Authorization  *string `json:"Authorization,omitempty"`
 	BenchdbSession *string `form:"benchdb_session,omitempty" json:"benchdb_session,omitempty"`
 }
@@ -1300,6 +1330,15 @@ type ClientInterface interface {
 
 	UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UploadResultArtifactWithBody request with any body
+	UploadResultArtifactWithBody(ctx context.Context, id string, params *UploadResultArtifactParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteResultArtifact request
+	DeleteResultArtifact(ctx context.Context, id string, artifactId string, params *DeleteResultArtifactParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DownloadResultArtifact request
+	DownloadResultArtifact(ctx context.Context, id string, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListBenchmarks request
 	ListBenchmarks(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1577,6 +1616,42 @@ func (c *Client) UpdateResultWithBody(ctx context.Context, id string, params *Up
 
 func (c *Client) UpdateResult(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateResultRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadResultArtifactWithBody(ctx context.Context, id string, params *UploadResultArtifactParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadResultArtifactRequestWithBody(c.Server, id, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteResultArtifact(ctx context.Context, id string, artifactId string, params *DeleteResultArtifactParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteResultArtifactRequest(c.Server, id, artifactId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DownloadResultArtifact(ctx context.Context, id string, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadResultArtifactRequest(c.Server, id, artifactId)
 	if err != nil {
 		return nil, err
 	}
@@ -2823,6 +2898,250 @@ func NewUpdateResultRequestWithBody(server string, id string, params *UpdateResu
 	return req, nil
 }
 
+// NewUploadResultArtifactRequestWithBody generates requests for UploadResultArtifact with any type of body
+func NewUploadResultArtifactRequestWithBody(server string, id string, params *UploadResultArtifactParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmark-results/%s/artifacts", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "name", params.Name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", headerParam0)
+		}
+
+		if params.ContentType != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "Content-Type", *params.ContentType, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Content-Type", headerParam1)
+		}
+
+		if params.ContentLength != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "Content-Length", *params.ContentLength, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "integer", Format: "int64"})
+			if err != nil {
+				return nil, err
+			}
+
+			// net/http sends this field, not a Content-Length entry in Header.
+			req.ContentLength, err = strconv.ParseInt(headerParam2, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
+		}
+
+	}
+
+	if params != nil {
+
+		if params.BenchdbSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "benchdb_session", *params.BenchdbSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "benchdb_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewDeleteResultArtifactRequest generates requests for DeleteResultArtifact
+func NewDeleteResultArtifactRequest(server string, id string, artifactId string, params *DeleteResultArtifactParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmark-results/%s/artifacts/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", headerParam0)
+		}
+
+	}
+
+	if params != nil {
+
+		if params.BenchdbSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "benchdb_session", *params.BenchdbSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "benchdb_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewDownloadResultArtifactRequest generates requests for DownloadResultArtifact
+func NewDownloadResultArtifactRequest(server string, id string, artifactId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/benchmark-results/%s/artifacts/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListBenchmarksRequest generates requests for ListBenchmarks
 func NewListBenchmarksRequest(server string, params *ListBenchmarksParams) (*http.Request, error) {
 	var err error
@@ -3966,6 +4285,15 @@ type ClientWithResponsesInterface interface {
 
 	UpdateResultWithResponse(ctx context.Context, id string, params *UpdateResultParams, body UpdateResultJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateResultResponse, error)
 
+	// UploadResultArtifactWithBodyWithResponse request with any body
+	UploadResultArtifactWithBodyWithResponse(ctx context.Context, id string, params *UploadResultArtifactParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadResultArtifactResponse, error)
+
+	// DeleteResultArtifactWithResponse request
+	DeleteResultArtifactWithResponse(ctx context.Context, id string, artifactId string, params *DeleteResultArtifactParams, reqEditors ...RequestEditorFn) (*DeleteResultArtifactResponse, error)
+
+	// DownloadResultArtifactWithResponse request
+	DownloadResultArtifactWithResponse(ctx context.Context, id string, artifactId string, reqEditors ...RequestEditorFn) (*DownloadResultArtifactResponse, error)
+
 	// ListBenchmarksWithResponse request
 	ListBenchmarksWithResponse(ctx context.Context, params *ListBenchmarksParams, reqEditors ...RequestEditorFn) (*ListBenchmarksResponse, error)
 
@@ -4497,6 +4825,100 @@ func (r UpdateResultResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateResultResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UploadResultArtifactResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON201                       *ArtifactMetadata
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadResultArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadResultArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadResultArtifactResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteResultArtifactResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteResultArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteResultArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteResultArtifactResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DownloadResultArtifactResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON404 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadResultArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadResultArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DownloadResultArtifactResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5110,6 +5532,33 @@ func (c *ClientWithResponses) UpdateResultWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseUpdateResultResponse(rsp)
+}
+
+// UploadResultArtifactWithBodyWithResponse request with arbitrary body returning *UploadResultArtifactResponse
+func (c *ClientWithResponses) UploadResultArtifactWithBodyWithResponse(ctx context.Context, id string, params *UploadResultArtifactParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadResultArtifactResponse, error) {
+	rsp, err := c.UploadResultArtifactWithBody(ctx, id, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadResultArtifactResponse(rsp)
+}
+
+// DeleteResultArtifactWithResponse request returning *DeleteResultArtifactResponse
+func (c *ClientWithResponses) DeleteResultArtifactWithResponse(ctx context.Context, id string, artifactId string, params *DeleteResultArtifactParams, reqEditors ...RequestEditorFn) (*DeleteResultArtifactResponse, error) {
+	rsp, err := c.DeleteResultArtifact(ctx, id, artifactId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteResultArtifactResponse(rsp)
+}
+
+// DownloadResultArtifactWithResponse request returning *DownloadResultArtifactResponse
+func (c *ClientWithResponses) DownloadResultArtifactWithResponse(ctx context.Context, id string, artifactId string, reqEditors ...RequestEditorFn) (*DownloadResultArtifactResponse, error) {
+	rsp, err := c.DownloadResultArtifact(ctx, id, artifactId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadResultArtifactResponse(rsp)
 }
 
 // ListBenchmarksWithResponse request returning *ListBenchmarksResponse
@@ -5734,6 +6183,112 @@ func ParseUpdateResultResponse(rsp *http.Response) (*UpdateResultResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadResultArtifactResponse parses an HTTP response from a UploadResultArtifactWithResponse call
+func ParseUploadResultArtifactResponse(rsp *http.Response) (*UploadResultArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadResultArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactMetadata
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteResultArtifactResponse parses an HTTP response from a DeleteResultArtifactWithResponse call
+func ParseDeleteResultArtifactResponse(rsp *http.Response) (*DeleteResultArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteResultArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDownloadResultArtifactResponse parses an HTTP response from a DownloadResultArtifactWithResponse call
+func ParseDownloadResultArtifactResponse(rsp *http.Response) (*DownloadResultArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadResultArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	}
 

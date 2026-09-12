@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ComparePage from "./ComparePage.svelte";
@@ -178,6 +178,26 @@ beforeEach(() => {
 });
 
 describe("ComparePage", () => {
+  it("keeps baseline and contender diagnostic downloads associated with their result", async () => {
+    mockHappy(REGRESSED, null);
+    const previous = GET.getMockImplementation()!;
+    GET.mockImplementation(async (url: string, opts?: { params?: { path?: { id?: string } } }) => {
+      if (url === "/api/benchmark-results/{id}") {
+        const id = opts?.params?.path?.id ?? "b1";
+        return { data: {
+          ...detail(id),
+          info: { diagnostics: { state: id === "b1" ? "unsupported" : "complete" } },
+          artifacts: id === "b1" ? [] : [{ id: "artifact-1", name: "worker-1-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
+        } };
+      }
+      return previous(url, opts);
+    });
+    render(ComparePage, { props: { query: QUERY } });
+    const row = await screen.findByRole("row", { name: /diagnostics.*worker profiles unavailable/i });
+    expect(within(row).getByText("Diagnostic capture complete.").closest("td")).toHaveAttribute("data-label", "contender");
+    expect(within(row).getByRole("link", { name: "worker-1-cpu.pprof" })).toHaveAttribute("href", "/api/benchmark-results/c1/artifacts/artifact-1");
+  });
+
   it("renders the benchmark picker when ids are missing, without calling the API", () => {
     render(ComparePage, { props: { query: EMPTY_QUERY } });
     expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toBeInTheDocument();
