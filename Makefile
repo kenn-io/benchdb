@@ -171,6 +171,10 @@ go-lint:
 go-lint-ci:
 	golangci-lint run ./...
 
+.PHONY: huma-check
+huma-check:
+	go run go.kenn.io/kit/cmd/huma-check@efb469cee12d24fd52640ea05b03ced275bf4370 ./...
+
 .PHONY: go-vet
 go-vet:
 	go vet ./...

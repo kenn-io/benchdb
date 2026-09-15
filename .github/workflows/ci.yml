@@ -26,16 +26,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install golangci-lint v2.12.2
+      - name: Install golangci-lint v2.13.1
         run: |
           cd /tmp
-          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz
-          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-checksums.txt
-          grep -E 'golangci-lint-2.12.2-linux-amd64\.tar\.gz$' golangci-lint-2.12.2-checksums.txt | sha256sum -c -
-          tar -xzf golangci-lint-2.12.2-linux-amd64.tar.gz
-          sudo install golangci-lint-2.12.2-linux-amd64/golangci-lint /usr/local/bin/golangci-lint
+          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-linux-amd64.tar.gz
+          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-checksums.txt
+          grep -E 'golangci-lint-2.13.1-linux-amd64\.tar\.gz$' golangci-lint-2.13.1-checksums.txt | sha256sum -c -
+          tar -xzf golangci-lint-2.13.1-linux-amd64.tar.gz
+          sudo install golangci-lint-2.13.1-linux-amd64/golangci-lint /usr/local/bin/golangci-lint
           golangci-lint version
       - run: make migration-history-check
+      - run: make huma-check
       - run: make go-lint-ci
       - run: make go-vet
       - run: make go-test
