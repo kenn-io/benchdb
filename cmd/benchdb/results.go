@@ -4,7 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -440,12 +441,13 @@ func isJSONWhitespace(b byte) bool {
 }
 
 func streamDecodeSingleFixture(path string, raw []byte, yield func(submitRequestBody) error) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	var value json.RawMessage
-	if err := dec.Decode(&value); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
+	value, err := dec.ReadValue()
+	if err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+	value = value.Clone()
+	if _, err := dec.ReadValue(); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("decode %s: trailing data after the JSON object", path)
 	}
 	if len(bytes.TrimSpace(value)) == 0 {
@@ -458,16 +460,16 @@ func streamDecodeSingleFixture(path string, raw []byte, yield func(submitRequest
 }
 
 func streamDecodeArrayFixture(path string, reader *bufio.Reader, yield func(submitRequestBody) error) error {
-	dec := json.NewDecoder(reader)
-	if _, err := dec.Token(); err != nil {
+	dec := jsontext.NewDecoder(reader)
+	if _, err := dec.ReadToken(); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if !dec.More() {
+	if dec.PeekKind() == ']' {
 		return fmt.Errorf("decode %s: array must contain at least one benchmark result", path)
 	}
-	for idx := 0; dec.More(); idx++ {
-		var item json.RawMessage
-		if err := dec.Decode(&item); err != nil {
+	for idx := 0; dec.PeekKind() != ']'; idx++ {
+		item, err := dec.ReadValue()
+		if err != nil {
 			return fmt.Errorf("decode %s: %w", path, err)
 		}
 		source := fmt.Sprintf("%s[%d]", path, idx)
@@ -475,28 +477,23 @@ func streamDecodeArrayFixture(path string, reader *bufio.Reader, yield func(subm
 			return err
 		}
 		index := idx
-		if err := yield(submitRequestBody{File: path, Index: &index, Body: item}); err != nil {
+		if err := yield(submitRequestBody{File: path, Index: &index, Body: item.Clone()}); err != nil {
 			return err
 		}
 	}
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+	if _, err := dec.ReadValue(); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("decode %s: trailing data after the JSON object", path)
 	}
 	return nil
 }
 
 func validateSubmitRequest(source string, raw []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
 	var body benchdb.SubmitRequest
-	if err := dec.Decode(&body); err != nil {
+	if err := json.Unmarshal(raw, &body, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("decode %s: %w", source, err)
-	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("decode %s: trailing data after the JSON object", source)
 	}
 	return nil
 }

@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"math"
 	"net/http"
@@ -91,17 +91,17 @@ type alertRuleView struct {
 }
 
 type alertEventView struct {
-	ID           string          `json:"id"`
-	RuleID       string          `json:"rule_id"`
-	Kind         string          `json:"kind"`
-	Status       string          `json:"status"`
-	StatusReason string          `json:"status_reason"`
-	RunID        *string         `json:"run_id,omitempty"`
-	CommitSHA    *string         `json:"commit_sha,omitempty"`
-	Repository   string          `json:"repository"`
-	ReportURL    string          `json:"report_url"`
-	Summary      json.RawMessage `json:"summary"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID           string         `json:"id"`
+	RuleID       string         `json:"rule_id"`
+	Kind         string         `json:"kind"`
+	Status       string         `json:"status"`
+	StatusReason string         `json:"status_reason"`
+	RunID        *string        `json:"run_id,omitempty"`
+	CommitSHA    *string        `json:"commit_sha,omitempty"`
+	Repository   string         `json:"repository"`
+	ReportURL    string         `json:"report_url"`
+	Summary      jsontext.Value `json:"summary"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 type alertRuleBody struct {
@@ -386,7 +386,7 @@ func alertEventViewOf(r storage.AlertEvent) alertEventView {
 	return alertEventView{
 		ID: r.ID, RuleID: r.RuleID, Kind: r.Kind, Status: r.Status, StatusReason: r.StatusReason,
 		RunID: r.RunID, CommitSHA: r.CommitSHA, Repository: r.Repository,
-		ReportURL: r.ReportURL, Summary: json.RawMessage(r.Summary),
+		ReportURL: r.ReportURL, Summary: jsontext.Value(r.Summary),
 		CreatedAt: r.CreatedAt,
 	}
 }

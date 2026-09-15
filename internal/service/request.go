@@ -5,7 +5,7 @@ package service
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"

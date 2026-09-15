@@ -5,10 +5,11 @@
 package hardware
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ func MachineHash(name string, gpuCount, cpuCoreCount, cpuThreadCount, memoryByte
 // hex digest of json.dumps(info, sort_keys=True). info is the raw JSON of the
 // cluster's "info" object. MD5 matches the values already in the database; it
 // is not a security boundary.
-func ClusterHash(name string, info json.RawMessage) (string, error) {
+func ClusterHash(name string, info jsontext.Value) (string, error) {
 	canon, err := pythonJSONString(info)
 	if err != nil {
 		return "", err
@@ -48,12 +49,17 @@ func pyInt(n *int64) string {
 // pythonJSONString re-serializes raw JSON the way CPython's
 // json.dumps(value, sort_keys=True) does: ", " and ": " separators, object keys
 // sorted, and non-ASCII escaped (ensure_ascii). Numbers pass through Go's
-// json.Number so integers stay exact.
-func pythonJSONString(raw json.RawMessage) (string, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+// jsontext.Value so integers stay exact.
+func pythonJSONString(raw jsontext.Value) (string, error) {
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.Unmarshal(raw, &v, json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, out *any) error {
+		if dec.PeekKind() != '0' {
+			return errors.ErrUnsupported
+		}
+		raw, err := dec.ReadValue()
+		*out = raw.Clone()
+		return err
+	}))); err != nil {
 		return "", err
 	}
 	var b strings.Builder
@@ -73,7 +79,7 @@ func writePythonJSON(b *strings.Builder, v any) {
 		}
 	case string:
 		writePythonString(b, x)
-	case json.Number:
+	case jsontext.Value:
 		b.WriteString(pyNumber(x))
 	case []any:
 		b.WriteByte('[')
@@ -107,12 +113,12 @@ func writePythonJSON(b *strings.Builder, v any) {
 // verbatim; floats are normalized through float64 and given a trailing ".0"
 // when whole, matching repr() for the simple decimals that appear in cluster
 // info. Exotic float formats (large exponents) are not guaranteed to match.
-func pyNumber(n json.Number) string {
-	s := n.String()
+func pyNumber(n jsontext.Value) string {
+	s := string(n)
 	if !strings.ContainsAny(s, ".eE") {
 		return s // integer: exact
 	}
-	f, err := n.Float64()
+	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return s
 	}

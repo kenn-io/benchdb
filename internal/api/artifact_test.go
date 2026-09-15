@@ -30,11 +30,9 @@ import (
 func TestArtifactStorageLifecycle(t *testing.T) {
 	tapi, store, ctx := newAPI(t)
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z", ExposedPorts: []string{"9000/tcp"},
-			Env: map[string]string{"MINIO_ROOT_USER": "testaccess", "MINIO_ROOT_PASSWORD": "testsecret"},
-			Cmd: []string{"server", "/data"}, WaitingFor: wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp"),
-		}, Started: true,
+		Image: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z", ExposedPorts: []string{"9000/tcp"},
+		Env: map[string]string{"MINIO_ROOT_USER": "testaccess", "MINIO_ROOT_PASSWORD": "testsecret"},
+		Cmd: []string{"server", "/data"}, WaitingFor: wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp"), Started: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, testcontainers.TerminateContainer(container)) })

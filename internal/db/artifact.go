@@ -31,7 +31,7 @@ func (s *Store) GetResultArtifact(ctx context.Context, resultID string, id uuid.
 	if err != nil {
 		return storage.ArtifactRecord{}, err
 	}
-	return storage.ArtifactRecord{ArtifactMetadata: storage.ArtifactMetadata{ID: row.ID, Name: row.Name, Kind: row.Kind, MediaType: row.MediaType, SHA256: row.Sha256, SizeBytes: row.SizeBytes}, ResultID: row.ResultID, ObjectKey: row.ObjectKey}, nil
+	return storage.ArtifactRecord{ID: row.ID, Name: row.Name, Kind: row.Kind, MediaType: row.MediaType, SHA256: row.Sha256, SizeBytes: row.SizeBytes, ResultID: row.ResultID, ObjectKey: row.ObjectKey}, nil
 }
 
 func (s *Store) InsertResultArtifact(ctx context.Context, a storage.ArtifactRecord) error {

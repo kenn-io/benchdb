@@ -5,7 +5,9 @@ package server
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 
@@ -131,7 +133,14 @@ func pinGoClientExtensions(doc *huma.OpenAPI) {
 }
 
 func humaConfig() huma.Config {
-	return huma.DefaultConfig("BenchDB", "0.1.0")
+	config := huma.DefaultConfig("BenchDB", "0.1.0")
+	config.Formats = map[string]huma.Format{
+		"application/json": {
+			Marshal:   func(w io.Writer, v any) error { return json.MarshalWrite(w, v) },
+			Unmarshal: func(data []byte, v any) error { return json.Unmarshal(data, v) },
+		},
+	}
+	return config
 }
 
 // register wires the write, read, and health operations onto a huma API. New

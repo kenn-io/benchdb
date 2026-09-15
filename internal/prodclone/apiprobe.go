@@ -2,7 +2,8 @@ package prodclone
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -639,7 +640,7 @@ func validateCIReportComparison(comparison benchdbclient.CIReportComparison, pre
 	return nil
 }
 
-func requireCompareSideFields(fields map[string]json.RawMessage, name string) error {
+func requireCompareSideFields(fields map[string]jsontext.Value, name string) error {
 	sideFields, err := requireNestedJSONObjectFields(fields, name, "benchmark_result_id", "run_id", "single_value_summary")
 	if err != nil {
 		return err
@@ -657,13 +658,13 @@ func stringSliceContains(values []string, target string) bool {
 	return slices.Contains(values, target)
 }
 
-func requireAnalysisFields(fields map[string]json.RawMessage) error {
+func requireAnalysisFields(fields map[string]jsontext.Value) error {
 	_, err := requireNestedJSONObjectFields(fields, "analysis", "pairwise", "lookback_z_score")
 	return err
 }
 
-func requireJSONObjectFields(body []byte, model string, fields ...string) (map[string]json.RawMessage, error) {
-	var object map[string]json.RawMessage
+func requireJSONObjectFields(body []byte, model string, fields ...string) (map[string]jsontext.Value, error) {
+	var object map[string]jsontext.Value
 	if err := json.Unmarshal(body, &object); err != nil {
 		return nil, fmt.Errorf("invalid response: decode %s object: %w", model, err)
 	}
@@ -676,7 +677,7 @@ func requireJSONObjectFields(body []byte, model string, fields ...string) (map[s
 	return object, nil
 }
 
-func requireJSONFields(object map[string]json.RawMessage, fields ...string) error {
+func requireJSONFields(object map[string]jsontext.Value, fields ...string) error {
 	for _, field := range fields {
 		if _, ok := object[field]; !ok {
 			return fmt.Errorf("invalid response: missing required field %s", field)
@@ -685,18 +686,18 @@ func requireJSONFields(object map[string]json.RawMessage, fields ...string) erro
 	return nil
 }
 
-func requireArrayObjectFields(body []byte, model string, arrayName string, fields ...string) ([]map[string]json.RawMessage, error) {
+func requireArrayObjectFields(body []byte, model string, arrayName string, fields ...string) ([]map[string]jsontext.Value, error) {
 	object, err := requireJSONObjectFields(body, model, arrayName)
 	if err != nil {
 		return nil, err
 	}
-	var rawItems []json.RawMessage
+	var rawItems []jsontext.Value
 	if err := json.Unmarshal(object[arrayName], &rawItems); err != nil {
 		return nil, fmt.Errorf("invalid response: %s must be an array", arrayName)
 	}
-	items := make([]map[string]json.RawMessage, 0, len(rawItems))
+	items := make([]map[string]jsontext.Value, 0, len(rawItems))
 	for i, raw := range rawItems {
-		var item map[string]json.RawMessage
+		var item map[string]jsontext.Value
 		if err := json.Unmarshal(raw, &item); err != nil {
 			return nil, fmt.Errorf("invalid response: %s[%d] must be an object", arrayName, i)
 		}
@@ -713,12 +714,12 @@ func requireArrayObjectFields(body []byte, model string, arrayName string, field
 	return items, nil
 }
 
-func requireNestedJSONObjectFields(parent map[string]json.RawMessage, name string, fields ...string) (map[string]json.RawMessage, error) {
+func requireNestedJSONObjectFields(parent map[string]jsontext.Value, name string, fields ...string) (map[string]jsontext.Value, error) {
 	raw, ok := parent[name]
 	if !ok {
 		return nil, fmt.Errorf("invalid response: missing required field %s", name)
 	}
-	var object map[string]json.RawMessage
+	var object map[string]jsontext.Value
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return nil, fmt.Errorf("invalid response: %s must be an object", name)
 	}
@@ -734,12 +735,12 @@ func requireNestedJSONObjectFields(parent map[string]json.RawMessage, name strin
 	return object, nil
 }
 
-func requireJSONObjectField(fields map[string]json.RawMessage, name string) error {
+func requireJSONObjectField(fields map[string]jsontext.Value, name string) error {
 	raw, ok := fields[name]
 	if !ok {
 		return fmt.Errorf("invalid response: missing required field %s", name)
 	}
-	var object map[string]json.RawMessage
+	var object map[string]jsontext.Value
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return fmt.Errorf("invalid response: %s must be an object", name)
 	}
@@ -749,7 +750,7 @@ func requireJSONObjectField(fields map[string]json.RawMessage, name string) erro
 	return nil
 }
 
-func requireNonNullJSONField(fields map[string]json.RawMessage, field string, qualified string) error {
+func requireNonNullJSONField(fields map[string]jsontext.Value, field string, qualified string) error {
 	raw, ok := fields[field]
 	if !ok {
 		return fmt.Errorf("invalid response: missing required field %s", qualified)

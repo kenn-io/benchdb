@@ -2,7 +2,7 @@ package prodclone
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -60,10 +60,10 @@ type SQLProfileTiming struct {
 }
 
 type ExplainPlanArtifact struct {
-	Name      string          `json:"name"`
-	Operation string          `json:"operation"`
-	Filename  string          `json:"filename"`
-	PlanJSON  json.RawMessage `json:"plan_json"`
+	Name      string         `json:"name"`
+	Operation string         `json:"operation"`
+	Filename  string         `json:"filename"`
+	PlanJSON  jsontext.Value `json:"plan_json"`
 }
 
 type RelationSize struct {
@@ -517,7 +517,7 @@ func explainProfileSQLQuery(ctx context.Context, db ProfileDB, query profileSQLQ
 		timing.Error = "EXPLAIN returned no plan"
 		return ExplainPlanArtifact{}, timing
 	}
-	if !json.Valid(raw) {
+	if !jsontext.Value(raw).IsValid() {
 		timing.Error = "EXPLAIN returned invalid JSON"
 		return ExplainPlanArtifact{}, timing
 	}
@@ -525,7 +525,7 @@ func explainProfileSQLQuery(ctx context.Context, db ProfileDB, query profileSQLQ
 		Name:      query.name,
 		Operation: query.operation,
 		Filename:  ExplainPlanFilename(query.name),
-		PlanJSON:  append(json.RawMessage(nil), raw...),
+		PlanJSON:  append(jsontext.Value(nil), raw...),
 	}, nil
 }
 
