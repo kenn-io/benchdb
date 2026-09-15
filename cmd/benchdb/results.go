@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,7 +204,7 @@ func runSubmitConfig(ctx context.Context, cfg submitConfig, stdout io.Writer) er
 	if err != nil {
 		return err
 	}
-	params := &benchdb.SubmitResultParams{}
+	params := &benchdb.SubmitResultHeaders{}
 	if bearer != "" {
 		params.Authorization = &bearer
 	}
@@ -260,8 +261,8 @@ func runResultGetConfig(ctx context.Context, cfg resultGetConfig, stdout io.Writ
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetBenchmarkResultWithResponse(ctx, cfg.id)
-	if err != nil {
+	resp, err := client.GetBenchmarkResultWithResponse(ctx, &benchdb.GetBenchmarkResultRequestOptions{PathParams: &benchdb.GetBenchmarkResultPath{ID: cfg.id}})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("get result from %s: %w", cfg.server, err)
 	}
 	if resp.JSON200 == nil {
@@ -353,15 +354,20 @@ func streamSubmitWork(
 
 func submitBody(
 	ctx context.Context,
-	client *benchdb.ClientWithResponses,
-	params *benchdb.SubmitResultParams,
+	client *benchdb.Client,
+	params *benchdb.SubmitResultHeaders,
 	server string,
 	body submitRequestBody,
 ) (submitResultLine, error) {
 	result := submitResultLine{File: body.File, Index: body.Index}
 
-	resp, err := client.SubmitResultWithBodyWithResponse(ctx, params, "application/json", bytes.NewReader(body.Body))
-	if err != nil {
+	resp, err := client.SubmitResultWithResponse(ctx, &benchdb.SubmitResultRequestOptions{Header: params}, func(_ context.Context, req *http.Request) error {
+		req.Body = io.NopCloser(bytes.NewReader(body.Body))
+		req.ContentLength = int64(len(body.Body))
+		req.Header.Set("Content-Type", "application/json")
+		return nil
+	})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		err = fmt.Errorf("submit to %s: %w", server, err)
 		result.Error = err.Error()
 		return result, err
@@ -379,7 +385,7 @@ func submitBody(
 		File:               body.File,
 		Index:              body.Index,
 		OK:                 true,
-		ID:                 resp.JSON201.Id,
+		ID:                 resp.JSON201.ID,
 		HistoryFingerprint: resp.JSON201.HistoryFingerprint,
 	}, nil
 }

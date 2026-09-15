@@ -163,17 +163,17 @@ func (l *loopback) handleCallback(w http.ResponseWriter, r *http.Request) {
 // exchangeCode posts the one-time code to cli-exchange and returns the minted
 // token plaintext and its prefix.
 func exchangeCode(serverURL, code string) (token, prefix string, err error) {
-	client, err := benchdb.NewClientWithResponses(serverURL)
+	client, err := newClient(serverURL)
 	if err != nil {
 		return "", "", fmt.Errorf("create client: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	resp, err := client.AuthCliExchangeWithResponse(ctx, benchdb.AuthCliExchangeJSONRequestBody{
+	resp, err := client.AuthCliExchangeWithResponse(ctx, &benchdb.AuthCliExchangeRequestOptions{Body: &benchdb.AuthCliExchangeBody{
 		Code: code,
 		Name: tokenName(),
-	})
-	if err != nil {
+	}})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return "", "", fmt.Errorf("exchange login code: %w", err)
 	}
 	if resp.HTTPResponse.StatusCode != http.StatusOK {
@@ -292,7 +292,7 @@ func runAuthTokenConfig(ctx context.Context, sub string, cfg authTokenConfig, st
 	if cfg.token != "" {
 		bearer = "Bearer " + cfg.token
 	}
-	client, err := benchdb.NewClientWithResponses(cfg.server)
+	client, err := newClient(cfg.server)
 	if err != nil {
 		return fmt.Errorf("create client: %w", err)
 	}
@@ -306,13 +306,13 @@ func runAuthTokenConfig(ctx context.Context, sub string, cfg authTokenConfig, st
 	}
 }
 
-func listTokens(ctx context.Context, client *benchdb.ClientWithResponses, bearer string, stdout io.Writer) error {
-	params := &benchdb.ListTokensParams{}
+func listTokens(ctx context.Context, client *benchdb.Client, bearer string, stdout io.Writer) error {
+	params := &benchdb.ListTokensHeaders{}
 	if bearer != "" {
 		params.Authorization = &bearer
 	}
-	resp, err := client.ListTokensWithResponse(ctx, params)
-	if err != nil {
+	resp, err := client.ListTokensWithResponse(ctx, &benchdb.ListTokensRequestOptions{Header: params})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("list tokens: %w", err)
 	}
 	if resp.JSON200 == nil {
@@ -326,13 +326,13 @@ func listTokens(ctx context.Context, client *benchdb.ClientWithResponses, bearer
 	return nil
 }
 
-func revokeToken(ctx context.Context, client *benchdb.ClientWithResponses, id, bearer string, stdout io.Writer) error {
-	params := &benchdb.DeleteTokenParams{}
+func revokeToken(ctx context.Context, client *benchdb.Client, id, bearer string, stdout io.Writer) error {
+	params := &benchdb.DeleteTokenHeaders{}
 	if bearer != "" {
 		params.Authorization = &bearer
 	}
-	resp, err := client.DeleteTokenWithResponse(ctx, id, params)
-	if err != nil {
+	resp, err := client.DeleteTokenWithResponse(ctx, &benchdb.DeleteTokenRequestOptions{PathParams: &benchdb.DeleteTokenPath{ID: id}, Header: params})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("revoke token: %w", err)
 	}
 	switch resp.HTTPResponse.StatusCode {

@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/doordash-oss/oapi-codegen-dd/v3/pkg/runtime"
 	"io"
 	"net/http"
 	"strings"
@@ -78,8 +79,8 @@ func resolveBearer(flagToken, server string) (string, error) {
 	return "Bearer " + token, nil
 }
 
-func newClient(server string) (*benchdb.ClientWithResponses, error) {
-	client, err := benchdb.NewClientWithResponses(server, benchdb.WithHTTPClient(newCLIHTTPClient()))
+func newClient(server string) (*benchdb.Client, error) {
+	client, err := benchdb.NewHTTPClient(server, newCLIHTTPClient())
 	if err != nil {
 		return nil, fmt.Errorf("create client: %w", err)
 	}
@@ -93,7 +94,7 @@ func newCLIHTTPClient() *http.Client {
 	return &http.Client{Transport: transport}
 }
 
-func bearerRequestEditor(bearer string) benchdb.RequestEditorFn {
+func bearerRequestEditor(bearer string) runtime.RequestEditorFn {
 	return func(_ context.Context, req *http.Request) error {
 		if bearer != "" {
 			req.Header.Set("Authorization", bearer)

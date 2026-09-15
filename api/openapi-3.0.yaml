@@ -212,7 +212,7 @@ components:
         repository:
           type: string
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         tracks:
           items:
@@ -281,7 +281,7 @@ components:
             - insufficient
           type: string
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         unit:
           nullable: true
@@ -360,7 +360,7 @@ components:
       additionalProperties: false
       properties:
         context:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         hardware:
           $ref: "#/components/schemas/Hardware"
@@ -540,10 +540,10 @@ components:
         contender:
           $ref: "#/components/schemas/CIReportSide"
         context:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         error:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         hardware:
@@ -551,7 +551,7 @@ components:
         history_fingerprint:
           type: string
         info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         less_is_better:
           nullable: true
@@ -581,7 +581,7 @@ components:
             - CIReportComparisonStatusMissingBaseline
             - CIReportComparisonStatusNotComparable
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         unit:
           nullable: true
@@ -643,7 +643,7 @@ components:
           nullable: true
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
       required:
         - run_id
@@ -669,7 +669,7 @@ components:
           nullable: true
           type: string
         error:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         result_id:
@@ -810,12 +810,12 @@ components:
       additionalProperties: false
       properties:
         info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         name:
           type: string
         optional_info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
       required:
         - name
@@ -1049,7 +1049,7 @@ components:
         benchmark_result_id:
           type: string
         change_annotations:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         commit_hash:
           type: string
@@ -1070,7 +1070,7 @@ components:
         hardware_hash:
           type: string
         info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         mean:
           format: double
@@ -1080,7 +1080,7 @@ components:
           format: date-time
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         single_value_summary:
           format: double
@@ -1415,7 +1415,7 @@ components:
           nullable: true
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         series_count:
           format: int64
@@ -1491,14 +1491,14 @@ components:
         benchmark_id:
           type: string
         change_annotations:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         commit:
           $ref: "#/components/schemas/Commit"
         commit_repo_url:
           type: string
         context:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         data:
           items:
@@ -1508,7 +1508,7 @@ components:
           nullable: true
           type: array
         error:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         hardware:
@@ -1518,7 +1518,7 @@ components:
         id:
           type: string
         info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         iterations:
           format: int32
@@ -1528,7 +1528,7 @@ components:
           nullable: true
           type: boolean
         optional_benchmark_info:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         run_id:
@@ -1537,7 +1537,7 @@ components:
           nullable: true
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         single_value_summary:
           format: double
@@ -1548,7 +1548,7 @@ components:
         stats:
           $ref: "#/components/schemas/Aggregates"
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         time_unit:
           nullable: true
@@ -1567,7 +1567,7 @@ components:
           nullable: true
           type: string
         validation:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
       required:
@@ -1608,7 +1608,7 @@ components:
         case_name:
           type: string
         case_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         commit:
           $ref: "#/components/schemas/ListCommit"
@@ -1624,7 +1624,7 @@ components:
           nullable: true
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         single_value_summary:
           format: double
@@ -1679,7 +1679,7 @@ components:
       additionalProperties: false
       properties:
         context:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         hardware:
           $ref: "#/components/schemas/Hardware"
@@ -1731,7 +1731,7 @@ components:
             - Stable
             - Insufficient
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         unit:
           nullable: true
@@ -1859,13 +1859,13 @@ components:
         batch_id:
           type: string
         change_annotations:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         cluster_info:
           $ref: "#/components/schemas/ClusterInfo"
         context:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         error:
           additionalProperties: true
@@ -1873,12 +1873,12 @@ components:
         github:
           $ref: "#/components/schemas/GitHubInfo"
         info:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         machine_info:
           $ref: "#/components/schemas/MachineInfo"
         optional_benchmark_info:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
         run_id:
@@ -1888,7 +1888,7 @@ components:
         run_reason:
           type: string
         run_tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         stats:
           $ref: "#/components/schemas/StatsInput"
@@ -1896,13 +1896,13 @@ components:
           maxLength: 255
           type: string
         tags:
-          additionalProperties: {}
+          additionalProperties: true
           type: object
         timestamp:
           format: date-time
           type: string
         validation:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
       required:
@@ -1946,7 +1946,7 @@ components:
           readOnly: true
           type: string
         change_annotations:
-          additionalProperties: {}
+          additionalProperties: true
           nullable: true
           type: object
       type: object

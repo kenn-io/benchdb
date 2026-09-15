@@ -1,6 +1,7 @@
 package benchdb_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,13 +52,21 @@ func TestUploadArtifactContentLength(t *testing.T) {
 				w.WriteHeader(http.StatusCreated)
 			}))
 			defer server.Close()
-			client, err := benchdb.NewClient(server.URL)
+			client, err := benchdb.NewHTTPClient(server.URL, server.Client())
 			require.NoError(t, err)
-			response, err := client.UploadResultArtifactWithBody(t.Context(), "result-1", &benchdb.UploadResultArtifactParams{
-				Name: "profile.bin", ContentLength: tc.length,
-			}, "application/octet-stream", body)
+			response, err := client.UploadResultArtifactWithResponse(t.Context(), &benchdb.UploadResultArtifactRequestOptions{
+				PathParams: &benchdb.UploadResultArtifactPath{ID: "result-1"},
+				Query:      &benchdb.UploadResultArtifactQuery{Name: "profile.bin"},
+			}, func(_ context.Context, req *http.Request) error {
+				req.Body = io.NopCloser(body)
+				req.ContentLength = -1
+				if tc.length != nil {
+					req.ContentLength = *tc.length
+				}
+				req.Header.Set("Content-Type", "application/octet-stream")
+				return nil
+			})
 			require.NoError(t, err)
-			defer func() { _ = response.Body.Close() }()
 			assert.Equal(t, http.StatusCreated, response.StatusCode)
 		})
 	}
@@ -76,16 +85,16 @@ func TestDownloadArtifactPreservesJSONBytes(t *testing.T) {
 				_, _ = fmt.Fprint(w, tc.body)
 			}))
 			defer server.Close()
-			client, err := benchdb.NewClientWithResponses(server.URL)
+			client, err := benchdb.NewHTTPClient(server.URL, server.Client())
 			require.NoError(t, err)
-			result, err := client.DownloadResultArtifactWithResponse(t.Context(), "result-1", "artifact-1")
+			result, err := client.DownloadResultArtifactWithResponse(t.Context(), &benchdb.DownloadResultArtifactRequestOptions{PathParams: &benchdb.DownloadResultArtifactPath{ID: "result-1", ArtifactID: "artifact-1"}})
 			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, result.StatusCode())
+			assert.Equal(t, http.StatusOK, result.StatusCode)
 			assert.Equal(t, []byte(tc.body), result.Body)
-			assert.Nil(t, result.ApplicationproblemJSON404)
-			assert.Nil(t, result.ApplicationproblemJSON422)
-			assert.Nil(t, result.ApplicationproblemJSON500)
-			assert.Nil(t, result.ApplicationproblemJSON503)
+			assert.Nil(t, result.ApplicationProblemPlusJSON404)
+			assert.Nil(t, result.ApplicationProblemPlusJSON422)
+			assert.Nil(t, result.ApplicationProblemPlusJSON500)
+			assert.Nil(t, result.ApplicationProblemPlusJSON503)
 		})
 	}
 }
@@ -97,11 +106,11 @@ func TestDownloadArtifactParsesNotFound(t *testing.T) {
 		_, _ = fmt.Fprint(w, `{"status":404,"detail":"not found"}`)
 	}))
 	defer server.Close()
-	client, err := benchdb.NewClientWithResponses(server.URL)
+	client, err := benchdb.NewHTTPClient(server.URL, server.Client())
 	require.NoError(t, err)
-	result, err := client.DownloadResultArtifactWithResponse(t.Context(), "result-1", "artifact-1")
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, result.StatusCode())
-	require.NotNil(t, result.ApplicationproblemJSON404)
-	assert.Equal(t, "not found", *result.ApplicationproblemJSON404.Detail)
+	result, err := client.DownloadResultArtifactWithResponse(t.Context(), &benchdb.DownloadResultArtifactRequestOptions{PathParams: &benchdb.DownloadResultArtifactPath{ID: "result-1", ArtifactID: "artifact-1"}})
+	require.Error(t, err)
+	assert.Equal(t, http.StatusNotFound, result.StatusCode)
+	require.NotNil(t, result.ApplicationProblemPlusJSON404)
+	assert.Equal(t, "not found", *result.ApplicationProblemPlusJSON404.Detail)
 }

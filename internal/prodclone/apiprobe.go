@@ -60,13 +60,13 @@ type apiProbeCall struct {
 func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeArtifact, []HTTPProbeTiming, error) {
 	artifact := CompatibilityProbeArtifact{ServerURL: cfg.ServerURL, Passed: true}
 
-	client, err := benchdbclient.NewClientWithResponses(cfg.ServerURL)
+	client, err := benchdbclient.NewHTTPClient(cfg.ServerURL, http.DefaultClient)
 	if err != nil {
 		artifact.Passed = false
 		artifact.Probes = append(artifact.Probes, CompatibilityProbeResult{
 			Surface:   "API",
 			Name:      "CreateGeneratedClient",
-			Operation: "NewClientWithResponses",
+			Operation: "NewHTTPClient",
 			Passed:    false,
 			Error:     err.Error(),
 		})
@@ -82,14 +82,14 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 			path:      "/api/series",
 			call: func(ctx context.Context) (int, bool, error) {
 				pageSize := int64(5)
-				resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesParams{PageSize: &pageSize})
+				resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: &pageSize}})
 				if err != nil {
 					return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 				}
 				if resp.JSON200 == nil {
-					return resp.StatusCode(), false, nil
+					return resp.StatusCode, false, nil
 				}
-				return resp.StatusCode(), true, validateSeriesPage(resp.JSON200, resp.Body)
+				return resp.StatusCode, true, validateSeriesPage(resp.JSON200, resp.Body)
 			},
 		},
 		{
@@ -99,14 +99,14 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 			path:      "/api/benchmark-results",
 			call: func(ctx context.Context) (int, bool, error) {
 				pageSize := int64(5)
-				resp, err := client.ListBenchmarkResultsWithResponse(ctx, &benchdbclient.ListBenchmarkResultsParams{PageSize: &pageSize})
+				resp, err := client.ListBenchmarkResultsWithResponse(ctx, &benchdbclient.ListBenchmarkResultsRequestOptions{Query: &benchdbclient.ListBenchmarkResultsQuery{PageSize: &pageSize}})
 				if err != nil {
 					return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 				}
 				if resp.JSON200 == nil {
-					return resp.StatusCode(), false, nil
+					return resp.StatusCode, false, nil
 				}
-				return resp.StatusCode(), true, validateResultPage(resp.JSON200, resp.Body)
+				return resp.StatusCode, true, validateResultPage(resp.JSON200, resp.Body)
 			},
 		},
 	}
@@ -119,14 +119,14 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 				method:    http.MethodGet,
 				path:      "/api/benchmark-results/" + resultID,
 				call: func(ctx context.Context) (int, bool, error) {
-					resp, err := client.GetBenchmarkResultWithResponse(ctx, resultID)
+					resp, err := client.GetBenchmarkResultWithResponse(ctx, &benchdbclient.GetBenchmarkResultRequestOptions{PathParams: &benchdbclient.GetBenchmarkResultPath{ID: resultID}})
 					if err != nil {
 						return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 					}
 					if resp.JSON200 == nil {
-						return resp.StatusCode(), false, nil
+						return resp.StatusCode, false, nil
 					}
-					return resp.StatusCode(), true, validateResultDetail(resp.JSON200, resp.Body, resultID, historyFingerprint)
+					return resp.StatusCode, true, validateResultDetail(resp.JSON200, resp.Body, resultID, historyFingerprint)
 				},
 			},
 			apiProbeCall{
@@ -135,14 +135,14 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 				method:    http.MethodGet,
 				path:      "/api/history/" + resultID,
 				call: func(ctx context.Context) (int, bool, error) {
-					resp, err := client.GetHistoryForResultWithResponse(ctx, resultID)
+					resp, err := client.GetHistoryForResultWithResponse(ctx, &benchdbclient.GetHistoryForResultRequestOptions{PathParams: &benchdbclient.GetHistoryForResultPath{BenchmarkResultID: resultID}})
 					if err != nil {
 						return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 					}
 					if resp.JSON200 == nil {
-						return resp.StatusCode(), false, nil
+						return resp.StatusCode, false, nil
 					}
-					return resp.StatusCode(), true, validateHistorySeries(resp.JSON200, resp.Body, historyFingerprint)
+					return resp.StatusCode, true, validateHistorySeries(resp.JSON200, resp.Body, historyFingerprint)
 				},
 			},
 			apiProbeCall{
@@ -151,14 +151,14 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 				method:    http.MethodGet,
 				path:      "/api/history",
 				call: func(ctx context.Context) (int, bool, error) {
-					resp, err := client.GetHistoryWithResponse(ctx, &benchdbclient.GetHistoryParams{Fingerprint: historyFingerprint})
+					resp, err := client.GetHistoryWithResponse(ctx, &benchdbclient.GetHistoryRequestOptions{Query: &benchdbclient.GetHistoryQuery{Fingerprint: historyFingerprint}})
 					if err != nil {
 						return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 					}
 					if resp.JSON200 == nil {
-						return resp.StatusCode(), false, nil
+						return resp.StatusCode, false, nil
 					}
-					return resp.StatusCode(), true, validateHistorySeries(resp.JSON200, resp.Body, historyFingerprint)
+					return resp.StatusCode, true, validateHistorySeries(resp.JSON200, resp.Body, historyFingerprint)
 				},
 			},
 		)
@@ -174,17 +174,17 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 			method:    http.MethodGet,
 			path:      "/api/compare/benchmark-results",
 			call: func(ctx context.Context) (int, bool, error) {
-				resp, err := client.CompareBenchmarkResultsWithResponse(ctx, &benchdbclient.CompareBenchmarkResultsParams{
-					BaselineResultId:  compare.BaselineResultID,
-					ContenderResultId: compare.ContenderResultID,
-				})
+				resp, err := client.CompareBenchmarkResultsWithResponse(ctx, &benchdbclient.CompareBenchmarkResultsRequestOptions{Query: &benchdbclient.CompareBenchmarkResultsQuery{
+					BaselineResultID:  compare.BaselineResultID,
+					ContenderResultID: compare.ContenderResultID,
+				}})
 				if err != nil {
 					return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 				}
 				if resp.JSON200 == nil {
-					return resp.StatusCode(), false, nil
+					return resp.StatusCode, false, nil
 				}
-				return resp.StatusCode(), true, validateCompareResult(resp.JSON200, resp.Body, compare.BaselineResultID, compare.ContenderResultID)
+				return resp.StatusCode, true, validateCompareResult(resp.JSON200, resp.Body, compare.BaselineResultID, compare.ContenderResultID)
 			},
 		})
 	}
@@ -197,18 +197,18 @@ func RunAPIProbes(ctx context.Context, cfg APIProbeConfig) (CompatibilityProbeAr
 			method:    http.MethodGet,
 			path:      "/api/ci/report",
 			call: func(ctx context.Context) (int, bool, error) {
-				resp, err := client.GetCiReportWithResponse(ctx, &benchdbclient.GetCiReportParams{
+				resp, err := client.GetCiReportWithResponse(ctx, &benchdbclient.GetCiReportRequestOptions{Query: &benchdbclient.GetCiReportQuery{
 					Repository: &sample.Repository,
 					CommitSha:  &sample.CommitSHA,
 					RunIds:     &runIDs,
-				})
+				}})
 				if err != nil {
 					return responseStatus(resp), false, fmt.Errorf("decode response: %w", err)
 				}
 				if resp.JSON200 == nil {
-					return resp.StatusCode(), false, nil
+					return resp.StatusCode, false, nil
 				}
-				return resp.StatusCode(), true, validateCIReport(resp.JSON200, resp.Body, *sample)
+				return resp.StatusCode, true, validateCIReport(resp.JSON200, resp.Body, *sample)
 			},
 		})
 	}
@@ -234,7 +234,7 @@ func validateSeriesPage(page *benchdbclient.SeriesPage, body []byte) error {
 	if page.Series == nil {
 		return fmt.Errorf("invalid response: missing series array")
 	}
-	if len(*page.Series) == 0 {
+	if len(page.Series) == 0 {
 		return fmt.Errorf("invalid response: series array is empty")
 	}
 	if _, err := requireArrayObjectFields(body, "SeriesPage", "series",
@@ -258,7 +258,7 @@ func validateSeriesPage(page *benchdbclient.SeriesPage, body []byte) error {
 	); err != nil {
 		return err
 	}
-	for i, item := range *page.Series {
+	for i, item := range page.Series {
 		if err := validateSeriesListItem(item, i); err != nil {
 			return err
 		}
@@ -270,7 +270,7 @@ func validateResultPage(page *benchdbclient.ResultPage, body []byte) error {
 	if page.Results == nil {
 		return fmt.Errorf("invalid response: missing results array")
 	}
-	if len(*page.Results) == 0 {
+	if len(page.Results) == 0 {
 		return fmt.Errorf("invalid response: results array is empty")
 	}
 	if _, err := requireArrayObjectFields(body, "ResultPage", "results",
@@ -287,7 +287,7 @@ func validateResultPage(page *benchdbclient.ResultPage, body []byte) error {
 	); err != nil {
 		return err
 	}
-	for i, item := range *page.Results {
+	for i, item := range page.Results {
 		if err := validateResultListItem(item, i); err != nil {
 			return err
 		}
@@ -315,7 +315,7 @@ func validateSeriesListItem(item benchdbclient.SeriesListItem, index int) error 
 	if item.Repository == "" {
 		return fmt.Errorf("invalid response: missing required field %s.repository", prefix)
 	}
-	if item.LatestResultId == "" {
+	if item.LatestResultID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.latest_result_id", prefix)
 	}
 	if item.LatestCommitSha == "" {
@@ -330,7 +330,7 @@ func validateSeriesListItem(item benchdbclient.SeriesListItem, index int) error 
 	if item.PointCount <= 0 {
 		return fmt.Errorf("invalid response: missing required field %s.point_count", prefix)
 	}
-	if !item.Status.Valid() {
+	if item.Status.Validate() != nil {
 		return fmt.Errorf("invalid response: missing required field %s.status", prefix)
 	}
 	return nil
@@ -338,10 +338,10 @@ func validateSeriesListItem(item benchdbclient.SeriesListItem, index int) error 
 
 func validateResultListItem(item benchdbclient.ResultListItem, index int) error {
 	prefix := fmt.Sprintf("results[%d]", index)
-	if item.Id == "" {
+	if item.ID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.id", prefix)
 	}
-	if item.RunId == "" {
+	if item.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.run_id", prefix)
 	}
 	if item.RunTags == nil {
@@ -395,13 +395,13 @@ func validateResultDetail(result *benchdbclient.ResultDetail, body []byte, resul
 		}
 	}
 
-	if result.Id != resultID {
-		return fmt.Errorf("invalid response: expected result id %q, got %q", resultID, result.Id)
+	if result.ID != resultID {
+		return fmt.Errorf("invalid response: expected result id %q, got %q", resultID, result.ID)
 	}
 	if result.HistoryFingerprint != historyFingerprint {
 		return fmt.Errorf("invalid response: expected history_fingerprint %q, got %q", historyFingerprint, result.HistoryFingerprint)
 	}
-	if result.RunId == "" {
+	if result.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field run_id")
 	}
 	if result.Timestamp.IsZero() {
@@ -423,7 +423,7 @@ func validateHistorySeries(series *benchdbclient.HistorySeries, body []byte, his
 	if series.Samples == nil {
 		return fmt.Errorf("invalid response: missing samples array")
 	}
-	if len(*series.Samples) == 0 {
+	if len(series.Samples) == 0 {
 		return fmt.Errorf("invalid response: samples array is empty")
 	}
 	if _, err := requireArrayObjectFields(body, "HistorySeries", "samples",
@@ -442,7 +442,7 @@ func validateHistorySeries(series *benchdbclient.HistorySeries, body []byte, his
 	); err != nil {
 		return err
 	}
-	for i, sample := range *series.Samples {
+	for i, sample := range series.Samples {
 		if err := validateHistorySample(sample, i); err != nil {
 			return err
 		}
@@ -452,7 +452,7 @@ func validateHistorySeries(series *benchdbclient.HistorySeries, body []byte, his
 
 func validateHistorySample(sample benchdbclient.HistorySample, index int) error {
 	prefix := fmt.Sprintf("samples[%d]", index)
-	if sample.BenchmarkResultId == "" {
+	if sample.BenchmarkResultID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.benchmark_result_id", prefix)
 	}
 	if sample.CommitHash == "" {
@@ -474,7 +474,7 @@ func validateHistorySample(sample benchdbclient.HistorySample, index int) error 
 }
 
 func validateHardware(hardware benchdbclient.Hardware, prefix string) error {
-	if hardware.Id == "" {
+	if hardware.ID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.id", prefix)
 	}
 	if hardware.Hash == "" {
@@ -507,16 +507,16 @@ func validateCompareResult(result *benchdbclient.CompareResult, body []byte, bas
 		return err
 	}
 
-	if result.Baseline.BenchmarkResultId != baselineResultID {
-		return fmt.Errorf("invalid response: expected baseline_result_id %q, got %q", baselineResultID, result.Baseline.BenchmarkResultId)
+	if result.Baseline.BenchmarkResultID != baselineResultID {
+		return fmt.Errorf("invalid response: expected baseline_result_id %q, got %q", baselineResultID, result.Baseline.BenchmarkResultID)
 	}
-	if result.Contender.BenchmarkResultId != contenderResultID {
-		return fmt.Errorf("invalid response: expected contender_result_id %q, got %q", contenderResultID, result.Contender.BenchmarkResultId)
+	if result.Contender.BenchmarkResultID != contenderResultID {
+		return fmt.Errorf("invalid response: expected contender_result_id %q, got %q", contenderResultID, result.Contender.BenchmarkResultID)
 	}
-	if result.Baseline.RunId == "" {
+	if result.Baseline.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field baseline.run_id")
 	}
-	if result.Contender.RunId == "" {
+	if result.Contender.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field contender.run_id")
 	}
 	if result.Unit == "" {
@@ -554,14 +554,14 @@ func validateCIReport(report *benchdbclient.CIReport, body []byte, sample CIRepo
 		return fmt.Errorf("invalid response: missing selected_run_ids array")
 	}
 	for _, runID := range sample.RunIDs {
-		if !stringSliceContains(*report.SelectedRunIds, runID) {
+		if !stringSliceContains(report.SelectedRunIds, runID) {
 			return fmt.Errorf("invalid response: selected_run_ids missing %q", runID)
 		}
 	}
 	if report.Runs == nil {
 		return fmt.Errorf("invalid response: missing runs array")
 	}
-	if report.ReportUrl == "" {
+	if report.ReportURL == "" {
 		return fmt.Errorf("invalid response: missing required field report_url")
 	}
 	if err := requireJSONObjectField(fields, "summary"); err != nil {
@@ -570,7 +570,7 @@ func validateCIReport(report *benchdbclient.CIReport, body []byte, sample CIRepo
 	if err := validateCIReportSummary(report.Summary); err != nil {
 		return err
 	}
-	for i, run := range *report.Runs {
+	for i, run := range report.Runs {
 		if err := validateCIReportRun(run, i); err != nil {
 			return err
 		}
@@ -601,7 +601,7 @@ func validateCIReportSummary(summary benchdbclient.CIReportSummary) error {
 
 func validateCIReportRun(run benchdbclient.CIReportRun, index int) error {
 	prefix := fmt.Sprintf("runs[%d]", index)
-	if run.RunId == "" {
+	if run.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.run_id", prefix)
 	}
 	if run.RunTags == nil {
@@ -610,7 +610,7 @@ func validateCIReportRun(run benchdbclient.CIReportRun, index int) error {
 	if run.Comparisons == nil {
 		return nil
 	}
-	for i, comparison := range *run.Comparisons {
+	for i, comparison := range run.Comparisons {
 		if err := validateCIReportComparison(comparison, fmt.Sprintf("%s.comparisons[%d]", prefix, i)); err != nil {
 			return err
 		}
@@ -622,13 +622,13 @@ func validateCIReportComparison(comparison benchdbclient.CIReportComparison, pre
 	if comparison.HistoryFingerprint == "" {
 		return fmt.Errorf("invalid response: missing required field %s.history_fingerprint", prefix)
 	}
-	if !comparison.Status.Valid() {
+	if comparison.Status.Validate() != nil {
 		return fmt.Errorf("invalid response: missing required field %s.status", prefix)
 	}
-	if comparison.Contender.ResultId == "" {
+	if comparison.Contender.ResultID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.contender.result_id", prefix)
 	}
-	if comparison.Contender.RunId == "" {
+	if comparison.Contender.RunID == "" {
 		return fmt.Errorf("invalid response: missing required field %s.contender.run_id", prefix)
 	}
 	if comparison.Links.Result == "" {
@@ -826,10 +826,6 @@ func missingSampleProbeFailures(err error) []apiProbeCall {
 	}
 }
 
-type statusCoder interface {
-	StatusCode() int
-}
-
 func responseStatus(response any) int {
 	if response == nil {
 		return 0
@@ -838,9 +834,5 @@ func responseStatus(response any) int {
 	if value.Kind() == reflect.Pointer && value.IsNil() {
 		return 0
 	}
-	coder, ok := response.(statusCoder)
-	if !ok {
-		return 0
-	}
-	return coder.StatusCode()
+	return int(value.Elem().FieldByName("StatusCode").Int())
 }

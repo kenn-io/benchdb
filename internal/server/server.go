@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"reflect"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -74,9 +75,8 @@ func OpenAPISpec() ([]byte, error) {
 }
 
 // OpenAPISpec30 emits the OpenAPI 3.0 downgrade as YAML, a compatibility
-// artifact (api/openapi-3.0.yaml) for generators that do not support 3.1 —
-// notably oapi-codegen, which the Go client is generated with. The canonical
-// contract remains the 3.1 document; this is derived from it.
+// artifact (api/openapi-3.0.yaml) for tools that do not support 3.1. Both
+// client generators use the canonical 3.1 document.
 func OpenAPISpec30() ([]byte, error) {
 	doc := specAPI().OpenAPI()
 	pinGeneratedClientExtensions(doc)
@@ -91,6 +91,15 @@ func OpenAPISpec30() ([]byte, error) {
 func pinGeneratedClientExtensions(doc *huma.OpenAPI) {
 	if doc.Components == nil || doc.Components.Schemas == nil {
 		return
+	}
+	// Both spellings allow any JSON value. Use true so the Go generator
+	// keeps arbitrary map values instead of generating map[string]struct{}.
+	for _, schema := range doc.Components.Schemas.Map() {
+		for _, property := range schema.Properties {
+			if value, ok := property.AdditionalProperties.(*huma.Schema); ok && reflect.DeepEqual(value, &huma.Schema{}) {
+				property.AdditionalProperties = true
+			}
+		}
 	}
 	series := doc.Components.Schemas.Map()["SeriesListItem"]
 	if series == nil || series.Properties == nil {

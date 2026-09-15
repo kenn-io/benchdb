@@ -118,7 +118,7 @@ func TestRunAPIProbesUsesGeneratedClientAndRecordsTimings(t *testing.T) {
 		"GET /api/history/result-recent",
 		"GET /api/history?fingerprint=fp-recent",
 		"GET /api/compare/benchmark-results?baseline_result_id=baseline-result&contender_result_id=contender-result",
-		"GET /api/ci/report?repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fprod-sample&commit_sha=sha-recent&run_ids=sample-run",
+		"GET /api/ci/report?commit_sha=sha-recent&repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fprod-sample&run_ids=sample-run",
 	})
 	require.Len(t, timings, 7)
 	for _, timing := range timings {

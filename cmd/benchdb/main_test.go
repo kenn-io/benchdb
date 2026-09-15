@@ -1686,9 +1686,9 @@ func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
 	report := &benchdb.CIReport{
 		Repository:   "https://github.com/org/repo",
 		CommitSha:    &sha,
-		Status:       benchdb.CIReportStatusFailure,
+		Status:       benchdb.Failure,
 		StatusReason: "regressions detected",
-		ReportUrl:    "https://benchdb.example/ci/report?run_ids=run-1",
+		ReportURL:    "https://benchdb.example/ci/report?run_ids=run-1",
 		Summary: benchdb.CIReportSummary{
 			Runs:             1,
 			ContenderResults: 1,
@@ -1696,17 +1696,17 @@ func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
 			Analyzed:         1,
 			Regressions:      1,
 		},
-		Runs: &[]benchdb.CIReportRun{{
-			RunId:     "run-1",
+		Runs: []benchdb.CIReportRun{{
+			RunID:     "run-1",
 			RunReason: &runReason,
-			Comparisons: &[]benchdb.CIReportComparison{{
+			Comparisons: []benchdb.CIReportComparison{{
 				Status:   "regressed",
 				Name:     "tpch",
 				Tags:     map[string]any{"name": "tpch", "query_id": "TPCH-13", "language": "R"},
 				Hardware: benchdb.Hardware{Name: "test-mac-arm"},
 				Contender: benchdb.CIReportSide{
-					ResultId:        "result-1",
-					RunId:           "run-1",
+					ResultID:        "result-1",
+					RunID:           "run-1",
 					ResultTimestamp: resultTime,
 				},
 				Links: benchdb.CIReportRowLinks{
@@ -1769,7 +1769,7 @@ func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
 	assert.Equal(t, sha, checkBody["head_sha"])
 	assert.Equal(t, "failure", checkBody["conclusion"])
 	assert.Equal(t, "buildkite-123", checkBody["external_id"])
-	assert.Equal(t, report.ReportUrl, checkBody["details_url"])
+	assert.Equal(t, report.ReportURL, checkBody["details_url"])
 	output, ok := checkBody["output"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, output["summary"], "regressions detected")
@@ -1786,9 +1786,9 @@ func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
 func TestGitHubOutputReportsMissingBaselineCoverage(t *testing.T) {
 	resultTime := time.Date(2026, 6, 19, 12, 48, 38, 0, time.UTC)
 	report := &benchdb.CIReport{
-		Status:       benchdb.CIReportStatusActionRequired,
+		Status:       benchdb.ActionRequired,
 		StatusReason: "baseline coverage is incomplete",
-		ReportUrl:    "https://benchdb.example/ci/report?run_ids=run-1",
+		ReportURL:    "https://benchdb.example/ci/report?run_ids=run-1",
 		Summary: benchdb.CIReportSummary{
 			Runs:             1,
 			ContenderResults: 2,
@@ -1796,15 +1796,15 @@ func TestGitHubOutputReportsMissingBaselineCoverage(t *testing.T) {
 			Analyzed:         1,
 			MissingBaseline:  1,
 		},
-		Runs: &[]benchdb.CIReportRun{{
-			RunId: "run-1",
-			Comparisons: &[]benchdb.CIReportComparison{
+		Runs: []benchdb.CIReportRun{{
+			RunID: "run-1",
+			Comparisons: []benchdb.CIReportComparison{
 				{
-					Status:   benchdb.CIReportComparisonStatusMissingBaseline,
+					Status:   benchdb.MissingBaseline,
 					Name:     "latency",
 					Hardware: benchdb.Hardware{Name: "runner-arm64"},
 					Contender: benchdb.CIReportSide{
-						ResultId:        "result-1",
+						ResultID:        "result-1",
 						ResultTimestamp: resultTime,
 					},
 					Links: benchdb.CIReportRowLinks{Result: "/results/result-1"},
@@ -2225,7 +2225,7 @@ func TestRenderHistoryCSVPreservesFractionalCommitTimestamps(t *testing.T) {
 	late := time.Date(2024, 1, 1, 12, 0, 0, 987654321, time.UTC)
 	samples := []benchdb.HistorySample{
 		{
-			BenchmarkResultId:      "late-result",
+			BenchmarkResultID:      "late-result",
 			CommitHash:             "late-commit",
 			CommitTimestamp:        &late,
 			SingleValueSummary:     2,
@@ -2234,7 +2234,7 @@ func TestRenderHistoryCSVPreservesFractionalCommitTimestamps(t *testing.T) {
 			Unit:                   &unit,
 		},
 		{
-			BenchmarkResultId:      "early-result",
+			BenchmarkResultID:      "early-result",
 			CommitHash:             "early-commit",
 			CommitTimestamp:        &early,
 			SingleValueSummary:     1,
@@ -2243,7 +2243,7 @@ func TestRenderHistoryCSVPreservesFractionalCommitTimestamps(t *testing.T) {
 			Unit:                   &unit,
 		},
 	}
-	series := &benchdb.HistorySeries{HistoryFingerprint: "fingerprint", Samples: &samples}
+	series := &benchdb.HistorySeries{HistoryFingerprint: "fingerprint", Samples: samples}
 
 	out, err := renderHistoryCSV("late-result", series)
 	require.NoError(t, err)

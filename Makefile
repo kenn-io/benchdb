@@ -190,31 +190,30 @@ go-test-short:
 # source of truth; scripts/openapi_emit.go emits the spec without compiling
 # generated-client-dependent CLI commands, and
 # api/openapi.yaml is the reviewed, checked-in contract artifact. Clients are
-# generated FROM that artifact. api/openapi-3.0.yaml is a downgrade of the same
-# document for generators without 3.1 support (oapi-codegen, for the Go client).
+# generated FROM that artifact. api/openapi-3.0.yaml is an optional downgrade of the same
+# document for tools that still require OpenAPI 3.0.
 # `make codegen-check` regenerates everything and fails on any diff, proving the
 # artifacts match the server and the clients match the artifacts.
-CODEGEN_PATHS := api/openapi.yaml api/openapi-3.0.yaml web/src/lib/api sdk/go/benchdb/benchdb.gen.go
-OAPI_CODEGEN_VERSION := v2.7.0
+CODEGEN_PATHS := api/openapi.yaml api/openapi-3.0.yaml web/src/lib/api sdk/go/benchdb/client.gen.go
+OAPI_CODEGEN_VERSION := v3.75.15
 
 .PHONY: openapi
 openapi:
 	go run ./scripts/openapi_emit.go > api/openapi.yaml
 	go run ./scripts/openapi_emit.go --downgrade > api/openapi-3.0.yaml
 
-# TS client: openapi-typescript types + the typed openapi-fetch wrapper.
+# TypeScript client: Orval generates typed operations and models.
 .PHONY: codegen-ts
 codegen-ts:
 	cd web && bun install --frozen-lockfile
 	cd web && bun run codegen
 
-# Go client: oapi-codegen generates sdk/go/benchdb from the 3.0 downgrade (it
-# does not support 3.1). The generated client pulls in github.com/oapi-codegen/
-# runtime; run `go mod tidy` after changing the spec.
+# Go client: oapi-codegen-dd generates operations and models from OpenAPI 3.1.
+# Run `go mod tidy` after changing the spec.
 .PHONY: codegen-go
 codegen-go:
-	go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
-		-config sdk/go/benchdb/oapi-codegen.yaml api/openapi-3.0.yaml
+	go run github.com/doordash-oss/oapi-codegen-dd/v3/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
+		-config sdk/go/benchdb/oapi-codegen.yaml api/openapi.yaml
 
 .PHONY: codegen
 codegen: openapi codegen-ts codegen-go

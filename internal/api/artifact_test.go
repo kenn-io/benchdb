@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -105,7 +106,7 @@ func TestArtifactStorageLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, hex.EncodeToString(original.Sum(nil)), metadata.SHA256)
 
-	sdk, err := benchdb.NewClientWithResponses(server.URL)
+	sdk, err := benchdb.NewHTTPClient(server.URL, server.Client())
 	require.NoError(t, err)
 	for _, tc := range []struct{ mediaType, body string }{
 		{"application/json", `[1,2,3]`},
@@ -114,24 +115,32 @@ func TestArtifactStorageLifecycle(t *testing.T) {
 		{"text/plain; charset=utf-8", "profile notes"},
 	} {
 		t.Run(tc.mediaType, func(t *testing.T) {
-			uploaded, err := sdk.UploadResultArtifactWithBodyWithResponse(ctx, result.ID, &benchdb.UploadResultArtifactParams{
-				Name: "diagnostic", Authorization: new("Bearer " + testToken),
-			}, tc.mediaType, strings.NewReader(tc.body))
-			require.NoError(t, err)
-			require.Equal(t, http.StatusCreated, uploaded.StatusCode(), string(uploaded.Body))
-			require.NotNil(t, uploaded.JSON201)
-			assert.Equal(t, tc.mediaType, uploaded.JSON201.MediaType)
-			artifactID := uploaded.JSON201.Id
-			downloaded, err := sdk.DownloadResultArtifactWithResponse(ctx, result.ID, artifactID)
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, downloaded.StatusCode())
-			assert.Equal(t, tc.mediaType, downloaded.HTTPResponse.Header.Get("Content-Type"))
-			assert.Equal(t, tc.body, string(downloaded.Body))
-			deleted, err := sdk.DeleteResultArtifactWithResponse(ctx, result.ID, artifactID, &benchdb.DeleteResultArtifactParams{
-				Authorization: new("Bearer " + testToken),
+			uploaded, err := sdk.UploadResultArtifactWithResponse(ctx, &benchdb.UploadResultArtifactRequestOptions{
+				PathParams: &benchdb.UploadResultArtifactPath{ID: result.ID},
+				Query:      &benchdb.UploadResultArtifactQuery{Name: "diagnostic"},
+				Header:     &benchdb.UploadResultArtifactHeaders{Authorization: new("Bearer " + testToken)},
+			}, func(_ context.Context, req *http.Request) error {
+				req.Body = io.NopCloser(strings.NewReader(tc.body))
+				req.ContentLength = int64(len(tc.body))
+				req.Header.Set("Content-Type", tc.mediaType)
+				return nil
 			})
 			require.NoError(t, err)
-			require.Equal(t, http.StatusNoContent, deleted.StatusCode())
+			require.Equal(t, http.StatusCreated, uploaded.StatusCode, string(uploaded.Body))
+			require.NotNil(t, uploaded.JSON201)
+			assert.Equal(t, tc.mediaType, uploaded.JSON201.MediaType)
+			artifactID := uploaded.JSON201.ID
+			downloaded, err := sdk.DownloadResultArtifactWithResponse(ctx, &benchdb.DownloadResultArtifactRequestOptions{PathParams: &benchdb.DownloadResultArtifactPath{ID: result.ID, ArtifactID: artifactID}})
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, downloaded.StatusCode)
+			assert.Equal(t, tc.mediaType, downloaded.HTTPResponse.Header.Get("Content-Type"))
+			assert.Equal(t, tc.body, string(downloaded.Body))
+			deleted, err := sdk.DeleteResultArtifactWithResponse(ctx, &benchdb.DeleteResultArtifactRequestOptions{
+				PathParams: &benchdb.DeleteResultArtifactPath{ID: result.ID, ArtifactID: artifactID},
+				Header:     &benchdb.DeleteResultArtifactHeaders{Authorization: new("Bearer " + testToken)},
+			})
+			require.NoError(t, err)
+			require.Equal(t, http.StatusNoContent, deleted.StatusCode)
 		})
 	}
 
