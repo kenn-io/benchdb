@@ -1,7 +1,9 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { components } from "../api/schema";
+import type { HistorySample, ZScoreStats } from "../api/benchdb";
 import { DEFAULT_TREND_QUERY, type TrendQuery } from "../router";
 import TrendPage from "./TrendPage.svelte";
 
@@ -11,13 +13,10 @@ const ALL_TREND_QUERY = {
   range: { mode: "relative", days: 0 },
 } satisfies TrendQuery;
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 vi.mock("./SeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
 vi.mock("./FleetSeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
-
-type HistorySample = components["schemas"]["HistorySample"];
-type ZScoreStats = components["schemas"]["ZScoreStats"];
 
 function zstats(over: Partial<NonNullable<ZScoreStats>> = {}): ZScoreStats {
   return {
@@ -102,9 +101,9 @@ function benchmarkHistory(samples: unknown[], unit: string | null = "s") {
 
 function mockResultEntry(samples: unknown[]) {
   GET.mockImplementation(async (url: string) => {
-    if (url === "/api/benchmark-results/{id}") return { data: detail };
-    if (url === "/api/benchmarks/{benchmark_id}") {
-      return { data: benchmarkHistory(samples) };
+    if (url.startsWith("/api/benchmark-results/")) return { status: 200,  data: detail };
+    if (url.startsWith("/api/benchmarks/")) {
+      return { status: 200,  data: benchmarkHistory(samples) };
     }
     throw new Error(`unexpected ${url}`);
   });
@@ -131,7 +130,7 @@ describe("TrendPage", () => {
         },
       ],
     });
-    GET.mockResolvedValue({ data: fleet });
+    GET.mockResolvedValue({ status: 200,  data: fleet });
     render(TrendPage, {
       props: {
         source: { kind: "benchmark", benchmarkId: "b1" },
@@ -226,7 +225,7 @@ describe("TrendPage", () => {
   });
 
   it("shows the error state when loading fails", async () => {
-    GET.mockResolvedValue({ error: { detail: "boom" } });
+    GET.mockResolvedValue({ data: { detail: "boom" }, status: 400 });
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /open result details/i })).toHaveAttribute(
@@ -236,9 +235,9 @@ describe("TrendPage", () => {
   });
 
   it("refreshes the trend and calls out newly arrived results", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]),
-    }).mockResolvedValueOnce({
+    }).mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([
         sample("r1", "2024-01-07T12:00:00Z"),
         sample("r2", "2024-01-08T12:00:00Z"),
@@ -266,12 +265,12 @@ describe("TrendPage", () => {
   });
 
   it("keeps the selected result when a refresh inserts an earlier point", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([
         sample("r1", "2024-01-07T12:00:00Z"),
         sample("r3", "2024-01-09T12:00:00Z"),
       ]),
-    }).mockResolvedValueOnce({
+    }).mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([
         sample("r1", "2024-01-07T12:00:00Z"),
         sample("r2", "2024-01-08T12:00:00Z"),
@@ -546,7 +545,7 @@ describe("TrendPage", () => {
       hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
       samples: [sample("r2", "2024-01-08T12:00:00Z")],
     });
-    GET.mockResolvedValue({ data: fleet });
+    GET.mockResolvedValue({ status: 200,  data: fleet });
     render(TrendPage, {
       props: { source: { kind: "benchmark", benchmarkId: "b1" }, query: ALL_TREND_QUERY },
     });
@@ -590,8 +589,8 @@ describe("TrendPage", () => {
 
   it("loads by fingerprint and surfaces the mixed-unit banner", async () => {
     GET.mockImplementation(async (url: string) => {
-      if (url === "/api/benchmarks/{benchmark_id}") {
-        return {
+      if (url.startsWith("/api/benchmarks/")) {
+        return { status: 200,
           data: benchmarkHistory(
             [
               sample("r1", "2024-01-07T12:00:00Z"),
@@ -617,7 +616,7 @@ describe("TrendPage", () => {
   });
 
   it("treats unitless and measured samples as mixed units", async () => {
-    GET.mockResolvedValue({
+    GET.mockResolvedValue({ status: 200,
       data: benchmarkHistory(
         [
           sample("r1", "2024-01-07T12:00:00Z", 1, { unit: null }),

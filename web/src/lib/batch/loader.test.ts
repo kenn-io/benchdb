@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -37,9 +39,9 @@ function fakeClient(page: unknown, error: false | { detail: string } = false): {
   GET: ReturnType<typeof vi.fn>;
 } {
   const GET = vi.fn(async () =>
-    error ? { error: { detail: error.detail } } : { data: page },
+    error ? { data: { detail: error.detail }, status: 400 } : { status: 200,  data: page },
   );
-  return { client: { GET } as unknown as Client, GET };
+  return { client: getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, GET };
 }
 
 describe("loadBatchPage", () => {
@@ -55,9 +57,7 @@ describe("loadBatchPage", () => {
 
     const page = await loadBatchPage(client, "batch-a");
 
-    expect(GET).toHaveBeenCalledWith("/api/benchmark-results", {
-      params: { query: { batch_id: "batch-a", page_size: 100 } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/benchmark-results", { params: { batch_id: "batch-a", page_size: 100 } });
     expect(page).toMatchObject({
       batchId: "batch-a",
       loadedResults: 3,
@@ -104,9 +104,7 @@ describe("loadBatchPage", () => {
   it("passes cursor when loading more", async () => {
     const { client, GET } = fakeClient({ results: [], next_page_cursor: null });
     await loadBatchPage(client, "batch-a", "cur1");
-    expect(GET).toHaveBeenCalledWith("/api/benchmark-results", {
-      params: { query: { batch_id: "batch-a", page_size: 100, cursor: "cur1" } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/benchmark-results", { params: { batch_id: "batch-a", page_size: 100, cursor: "cur1" } });
   });
 
   it("throws endpoint detail on failure", async () => {

@@ -1,13 +1,12 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { HistorySample, BenchmarkHistory, SeriesListItem } from "../api/benchdb";
 import { loadTrend } from "./loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type HistorySample = components["schemas"]["HistorySample"];
-type BenchmarkHistory = components["schemas"]["BenchmarkHistory"];
-type SeriesListItem = components["schemas"]["SeriesListItem"];
 
 const sample = (id: string, ts: string): HistorySample => ({
   benchmark_result_id: id,
@@ -79,10 +78,10 @@ function seriesItem(over: Partial<SeriesListItem> = {}): SeriesListItem {
 describe("loadTrend", () => {
   it("loads all machine tracks for a stable benchmark id", async () => {
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      if (url.startsWith("/api/benchmarks/")) return { status: 200,  data: history() };
       throw new Error(`unexpected url ${url}`);
     });
-    const vm = await loadTrend({ GET } as unknown as Client, {
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, {
       kind: "benchmark",
       benchmarkId: "benchmark-1",
     });
@@ -102,17 +101,17 @@ describe("loadTrend", () => {
   it("loads an existing fingerprint URL as its original machine segment", async () => {
     const GET = vi.fn(async (url: string) => {
       if (url === "/api/history") {
-        return {
+        return { status: 200,
           data: { history_fingerprint: "fp1", samples: [sample("r2", "2024-01-08T12:00:00Z")] },
         };
       }
       if (url === "/api/series") {
-        return { data: { series: [seriesItem()], next_page_cursor: null } };
+        return { status: 200,  data: { series: [seriesItem()], next_page_cursor: null } };
       }
       throw new Error(`unexpected url ${url}`);
     });
 
-    const vm = await loadTrend({ GET } as unknown as Client, {
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, {
       kind: "fingerprint",
       fingerprint: "fp1",
     });
@@ -126,21 +125,21 @@ describe("loadTrend", () => {
 
   it("resolves a result to its benchmark before loading fleet history", async () => {
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") {
-        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
+      if (url.startsWith("/api/benchmark-results/")) {
+        return { status: 200,  data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
       }
-      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      if (url.startsWith("/api/benchmarks/")) return { status: 200,  data: history() };
       throw new Error(`unexpected url ${url}`);
     });
-    const vm = await loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" });
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, { kind: "result", resultId: "r1" });
     expect(GET).toHaveBeenCalledTimes(2);
     expect(vm.identity.benchmarkId).toBe("benchmark-1");
   });
 
   it("resolves an errored result to the benchmark's available history", async () => {
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") {
-        return {
+      if (url.startsWith("/api/benchmark-results/")) {
+        return { status: 200,
           data: {
             benchmark_id: "benchmark-1",
             error: { message: "failed" },
@@ -148,11 +147,11 @@ describe("loadTrend", () => {
           },
         };
       }
-      if (url === "/api/benchmarks/{benchmark_id}") return { data: history() };
+      if (url.startsWith("/api/benchmarks/")) return { status: 200,  data: history() };
       throw new Error(`unexpected url ${url}`);
     });
 
-    const vm = await loadTrend({ GET } as unknown as Client, {
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, {
       kind: "result",
       resultId: "errored-result",
     });
@@ -164,12 +163,12 @@ describe("loadTrend", () => {
   it("rejects a commitless result before requesting unavailable history", async () => {
     const result = { benchmark_id: "benchmark-1", error: null, commit: null };
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") return { data: result };
+      if (url.startsWith("/api/benchmark-results/")) return { status: 200,  data: result };
       throw new Error(`unexpected url ${url}`);
     });
 
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" }),
+      loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, { kind: "result", resultId: "r1" }),
     ).rejects.toThrow(/no comparable default-branch history/i);
     expect(GET).toHaveBeenCalledTimes(1);
   });
@@ -181,29 +180,29 @@ describe("loadTrend", () => {
       commit: { sha: "pr-sha", is_default_branch: false },
     };
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") return { data: result };
+      if (url.startsWith("/api/benchmark-results/")) return { status: 200,  data: result };
       throw new Error(`unexpected url ${url}`);
     });
 
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "pr-result" }),
+      loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, { kind: "result", resultId: "pr-result" }),
     ).rejects.toThrow(/no comparable default-branch history/i);
     expect(GET).toHaveBeenCalledTimes(1);
   });
 
   it("reports an empty logical benchmark as unavailable history", async () => {
     const GET = vi.fn(async (url: string) => {
-      if (url === "/api/benchmark-results/{id}") {
-        return { data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
+      if (url.startsWith("/api/benchmark-results/")) {
+        return { status: 200,  data: { benchmark_id: "benchmark-1", error: null, commit: { sha: "abc123", is_default_branch: true } } };
       }
-      if (url === "/api/benchmarks/{benchmark_id}") {
-        return { error: { detail: "not found" }, response: { status: 404 } };
+      if (url.startsWith("/api/benchmarks/")) {
+        return { data: { detail: "not found" }, status: 404 };
       }
       throw new Error(`unexpected url ${url}`);
     });
 
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "result", resultId: "r1" }),
+      loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, { kind: "result", resultId: "r1" }),
     ).rejects.toThrow(/no comparable default-branch history/i);
   });
 
@@ -215,8 +214,8 @@ describe("loadTrend", () => {
       hardware: { id: "h2", type: "machine", name: "m5", hash: "hw2" },
       samples: [sample("r3", "2024-01-09T12:00:00Z")],
     });
-    const GET = vi.fn(async () => ({ data: h }));
-    const vm = await loadTrend({ GET } as unknown as Client, {
+    const GET = vi.fn(async () => ({ status: 200,  data: h }));
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, {
       kind: "benchmark",
       benchmarkId: "benchmark-1",
     });
@@ -227,8 +226,8 @@ describe("loadTrend", () => {
   });
 
   it("treats null tracks and samples as empty", async () => {
-    const GET = vi.fn(async () => ({ data: history({ tracks: null }) }));
-    const vm = await loadTrend({ GET } as unknown as Client, {
+    const GET = vi.fn(async () => ({ status: 200,  data: history({ tracks: null }) }));
+    const vm = await loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, {
       kind: "benchmark",
       benchmarkId: "benchmark-1",
     });
@@ -236,9 +235,9 @@ describe("loadTrend", () => {
   });
 
   it("throws when a benchmark cannot be loaded", async () => {
-    const GET = vi.fn(async () => ({ error: { detail: "not found" } }));
+    const GET = vi.fn(async () => ({ data: { detail: "not found" }, status: 400 }));
     await expect(
-      loadTrend({ GET } as unknown as Client, { kind: "benchmark", benchmarkId: "missing" }),
+      loadTrend(getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, { kind: "benchmark", benchmarkId: "missing" }),
     ).rejects.toThrow("missing");
   });
 });

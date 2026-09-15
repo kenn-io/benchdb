@@ -1,12 +1,12 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { ResultListItem } from "../api/benchdb";
 import { resultTrendHref } from "../results/loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type ResultItem = components["schemas"]["ResultListItem"] & {
+type ResultItem = ResultListItem & {
   case_name?: string | null;
   case_tags?: Record<string, unknown> | null;
-  commit?: (NonNullable<components["schemas"]["ResultListItem"]["commit"]> & {
+  commit?: (NonNullable<ResultListItem["commit"]> & {
     message?: string | null;
     author_name?: string | null;
     author_login?: string | null;
@@ -61,8 +61,8 @@ export interface RunPageViewModel {
 
 export const RUN_RESULTS_PAGE_SIZE = 100;
 
-function runPageError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to load run results");
+function runPageError(res: { data?: unknown }): Error {
+  return new Error((res.data as { detail?: string })?.detail ?? "failed to load run results");
 }
 
 export async function loadRunPage(
@@ -70,16 +70,12 @@ export async function loadRunPage(
   runId: string,
   cursor: string | null = null,
 ): Promise<RunPageViewModel> {
-  const res = await client.GET("/api/benchmark-results", {
-    params: {
-      query: {
+  const res = await client.listBenchmarkResults({
         run_id: runId,
         page_size: RUN_RESULTS_PAGE_SIZE,
         ...(cursor !== null && { cursor }),
-      },
-    },
-  });
-  if (res.error || !res.data) {
+      });
+  if (res.status >= 400 || !res.data) {
     throw runPageError(res);
   }
   return toRunPage(runId, res.data.results ?? [], res.data.next_page_cursor);

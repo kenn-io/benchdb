@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,7 +7,7 @@ import BatchPage from "./BatchPage.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const result = (id: string, overrides: Record<string, unknown> = {}) => ({
@@ -43,7 +45,7 @@ beforeEach(() => {
 
 describe("BatchPage", () => {
   it("renders batch metadata, grouped run summaries, result rows, and investigation links", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [
           result("r3", { run_id: "run-b", has_error: true }),
@@ -81,8 +83,8 @@ describe("BatchPage", () => {
   });
 
   it("loads more results, appends them, and preserves the first page context", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [result("r1")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [result("r1")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [
           result("r2", {
@@ -115,13 +117,11 @@ describe("BatchPage", () => {
     const runGroups = screen.getByRole("region", { name: /runs in batch/i });
     expect(within(runGroups).getByRole("link", { name: /^open run run-a$/i })).toHaveAttribute("href", "/runs/run-a");
     expect(within(runGroups).getByRole("link", { name: /^open run run-b$/i })).toHaveAttribute("href", "/runs/run-b");
-    expect(GET).toHaveBeenLastCalledWith("/api/benchmark-results", {
-      params: { query: { batch_id: "batch-a", page_size: 100, cursor: "cur2" } },
-    });
+    expect(GET).toHaveBeenLastCalledWith("/api/benchmark-results", { params: { batch_id: "batch-a", page_size: 100, cursor: "cur2" } });
   });
 
   it("deduplicates run-group series counts across appended pages", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [
           result("r1", {
@@ -132,7 +132,7 @@ describe("BatchPage", () => {
         next_page_cursor: "cur2",
       },
     });
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [
           result("r2", {
@@ -156,12 +156,12 @@ describe("BatchPage", () => {
   });
 
   it("shows empty and error states", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     const { unmount } = render(BatchPage, { props: { batchId: "batch-a" } });
     await waitFor(() => expect(screen.getByText(/no results found for this batch/i)).toBeInTheDocument());
     unmount();
 
-    GET.mockResolvedValueOnce({ error: { detail: "statement timeout" } });
+    GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(BatchPage, { props: { batchId: "batch-a" } });
     await waitFor(() => expect(screen.getByText(/failed to load batch/i)).toBeInTheDocument());
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();

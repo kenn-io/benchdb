@@ -1,5 +1,5 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { CompareResult, LookbackAnalysis, PairwiseAnalysis } from "../api/benchdb";
 import type { SeriesStatus } from "../browse/transform";
 import { resultViewModelFromDetail, type ResultViewModel } from "../result/loader";
 import type { ComparisonMarker } from "../series/chart-geometry";
@@ -8,9 +8,6 @@ import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../serie
 import { markedIndices, verdictStatus } from "./transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type CompareResult = components["schemas"]["CompareResult"];
-type LookbackAnalysis = components["schemas"]["LookbackAnalysis"];
-type PairwiseAnalysis = components["schemas"]["PairwiseAnalysis"];
 
 /** NotComparableError carries the endpoint's 422 reason (different series,
  * errored result, unit mismatch) so the page can render it inline as product
@@ -31,8 +28,8 @@ export interface CompareViewModel {
 }
 
 async function fetchSelectedResult(client: Client, id: string, role: ComparisonMarker["role"]) {
-  const res = await client.GET("/api/benchmark-results/{id}", { params: { path: { id } } });
-  if (res.error || !res.data) throw new Error(`failed to load benchmark result ${id}`);
+  const res = await client.getBenchmarkResult(id);
+  if (res.status >= 400 || !res.data) throw new Error(`failed to load benchmark result ${id}`);
   const detail = res.data;
   const chartMs = Date.parse(detail.commit?.timestamp ?? detail.timestamp);
   const marker: ComparisonMarker | null = detail.single_value_summary === null || detail.unit === null || !Number.isFinite(chartMs)
@@ -42,19 +39,15 @@ async function fetchSelectedResult(client: Client, id: string, role: ComparisonM
 }
 
 async function fetchVerdicts(client: Client, query: CompareQuery): Promise<CompareResult> {
-  const res = await client.GET("/api/compare/benchmark-results", {
-    params: {
-      query: {
+  const res = await client.compareBenchmarkResults({
         baseline_result_id: query.baseline,
         contender_result_id: query.contender,
         ...(query.threshold !== null ? { threshold: query.threshold } : {}),
         ...(query.thresholdZ !== null ? { threshold_z: query.thresholdZ } : {}),
-      },
-    },
-  });
-  if (res.error || !res.data) {
-    if (res.response.status === 422) {
-      throw new NotComparableError(res.error?.detail ?? "results are not comparable");
+      });
+  if (res.status >= 400 || !res.data) {
+    if (res.status === 422) {
+      throw new NotComparableError((res.data as { detail?: string })?.detail ?? "results are not comparable");
     }
     throw new Error(`failed to compare ${query.baseline} vs ${query.contender}`);
   }
@@ -62,10 +55,8 @@ async function fetchVerdicts(client: Client, query: CompareQuery): Promise<Compa
 }
 
 async function fetchPoints(client: Client, resultId: string, unit: string): Promise<SeriesPoint[]> {
-  const res = await client.GET("/api/history/{benchmark_result_id}", {
-    params: { path: { benchmark_result_id: resultId } },
-  });
-  if (res.error || !res.data) {
+  const res = await client.getHistoryForResult(resultId);
+  if (res.status >= 400 || !res.data) {
     throw new Error(`failed to load history for benchmark result ${resultId}`);
   }
   const samples = (res.data.samples ?? []).filter((sample) => sample.unit === unit);

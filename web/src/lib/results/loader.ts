@@ -1,9 +1,9 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { ResultListItem } from "../api/benchdb";
 import type { ResultListQuery } from "../router";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type ResultItem = components["schemas"]["ResultListItem"];
+type ResultItem = ResultListItem;
 
 export interface PrimaryTag {
   key: string;
@@ -54,24 +54,20 @@ export interface ResultsPageViewModel {
 
 export const RESULTS_PAGE_SIZE = 100;
 
-function resultsPageError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to load benchmark results");
+function resultsPageError(res: { data?: unknown }): Error {
+  return new Error((res.data as { detail?: string })?.detail ?? "failed to load benchmark results");
 }
 
 export async function loadResultsPage(
   client: Client,
   options: ResultsPageOptions,
 ): Promise<ResultsPageViewModel> {
-  const res = await client.GET("/api/benchmark-results", {
-    params: {
-      query: {
+  const res = await client.listBenchmarkResults({
         ...apiFilters(options.query),
         page_size: RESULTS_PAGE_SIZE,
         ...(options.cursor !== null && { cursor: options.cursor }),
-      },
-    },
-  });
-  if (res.error || !res.data) {
+      });
+  if (res.status >= 400 || !res.data) {
     throw resultsPageError(res);
   }
   return toResultsPage(res.data.results ?? [], res.data.next_page_cursor);

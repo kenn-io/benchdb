@@ -74,8 +74,8 @@
 
   async function loadWriteCapability() {
     try {
-      const res = await client.GET("/api/auth/capabilities");
-      canWrite = !res.error && res.data?.can_write_results === true;
+      const res = await client.authCapabilities();
+      canWrite = res.status < 400 && res.data?.can_write_results === true;
     } catch {
       canWrite = false;
     }
@@ -87,16 +87,13 @@
     actionError = null;
     busyAction = "annotation";
     try {
-      const res = await client.PUT("/api/benchmark-results/{id}", {
-        params: { path: { id: vm.id } },
-        body: {
+      const res = await client.updateResult(vm.id, {
           change_annotations: {
             begins_distribution_change: value ? true : null,
           },
-        },
-      });
-      if (res.error || !res.data) {
-        actionError = detailOf(res.error, "failed to update annotations");
+        });
+      if (res.status >= 400 || !res.data) {
+        actionError = detailOf(res.data, "failed to update annotations");
         return;
       }
       vm = resultViewModelFromDetail(res.data);
@@ -127,11 +124,9 @@
     actionError = null;
     busyAction = "delete";
     try {
-      const res = await client.DELETE("/api/benchmark-results/{id}", {
-        params: { path: { id: vm.id } },
-      });
-      if (res.error) {
-        actionError = detailOf(res.error, "failed to delete result");
+      const res = await client.deleteResult(vm.id);
+      if (res.status >= 400) {
+        actionError = detailOf(res.data, "failed to delete result");
         return;
       }
       deleted = true;

@@ -1,9 +1,11 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DiagnosticArtifacts from "./DiagnosticArtifacts.svelte";
 
 const DELETE = vi.fn();
-vi.mock("../api/client", () => ({ createBenchDBClient: () => ({ DELETE }) }));
+vi.mock("../api/client", () => ({ createBenchDBClient: () => (getBenchDB({ delete: DELETE } as unknown as AxiosInstance)) }));
 afterEach(() => { vi.restoreAllMocks(); DELETE.mockReset(); });
 
 describe("DiagnosticArtifacts", () => {
@@ -24,7 +26,7 @@ describe("DiagnosticArtifacts", () => {
   });
   it("deletes only the selected attachment and reports failures without hiding it", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    DELETE.mockResolvedValueOnce({ error: { detail: "Storage is unavailable. Try again." } });
+    DELETE.mockResolvedValueOnce({ data: { detail: "Storage is unavailable. Try again." }, status: 400 });
     render(DiagnosticArtifacts, { props: { canWrite: true, result: {
       id: "r1", diagnostics: null,
       artifacts: [{ id: "artifact-1", name: "CPU Profile.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1073741824, sha256: "digest" }],
@@ -35,9 +37,7 @@ describe("DiagnosticArtifacts", () => {
     DELETE.mockResolvedValueOnce({ response: { status: 204 } });
     await fireEvent.click(screen.getByRole("button", { name: "Delete CPU Profile.pprof" }));
     await waitFor(() => expect(screen.queryByRole("link", { name: "CPU Profile.pprof" })).not.toBeInTheDocument());
-    expect(DELETE).toHaveBeenLastCalledWith("/api/benchmark-results/{id}/artifacts/{artifact_id}", {
-      params: { path: { id: "r1", artifact_id: "artifact-1" } },
-    });
+    expect(DELETE).toHaveBeenLastCalledWith("/api/benchmark-results/r1/artifacts/artifact-1", undefined);
     expect(screen.getByRole("status")).toHaveTextContent("Deleted CPU Profile.pprof.");
   });
 

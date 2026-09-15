@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +8,7 @@ import RecentRunsHome from "./RecentRunsHome.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const run = (overrides: Record<string, unknown> = {}) => ({
@@ -43,7 +45,7 @@ beforeEach(() => {
 
 describe("RecentRunsHome", () => {
   it("renders benchmark run triage around commit, author, and machine identity", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         repositories: [
           { repository: "https://github.com/apache/arrow" },
@@ -105,7 +107,7 @@ describe("RecentRunsHome", () => {
   });
 
   it("renders a project selector for the active repository", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         repositories: [
           { repository: "https://github.com/apache/arrow" },
@@ -134,21 +136,17 @@ describe("RecentRunsHome", () => {
     expect(screen.getByRole("option", { name: "All projects" })).toHaveValue("");
     expect(screen.getByRole("option", { name: "apache/arrow" })).toHaveValue("https://github.com/apache/arrow");
     expect(screen.getByRole("option", { name: "apache/arrow-go" })).toHaveValue("https://github.com/apache/arrow-go");
-    expect(GET).toHaveBeenCalledWith("/api/runs/recent", {
-      params: {
-        query: {
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
           include_attention: true,
           repository: "https://github.com/apache/arrow-go",
-        },
-      },
-    });
+        } });
   });
 
   it("uses compact production identifiers without losing full link targets", async () => {
     const longRunID = "66f23037065241d6ac22aaeaea96d29b";
     const longBatchID = "66f23037065241d6ac22aaeaea96d29b-1p";
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         runs: [
           run({
@@ -179,7 +177,7 @@ describe("RecentRunsHome", () => {
   });
 
   it("suppresses empty row metadata and renders compact inline actions", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         runs: [
           run({ run_id: "run-a", run_reason: null, error_count: 0 }),
@@ -199,13 +197,13 @@ describe("RecentRunsHome", () => {
   });
 
   it("shows an empty state", async () => {
-    GET.mockResolvedValueOnce({ data: { runs: [] } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { runs: [] } });
     render(RecentRunsHome, { props: {} });
     await waitFor(() => expect(screen.getByText(/no recent runs/i)).toBeInTheDocument());
   });
 
   it("shows an error state", async () => {
-    GET.mockResolvedValueOnce({ error: { detail: "statement timeout" } });
+    GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(RecentRunsHome, { props: {} });
     await waitFor(() => expect(screen.getByText(/failed to load recent runs/i)).toBeInTheDocument());
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
@@ -213,7 +211,7 @@ describe("RecentRunsHome", () => {
 });
 
 it("submits a commit URL search and resets pagination", async () => {
-  GET.mockResolvedValueOnce({ data: { runs: [], repositories: [], has_more: false } });
+  GET.mockResolvedValueOnce({ status: 200,  data: { runs: [], repositories: [], has_more: false } });
   render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, offset: 25 } } });
   await fireEvent.input(screen.getByRole("searchbox"), { target: { value: " commit/abcdef " } });
   await fireEvent.submit(screen.getByRole("search"));
@@ -222,12 +220,12 @@ it("submits a commit URL search and resets pagination", async () => {
 });
 
 it("keeps the search and project when paging to older runs", async () => {
-  GET.mockResolvedValueOnce({ data: { runs: [run()], repositories: [], has_more: true } });
+  GET.mockResolvedValueOnce({ status: 200,  data: { runs: [run()], repositories: [], has_more: true } });
   render(RecentRunsHome, { props: { query: { repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25 } } });
   await waitFor(() => expect(screen.getByRole("link", { name: "Next" })).toBeInTheDocument());
-  expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { query: {
+  expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
     page_size: 25, include_attention: true, repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25,
-  } } });
+  } });
   await fireEvent.click(screen.getByRole("link", { name: "Next" }));
   const params = new URLSearchParams(location.search);
   expect(params.get("offset")).toBe("50");

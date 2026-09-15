@@ -11,8 +11,8 @@ export interface BrowsePage {
 
 export const BROWSE_PAGE_SIZE = 25;
 
-function listBenchmarksError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to list benchmarks");
+function listBenchmarksError(res: { data?: unknown }): Error {
+  return new Error((res.data as { detail?: string })?.detail ?? "failed to list benchmarks");
 }
 
 /** listSeries fetches one page of logical benchmarks for the browse table. Filters
@@ -26,19 +26,15 @@ export async function listSeries(
   now: Date = new Date(),
 ): Promise<BrowsePage> {
   const since = windowStartIso(query.window, now);
-  const res = await client.GET("/api/benchmarks", {
-    params: {
-      query: {
+  const res = await client.listBenchmarks({
         page_size: BROWSE_PAGE_SIZE,
         ...(query.q !== "" && { q: query.q }),
         ...(query.hardware !== "" && { hardware: query.hardware }),
         ...(query.repository !== "" && { repository: query.repository }),
         ...(since !== null && { active_since: since }),
         ...(cursor !== null && { cursor }),
-      },
-    },
-  });
-  if (res.error || !res.data) {
+      });
+  if (res.status >= 400 || !res.data) {
     throw listBenchmarksError(res);
   }
   // The generated schema types `benchmarks` as nullable (a Go nil slice serializes

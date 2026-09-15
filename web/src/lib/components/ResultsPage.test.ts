@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +8,7 @@ import ResultsPage from "./ResultsPage.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const result = (id: string, overrides: Record<string, unknown> = {}) => ({
@@ -44,7 +46,7 @@ beforeEach(() => {
 
 describe("ResultsPage", () => {
   it("renders recent benchmark results with investigation links", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [
           result("r2", { run_id: "run-b", batch_id: null, has_error: true }),
@@ -77,8 +79,8 @@ describe("ResultsPage", () => {
   });
 
   it("loads and appends the next page", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [result("r1")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({ data: { results: [result("r2")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [result("r1")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [result("r2")], next_page_cursor: null } });
 
     render(ResultsPage, { props: { query: DEFAULT_RESULT_LIST_QUERY } });
     await waitFor(() => screen.getByText("result r1"));
@@ -86,12 +88,12 @@ describe("ResultsPage", () => {
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await waitFor(() => expect(screen.getByText("result r2")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
-    const secondCall = GET.mock.calls[1]![1] as { params: { query: { cursor?: string } } };
-    expect(secondCall.params.query.cursor).toBe("cur2");
+    const secondCall = GET.mock.calls[1]![1] as { params: { cursor?: string } };
+    expect(secondCall.params.cursor).toBe("cur2");
   });
 
   it("navigates with exact result filters from the advanced control", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     render(ResultsPage, { props: { query: DEFAULT_RESULT_LIST_QUERY } });
     await waitFor(() => screen.getByText(/no benchmark results match/i));
 
@@ -106,7 +108,7 @@ describe("ResultsPage", () => {
   });
 
   it("serializes UTC date inputs to result timestamp filters", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     render(ResultsPage, { props: { query: DEFAULT_RESULT_LIST_QUERY } });
     await waitFor(() => screen.getByText(/no benchmark results match/i));
 
@@ -125,7 +127,7 @@ describe("ResultsPage", () => {
   });
 
   it("shows active result filters with clearable deep-link hrefs", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     render(ResultsPage, {
       props: {
         query: {
@@ -153,7 +155,7 @@ describe("ResultsPage", () => {
   });
 
   it("shows endpoint errors", async () => {
-    GET.mockResolvedValueOnce({ error: { detail: "statement timeout" } });
+    GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(ResultsPage, { props: { query: DEFAULT_RESULT_LIST_QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load results/i)).toBeInTheDocument());
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
@@ -161,7 +163,7 @@ describe("ResultsPage", () => {
   });
 
   it("shows a state-panel empty result", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     render(ResultsPage, { props: { query: DEFAULT_RESULT_LIST_QUERY } });
 
     const empty = await screen.findByRole("region", { name: /no matching benchmark results/i });

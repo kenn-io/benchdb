@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +8,7 @@ import SeriesBrowse from "./SeriesBrowse.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const item = (fp: string, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -44,7 +46,7 @@ beforeEach(() => {
 
 describe("SeriesBrowse", () => {
   it("renders rows after loading", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     expect(screen.getByRole("heading", { name: /loading benchmark series/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument());
@@ -56,7 +58,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("opens the benchmark trend on row click", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
     await fireEvent.click(screen.getByRole("link", { name: "demo" }));
@@ -64,36 +66,36 @@ describe("SeriesBrowse", () => {
   });
 
   it("shows the empty state when nothing matches", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: { ...DEFAULT_BROWSE_QUERY, q: "nope" } } });
     await waitFor(() => expect(screen.getByText(/no series match/i)).toBeInTheDocument());
     expect(screen.getByRole("region", { name: /no matching benchmark series/i })).toBeInTheDocument();
   });
 
   it("shows the error state when the load fails", async () => {
-    GET.mockResolvedValueOnce({ error: { detail: "boom" } });
+    GET.mockResolvedValueOnce({ data: { detail: "boom" }, status: 400 });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load series/i)).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });
 
   it("loads the next page and appends on Load more", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "one" }));
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await waitFor(() => expect(screen.getByRole("link", { name: "two" })).toBeInTheDocument());
     expect(screen.getByRole("link", { name: "one" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
-    const secondCall = GET.mock.calls[1]![1] as { params: { query: { cursor?: string } } };
-    expect(secondCall.params.query.cursor).toBe("cur2");
+    const secondCall = GET.mock.calls[1]![1] as { params: { cursor?: string } };
+    expect(secondCall.params.cursor).toBe("cur2");
   });
 
   it("keeps loaded rows and offers retry when Load more fails", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({ error: { detail: "boom" } });
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ data: { detail: "boom" }, status: 400 });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
 
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "one" }));
@@ -113,10 +115,10 @@ describe("SeriesBrowse", () => {
   it("does not wedge Load more when filters change mid-load-more", async () => {
     // Page 1 with a cursor; the load-more request stays pending until after the
     // filter change; the new query's page 1 also has a cursor.
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "one")], next_page_cursor: "cur2" } });
     let resolveMore: (v: unknown) => void;
     GET.mockImplementationOnce(() => new Promise((r) => { resolveMore = r; }));
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f3", "three")], next_page_cursor: "cur3" } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f3", "three")], next_page_cursor: "cur3" } });
 
     const { rerender } = render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "one" }));
@@ -124,13 +126,13 @@ describe("SeriesBrowse", () => {
     await rerender({ query: { ...DEFAULT_BROWSE_QUERY, q: "x" } });
     await waitFor(() => screen.getByRole("link", { name: "three" }));
     // The stale load-more resolves now: it must neither append nor disable the button.
-    resolveMore!({ data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
+    resolveMore!({ status: 200,  data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
     await waitFor(() => expect(screen.getByRole("button", { name: /load more/i })).toBeEnabled());
     expect(screen.queryByRole("link", { name: "two" })).toBeNull();
   });
 
   it("navigates with updated URL filters when a window preset changes", async () => {
-    GET.mockResolvedValue({ data: { benchmarks: [], next_page_cursor: null } });
+    GET.mockResolvedValue({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series");
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByText(/no series match/i));
@@ -140,7 +142,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("uses the primary search and machine controls while keeping repository filtering advanced", async () => {
-    GET.mockResolvedValue({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series");
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
@@ -163,7 +165,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("switches from the table to fleet trend cards", async () => {
-    GET.mockResolvedValueOnce({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
 
@@ -179,7 +181,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("shows active filters and can clear them", async () => {
-    GET.mockResolvedValue({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, {
       props: {
         query: {
@@ -201,7 +203,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("removes individual active filters without dropping the others", async () => {
-    GET.mockResolvedValue({ data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, {
       props: {
         query: {
@@ -225,7 +227,7 @@ describe("SeriesBrowse", () => {
   });
 
   it("sorts the visible rows when a header is clicked", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: { benchmarks: [item("f1", "bbb"), item("f2", "aaa")], next_page_cursor: null },
     });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });

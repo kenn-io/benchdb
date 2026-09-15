@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -29,9 +31,9 @@ function fakeClient(
   error: false | { detail: string } = false,
 ): { client: Client; GET: ReturnType<typeof vi.fn> } {
   const GET = vi.fn(async () =>
-    error ? { error: { detail: error.detail } } : { data: page },
+    error ? { data: { detail: error.detail }, status: 400 } : { status: 200,  data: page },
   );
-  return { client: { GET } as unknown as Client, GET };
+  return { client: getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, GET };
 }
 
 describe("listSeries", () => {
@@ -44,18 +46,14 @@ describe("listSeries", () => {
       "cur1",
       now,
     );
-    expect(GET).toHaveBeenCalledWith("/api/benchmarks", {
-      params: {
-        query: {
+    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: {
           page_size: 25,
           q: "demo",
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
           active_since: "2026-05-10T00:00:00.000Z",
           cursor: "cur1",
-        },
-      },
-    });
+        } });
     expect(page.rows).toHaveLength(1);
     expect(page.rows[0]!.name).toBe("demo");
     expect(page.nextCursor).toBe("cur2");
@@ -64,7 +62,7 @@ describe("listSeries", () => {
   it("omits empty filters and the cursor on the first page", async () => {
     const { client, GET } = fakeClient({ benchmarks: [], next_page_cursor: null });
     const page = await listSeries(client, DEFAULT_BROWSE_QUERY);
-    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { query: { page_size: 25 } } });
+    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 25 } });
     expect(page.rows).toEqual([]);
     expect(page.nextCursor).toBeNull();
   });
@@ -72,7 +70,7 @@ describe("listSeries", () => {
   it("requests a production-credible first page", async () => {
     const { client, GET } = fakeClient({ benchmarks: [], next_page_cursor: null });
     await listSeries(client, DEFAULT_BROWSE_QUERY);
-    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { query: { page_size: 25 } } });
+    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 25 } });
   });
 
   it("treats a null series as an empty page", async () => {

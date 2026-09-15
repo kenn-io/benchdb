@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,7 +7,7 @@ import CIReportPage from "./CIReportPage.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const QUERY = {
@@ -263,7 +265,7 @@ describe("CIReportPage", () => {
   });
 
   it("renders report status, summary, rows, and links", async () => {
-    GET.mockResolvedValue({ data: report });
+    GET.mockResolvedValue({ status: 200,  data: report });
     render(CIReportPage, { props: { query: QUERY } });
     await waitFor(() => screen.getByText("failure"));
 
@@ -279,13 +281,11 @@ describe("CIReportPage", () => {
       "href",
       "/compare?baseline=baseline-id&contender=contender-id",
     );
-    expect(GET).toHaveBeenCalledWith("/api/ci/report", {
-      params: { query: { repository: QUERY.repository, commit_sha: "c4", run_ids: "ci-run", baseline: "fork_point" } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/ci/report", { params: { repository: QUERY.repository, commit_sha: "c4", run_ids: "ci-run", baseline: "fork_point" } });
   });
 
   it("renders investigation controls, issue jumps, and grouped summaries", async () => {
-    GET.mockResolvedValue({ data: withMixedComparisons() });
+    GET.mockResolvedValue({ status: 200,  data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
 
     await waitFor(() => screen.getByRole("button", { name: /overview 4/i }));
@@ -329,7 +329,7 @@ describe("CIReportPage", () => {
   });
 
   it("filters comparisons by status, machine, and search text", async () => {
-    GET.mockResolvedValue({ data: withMixedComparisons() });
+    GET.mockResolvedValue({ status: 200,  data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
     await waitFor(() => screen.getAllByText("regress-bench"));
 
@@ -355,30 +355,28 @@ describe("CIReportPage", () => {
   });
 
   it("passes explicit baseline run IDs to the API", async () => {
-    GET.mockResolvedValue({ data: { ...report, baseline: "explicit_run" } });
+    GET.mockResolvedValue({ status: 200,  data: { ...report, baseline: "explicit_run" } });
     render(CIReportPage, { props: { query: { ...QUERY, baseline: "", baselineRunIDs: "main-run" } } });
     await waitFor(() => screen.getByText("failure"));
 
-    expect(GET).toHaveBeenCalledWith("/api/ci/report", {
-      params: { query: { repository: QUERY.repository, commit_sha: "c4", run_ids: "ci-run", baseline_run_ids: "main-run" } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/ci/report", { params: { repository: QUERY.repository, commit_sha: "c4", run_ids: "ci-run", baseline_run_ids: "main-run" } });
   });
 
   it("wraps the comparison table for responsive layouts", async () => {
-    GET.mockResolvedValue({ data: report });
+    GET.mockResolvedValue({ status: 200,  data: report });
     const { container } = render(CIReportPage, { props: { query: QUERY } });
     await waitFor(() => screen.getAllByText("demo-bench"));
     expect(container.querySelector(".comparison-list > table.comparisons")).not.toBeNull();
   });
 
   it("renders the error state when loading fails", async () => {
-    GET.mockResolvedValue({ error: { detail: "bad selector" }, response: { status: 422 } });
+    GET.mockResolvedValue({ data: { detail: "bad selector" }, status: 422 });
     render(CIReportPage, { props: { query: QUERY } });
     await waitFor(() => expect(screen.getByText(/bad selector/)).toBeInTheDocument());
   });
 
   it("renders comparison rows progressively per run", async () => {
-    GET.mockResolvedValue({ data: withComparisons(250) });
+    GET.mockResolvedValue({ status: 200,  data: withComparisons(250) });
     render(CIReportPage, { props: { query: QUERY } });
 
     await waitFor(() => screen.getByText(/showing 200 of 250 comparisons/i));
@@ -391,7 +389,7 @@ describe("CIReportPage", () => {
   });
 
   it("filters before applying row chunk limits", async () => {
-    GET.mockResolvedValue({ data: withComparisons(250) });
+    GET.mockResolvedValue({ status: 200,  data: withComparisons(250) });
     render(CIReportPage, { props: { query: QUERY } });
 
     await waitFor(() => screen.getByText(/showing 200 of 250 comparisons/i));
@@ -405,7 +403,7 @@ describe("CIReportPage", () => {
   });
 
   it("expands a run before jumping to an issue past the rendered row cap", async () => {
-    GET.mockResolvedValue({ data: withLateRegression(250, 240) });
+    GET.mockResolvedValue({ status: 200,  data: withLateRegression(250, 240) });
     render(CIReportPage, { props: { query: QUERY } });
 
     await waitFor(() => screen.getByText(/showing 200 of 250 comparisons/i));
@@ -418,7 +416,7 @@ describe("CIReportPage", () => {
   });
 
   it("uses the default row limit for run IDs that match object prototype keys", async () => {
-    GET.mockResolvedValue({ data: withComparisons(250, "constructor") });
+    GET.mockResolvedValue({ status: 200,  data: withComparisons(250, "constructor") });
     render(CIReportPage, { props: { query: QUERY } });
 
     await waitFor(() => screen.getByText(/showing 200 of 250 comparisons/i));

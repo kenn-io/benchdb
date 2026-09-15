@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -38,8 +40,8 @@ function fakeClient(page: unknown): {
   client: Client;
   GET: ReturnType<typeof vi.fn>;
 } {
-  const GET = vi.fn(async () => ({ data: page }));
-  return { client: { GET } as unknown as Client, GET };
+  const GET = vi.fn(async () => ({ status: 200,  data: page }));
+  return { client: getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, GET };
 }
 
 describe("loadResultsPage", () => {

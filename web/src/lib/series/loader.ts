@@ -1,12 +1,8 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { BenchmarkHistory, BenchmarkSegment, HistorySample, SeriesListItem } from "../api/benchdb";
 import { distinctUnits, orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "./transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type BenchmarkHistory = components["schemas"]["BenchmarkHistory"];
-type BenchmarkSegment = components["schemas"]["BenchmarkSegment"];
-type HistorySample = components["schemas"]["HistorySample"];
-type SeriesListItem = components["schemas"]["SeriesListItem"];
 
 export interface SeriesIdentity {
   benchmarkId: string;
@@ -142,12 +138,9 @@ function assembleFingerprint(
 }
 
 async function loadByBenchmark(client: Client, benchmarkId: string): Promise<TrendViewModel> {
-  const res = await client.GET("/api/benchmarks/{benchmark_id}", {
-    params: { path: { benchmark_id: benchmarkId } },
-    cache: "no-store",
-  });
-  if (res.error || !res.data) {
-    if (res.response?.status === 404) {
+  const res = await client.getBenchmarkHistory(benchmarkId, { headers: { "Cache-Control": "no-cache" } });
+  if (res.status >= 400 || !res.data) {
+    if (res.status === 404) {
       throw new Error(`benchmark ${benchmarkId} has no comparable default-branch history`);
     }
     throw new Error(`failed to load benchmark ${benchmarkId}`);
@@ -157,16 +150,13 @@ async function loadByBenchmark(client: Client, benchmarkId: string): Promise<Tre
 
 async function loadByFingerprint(client: Client, fingerprint: string): Promise<TrendViewModel> {
   const [historyRes, seriesRes] = await Promise.all([
-    client.GET("/api/history", { params: { query: { fingerprint } }, cache: "no-store" }),
-    client.GET("/api/series", {
-      params: { query: { fingerprint, page_size: 1 } },
-      cache: "no-store",
-    }),
+    client.getHistory({ fingerprint }, { headers: { "Cache-Control": "no-cache" } }),
+    client.listSeries({ fingerprint, page_size: 1 }, { headers: { "Cache-Control": "no-cache" } }),
   ]);
-  if (historyRes.error || !historyRes.data) {
+  if (historyRes.status >= 400 || !historyRes.data) {
     throw new Error(`failed to load history for series ${fingerprint}`);
   }
-  if (seriesRes.error || !seriesRes.data) {
+  if (seriesRes.status >= 400 || !seriesRes.data) {
     throw new Error(`failed to load series ${fingerprint}`);
   }
   const item = seriesRes.data.series?.[0];
@@ -177,10 +167,8 @@ async function loadByFingerprint(client: Client, fingerprint: string): Promise<T
 }
 
 async function loadByResult(client: Client, resultId: string): Promise<TrendViewModel> {
-  const detailRes = await client.GET("/api/benchmark-results/{id}", {
-    params: { path: { id: resultId } },
-  });
-  if (detailRes.error || !detailRes.data) {
+  const detailRes = await client.getBenchmarkResult(resultId);
+  if (detailRes.status >= 400 || !detailRes.data) {
     throw new Error(`failed to load benchmark result ${resultId}`);
   }
   if (detailRes.data.commit === null || detailRes.data.commit.is_default_branch !== true) {

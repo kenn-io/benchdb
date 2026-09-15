@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -10,9 +12,9 @@ function fakeClient(page: unknown, error: false | { detail: string } = false): {
   GET: ReturnType<typeof vi.fn>;
 } {
   const GET = vi.fn(async () =>
-    error ? { error: { detail: error.detail } } : { data: page },
+    error ? { data: { detail: error.detail }, status: 400 } : { status: 200,  data: page },
   );
-  return { client: { GET } as unknown as Client, GET };
+  return { client: getBenchDB({ get: GET } as unknown as AxiosInstance) as unknown as Client, GET };
 }
 
 describe("listRecentRuns", () => {
@@ -64,9 +66,7 @@ describe("listRecentRuns", () => {
 
     const page = await listRecentRuns(client);
 
-    expect(GET).toHaveBeenCalledWith("/api/runs/recent", {
-      params: { query: { page_size: 25, include_attention: true } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25, include_attention: true } });
     expect(page.runs).toHaveLength(1);
     expect(page.repositories).toEqual([
       { repository: "https://github.com/apache/arrow", label: "apache/arrow" },
@@ -120,15 +120,11 @@ describe("listRecentRuns", () => {
 
     const page = await listRecentRuns(client, { repository: "https://github.com/apache/arrow-go" });
 
-    expect(GET).toHaveBeenCalledWith("/api/runs/recent", {
-      params: {
-        query: {
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
           include_attention: true,
           repository: "https://github.com/apache/arrow-go",
-        },
-      },
-    });
+        } });
     expect(page.runs.map((run) => run.repository)).toEqual(["https://github.com/apache/arrow-go"]);
   });
 

@@ -1,19 +1,18 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { components } from "../api/schema";
+import type { ResultDetail, HistorySample } from "../api/benchdb";
 import ResultPage from "./ResultPage.svelte";
 
 const GET = vi.fn();
 const PUT = vi.fn();
 const DELETE = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET, PUT, DELETE }),
+  createBenchDBClient: () => (getBenchDB({ get: GET, put: PUT, delete: DELETE } as unknown as AxiosInstance)),
 }));
 vi.mock("./SeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
-
-type ResultDetail = components["schemas"]["ResultDetail"];
-type HistorySample = components["schemas"]["HistorySample"];
 
 const detail: ResultDetail = {
   id: "r1",
@@ -111,16 +110,16 @@ function mockPage(
   samples: HistorySample[] = history,
 ) {
   GET.mockImplementation((path: string) => {
-    if (path === "/api/benchmark-results/{id}") {
-      return Promise.resolve({ data: result });
+    if (path.startsWith("/api/benchmark-results/")) {
+      return Promise.resolve({ status: 200,  data: result });
     }
     if (path === "/api/auth/capabilities") {
-      return Promise.resolve({ data: capabilities });
+      return Promise.resolve({ status: 200,  data: capabilities });
     }
-    if (path === "/api/history/{benchmark_result_id}") {
-      return Promise.resolve({ data: { history_fingerprint: "fp1", samples } });
+    if (path.startsWith("/api/history/")) {
+      return Promise.resolve({ status: 200,  data: { history_fingerprint: "fp1", samples } });
     }
-    return Promise.resolve({ error: { detail: `unexpected GET ${path}` } });
+    return Promise.resolve({ data: { detail: `unexpected GET ${path}` }, status: 400 });
   });
 }
 
@@ -225,13 +224,13 @@ describe("ResultPage", () => {
   it("marks and unmarks a result as a distribution change", async () => {
     let historyReads = 0;
     GET.mockImplementation((path: string) => {
-      if (path === "/api/benchmark-results/{id}") {
-        return Promise.resolve({ data: { ...detail, change_annotations: {} } });
+      if (path.startsWith("/api/benchmark-results/")) {
+        return Promise.resolve({ status: 200,  data: { ...detail, change_annotations: {} } });
       }
       if (path === "/api/auth/capabilities") {
-        return Promise.resolve({ data: signedInCapabilities });
+        return Promise.resolve({ status: 200,  data: signedInCapabilities });
       }
-      if (path === "/api/history/{benchmark_result_id}") {
+      if (path.startsWith("/api/history/")) {
         historyReads++;
         const samples = history.map((sample) => sample.benchmark_result_id === "r1"
           ? {
@@ -241,22 +240,19 @@ describe("ResultPage", () => {
                 : {},
             }
           : sample);
-        return Promise.resolve({ data: { history_fingerprint: "fp1", samples } });
+        return Promise.resolve({ status: 200,  data: { history_fingerprint: "fp1", samples } });
       }
-      return Promise.resolve({ error: { detail: `unexpected GET ${path}` } });
+      return Promise.resolve({ data: { detail: `unexpected GET ${path}` }, status: 400 });
     });
-    PUT.mockResolvedValueOnce({ data: { ...detail, change_annotations: { begins_distribution_change: true } } });
-    PUT.mockResolvedValueOnce({ data: { ...detail, change_annotations: {} } });
+    PUT.mockResolvedValueOnce({ status: 200,  data: { ...detail, change_annotations: { begins_distribution_change: true } } });
+    PUT.mockResolvedValueOnce({ status: 200,  data: { ...detail, change_annotations: {} } });
 
     render(ResultPage, { props: { resultId: "r1" } });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
 
     await fireEvent.click(screen.getByRole("button", { name: /mark distribution change/i }));
     await waitFor(() =>
-      expect(PUT).toHaveBeenCalledWith("/api/benchmark-results/{id}", {
-        params: { path: { id: "r1" } },
-        body: { change_annotations: { begins_distribution_change: true } },
-      }),
+      expect(PUT).toHaveBeenCalledWith("/api/benchmark-results/r1", { change_annotations: { begins_distribution_change: true } }, undefined),
     );
     expect(screen.getByText(/annotation updated/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /unmark distribution change/i })).toBeInTheDocument();
@@ -264,10 +260,7 @@ describe("ResultPage", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /unmark distribution change/i }));
     await waitFor(() =>
-      expect(PUT).toHaveBeenLastCalledWith("/api/benchmark-results/{id}", {
-        params: { path: { id: "r1" } },
-        body: { change_annotations: { begins_distribution_change: null } },
-      }),
+      expect(PUT).toHaveBeenLastCalledWith("/api/benchmark-results/r1", { change_annotations: { begins_distribution_change: null } }, undefined),
     );
     expect(screen.getByRole("button", { name: /mark distribution change/i })).toBeInTheDocument();
     await waitFor(() => expect(document.querySelector(".flag")).toBeNull());
@@ -285,9 +278,7 @@ describe("ResultPage", () => {
     await fireEvent.click(screen.getByRole("button", { name: /delete result/i }));
     expect(confirm).toHaveBeenCalledWith("Delete result r1?");
     await waitFor(() =>
-      expect(DELETE).toHaveBeenCalledWith("/api/benchmark-results/{id}", {
-        params: { path: { id: "r1" } },
-      }),
+      expect(DELETE).toHaveBeenCalledWith("/api/benchmark-results/r1", undefined),
     );
     expect(screen.getByRole("heading", { name: /result deleted/i })).toBeInTheDocument();
     confirm.mockRestore();
@@ -304,9 +295,9 @@ describe("ResultPage", () => {
   it("shows the error state when loading fails", async () => {
     GET.mockImplementation((path: string) => {
       if (path === "/api/auth/capabilities") {
-        return Promise.resolve({ data: readOnlyCapabilities });
+        return Promise.resolve({ status: 200,  data: readOnlyCapabilities });
       }
-      return Promise.resolve({ error: { detail: "boom" } });
+      return Promise.resolve({ data: { detail: "boom" }, status: 400 });
     });
     render(ResultPage, { props: { resultId: "rX" } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());

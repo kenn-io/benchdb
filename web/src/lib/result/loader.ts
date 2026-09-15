@@ -1,11 +1,10 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { ResultDetail } from "../api/benchdb";
 import { formatDate, tagsText } from "../browse/transform";
 import { formatMeasurement } from "../format";
 import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../series/transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-export type ResultDetail = components["schemas"]["ResultDetail"];
 
 export interface JSONBlock {
   label: string;
@@ -189,8 +188,8 @@ export async function loadResult(
   id: string,
   locale?: string,
 ): Promise<ResultViewModel> {
-  const res = await client.GET("/api/benchmark-results/{id}", { params: { path: { id } } });
-  if (res.error || !res.data) {
+  const res = await client.getBenchmarkResult(id);
+  if (res.status >= 400 || !res.data) {
     throw new Error(`failed to load benchmark result ${id}`);
   }
   return resultViewModelFromDetail(res.data, locale);
@@ -200,10 +199,8 @@ export async function loadResult(
  * this to present the selected measurement in its historical context instead
  * of making the reader navigate to a separate trend page first. */
 export async function loadResultHistory(client: Client, id: string): Promise<SeriesPoint[]> {
-  const res = await client.GET("/api/history/{benchmark_result_id}", {
-    params: { path: { benchmark_result_id: id } },
-  });
-  if (res.error || !res.data) {
+  const res = await client.getHistoryForResult(id);
+  if (res.status >= 400 || !res.data) {
     throw new Error(`failed to load history for benchmark result ${id}`);
   }
   return toSeriesPoints(orderSamplesForChart(res.data.samples ?? []));

@@ -1,9 +1,6 @@
-import type { components } from "../api/schema";
+import type { LookbackAnalysis, PairwiseAnalysis } from "../api/benchdb";
 import type { SeriesStatus } from "../browse/transform";
 import type { SeriesPoint } from "../series/transform";
-
-type LookbackAnalysis = components["schemas"]["LookbackAnalysis"];
-type PairwiseAnalysis = components["schemas"]["PairwiseAnalysis"];
 
 /** verdictStatus maps the engine's lookback verdict onto the series status
  * vocabulary the badge renders, mirroring /api/series semantics: the lookback
