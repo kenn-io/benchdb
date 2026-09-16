@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,7 +10,7 @@ const POST = vi.fn();
 const DELETE = vi.fn();
 
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET, POST, DELETE }),
+  createBenchDBClient: () => (getBenchDB({ get: GET, post: POST, delete: DELETE } as unknown as AxiosInstance)),
 }));
 
 const user = {
@@ -52,9 +54,9 @@ function deferred<T>() {
 
 function mockSignedIn() {
   GET.mockImplementation((path: string) => {
-    if (path === "/api/users/me") return Promise.resolve({ data: user });
-    if (path === "/api/tokens") return Promise.resolve({ data: { tokens: [token] } });
-    if (path === "/api/alert-rules") return Promise.resolve({ data: { rules: [alertRule] } });
+    if (path === "/api/users/me") return Promise.resolve({ status: 200,  data: user });
+    if (path === "/api/tokens") return Promise.resolve({ status: 200,  data: { tokens: [token] } });
+    if (path === "/api/alert-rules") return Promise.resolve({ status: 200,  data: { rules: [alertRule] } });
     throw new Error(`unexpected GET ${path}`);
   });
 }
@@ -77,7 +79,7 @@ describe("AccountPage", () => {
   });
 
   it("shows the signed-out state without loading private resources", async () => {
-    GET.mockResolvedValueOnce({ error: { detail: "authentication required" } });
+    GET.mockResolvedValueOnce({ data: { detail: "authentication required" }, status: 400 });
 
     render(AccountPage);
 
@@ -85,7 +87,7 @@ describe("AccountPage", () => {
     expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/api/auth/login");
     expect(screen.getByText(/authentication required/i)).toBeInTheDocument();
     expect(GET).toHaveBeenCalledTimes(1);
-    expect(GET).toHaveBeenCalledWith("/api/users/me");
+    expect(GET).toHaveBeenCalledWith("/api/users/me", undefined);
   });
 
   it("renders identity, tokens, and alert rules for a signed-in user", async () => {
@@ -108,7 +110,7 @@ describe("AccountPage", () => {
 
   it("creates a token, shows the plaintext once, and revokes tokens", async () => {
     mockSignedIn();
-    POST.mockResolvedValueOnce({
+    POST.mockResolvedValueOnce({ status: 200,
       data: {
         id: "tok-2",
         name: "release bot",
@@ -126,18 +128,18 @@ describe("AccountPage", () => {
     await fireEvent.submit(screen.getByTestId("token-create-form"));
 
     await waitFor(() => expect(screen.getByText("cb_secret_plaintext")).toBeInTheDocument());
-    expect(POST).toHaveBeenCalledWith("/api/tokens", { body: { name: "release bot" } });
+    expect(POST).toHaveBeenCalledWith("/api/tokens", { name: "release bot" }, undefined);
     expect(screen.getAllByText("release bot")).toHaveLength(2);
 
     await fireEvent.click(screen.getByRole("button", { name: /revoke ci token/i }));
-    await waitFor(() => expect(DELETE).toHaveBeenCalledWith("/api/tokens/{id}", { params: { path: { id: "tok-1" } } }));
+    await waitFor(() => expect(DELETE).toHaveBeenCalledWith("/api/tokens/tok-1", undefined));
     expect(screen.queryByText("ci token")).toBeNull();
   });
 
   it("uses the two-sigma default for initial and subsequent alert rules", async () => {
     mockSignedIn();
-    POST.mockImplementation((_path: string, { body }) =>
-      Promise.resolve({ data: { ...alertRule, ...body, id: body.name } }),
+    POST.mockImplementation((_path: string, body) =>
+      Promise.resolve({ status: 200,  data: { ...alertRule, ...body, id: body.name } }),
     );
 
     render(AccountPage);
@@ -151,15 +153,13 @@ describe("AccountPage", () => {
       await fireEvent.submit(screen.getByTestId("alert-create-form"));
 
       await waitFor(() => expect(screen.getByText(name)).toBeInTheDocument());
-      expect(POST).toHaveBeenLastCalledWith("/api/alert-rules", {
-        body: expect.objectContaining({ name, threshold_z: 2 }),
-      });
+      expect(POST).toHaveBeenLastCalledWith("/api/alert-rules", expect.objectContaining({ name, threshold_z: 2 }), undefined);
     }
   });
 
   it("creates alert rules and drills into alert events", async () => {
     mockSignedIn();
-    POST.mockResolvedValueOnce({
+    POST.mockResolvedValueOnce({ status: 200,
       data: {
         ...alertRule,
         id: "rule-2",
@@ -173,11 +173,11 @@ describe("AccountPage", () => {
       },
     });
     GET.mockImplementation((path: string) => {
-      if (path === "/api/users/me") return Promise.resolve({ data: user });
-      if (path === "/api/tokens") return Promise.resolve({ data: { tokens: [token] } });
-      if (path === "/api/alert-rules") return Promise.resolve({ data: { rules: [alertRule] } });
-      if (path === "/api/alert-rules/{id}/events") {
-        return Promise.resolve({
+      if (path === "/api/users/me") return Promise.resolve({ status: 200,  data: user });
+      if (path === "/api/tokens") return Promise.resolve({ status: 200,  data: { tokens: [token] } });
+      if (path === "/api/alert-rules") return Promise.resolve({ status: 200,  data: { rules: [alertRule] } });
+      if (path.endsWith("/events")) {
+        return Promise.resolve({ status: 200,
           data: {
             events: [
               {
@@ -212,21 +212,17 @@ describe("AccountPage", () => {
 
     await waitFor(() => expect(screen.getByText("Arrow PR")).toBeInTheDocument());
     expect(POST).toHaveBeenCalledWith("/api/alert-rules", {
-      body: {
         name: "Arrow PR",
         repository: "https://github.com/apache/arrow-rs",
         baseline: "parent",
         threshold: 3,
         threshold_z: 4,
         enabled: false,
-      },
-    });
+      }, undefined);
 
     await fireEvent.click(screen.getByRole("button", { name: /events for arrow nightly/i }));
     await waitFor(() => expect(screen.getByText("lookback regression detected")).toBeInTheDocument());
-    expect(GET).toHaveBeenCalledWith("/api/alert-rules/{id}/events", {
-      params: { path: { id: "rule-1" }, query: { limit: 50 } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/alert-rules/rule-1/events", { params: { limit: 50 } });
     expect(screen.getByRole("link", { name: /report for event-1/i })).toHaveAttribute(
       "href",
       "/ci/report?run_ids=run-1",
@@ -234,8 +230,8 @@ describe("AccountPage", () => {
   });
 
   it("ignores stale alert event responses after another rule is selected", async () => {
-    const firstEvents = deferred<{ error: { detail: string } }>();
-    const secondEvents = deferred<{ data: { events: Record<string, unknown>[] } }>();
+    const firstEvents = deferred<{ data: { detail: string }; status: number }>();
+    const secondEvents = deferred<{ status: number; data: { events: Record<string, unknown>[] } }>();
     const secondRule = {
       ...alertRule,
       id: "rule-2",
@@ -245,13 +241,13 @@ describe("AccountPage", () => {
     };
 
     GET.mockImplementation((path: string, options?: { params?: { path?: { id?: string } } }) => {
-      if (path === "/api/users/me") return Promise.resolve({ data: user });
-      if (path === "/api/tokens") return Promise.resolve({ data: { tokens: [token] } });
-      if (path === "/api/alert-rules") return Promise.resolve({ data: { rules: [alertRule, secondRule] } });
-      if (path === "/api/alert-rules/{id}/events" && options?.params?.path?.id === "rule-1") {
+      if (path === "/api/users/me") return Promise.resolve({ status: 200,  data: user });
+      if (path === "/api/tokens") return Promise.resolve({ status: 200,  data: { tokens: [token] } });
+      if (path === "/api/alert-rules") return Promise.resolve({ status: 200,  data: { rules: [alertRule, secondRule] } });
+      if (path === "/api/alert-rules/rule-1/events") {
         return firstEvents.promise;
       }
-      if (path === "/api/alert-rules/{id}/events" && options?.params?.path?.id === "rule-2") {
+      if (path === "/api/alert-rules/rule-2/events") {
         return secondEvents.promise;
       }
       throw new Error(`unexpected GET ${path}`);
@@ -262,7 +258,7 @@ describe("AccountPage", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /events for arrow nightly/i }));
     await fireEvent.click(screen.getByRole("button", { name: /events for arrow commits/i }));
-    secondEvents.resolve({
+    secondEvents.resolve({ status: 200,
       data: {
         events: [
           {
@@ -280,7 +276,7 @@ describe("AccountPage", () => {
     });
     await waitFor(() => expect(screen.getByText("second rule resolved")).toBeInTheDocument());
 
-    firstEvents.resolve({ error: { detail: "first rule timed out" } });
+    firstEvents.resolve({ data: { detail: "first rule timed out" }, status: 400 });
     await firstEvents.promise;
     await waitFor(() => expect(screen.queryByText("first rule timed out")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: /report for event-2/i })).toHaveAttribute(
@@ -298,6 +294,6 @@ describe("AccountPage", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /log out/i }));
     await waitFor(() => expect(screen.getByRole("link", { name: /sign in/i })).toBeInTheDocument());
-    expect(POST).toHaveBeenCalledWith("/api/auth/logout");
+    expect(POST).toHaveBeenCalledWith("/api/auth/logout", undefined, undefined);
   });
 });

@@ -12,13 +12,13 @@
     "check:e2e": "tsc --noEmit -p e2e/tsconfig.json",
     "docs:screenshots": "playwright test --config docs-screenshots/playwright.config.ts",
     "check:docs-screenshots": "tsc --noEmit -p docs-screenshots/tsconfig.json",
-    "codegen": "openapi-typescript ../api/openapi.yaml --output src/lib/api/schema.ts"
+    "codegen": "orval"
   },
   "dependencies": {
     "@kenn-io/kit-ui": "github:kenn-io/kit-ui#f3f0c42cbadc5d88b5fcc47541e8a63c234d47f3",
     "@lucide/svelte": "1.21.0",
-    "openapi-fetch": "0.17.0",
-    "uplot": "1.6.32"
+    "uplot": "1.6.32",
+    "axios": "1.13.6"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",
@@ -28,11 +28,11 @@
     "@testing-library/user-event": "14.6.1",
     "@types/node": "25.9.2",
     "jsdom": "29.1.1",
-    "openapi-typescript": "7.13.0",
     "svelte": "5.56.2",
     "svelte-check": "4.6.0",
     "typescript": "5.9.3",
     "vite": "8.0.16",
-    "vitest": "4.1.8"
+    "vitest": "4.1.8",
+    "orval": "8.30.0"
   }
 }

@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,7 +7,7 @@ import RunPage from "./RunPage.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 
 const result = (id: string, overrides: Record<string, unknown> = {}) => ({
@@ -51,7 +53,7 @@ beforeEach(() => {
 
 describe("RunPage", () => {
   it("renders run metadata, result rows, and investigation links", async () => {
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,
       data: { results: [result("r2", { has_error: true }), result("r1")], next_page_cursor: null },
     });
 
@@ -86,8 +88,8 @@ describe("RunPage", () => {
   });
 
   it("loads more results, appends them, and expands the loaded window", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [result("r1")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [result("r1")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200,
       data: {
         results: [result("r2", { timestamp: "2026-01-03T00:00:00Z" })],
         next_page_cursor: null,
@@ -105,18 +107,16 @@ describe("RunPage", () => {
     );
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
     expect(within(runContext).getByText(formatTime("2026-01-03T00:00:00Z"))).toBeInTheDocument();
-    expect(GET).toHaveBeenLastCalledWith("/api/benchmark-results", {
-      params: { query: { run_id: "run-a", page_size: 100, cursor: "cur2" } },
-    });
+    expect(GET).toHaveBeenLastCalledWith("/api/benchmark-results", { params: { run_id: "run-a", page_size: 100, cursor: "cur2" } });
   });
 
   it("shows empty and error states", async () => {
-    GET.mockResolvedValueOnce({ data: { results: [], next_page_cursor: null } });
+    GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     const { unmount } = render(RunPage, { props: { runId: "run-a" } });
     await waitFor(() => expect(screen.getByText(/no results found for this run/i)).toBeInTheDocument());
     unmount();
 
-    GET.mockResolvedValueOnce({ error: { detail: "statement timeout" } });
+    GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(RunPage, { props: { runId: "run-a" } });
     await waitFor(() => expect(screen.getByText(/failed to load run/i)).toBeInTheDocument());
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();

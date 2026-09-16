@@ -54,7 +54,7 @@ func (a *Artifacts) Upload(ctx context.Context, resultID, name, kind, mediaType 
 	if err != nil {
 		return nil, fmt.Errorf("upload artifact: %w", err)
 	}
-	record := storage.ArtifactRecord{ArtifactMetadata: storage.ArtifactMetadata{ID: id, Name: name, Kind: kind, MediaType: mediaType, SHA256: hex.EncodeToString(sum.Sum(nil)), SizeBytes: size}, ResultID: resultID, ObjectKey: key}
+	record := storage.ArtifactRecord{ID: id, Name: name, Kind: kind, MediaType: mediaType, SHA256: hex.EncodeToString(sum.Sum(nil)), SizeBytes: size, ResultID: resultID, ObjectKey: key}
 	if err := a.store.InsertResultArtifact(ctx, record); err != nil {
 		// A result may be deleted while its file is uploading. Retain cleanup
 		// work even if the request was canceled or the object store is down.

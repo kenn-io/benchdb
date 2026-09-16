@@ -2,10 +2,11 @@ package prodclone
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"io"
+	"github.com/doordash-oss/oapi-codegen-dd/v3/pkg/runtime"
+	benchdbclient "go.kenn.io/benchdb/sdk/go/benchdb"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -60,10 +61,10 @@ type SQLProfileTiming struct {
 }
 
 type ExplainPlanArtifact struct {
-	Name      string          `json:"name"`
-	Operation string          `json:"operation"`
-	Filename  string          `json:"filename"`
-	PlanJSON  json.RawMessage `json:"plan_json"`
+	Name      string         `json:"name"`
+	Operation string         `json:"operation"`
+	Filename  string         `json:"filename"`
+	PlanJSON  jsontext.Value `json:"plan_json"`
 }
 
 type RelationSize struct {
@@ -91,8 +92,7 @@ type profileSamples struct {
 type profileHTTPCall struct {
 	name      string
 	operation string
-	path      string
-	query     url.Values
+	call      func(context.Context, *benchdbclient.Client, runtime.RequestEditorFn) (int, error)
 }
 
 type profileSQLQuery struct {
@@ -172,13 +172,17 @@ func selectProfileSamples(manifest SampleManifest) (profileSamples, error) {
 }
 
 func runProfileHTTP(ctx context.Context, cfg ProfileConfig, samples profileSamples) ([]HTTPProbeTiming, error) {
-	base, err := url.Parse(cfg.ServerURL)
+	_, err := url.Parse(cfg.ServerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse profile server URL: %w", err)
 	}
 	client := cfg.Client
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	apiClient, err := benchdbclient.NewHTTPClient(cfg.ServerURL, client)
+	if err != nil {
+		return nil, fmt.Errorf("create profile client: %w", err)
 	}
 	warmRuns := cfg.WarmRuns
 	if warmRuns < 1 {
@@ -194,7 +198,7 @@ func runProfileHTTP(ctx context.Context, cfg ProfileConfig, samples profileSampl
 			if i > 0 {
 				label = fmt.Sprintf("warm-%d", i)
 			}
-			timing := runOneProfileHTTP(ctx, client, base, call, label)
+			timing := runOneProfileHTTP(ctx, apiClient, call, label)
 			timings = append(timings, timing)
 			if !timing.Passed {
 				failures++
@@ -208,198 +212,110 @@ func runProfileHTTP(ctx context.Context, cfg ProfileConfig, samples profileSampl
 }
 
 func profileHTTPCalls(samples profileSamples) []profileHTTPCall {
-	calls := []profileHTTPCall{
-		{
-			name:      "RecentRunsPage25",
-			operation: "GET /api/runs/recent?page_size=25",
-			path:      "/api/runs/recent",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileRecentPageSize)}},
-		},
-		{
-			name:      "RecentRunsPage100",
-			operation: "GET /api/runs/recent?page_size=100",
-			path:      "/api/runs/recent",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileRecentMaxPageSize)}},
-		},
-		{
-			name:      "RecentRunsPage2",
-			operation: "GET /api/runs/recent second page",
-			path:      "/api/runs/recent",
-			query:     url.Values{"page_size": {fmt.Sprint(profileRecentPageSize)}, "offset": {fmt.Sprint(profileRecentPageSize)}},
-		},
-		{
-			name:      "SeriesBrowseDefaultPage5",
-			operation: "GET /api/series?page_size=5",
-			path:      "/api/series",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileSmallPageSize)}},
-		},
-		{
-			name:      "SeriesBrowseDefaultPage10",
-			operation: "GET /api/series?page_size=10",
-			path:      "/api/series",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileMediumPageSize)}},
-		},
-		{
-			name:      "SeriesBrowseDefaultPage50",
-			operation: "GET /api/series?page_size=50",
-			path:      "/api/series",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileLargePageSize)}},
-		},
-		{
-			name:      "SeriesBrowseQExact",
-			operation: "GET /api/series?q=<exact>",
-			path:      "/api/series",
-			query: url.Values{
-				"page_size": []string{fmt.Sprint(profileMediumPageSize)},
-				"q":         []string{profileExactQ},
-			},
-		},
-		{
-			name:      "SeriesBrowseQBroad",
-			operation: "GET /api/series?q=<broad>",
-			path:      "/api/series",
-			query: url.Values{
-				"page_size": []string{fmt.Sprint(profileMediumPageSize)},
-				"q":         []string{profileBroadQ},
-			},
-		},
-		{
-			name:      "SeriesBrowseFingerprint",
-			operation: "GET /api/series?fingerprint=...",
-			path:      "/api/series",
-			query: url.Values{
-				"fingerprint": []string{samples.longFingerprint},
-				"page_size":   []string{fmt.Sprint(profileSmallPageSize)},
-			},
-		},
-		{
-			name:      "HistoryLong",
-			operation: "GET /api/history?fingerprint=...",
-			path:      "/api/history",
-			query:     url.Values{"fingerprint": []string{samples.longFingerprint}},
-		},
-		{
-			name:      "HistoryShort",
-			operation: "GET /api/history?fingerprint=...",
-			path:      "/api/history",
-			query:     url.Values{"fingerprint": []string{samples.shortFingerprint}},
-		},
-		{
-			name:      "ResultDetailRecent",
-			operation: "GET /api/benchmark-results/{id}",
-			path:      "/api/benchmark-results/" + url.PathEscape(samples.recentResultID),
-		},
-		{
-			name:      "ResultDetailOld",
-			operation: "GET /api/benchmark-results/{id}",
-			path:      "/api/benchmark-results/" + url.PathEscape(samples.oldResultID),
-		},
-		{
-			name:      "ResultListDefault",
-			operation: "GET /api/benchmark-results",
-			path:      "/api/benchmark-results",
-			query:     url.Values{"page_size": []string{fmt.Sprint(profileSmallPageSize)}},
-		},
-		{
-			name:      "ResultListFilteredRecent",
-			operation: "GET /api/benchmark-results?earliest_timestamp=...",
-			path:      "/api/benchmark-results",
-			query: url.Values{
-				"earliest_timestamp": []string{time.Now().UTC().AddDate(0, 0, -30).Format(time.RFC3339)},
-				"page_size":          []string{fmt.Sprint(profileSmallPageSize)},
-			},
-		},
+	calls := []profileHTTPCall{{name: "RecentRunsPage25", operation: "GET /api/runs/recent", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+		resp, err := client.ListRecentRunsWithResponse(ctx, &benchdbclient.ListRecentRunsRequestOptions{Query: &benchdbclient.ListRecentRunsQuery{PageSize: new(int64(profileRecentPageSize))}}, editor)
+		return responseStatus(resp), err
+	}},
+		{name: "RecentRunsPage100", operation: "GET /api/runs/recent", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListRecentRunsWithResponse(ctx, &benchdbclient.ListRecentRunsRequestOptions{Query: &benchdbclient.ListRecentRunsQuery{PageSize: new(int64(profileRecentMaxPageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "RecentRunsPage2", operation: "GET /api/runs/recent", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListRecentRunsWithResponse(ctx, &benchdbclient.ListRecentRunsRequestOptions{Query: &benchdbclient.ListRecentRunsQuery{PageSize: new(int64(profileRecentPageSize)), Offset: new(int32(profileRecentPageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseDefaultPage5", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileSmallPageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseDefaultPage10", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileMediumPageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseDefaultPage50", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileLargePageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseQExact", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileMediumPageSize)), Q: new(profileExactQ)}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseQBroad", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileMediumPageSize)), Q: new(profileBroadQ)}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "SeriesBrowseFingerprint", operation: "GET /api/series", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileSmallPageSize)), Fingerprint: new(samples.longFingerprint)}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "HistoryLong", operation: "GET /api/history", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.GetHistoryWithResponse(ctx, &benchdbclient.GetHistoryRequestOptions{Query: &benchdbclient.GetHistoryQuery{Fingerprint: samples.longFingerprint}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "HistoryShort", operation: "GET /api/history", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.GetHistoryWithResponse(ctx, &benchdbclient.GetHistoryRequestOptions{Query: &benchdbclient.GetHistoryQuery{Fingerprint: samples.shortFingerprint}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "ResultDetailRecent", operation: "GET /api/benchmark-results/{id}", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.GetBenchmarkResultWithResponse(ctx, &benchdbclient.GetBenchmarkResultRequestOptions{PathParams: &benchdbclient.GetBenchmarkResultPath{ID: samples.recentResultID}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "ResultDetailOld", operation: "GET /api/benchmark-results/{id}", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.GetBenchmarkResultWithResponse(ctx, &benchdbclient.GetBenchmarkResultRequestOptions{PathParams: &benchdbclient.GetBenchmarkResultPath{ID: samples.oldResultID}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "ResultListDefault", operation: "GET /api/benchmark-results", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListBenchmarkResultsWithResponse(ctx, &benchdbclient.ListBenchmarkResultsRequestOptions{Query: &benchdbclient.ListBenchmarkResultsQuery{PageSize: new(int64(profileSmallPageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "ResultListFilteredRecent", operation: "GET /api/benchmark-results?earliest_timestamp=...", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListBenchmarkResultsWithResponse(ctx, &benchdbclient.ListBenchmarkResultsRequestOptions{Query: &benchdbclient.ListBenchmarkResultsQuery{PageSize: new(int64(profileSmallPageSize)), EarliestTimestamp: new(time.Now().UTC().AddDate(0, 0, -30).Format(time.RFC3339))}}, editor)
+			return responseStatus(resp), err
+		}},
 	}
 	if samples.haveCompare {
-		calls = append(calls, profileHTTPCall{
-			name:      "CompareBenchmarkResults",
-			operation: "GET /api/compare/benchmark-results",
-			path:      "/api/compare/benchmark-results",
-			query: url.Values{
-				"baseline_result_id":  []string{samples.compareBaseline},
-				"contender_result_id": []string{samples.compareContender},
-			},
-		})
+		calls = append(calls, profileHTTPCall{name: "CompareBenchmarkResults", operation: "GET /api/compare/benchmark-results", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.CompareBenchmarkResultsWithResponse(ctx, &benchdbclient.CompareBenchmarkResultsRequestOptions{Query: &benchdbclient.CompareBenchmarkResultsQuery{BaselineResultID: samples.compareBaseline, ContenderResultID: samples.compareContender}}, editor)
+			return responseStatus(resp), err
+		}})
 	}
 	if samples.haveCIReport {
-		calls = append(calls, profileHTTPCall{
-			name:      "CIReportByCommitRun",
-			operation: "GET /api/ci/report",
-			path:      "/api/ci/report",
-			query: url.Values{
-				"repository": []string{samples.ciReportRepository},
-				"commit_sha": []string{samples.ciReportCommitSHA},
-				"run_ids":    []string{strings.Join(samples.ciReportRunIDs, ",")},
-			},
-		})
+		calls = append(calls, profileHTTPCall{name: "CIReportByCommitRun", operation: "GET /api/ci/report", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.GetCiReportWithResponse(ctx, &benchdbclient.GetCiReportRequestOptions{Query: &benchdbclient.GetCiReportQuery{Repository: new(samples.ciReportRepository), CommitSha: new(samples.ciReportCommitSHA), RunIds: new(strings.Join(samples.ciReportRunIDs, ","))}}, editor)
+			return responseStatus(resp), err
+		}})
 	}
 	if samples.ciReportCommitSHA != "" {
 		ref := samples.ciReportCommitSHA[:min(6, len(samples.ciReportCommitSHA))]
 		for _, offset := range []int32{0, int32(profileRecentPageSize)} {
-			calls = append(calls, profileHTTPCall{
-				name:      fmt.Sprintf("RecentRunsSearchOffset%d", offset),
-				operation: "GET /api/runs/recent by partial commit ref",
-				path:      "/api/runs/recent",
-				query:     url.Values{"page_size": {fmt.Sprint(profileRecentPageSize)}, "q": {ref}, "offset": {fmt.Sprint(offset)}},
-			})
+			calls = append(calls, profileHTTPCall{name: fmt.Sprintf("RecentRunsSearchOffset%d", offset), operation: "GET /api/runs/recent by partial commit ref", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+				resp, err := client.ListRecentRunsWithResponse(ctx, &benchdbclient.ListRecentRunsRequestOptions{Query: &benchdbclient.ListRecentRunsQuery{PageSize: new(int64(profileRecentPageSize)), Q: new(ref), Offset: new(offset)}}, editor)
+				return responseStatus(resp), err
+			}})
 		}
 	}
-
 	return calls
 }
 
-func runOneProfileHTTP(ctx context.Context, client *http.Client, base *url.URL, call profileHTTPCall, label string) HTTPProbeTiming {
-	requestURL := profileRequestURL(base, call)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return failedHTTPProfileTiming(call, label, requestURL, err)
-	}
-
+func runOneProfileHTTP(ctx context.Context, client *benchdbclient.Client, call profileHTTPCall, label string) HTTPProbeTiming {
+	timing := HTTPProbeTiming{Surface: "HTTP profile", Name: call.name + " " + label, Operation: call.operation, Method: http.MethodGet}
 	start := time.Now()
-	resp, err := client.Do(req)
-	durationMS := float64(time.Since(start).Microseconds()) / 1000.0
-	timing := HTTPProbeTiming{
-		Surface:    "HTTP profile",
-		Name:       call.name + " " + label,
-		Operation:  call.operation,
-		Method:     http.MethodGet,
-		Path:       requestPath(req.URL),
-		DurationMS: durationMS,
-		Passed:     false,
+	status, err := call.call(ctx, client, func(_ context.Context, req *http.Request) error {
+		timing.Path = requestPath(req.URL)
+		return nil
+	})
+	timing.DurationMS = float64(time.Since(start).Microseconds()) / 1000.0
+	timing.StatusCode = status
+	if status != 0 && status != http.StatusOK {
+		timing.Error = fmt.Sprintf("expected 200, got %d", status)
+		return timing
 	}
 	if err != nil {
 		timing.Error = err.Error()
 		return timing
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	timing.StatusCode = resp.StatusCode
-	if resp.StatusCode != http.StatusOK {
-		timing.Error = fmt.Sprintf("expected 200, got %d", resp.StatusCode)
-		return timing
-	}
 	timing.Passed = true
 	return timing
-}
-
-func failedHTTPProfileTiming(call profileHTTPCall, label string, requestURL string, err error) HTTPProbeTiming {
-	parsed, _ := url.Parse(requestURL)
-	return HTTPProbeTiming{
-		Surface:   "HTTP profile",
-		Name:      call.name + " " + label,
-		Operation: call.operation,
-		Method:    http.MethodGet,
-		Path:      requestPath(parsed),
-		Passed:    false,
-		Error:     err.Error(),
-	}
-}
-
-func profileRequestURL(base *url.URL, call profileHTTPCall) string {
-	copied := *base
-	copied.Path = strings.TrimRight(base.Path, "/") + call.path
-	copied.RawQuery = call.query.Encode()
-	return copied.String()
 }
 
 func requestPath(u *url.URL) string {
@@ -517,7 +433,7 @@ func explainProfileSQLQuery(ctx context.Context, db ProfileDB, query profileSQLQ
 		timing.Error = "EXPLAIN returned no plan"
 		return ExplainPlanArtifact{}, timing
 	}
-	if !json.Valid(raw) {
+	if !jsontext.Value(raw).IsValid() {
 		timing.Error = "EXPLAIN returned invalid JSON"
 		return ExplainPlanArtifact{}, timing
 	}
@@ -525,7 +441,7 @@ func explainProfileSQLQuery(ctx context.Context, db ProfileDB, query profileSQLQ
 		Name:      query.name,
 		Operation: query.operation,
 		Filename:  ExplainPlanFilename(query.name),
-		PlanJSON:  append(json.RawMessage(nil), raw...),
+		PlanJSON:  append(jsontext.Value(nil), raw...),
 	}, nil
 }
 

@@ -2,7 +2,8 @@ package prodclone
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -739,7 +740,7 @@ func writeJSONFile(path string, value any) error {
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := json.Marshal(value, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

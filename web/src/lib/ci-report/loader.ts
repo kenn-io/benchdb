@@ -1,10 +1,11 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components, operations } from "../api/schema";
+import type { CIReport, GetCiReportParams } from "../api/benchdb";
+export type { CIReport } from "../api/benchdb";
 import type { CIReportQuery } from "../router";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-export type CIReport = components["schemas"]["CIReport"];
-type Query = NonNullable<operations["get-ci-report"]["parameters"]["query"]>;
+
+type Query = GetCiReportParams;
 
 function apiQuery(query: CIReportQuery): Query {
   const out: Query = {};
@@ -23,9 +24,9 @@ export function hasCIReportSelector(query: CIReportQuery): boolean {
 }
 
 export async function loadCIReport(client: Client, query: CIReportQuery): Promise<CIReport> {
-  const res = await client.GET("/api/ci/report", { params: { query: apiQuery(query) } });
-  if (res.error || !res.data) {
-    throw new Error(res.error?.detail ?? "failed to load CI report");
+  const res = await client.getCiReport(apiQuery(query));
+  if (res.status >= 400 || !res.data) {
+    throw new Error((res.data as { detail?: string })?.detail ?? "failed to load CI report");
   }
   return res.data;
 }

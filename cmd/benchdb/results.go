@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,7 +204,7 @@ func runSubmitConfig(ctx context.Context, cfg submitConfig, stdout io.Writer) er
 	if err != nil {
 		return err
 	}
-	params := &benchdb.SubmitResultParams{}
+	params := &benchdb.SubmitResultHeaders{}
 	if bearer != "" {
 		params.Authorization = &bearer
 	}
@@ -259,8 +261,8 @@ func runResultGetConfig(ctx context.Context, cfg resultGetConfig, stdout io.Writ
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetBenchmarkResultWithResponse(ctx, cfg.id)
-	if err != nil {
+	resp, err := client.GetBenchmarkResultWithResponse(ctx, &benchdb.GetBenchmarkResultRequestOptions{PathParams: &benchdb.GetBenchmarkResultPath{ID: cfg.id}})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("get result from %s: %w", cfg.server, err)
 	}
 	if resp.JSON200 == nil {
@@ -352,15 +354,20 @@ func streamSubmitWork(
 
 func submitBody(
 	ctx context.Context,
-	client *benchdb.ClientWithResponses,
-	params *benchdb.SubmitResultParams,
+	client *benchdb.Client,
+	params *benchdb.SubmitResultHeaders,
 	server string,
 	body submitRequestBody,
 ) (submitResultLine, error) {
 	result := submitResultLine{File: body.File, Index: body.Index}
 
-	resp, err := client.SubmitResultWithBodyWithResponse(ctx, params, "application/json", bytes.NewReader(body.Body))
-	if err != nil {
+	resp, err := client.SubmitResultWithResponse(ctx, &benchdb.SubmitResultRequestOptions{Header: params}, func(_ context.Context, req *http.Request) error {
+		req.Body = io.NopCloser(bytes.NewReader(body.Body))
+		req.ContentLength = int64(len(body.Body))
+		req.Header.Set("Content-Type", "application/json")
+		return nil
+	})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		err = fmt.Errorf("submit to %s: %w", server, err)
 		result.Error = err.Error()
 		return result, err
@@ -378,7 +385,7 @@ func submitBody(
 		File:               body.File,
 		Index:              body.Index,
 		OK:                 true,
-		ID:                 resp.JSON201.Id,
+		ID:                 resp.JSON201.ID,
 		HistoryFingerprint: resp.JSON201.HistoryFingerprint,
 	}, nil
 }
@@ -440,12 +447,13 @@ func isJSONWhitespace(b byte) bool {
 }
 
 func streamDecodeSingleFixture(path string, raw []byte, yield func(submitRequestBody) error) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	var value json.RawMessage
-	if err := dec.Decode(&value); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
+	value, err := dec.ReadValue()
+	if err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+	value = value.Clone()
+	if _, err := dec.ReadValue(); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("decode %s: trailing data after the JSON object", path)
 	}
 	if len(bytes.TrimSpace(value)) == 0 {
@@ -458,16 +466,16 @@ func streamDecodeSingleFixture(path string, raw []byte, yield func(submitRequest
 }
 
 func streamDecodeArrayFixture(path string, reader *bufio.Reader, yield func(submitRequestBody) error) error {
-	dec := json.NewDecoder(reader)
-	if _, err := dec.Token(); err != nil {
+	dec := jsontext.NewDecoder(reader)
+	if _, err := dec.ReadToken(); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if !dec.More() {
+	if dec.PeekKind() == ']' {
 		return fmt.Errorf("decode %s: array must contain at least one benchmark result", path)
 	}
-	for idx := 0; dec.More(); idx++ {
-		var item json.RawMessage
-		if err := dec.Decode(&item); err != nil {
+	for idx := 0; dec.PeekKind() != ']'; idx++ {
+		item, err := dec.ReadValue()
+		if err != nil {
 			return fmt.Errorf("decode %s: %w", path, err)
 		}
 		source := fmt.Sprintf("%s[%d]", path, idx)
@@ -475,28 +483,23 @@ func streamDecodeArrayFixture(path string, reader *bufio.Reader, yield func(subm
 			return err
 		}
 		index := idx
-		if err := yield(submitRequestBody{File: path, Index: &index, Body: item}); err != nil {
+		if err := yield(submitRequestBody{File: path, Index: &index, Body: item.Clone()}); err != nil {
 			return err
 		}
 	}
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+	if _, err := dec.ReadValue(); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("decode %s: trailing data after the JSON object", path)
 	}
 	return nil
 }
 
 func validateSubmitRequest(source string, raw []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
 	var body benchdb.SubmitRequest
-	if err := dec.Decode(&body); err != nil {
+	if err := json.Unmarshal(raw, &body, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("decode %s: %w", source, err)
-	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("decode %s: trailing data after the JSON object", source)
 	}
 	return nil
 }

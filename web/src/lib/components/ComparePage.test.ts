@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,7 +7,7 @@ import ComparePage from "./ComparePage.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => ({ GET }),
+  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
 }));
 vi.mock("./SeriesChart.svelte", async () => await import("./SeriesChart.stub.svelte"));
 
@@ -110,13 +112,13 @@ const EMPTY_QUERY = { baseline: "", contender: "", threshold: null, thresholdZ: 
 function mockHappy(lookback: unknown, pairwise: unknown) {
   GET.mockImplementation(async (url: string, opts?: { params?: { path?: { id?: string } } }) => {
     if (url === "/api/compare/benchmark-results") {
-      return { data: compareBody(lookback, pairwise) };
+      return { status: 200,  data: compareBody(lookback, pairwise) };
     }
-    if (url === "/api/benchmark-results/{id}") {
-      return { data: detail(opts?.params?.path?.id ?? "b1") };
+    if (url.startsWith("/api/benchmark-results/")) {
+      return { status: 200,  data: detail(url.split("/").at(-1)!) };
     }
-    if (url === "/api/history/{benchmark_result_id}") {
-      return {
+    if (url.startsWith("/api/history/")) {
+      return { status: 200,
         data: {
           history_fingerprint: "fp1",
           samples: [
@@ -182,9 +184,9 @@ describe("ComparePage", () => {
     mockHappy(REGRESSED, null);
     const previous = GET.getMockImplementation()!;
     GET.mockImplementation(async (url: string, opts?: { params?: { path?: { id?: string } } }) => {
-      if (url === "/api/benchmark-results/{id}") {
-        const id = opts?.params?.path?.id ?? "b1";
-        return { data: {
+      if (url.startsWith("/api/benchmark-results/")) {
+        const id = url.split("/").at(-1)!;
+        return { status: 200,  data: {
           ...detail(id),
           info: { diagnostics: { state: id === "b1" ? "unsupported" : "complete" } },
           artifacts: id === "b1" ? [] : [{ id: "artifact-1", name: "worker-1-cpu.pprof", kind: "cpu-profile", media_type: "application/vnd.google.pprof", size_bytes: 1234, sha256: "digest" }],
@@ -208,10 +210,10 @@ describe("ComparePage", () => {
   it("searches a benchmark and compares its latest two commits in one click", async () => {
     GET.mockImplementation(async (url: string) => {
       if (url === "/api/benchmarks") {
-        return { data: { benchmarks: [seriesListItem()], next_page_cursor: null } };
+        return { status: 200,  data: { benchmarks: [seriesListItem()], next_page_cursor: null } };
       }
-      if (url === "/api/benchmarks/{benchmark_id}") {
-        return { data: {
+      if (url.startsWith("/api/benchmarks/")) {
+        return { status: 200,  data: {
           benchmark_id: "benchmark-1",
           name: "demo-benchmark",
           tags: { name: "demo-benchmark", dataset: "uniform" },
@@ -324,12 +326,9 @@ describe("ComparePage", () => {
   it("surfaces the endpoint's 422 inline", async () => {
     GET.mockImplementation(async (url: string) => {
       if (url === "/api/compare/benchmark-results") {
-        return {
-          error: { detail: "not comparable: history fingerprints differ" },
-          response: { status: 422 },
-        };
+        return { data: { detail: "not comparable: history fingerprints differ" }, status: 422 };
       }
-      return { data: detail("b1") };
+      return { status: 200,  data: detail("b1") };
     });
     render(ComparePage, { props: { query: QUERY } });
     await waitFor(() =>
@@ -338,7 +337,7 @@ describe("ComparePage", () => {
   });
 
   it("shows the error state when loading fails", async () => {
-    GET.mockResolvedValue({ error: { detail: "boom" }, response: { status: 500 } });
+    GET.mockResolvedValue({ data: { detail: "boom" }, status: 500 });
     render(ComparePage, { props: { query: QUERY } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
   });
@@ -346,17 +345,14 @@ describe("ComparePage", () => {
   it("clears a stale not-comparable alert when a refetch fails generically", async () => {
     GET.mockImplementation(async (url: string) => {
       if (url === "/api/compare/benchmark-results") {
-        return {
-          error: { detail: "not comparable: history fingerprints differ" },
-          response: { status: 422 },
-        };
+        return { data: { detail: "not comparable: history fingerprints differ" }, status: 422 };
       }
-      return { data: detail("b1") };
+      return { status: 200,  data: detail("b1") };
     });
     const { rerender } = render(ComparePage, { props: { query: QUERY } });
     await waitFor(() => screen.getByRole("alert"));
 
-    GET.mockResolvedValue({ error: { detail: "boom" }, response: { status: 500 } });
+    GET.mockResolvedValue({ data: { detail: "boom" }, status: 500 });
     await rerender({ query: { ...QUERY, thresholdZ: 3 } });
     await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -374,7 +370,7 @@ describe("ComparePage", () => {
     await rerender({ query: { ...QUERY, thresholdZ: 3 } });
     await waitFor(() => {
       const call = GET.mock.calls.find((c) => c[0] === "/api/compare/benchmark-results");
-      expect(call?.[1]?.params?.query).toMatchObject({ threshold_z: 3 });
+      expect(call?.[1]?.params).toMatchObject({ threshold_z: 3 });
     });
   });
 });

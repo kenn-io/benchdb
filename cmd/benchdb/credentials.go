@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func saveToken(path, server, token string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	data, err := json.MarshalIndent(creds, "", "  ")
+	data, err := json.Marshal(creds, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

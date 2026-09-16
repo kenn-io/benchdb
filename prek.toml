@@ -28,6 +28,16 @@ hooks = [
     priority = 0,
   },
   {
+    id = "huma-check",
+    name = "Huma API contract",
+    language = "system",
+    entry = "make huma-check",
+    always_run = true,
+    pass_filenames = false,
+    require_serial = true,
+    priority = 5,
+  },
+  {
     id = "golangci-lint",
     name = "golangci-lint --fix",
     language = "system",

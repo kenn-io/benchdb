@@ -5,9 +5,12 @@ package server
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
+	"reflect"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -72,9 +75,8 @@ func OpenAPISpec() ([]byte, error) {
 }
 
 // OpenAPISpec30 emits the OpenAPI 3.0 downgrade as YAML, a compatibility
-// artifact (api/openapi-3.0.yaml) for generators that do not support 3.1 —
-// notably oapi-codegen, which the Go client is generated with. The canonical
-// contract remains the 3.1 document; this is derived from it.
+// artifact (api/openapi-3.0.yaml) for tools that do not support 3.1. Both
+// client generators use the canonical 3.1 document.
 func OpenAPISpec30() ([]byte, error) {
 	doc := specAPI().OpenAPI()
 	pinGeneratedClientExtensions(doc)
@@ -89,6 +91,27 @@ func OpenAPISpec30() ([]byte, error) {
 func pinGeneratedClientExtensions(doc *huma.OpenAPI) {
 	if doc.Components == nil || doc.Components.Schemas == nil {
 		return
+	}
+	// Both spellings allow any JSON value. Use true so the Go generator
+	// keeps arbitrary map values instead of generating map[string]struct{}.
+	for _, schema := range doc.Components.Schemas.Map() {
+		for _, property := range schema.Properties {
+			if value, ok := property.AdditionalProperties.(*huma.Schema); ok && reflect.DeepEqual(value, &huma.Schema{}) {
+				property.AdditionalProperties = true
+			}
+		}
+	}
+	// These unconstrained values must retain arbitrary JSON, not struct{}.
+	for schemaName, propertyName := range map[string]string{
+		"AlertEventView": "summary",
+		"ErrorDetail":    "value",
+	} {
+		property := doc.Components.Schemas.Map()[schemaName].Properties[propertyName]
+		if property.Extensions == nil {
+			property.Extensions = map[string]any{}
+		}
+		property.Extensions["x-go-type"] = "jsontext.Value"
+		property.Extensions["x-go-type-import"] = map[string]string{"path": "encoding/json/jsontext"}
 	}
 	series := doc.Components.Schemas.Map()["SeriesListItem"]
 	if series == nil || series.Properties == nil {
@@ -131,7 +154,17 @@ func pinGoClientExtensions(doc *huma.OpenAPI) {
 }
 
 func humaConfig() huma.Config {
-	return huma.DefaultConfig("BenchDB", "0.1.0")
+	config := huma.DefaultConfig("BenchDB", "0.1.0")
+	config.Formats = map[string]huma.Format{
+		"application/json": {
+			Marshal:   func(w io.Writer, v any) error { return json.MarshalWrite(w, v) },
+			Unmarshal: func(data []byte, v any) error { return json.Unmarshal(data, v) },
+		},
+	}
+	// Huma resolves structured content types such as application/problem+json
+	// through the suffix entry.
+	config.Formats["json"] = config.Formats["application/json"]
+	return config
 }
 
 // register wires the write, read, and health operations onto a huma API. New

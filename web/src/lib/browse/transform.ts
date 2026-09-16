@@ -1,8 +1,6 @@
-import type { components } from "../api/schema";
+import type { BenchmarkListItem } from "../api/benchdb";
 import { formatMeasurement, formatNumber } from "../format";
 import type { BrowseWindow } from "../router";
-
-type BenchmarkListItem = components["schemas"]["BenchmarkListItem"];
 
 /** SeriesStatus is the wire enum (closed union in the generated schema). */
 export type SeriesStatus = BenchmarkListItem["status"];

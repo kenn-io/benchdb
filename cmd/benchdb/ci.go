@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -182,14 +182,14 @@ func runCIReportConfig(ctx context.Context, cfg ciReportConfig, stdout io.Writer
 		return codedError{err: err, code: 2}
 	}
 
-	params := benchdb.GetCiReportParams{
+	params := benchdb.GetCiReportQuery{
 		Repository:     optionalString(cfg.repository),
 		CommitSha:      optionalString(cfg.commit),
 		RunIds:         optionalString(cfg.runIDs),
 		BaselineRunIds: optionalString(cfg.baselineRunIDs),
 	}
 	if cfg.baseline != "" {
-		baseline := benchdb.GetCiReportParamsBaseline(cfg.baseline)
+		baseline := benchdb.GetCiReportQueryBaseline(cfg.baseline)
 		params.Baseline = &baseline
 	}
 	if cfg.thresholdSet {
@@ -207,8 +207,8 @@ func runCIReportConfig(ctx context.Context, cfg ciReportConfig, stdout io.Writer
 		params.ThresholdZ = &thresholdZ
 	}
 
-	resp, err := client.GetCiReportWithResponse(ctx, &params, bearerRequestEditor(bearer))
-	if err != nil {
+	resp, err := client.GetCiReportWithResponse(ctx, &benchdb.GetCiReportRequestOptions{Query: &params}, bearerRequestEditor(bearer))
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return codedError{err: fmt.Errorf("get ci report from %s: %w", cfg.server, err), code: 2}
 	}
 	if resp.JSON200 == nil {
@@ -222,7 +222,7 @@ func runCIReportConfig(ctx context.Context, cfg ciReportConfig, stdout io.Writer
 			return codedError{err: err, code: 2}
 		}
 	}
-	if resp.JSON200.Status == benchdb.CIReportStatusFailure || resp.JSON200.Status == benchdb.CIReportStatusActionRequired {
+	if resp.JSON200.Status == benchdb.Failure || resp.JSON200.Status == benchdb.ActionRequired {
 		return ciReportStatusError{status: resp.JSON200.Status}
 	}
 	return nil
@@ -271,7 +271,7 @@ func publishCIReportGitHub(ctx context.Context, cfg ciReportConfig, report *benc
 		Status:      "completed",
 		Conclusion:  githubCheckConclusion(report.Status),
 		CompletedAt: time.Now().UTC().Format(time.RFC3339),
-		DetailsURL:  absoluteHTTPURL(report.ReportUrl),
+		DetailsURL:  absoluteHTTPURL(report.ReportURL),
 		ExternalID:  cfg.githubExternalID,
 		Output: githubapi.CheckRunOutput{
 			Title:   githubCheckTitle(report),
@@ -345,11 +345,11 @@ func ciReportGitHubPRNumber(ctx context.Context, gh *githubapi.Client, cfg ciRep
 
 func githubCheckConclusion(status benchdb.CIReportStatus) string {
 	switch status {
-	case benchdb.CIReportStatusActionRequired:
+	case benchdb.ActionRequired:
 		return "action_required"
-	case benchdb.CIReportStatusFailure:
+	case benchdb.Failure:
 		return "failure"
-	case benchdb.CIReportStatusSkipped:
+	case benchdb.Skipped:
 		return "skipped"
 	default:
 		return "success"
@@ -358,11 +358,11 @@ func githubCheckConclusion(status benchdb.CIReportStatus) string {
 
 func githubCheckTitle(report *benchdb.CIReport) string {
 	switch report.Status {
-	case benchdb.CIReportStatusActionRequired:
+	case benchdb.ActionRequired:
 		return "Action required for BenchDB report"
-	case benchdb.CIReportStatusFailure:
+	case benchdb.Failure:
 		return fmt.Sprintf("Found %d benchmark regression%s", report.Summary.Regressions, pluralS(report.Summary.Regressions))
-	case benchdb.CIReportStatusSkipped:
+	case benchdb.Skipped:
 		return "BenchDB report skipped regression verdict"
 	default:
 		return "No benchmark regressions detected"
@@ -384,8 +384,8 @@ func githubCheckSummary(report *benchdb.CIReport, buildURL string) string {
 		report.Summary.BenchmarkErrors,
 		report.Summary.MissingBaseline,
 	)
-	if report.ReportUrl != "" {
-		fmt.Fprintf(&b, "\n\nBenchDB report: %s", report.ReportUrl)
+	if report.ReportURL != "" {
+		fmt.Fprintf(&b, "\n\nBenchDB report: %s", report.ReportURL)
 	}
 	if buildURL != "" {
 		fmt.Fprintf(&b, "\n\nBuild logs: %s", buildURL)
@@ -395,9 +395,9 @@ func githubCheckSummary(report *benchdb.CIReport, buildURL string) string {
 
 func githubCheckDetails(report *benchdb.CIReport) string {
 	var b strings.Builder
-	writeGitHubRows(&b, "Benchmark errors", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusErrored), 10, report.ReportUrl, "")
-	writeGitHubRows(&b, "Benchmark regressions", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusRegressed), 10, report.ReportUrl, "")
-	writeGitHubRows(&b, "Missing baselines", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusMissingBaseline), 10, report.ReportUrl, "")
+	writeGitHubRows(&b, "Benchmark errors", ciReportRowsWithStatus(report, benchdb.Errored), 10, report.ReportURL, "")
+	writeGitHubRows(&b, "Benchmark regressions", ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusRegressed), 10, report.ReportURL, "")
+	writeGitHubRows(&b, "Missing baselines", ciReportRowsWithStatus(report, benchdb.MissingBaseline), 10, report.ReportURL, "")
 	if b.Len() == 0 {
 		return ""
 	}
@@ -407,21 +407,21 @@ func githubCheckDetails(report *benchdb.CIReport) string {
 func githubPRComment(report *benchdb.CIReport, checkURL string, serverURL string) string {
 	var b strings.Builder
 	b.WriteString(ciReportIntro(report))
-	errors := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusErrored)
+	errors := ciReportRowsWithStatus(report, benchdb.Errored)
 	regressions := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusRegressed)
-	missingBaselines := ciReportRowsWithStatus(report, benchdb.CIReportComparisonStatusMissingBaseline)
+	missingBaselines := ciReportRowsWithStatus(report, benchdb.MissingBaseline)
 	switch {
 	case len(errors) > 0:
 		fmt.Fprintf(&b, "There %s %d benchmark result%s with an error:", were(len(errors)), len(errors), pluralS(len(errors)))
-		writeGitHubRows(&b, "", errors, 2, report.ReportUrl, serverURL)
+		writeGitHubRows(&b, "", errors, 2, report.ReportURL, serverURL)
 	case report.Summary.ContenderResults == 0:
 		b.WriteString("None of the specified runs had any associated benchmark results.\n\n")
 	case len(regressions) > 0:
 		fmt.Fprintf(&b, "There %s %d benchmark result%s indicating a performance regression:", were(len(regressions)), len(regressions), pluralS(len(regressions)))
-		writeGitHubRows(&b, "", regressions, 2, report.ReportUrl, serverURL)
+		writeGitHubRows(&b, "", regressions, 2, report.ReportURL, serverURL)
 	case len(missingBaselines) > 0:
 		fmt.Fprintf(&b, "BenchDB could not compare %d benchmark result%s because matching baseline results were unavailable:", len(missingBaselines), pluralS(len(missingBaselines)))
-		writeGitHubRows(&b, "", missingBaselines, 2, report.ReportUrl, serverURL)
+		writeGitHubRows(&b, "", missingBaselines, 2, report.ReportURL, serverURL)
 	case report.Summary.Analyzed == 0:
 		b.WriteString("There were not enough matching historic benchmark results to make a call on whether there were regressions.\n\n")
 	default:
@@ -429,8 +429,8 @@ func githubPRComment(report *benchdb.CIReport, checkURL string, serverURL string
 	}
 	if checkURL != "" {
 		fmt.Fprintf(&b, "The [full BenchDB report](%s) has more details.", checkURL)
-	} else if report.ReportUrl != "" {
-		fmt.Fprintf(&b, "The [full BenchDB report](%s) has more details.", absoluteBenchDBLink(report.ReportUrl, report.ReportUrl, serverURL))
+	} else if report.ReportURL != "" {
+		fmt.Fprintf(&b, "The [full BenchDB report](%s) has more details.", absoluteBenchDBLink(report.ReportURL, report.ReportURL, serverURL))
 	}
 	return b.String()
 }
@@ -450,7 +450,7 @@ func ciReportRowsWithStatus(report *benchdb.CIReport, status benchdb.CIReportCom
 		return nil
 	}
 	rows := []ciReportGitHubRow{}
-	for _, run := range *report.Runs {
+	for _, run := range report.Runs {
 		if run.Comparisons == nil {
 			continue
 		}
@@ -458,7 +458,7 @@ func ciReportRowsWithStatus(report *benchdb.CIReport, status benchdb.CIReportCom
 		if run.RunReason != nil && *run.RunReason != "" {
 			reason = *run.RunReason
 		}
-		for _, comp := range *run.Comparisons {
+		for _, comp := range run.Comparisons {
 			if comp.Status != status {
 				continue
 			}
@@ -467,11 +467,11 @@ func ciReportRowsWithStatus(report *benchdb.CIReport, status benchdb.CIReportCom
 				link = *comp.Links.Compare
 			}
 			rows = append(rows, ciReportGitHubRow{
-				runID:      run.RunId,
+				runID:      run.RunID,
 				runReason:  reason,
 				hardware:   comp.Hardware.Name,
 				timestamp:  comp.Contender.ResultTimestamp.UTC().Format("2006-01-02 15:04:05Z"),
-				runLink:    "/runs/" + url.PathEscape(run.RunId),
+				runLink:    "/runs/" + url.PathEscape(run.RunID),
 				name:       ciReportGitHubBenchmarkName(comp),
 				resultLink: link,
 			})
@@ -525,7 +525,7 @@ func ciReportGitHubBenchmarkName(comp benchdb.CIReportComparison) string {
 func ciReportIntro(report *benchdb.CIReport) string {
 	runs := report.Summary.Runs
 	if runs == 0 && report.Runs != nil {
-		runs = int64(len(*report.Runs))
+		runs = int64(len(report.Runs))
 	}
 	if report.CommitSha != nil && *report.CommitSha != "" {
 		sha := *report.CommitSha
@@ -623,8 +623,8 @@ func renderCIReportMarkdown(report *benchdb.CIReport) string {
 	if report.StatusReason != "" {
 		fmt.Fprintf(&b, "Reason: %s\n\n", report.StatusReason)
 	}
-	if report.ReportUrl != "" {
-		fmt.Fprintf(&b, "Report: %s\n\n", report.ReportUrl)
+	if report.ReportURL != "" {
+		fmt.Fprintf(&b, "Report: %s\n\n", report.ReportURL)
 	}
 	fmt.Fprintf(&b, "| Metric | Value |\n| --- | ---: |\n")
 	fmt.Fprintf(&b, "| Runs | %d |\n", report.Summary.Runs)
@@ -637,23 +637,23 @@ func renderCIReportMarkdown(report *benchdb.CIReport) string {
 	fmt.Fprintf(&b, "| Missing baseline | %d |\n", report.Summary.MissingBaseline)
 	fmt.Fprintf(&b, "| Not comparable | %d |\n\n", report.Summary.NotComparable)
 
-	if report.Runs == nil || len(*report.Runs) == 0 {
+	if len(report.Runs) == 0 {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "## Runs\n\n")
-	for _, run := range *report.Runs {
-		fmt.Fprintf(&b, "### %s\n\n", run.RunId)
-		if run.BaselineRunId != nil {
-			fmt.Fprintf(&b, "Baseline run: `%s`\n\n", *run.BaselineRunId)
+	for _, run := range report.Runs {
+		fmt.Fprintf(&b, "### %s\n\n", run.RunID)
+		if run.BaselineRunID != nil {
+			fmt.Fprintf(&b, "Baseline run: `%s`\n\n", *run.BaselineRunID)
 		}
 		if run.BaselineError != nil {
 			fmt.Fprintf(&b, "Baseline: %s\n\n", run.BaselineError.Message)
 		}
-		if run.Comparisons == nil || len(*run.Comparisons) == 0 {
+		if len(run.Comparisons) == 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "| Status | Benchmark | Unit | Contender | Baseline |\n| --- | --- | --- | ---: | ---: |\n")
-		for _, row := range *run.Comparisons {
+		for _, row := range run.Comparisons {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
 				row.Status,
 				escapeMarkdownCell(row.Name),

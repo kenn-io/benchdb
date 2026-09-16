@@ -1,7 +1,8 @@
 package hardware
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,10 +21,10 @@ type machineCase struct {
 }
 
 type clusterCase struct {
-	Name       string          `json:"name"`
-	Info       json.RawMessage `json:"info"`
-	PythonJSON string          `json:"python_json"`
-	Hash       string          `json:"hash"`
+	Name       string         `json:"name"`
+	Info       jsontext.Value `json:"info"`
+	PythonJSON string         `json:"python_json"`
+	Hash       string         `json:"hash"`
 }
 
 func loadHardwareGolden(t *testing.T) ([]machineCase, []clusterCase) {

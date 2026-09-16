@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { components } from "../api/schema";
+import type { HistorySample, ZScoreStats } from "../api/benchdb";
 import {
   chartTimeExtent,
   distinctUnits,
@@ -18,9 +18,6 @@ import {
   windowPoints,
   type SeriesPoint,
 } from "./transform";
-
-type HistorySample = components["schemas"]["HistorySample"];
-type ZScoreStats = components["schemas"]["ZScoreStats"];
 
 function zs(over: Partial<NonNullable<ZScoreStats>> = {}): ZScoreStats {
   return {

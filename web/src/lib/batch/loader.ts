@@ -1,9 +1,9 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { ResultListItem } from "../api/benchdb";
 import { resultTrendHref } from "../results/loader";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type ResultItem = components["schemas"]["ResultListItem"];
+type ResultItem = ResultListItem;
 
 export interface PrimaryTag {
   key: string;
@@ -65,8 +65,8 @@ export interface BatchPageViewModel {
 
 export const BATCH_RESULTS_PAGE_SIZE = 100;
 
-function batchPageError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to load batch results");
+function batchPageError(res: { data?: unknown }): Error {
+  return new Error((res.data as { detail?: string })?.detail ?? "failed to load batch results");
 }
 
 export async function loadBatchPage(
@@ -74,16 +74,12 @@ export async function loadBatchPage(
   batchId: string,
   cursor: string | null = null,
 ): Promise<BatchPageViewModel> {
-  const res = await client.GET("/api/benchmark-results", {
-    params: {
-      query: {
+  const res = await client.listBenchmarkResults({
         batch_id: batchId,
         page_size: BATCH_RESULTS_PAGE_SIZE,
         ...(cursor !== null && { cursor }),
-      },
-    },
-  });
-  if (res.error || !res.data) {
+      });
+  if (res.status >= 400 || !res.data) {
     throw batchPageError(res);
   }
   return toBatchPage(batchId, res.data.results ?? [], res.data.next_page_cursor);

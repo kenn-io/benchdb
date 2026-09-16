@@ -25,11 +25,9 @@
     actionError = null;
     actionMessage = null;
     try {
-      const response = await createBenchDBClient(baseUrl).DELETE("/api/benchmark-results/{id}/artifacts/{artifact_id}", {
-        params: { path: { id: result.id, artifact_id: id } },
-      });
-      if (response.error) {
-        actionError = response.error.detail ?? "Could not delete the attachment. Try again.";
+      const response = await createBenchDBClient(baseUrl).deleteResultArtifact(result.id, id);
+      if (response.status >= 400) {
+        actionError = (response.data as unknown as { detail?: string }).detail ?? "Could not delete the attachment. Try again.";
       } else {
         removed = [...removed, id];
         actionMessage = `Deleted ${name}.`;

@@ -9,8 +9,7 @@ On a running server:
 
 - `/docs` opens interactive API documentation,
 - `/openapi.yaml` returns the canonical OpenAPI 3.1 document,
-- `/openapi-3.0.yaml` returns the compatibility document used by the Go client
-  generator.
+- `/openapi-3.0.yaml` returns a downgrade for tools that require OpenAPI 3.0.
 
 Any language can call the HTTP API directly from these documents. Benchmark
 submission is intentionally CLI-first so validation, token handling, glob
@@ -20,8 +19,10 @@ behavior, and retry semantics remain consistent across benchmark projects.
 
 The repository generates:
 
-- a Go client under `sdk/go/benchdb`,
-- TypeScript API types under `web/src/lib/api`.
+- a Go client under `sdk/go/benchdb`, generated with `oapi-codegen-dd/v3`,
+- a TypeScript client and models under `web/src/lib/api`, generated with Orval.
+
+Both generators consume the canonical OpenAPI 3.1 YAML document.
 
 Regenerate both clients and the OpenAPI documents with:
 

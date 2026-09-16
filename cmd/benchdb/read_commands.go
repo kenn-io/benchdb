@@ -88,9 +88,9 @@ func runCompareConfig(ctx context.Context, cfg compareConfig, stdout io.Writer) 
 	if err != nil {
 		return err
 	}
-	params := &benchdb.CompareBenchmarkResultsParams{
-		BaselineResultId:  cfg.baseline,
-		ContenderResultId: cfg.contender,
+	params := &benchdb.CompareBenchmarkResultsQuery{
+		BaselineResultID:  cfg.baseline,
+		ContenderResultID: cfg.contender,
 	}
 	if cfg.thresholdSet {
 		params.Threshold = &cfg.threshold
@@ -99,8 +99,8 @@ func runCompareConfig(ctx context.Context, cfg compareConfig, stdout io.Writer) 
 		params.ThresholdZ = &cfg.thresholdZ
 	}
 
-	resp, err := client.CompareBenchmarkResultsWithResponse(ctx, params)
-	if err != nil {
+	resp, err := client.CompareBenchmarkResultsWithResponse(ctx, &benchdb.CompareBenchmarkResultsRequestOptions{Query: params})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("compare results from %s: %w", cfg.server, err)
 	}
 	if resp.JSON200 == nil {
@@ -164,7 +164,7 @@ func runSeriesListConfig(ctx context.Context, cfg seriesListConfig, stdout io.Wr
 	if err != nil {
 		return err
 	}
-	params := benchdb.ListSeriesParams{
+	params := benchdb.ListSeriesQuery{
 		Q:           optionalString(cfg.q),
 		Hardware:    optionalString(cfg.hardware),
 		Repository:  optionalString(cfg.repository),
@@ -177,8 +177,8 @@ func runSeriesListConfig(ctx context.Context, cfg seriesListConfig, stdout io.Wr
 		params.PageSize = &cfg.pageSize
 	}
 
-	resp, err := client.ListSeriesWithResponse(ctx, &params)
-	if err != nil {
+	resp, err := client.ListSeriesWithResponse(ctx, &benchdb.ListSeriesRequestOptions{Query: &params})
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("list series from %s: %w", cfg.server, err)
 	}
 	if resp.JSON200 == nil {

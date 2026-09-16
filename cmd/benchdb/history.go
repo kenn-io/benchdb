@@ -78,8 +78,8 @@ func runHistoryExportConfig(ctx context.Context, cfg historyExportConfig, stdout
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetHistoryForResultWithResponse(ctx, cfg.resultID, bearerRequestEditor(bearer))
-	if err != nil {
+	resp, err := client.GetHistoryForResultWithResponse(ctx, &benchdb.GetHistoryForResultRequestOptions{PathParams: &benchdb.GetHistoryForResultPath{BenchmarkResultID: cfg.resultID}}, bearerRequestEditor(bearer))
+	if err != nil && (resp == nil || resp.StatusCode/100 == 2) {
 		return fmt.Errorf("get history from %s: %w", cfg.server, err)
 	}
 	if resp.JSON200 == nil {
@@ -125,7 +125,7 @@ func renderHistoryCSV(resultID string, series *benchdb.HistorySeries) ([]byte, e
 		right := samples[j]
 		switch {
 		case left.CommitTimestamp == nil && right.CommitTimestamp == nil:
-			return left.BenchmarkResultId < right.BenchmarkResultId
+			return left.BenchmarkResultID < right.BenchmarkResultID
 		case left.CommitTimestamp == nil:
 			return false
 		case right.CommitTimestamp == nil:
@@ -133,14 +133,14 @@ func renderHistoryCSV(resultID string, series *benchdb.HistorySeries) ([]byte, e
 		case !left.CommitTimestamp.Equal(*right.CommitTimestamp):
 			return left.CommitTimestamp.Before(*right.CommitTimestamp)
 		default:
-			return left.BenchmarkResultId < right.BenchmarkResultId
+			return left.BenchmarkResultID < right.BenchmarkResultID
 		}
 	})
 
 	for _, sample := range samples {
 		if err := writer.Write([]string{
 			formatHistoryTime(sample.CommitTimestamp),
-			sample.BenchmarkResultId,
+			sample.BenchmarkResultID,
 			sample.CommitHash,
 			formatHistoryFloat(sample.SingleValueSummary),
 			formatOptionalFloat(sample.Mean),
@@ -161,8 +161,8 @@ func historySamples(series *benchdb.HistorySeries) []benchdb.HistorySample {
 	if series.Samples == nil {
 		return nil
 	}
-	samples := make([]benchdb.HistorySample, len(*series.Samples))
-	copy(samples, *series.Samples)
+	samples := make([]benchdb.HistorySample, len(series.Samples))
+	copy(samples, series.Samples)
 	return samples
 }
 

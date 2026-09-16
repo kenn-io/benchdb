@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -485,7 +486,7 @@ func runAdminAlertsDeliverReal(
 func writeAdminAlertDeliverySummary(stdout io.Writer, format string, summary service.AlertDeliverySummary) error {
 	switch format {
 	case "json":
-		out, err := json.MarshalIndent(summary, "", "  ")
+		out, err := json.Marshal(summary, jsontext.WithIndent("  "))
 		if err != nil {
 			return fmt.Errorf("encode output: %w", err)
 		}
@@ -587,7 +588,7 @@ func runAdminAlertsEvaluateReal(
 func writeAdminAlertsSummary(stdout io.Writer, format string, summary service.AlertEvaluationSummary) error {
 	switch format {
 	case "json":
-		out, err := json.MarshalIndent(adminAlertsSummaryOutputOf(summary), "", "  ")
+		out, err := json.Marshal(adminAlertsSummaryOutputOf(summary), jsontext.WithIndent("  "))
 		if err != nil {
 			return fmt.Errorf("encode output: %w", err)
 		}
@@ -622,17 +623,17 @@ type adminAlertsSummaryOutput struct {
 }
 
 type adminAlertEventOutput struct {
-	ID           string          `json:"id"`
-	RuleID       string          `json:"rule_id"`
-	Kind         string          `json:"kind"`
-	Status       string          `json:"status"`
-	StatusReason string          `json:"status_reason"`
-	RunID        *string         `json:"run_id,omitempty"`
-	CommitSHA    *string         `json:"commit_sha,omitempty"`
-	Repository   string          `json:"repository"`
-	ReportURL    string          `json:"report_url"`
-	Summary      json.RawMessage `json:"summary"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID           string         `json:"id"`
+	RuleID       string         `json:"rule_id"`
+	Kind         string         `json:"kind"`
+	Status       string         `json:"status"`
+	StatusReason string         `json:"status_reason"`
+	RunID        *string        `json:"run_id,omitempty"`
+	CommitSHA    *string        `json:"commit_sha,omitempty"`
+	Repository   string         `json:"repository"`
+	ReportURL    string         `json:"report_url"`
+	Summary      jsontext.Value `json:"summary"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 func adminAlertsSummaryOutputOf(summary service.AlertEvaluationSummary) adminAlertsSummaryOutput {
@@ -668,11 +669,11 @@ func adminAlertsSummaryOutputOf(summary service.AlertEvaluationSummary) adminAle
 	return out
 }
 
-func rawJSONOrNull(b []byte) json.RawMessage {
+func rawJSONOrNull(b []byte) jsontext.Value {
 	if len(b) == 0 {
-		return json.RawMessage("null")
+		return jsontext.Value("null")
 	}
-	return json.RawMessage(b)
+	return jsontext.Value(b)
 }
 
 func writeAdminAlertsWarnings(stderr io.Writer, summary service.AlertEvaluationSummary) {
@@ -852,7 +853,7 @@ func adminRepairSummaryEmpty(summary commitrepair.Summary) bool {
 func writeAdminRepairSummary(stdout io.Writer, format string, summary commitrepair.Summary) error {
 	switch format {
 	case "json":
-		out, err := json.MarshalIndent(summary, "", "  ")
+		out, err := json.Marshal(summary, jsontext.WithIndent("  "))
 		if err != nil {
 			return fmt.Errorf("encode output: %w", err)
 		}

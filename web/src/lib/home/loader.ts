@@ -1,8 +1,8 @@
 import type { createBenchDBClient } from "../api/client";
-import type { components } from "../api/schema";
+import type { RecentRunListItem } from "../api/benchdb";
 
 type Client = ReturnType<typeof createBenchDBClient>;
-type RecentRun = components["schemas"]["RecentRunListItem"];
+type RecentRun = RecentRunListItem;
 type RecentRunRepository = { repository: string };
 type RecentRunCommit = NonNullable<RecentRun["commit"]> & {
   message?: string | null;
@@ -74,8 +74,8 @@ export interface RecentRunsQuery {
 
 export const RECENT_RUNS_PAGE_SIZE = 25;
 
-function recentRunsError(res: { error?: { detail?: string } | undefined }): Error {
-  return new Error(res.error?.detail ?? "failed to list recent runs");
+function recentRunsError(res: { data?: unknown }): Error {
+  return new Error((res.data as { detail?: string })?.detail ?? "failed to list recent runs");
 }
 
 export async function listRecentRuns(
@@ -94,10 +94,8 @@ export async function listRecentRuns(
   }
   if (query.q) apiQuery.q = query.q;
   if (query.offset) apiQuery.offset = query.offset;
-  const res = await client.GET("/api/runs/recent", {
-    params: { query: apiQuery },
-  });
-  if (res.error || !res.data) {
+  const res = await client.listRecentRuns(apiQuery);
+  if (res.status >= 400 || !res.data) {
     throw recentRunsError(res);
   }
   return {

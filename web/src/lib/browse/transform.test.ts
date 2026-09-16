@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { components } from "../api/schema";
+import type { BenchmarkListItem } from "../api/benchdb";
 import {
   formatDate,
   formatSVS,
@@ -11,8 +11,6 @@ import {
   windowStartIso,
   type BrowseRow,
 } from "./transform";
-
-type BenchmarkListItem = components["schemas"]["BenchmarkListItem"];
 
 function item(over: Partial<BenchmarkListItem> = {}): BenchmarkListItem {
   return {

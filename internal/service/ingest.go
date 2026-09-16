@@ -1,11 +1,11 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -176,14 +176,19 @@ func canonicalSubmissionPayloadSHA256(req SubmitRequest) (string, error) {
 		return "", fmt.Errorf("encode submission payload: %w", err)
 	}
 	var canonicalObject map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err := decoder.Decode(&canonicalObject); err != nil {
+	if err := json.Unmarshal(payload, &canonicalObject, json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, out *any) error {
+		if dec.PeekKind() != '0' {
+			return errors.ErrUnsupported
+		}
+		raw, err := dec.ReadValue()
+		*out = raw.Clone()
+		return err
+	}))); err != nil {
 		return "", fmt.Errorf("normalize submission payload: %w", err)
 	}
 	delete(canonicalObject, "submission_key")
 	preserveEmptyCollectionPresence(req, canonicalObject)
-	payload, err = json.Marshal(canonicalObject)
+	payload, err = json.Marshal(canonicalObject, json.Deterministic(true))
 	if err != nil {
 		return "", fmt.Errorf("canonicalize submission payload: %w", err)
 	}
@@ -594,8 +599,6 @@ func stringifyTagValue(key string, v any) (string, bool, error) {
 			return "True", false, nil
 		}
 		return "False", false, nil
-	case json.Number:
-		return x.String(), false, nil
 	case int:
 		return strconv.Itoa(x), false, nil
 	case int32:

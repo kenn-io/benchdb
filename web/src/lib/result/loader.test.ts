@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -39,7 +41,7 @@ const detail = {
 };
 
 function fakeClient(data: unknown, error = false): Client {
-  return { GET: vi.fn(async () => (error ? { error: { detail: "boom" } } : { data })) } as unknown as Client;
+  return getBenchDB({get: vi.fn(async () => (error ? { error: { detail: "boom" } } : { status: 200,  data }))} as unknown as AxiosInstance) as unknown as Client;
 }
 
 describe("loadResult", () => {
@@ -161,15 +163,12 @@ describe("loadResultHistory", () => {
         zscorestats: null,
       },
     ];
-    const client = {
-      GET: vi.fn(async () => ({ data: { history_fingerprint: "fp1", samples } })),
-    } as unknown as Client;
+    const GET = vi.fn(async () => ({ status: 200, data: { history_fingerprint: "fp1", samples } }));
+    const client = getBenchDB({ get: GET } as unknown as AxiosInstance);
 
     const points = await loadResultHistory(client, "r1");
 
     expect(points.map((point) => point.resultId)).toEqual(["r1", "r2"]);
-    expect(client.GET).toHaveBeenCalledWith("/api/history/{benchmark_result_id}", {
-      params: { path: { benchmark_result_id: "r1" } },
-    });
+    expect(GET).toHaveBeenCalledWith("/api/history/r1", undefined);
   });
 });

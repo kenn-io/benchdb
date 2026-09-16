@@ -2,13 +2,13 @@
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
-  import type { components } from "../api/schema";
+  import type { MeOutputBody, TokenView, CreateTokenOutputBody, AlertRuleView, AlertEventView } from "../api/benchdb";
 
-  type User = components["schemas"]["MeOutputBody"];
-  type Token = components["schemas"]["TokenView"];
-  type CreatedToken = components["schemas"]["CreateTokenOutputBody"];
-  type AlertRule = components["schemas"]["AlertRuleView"];
-  type AlertEvent = components["schemas"]["AlertEventView"];
+  type User = MeOutputBody;
+  type Token = TokenView;
+  type CreatedToken = CreateTokenOutputBody;
+  type AlertRule = AlertRuleView;
+  type AlertEvent = AlertEventView;
   type LoadState = "loading" | "signed-out" | "signed-in" | "error";
 
   let { baseUrl = "" }: { baseUrl?: string } = $props();
@@ -50,21 +50,21 @@
     pageError = null;
     let me;
     try {
-      me = await client.GET("/api/users/me");
+      me = await client.usersMe();
     } catch (err) {
       loadState = "error";
       pageError = messageOf(err, "failed to load account");
       return;
     }
-    if (me.error || !me.data) {
+    if (me.status >= 400 || !me.data) {
       if (isAuthError(me)) {
         loadState = "signed-out";
         user = null;
-        pageError = detailOf(me.error, "authentication required");
+        pageError = detailOf(me.data, "authentication required");
         return;
       }
       loadState = "error";
-      pageError = detailOf(me.error, "failed to load account");
+      pageError = detailOf(me.data, "failed to load account");
       return;
     }
 
@@ -77,13 +77,13 @@
     tokenError = null;
     let res;
     try {
-      res = await client.GET("/api/tokens");
+      res = await client.listTokens();
     } catch (err) {
       tokenError = messageOf(err, "failed to load API tokens");
       return;
     }
-    if (res.error || !res.data) {
-      tokenError = detailOf(res.error, "failed to load API tokens");
+    if (res.status >= 400 || !res.data) {
+      tokenError = detailOf(res.data, "failed to load API tokens");
       return;
     }
     tokens = res.data.tokens ?? [];
@@ -93,13 +93,13 @@
     alertError = null;
     let res;
     try {
-      res = await client.GET("/api/alert-rules");
+      res = await client.listAlertRules();
     } catch (err) {
       alertError = messageOf(err, "failed to load alert rules");
       return;
     }
-    if (res.error || !res.data) {
-      alertError = detailOf(res.error, "failed to load alert rules");
+    if (res.status >= 400 || !res.data) {
+      alertError = detailOf(res.data, "failed to load alert rules");
       return;
     }
     alertRules = res.data.rules ?? [];
@@ -117,13 +117,13 @@
     createdToken = null;
     let res;
     try {
-      res = await client.POST("/api/tokens", { body: { name } });
+      res = await client.createToken({ name });
     } catch (err) {
       tokenError = messageOf(err, "failed to create API token");
       return;
     }
-    if (res.error || !res.data) {
-      tokenError = detailOf(res.error, "failed to create API token");
+    if (res.status >= 400 || !res.data) {
+      tokenError = detailOf(res.data, "failed to create API token");
       return;
     }
 
@@ -144,13 +144,13 @@
     tokenError = null;
     let res;
     try {
-      res = await client.DELETE("/api/tokens/{id}", { params: { path: { id: token.id } } });
+      res = await client.deleteToken(token.id);
     } catch (err) {
       tokenError = messageOf(err, `failed to revoke ${token.name}`);
       return;
     }
-    if (res.error) {
-      tokenError = detailOf(res.error, `failed to revoke ${token.name}`);
+    if (res.status >= 400) {
+      tokenError = detailOf(res.data, `failed to revoke ${token.name}`);
       return;
     }
     tokens = tokens.filter((row) => row.id !== token.id);
@@ -189,13 +189,13 @@
 
     let res;
     try {
-      res = await client.POST("/api/alert-rules", { body });
+      res = await client.createAlertRule(body);
     } catch (err) {
       alertError = messageOf(err, "failed to create alert rule");
       return;
     }
-    if (res.error || !res.data) {
-      alertError = detailOf(res.error, "failed to create alert rule");
+    if (res.status >= 400 || !res.data) {
+      alertError = detailOf(res.data, "failed to create alert rule");
       return;
     }
 
@@ -213,13 +213,13 @@
     alertError = null;
     let res;
     try {
-      res = await client.DELETE("/api/alert-rules/{id}", { params: { path: { id: rule.id } } });
+      res = await client.deleteAlertRule(rule.id);
     } catch (err) {
       alertError = messageOf(err, `failed to delete ${rule.name}`);
       return;
     }
-    if (res.error) {
-      alertError = detailOf(res.error, `failed to delete ${rule.name}`);
+    if (res.status >= 400) {
+      alertError = detailOf(res.data, `failed to delete ${rule.name}`);
       return;
     }
     alertRules = alertRules.filter((row) => row.id !== rule.id);
@@ -239,12 +239,10 @@
     eventsError = null;
     eventsLoading = true;
     try {
-      const res = await client.GET("/api/alert-rules/{id}/events", {
-        params: { path: { id: rule.id }, query: { limit: 50 } },
-      });
+      const res = await client.listAlertEvents(rule.id, { limit: 50 });
       if (!isCurrentEventRequest(requestToken, rule.id)) return;
-      if (res.error || !res.data) {
-        eventsError = detailOf(res.error, `failed to load events for ${rule.name}`);
+      if (res.status >= 400 || !res.data) {
+        eventsError = detailOf(res.data, `failed to load events for ${rule.name}`);
         return;
       }
       eventsByRule = { ...eventsByRule, [rule.id]: res.data.events ?? [] };
@@ -263,13 +261,13 @@
     logoutError = null;
     let res;
     try {
-      res = await client.POST("/api/auth/logout");
+      res = await client.authLogout();
     } catch (err) {
       logoutError = messageOf(err, "failed to log out");
       return;
     }
-    if (res.error) {
-      logoutError = detailOf(res.error, "failed to log out");
+    if (res.status >= 400) {
+      logoutError = detailOf(res.data, "failed to log out");
       return;
     }
     loadState = "signed-out";
@@ -285,8 +283,8 @@
     return requestToken === eventRequestToken && selectedRuleID === ruleID;
   }
 
-  function isAuthError(res: { error?: unknown; response?: Response }): boolean {
-    return res.response?.status === 401 || detailOf(res.error, "").toLowerCase().includes("authentication");
+  function isAuthError(res: { data?: unknown; status?: number }): boolean {
+    return res.status === 401 || detailOf(res.data, "").toLowerCase().includes("authentication");
   }
 
   function detailOf(error: unknown, fallback: string): string {

@@ -1,3 +1,5 @@
+import { getBenchDB } from "../api/benchdb";
+import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createBenchDBClient } from "../api/client";
@@ -75,15 +77,15 @@ const compareBody = {
   unit: "s",
 };
 
-function fakeClient(over: Record<string, unknown> = {}): Client {
+function fakeClient(over: Record<string, unknown> = {}) {
   const GET = vi.fn(async (url: string, opts?: { params?: { path?: { id?: string } } }) => {
     if (url in over) return over[url];
-    if (url === "/api/compare/benchmark-results") return { data: compareBody };
-    if (url === "/api/benchmark-results/{id}") {
-      return { data: detail(opts?.params?.path?.id ?? "b1") };
+    if (url === "/api/compare/benchmark-results") return { status: 200,  data: compareBody };
+    if (url.startsWith("/api/benchmark-results/")) {
+      return { status: 200,  data: detail(url.split("/").at(-1)!) };
     }
-    if (url === "/api/history/{benchmark_result_id}") {
-      return {
+    if (url.startsWith("/api/history/")) {
+      return { status: 200,
         data: {
           history_fingerprint: "fp1",
           samples: [sample("b1", 1), sample("x", 2), sample("c1", 3)],
@@ -92,12 +94,12 @@ function fakeClient(over: Record<string, unknown> = {}): Client {
     }
     throw new Error(`unexpected ${url}`);
   });
-  return { GET } as unknown as Client;
+  return { client: getBenchDB({ get: GET } as unknown as AxiosInstance), GET };
 }
 
 describe("loadCompare", () => {
   it("assembles verdicts, both sides, and the marked mini-trend", async () => {
-    const client = fakeClient();
+    const { client, GET } = fakeClient();
     const vm = await loadCompare(client, QUERY);
     expect(vm.status).toBe("regressed");
     expect(vm.lookback?.z_score).toBe(-6.3);
@@ -111,12 +113,12 @@ describe("loadCompare", () => {
   });
 
   it("sends explicit thresholds and omits null ones", async () => {
-    const client = fakeClient();
+    const { client, GET } = fakeClient();
     await loadCompare(client, { ...QUERY, thresholdZ: 3 });
-    const compareCall = (client.GET as ReturnType<typeof vi.fn>).mock.calls.find(
+    const compareCall = GET.mock.calls.find(
       (c) => c[0] === "/api/compare/benchmark-results",
     );
-    expect(compareCall?.[1]?.params?.query).toEqual({
+    expect(compareCall?.[1]?.params).toEqual({
       baseline_result_id: "b1",
       contender_result_id: "c1",
       threshold_z: 3,
@@ -124,8 +126,8 @@ describe("loadCompare", () => {
   });
 
   it("keeps selected results separate when a PR contender is absent from main history", async () => {
-    const client = fakeClient({
-      "/api/history/{benchmark_result_id}": {
+    const { client, GET } = fakeClient({
+      "/api/history/b1": { status: 200,
         data: { history_fingerprint: "fp1", samples: [sample("b1", 1)] },
       },
     });
@@ -139,17 +141,14 @@ describe("loadCompare", () => {
   });
 
   it("throws NotComparableError with the endpoint reason on a 422, before any other fetch", async () => {
-    const client = fakeClient({
-      "/api/compare/benchmark-results": {
-        error: { detail: "not comparable: history fingerprints differ" },
-        response: { status: 422 },
-      },
+    const { client, GET } = fakeClient({
+      "/api/compare/benchmark-results": { data: { detail: "not comparable: history fingerprints differ" }, status: 422 },
     });
     await expect(loadCompare(client, QUERY)).rejects.toThrow(NotComparableError);
     await expect(loadCompare(client, QUERY)).rejects.toThrow(
       "not comparable: history fingerprints differ",
     );
-    const urls = (client.GET as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    const urls = GET.mock.calls.map((c) => c[0]);
     expect(urls).toEqual([
       "/api/compare/benchmark-results",
       "/api/compare/benchmark-results",
@@ -157,11 +156,8 @@ describe("loadCompare", () => {
   });
 
   it("throws a plain error on a non-422 compare failure", async () => {
-    const client = fakeClient({
-      "/api/compare/benchmark-results": {
-        error: { detail: "boom" },
-        response: { status: 500 },
-      },
+    const { client, GET } = fakeClient({
+      "/api/compare/benchmark-results": { data: { detail: "boom" }, status: 500 },
     });
     const err = await loadCompare(client, QUERY).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
@@ -170,8 +166,8 @@ describe("loadCompare", () => {
   });
 
   it("treats null history samples as an unmarked empty mini-trend", async () => {
-    const client = fakeClient({
-      "/api/history/{benchmark_result_id}": {
+    const { client, GET } = fakeClient({
+      "/api/history/b1": { status: 200,
         data: { history_fingerprint: "fp1", samples: null },
       },
     });
@@ -182,8 +178,8 @@ describe("loadCompare", () => {
   });
 
   it("keeps the mini-trend in the comparison unit", async () => {
-    const client = fakeClient({
-      "/api/history/{benchmark_result_id}": {
+    const { client, GET } = fakeClient({
+      "/api/history/b1": { status: 200,
         data: {
           history_fingerprint: "fp1",
           samples: [

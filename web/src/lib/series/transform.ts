@@ -4,12 +4,9 @@ import {
   type RangeSelection,
 } from "@kenn-io/kit-ui/date-range-picker";
 
-import type { components } from "../api/schema";
+import type { HistorySample, ZScoreStats } from "../api/benchdb";
 import { formatDate } from "../browse/transform";
 import { exactMeasurement, formatMeasurement } from "../format";
-
-type HistorySample = components["schemas"]["HistorySample"];
-type ZScoreStats = components["schemas"]["ZScoreStats"];
 
 /** PointStats is the per-point display math derived from the engine's
  * zscorestats. The client only divides and scales — segment/step detection and
