@@ -69,7 +69,8 @@ components:
           type: string
         status_reason:
           type: string
-        summary: {}
+        summary:
+          x-go-type: any
       required:
         - id
         - rule_id
@@ -952,6 +953,7 @@ components:
           type: string
         value:
           description: The value at the given location
+          x-go-type: any
       type: object
     ErrorModel:
       additionalProperties: false

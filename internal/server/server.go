@@ -101,6 +101,17 @@ func pinGeneratedClientExtensions(doc *huma.OpenAPI) {
 			}
 		}
 	}
+	// These unconstrained values must retain arbitrary JSON, not struct{}.
+	for schemaName, propertyName := range map[string]string{
+		"AlertEventView": "summary",
+		"ErrorDetail":    "value",
+	} {
+		property := doc.Components.Schemas.Map()[schemaName].Properties[propertyName]
+		if property.Extensions == nil {
+			property.Extensions = map[string]any{}
+		}
+		property.Extensions["x-go-type"] = "any"
+	}
 	series := doc.Components.Schemas.Map()["SeriesListItem"]
 	if series == nil || series.Properties == nil {
 		return

@@ -3893,11 +3893,44 @@ type AlertEventView struct {
 	RunID        *string   `json:"run_id,omitempty"`
 	Status       string    `json:"status" validate:"required"`
 	StatusReason string    `json:"status_reason" validate:"required"`
-	Summary      struct{}  `json:"summary"`
+	Summary      any       `json:"summary"`
 }
 
 func (a AlertEventView) Validate() error {
-	return runtime.ConvertValidatorError(typesValidator.Struct(a))
+	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(a.CreatedAt, "required"); err != nil {
+		errors = errors.Append("CreatedAt", err)
+	}
+	if err := typesValidator.Var(a.ID, "required"); err != nil {
+		errors = errors.Append("ID", err)
+	}
+	if err := typesValidator.Var(a.Kind, "required"); err != nil {
+		errors = errors.Append("Kind", err)
+	}
+	if err := typesValidator.Var(a.ReportURL, "required"); err != nil {
+		errors = errors.Append("ReportURL", err)
+	}
+	if err := typesValidator.Var(a.Repository, "required"); err != nil {
+		errors = errors.Append("Repository", err)
+	}
+	if err := typesValidator.Var(a.RuleID, "required"); err != nil {
+		errors = errors.Append("RuleID", err)
+	}
+	if err := typesValidator.Var(a.Status, "required"); err != nil {
+		errors = errors.Append("Status", err)
+	}
+	if err := typesValidator.Var(a.StatusReason, "required"); err != nil {
+		errors = errors.Append("StatusReason", err)
+	}
+	if v, ok := any(a.Summary).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Summary", err)
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type AlertRuleBody struct {
@@ -4639,7 +4672,22 @@ type ErrorDetail struct {
 	Message *string `json:"message,omitempty"`
 
 	// Value The value at the given location
-	Value *struct{} `json:"value,omitempty"`
+	Value *any `json:"value,omitempty"`
+}
+
+func (e ErrorDetail) Validate() error {
+	var errors runtime.ValidationErrors
+	if e.Value != nil {
+		if v, ok := any(e.Value).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Value", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type ErrorModel struct {
