@@ -27,6 +27,7 @@ provides browsing, comparison, and regression analysis.
   match text or restate configuration.
 - `AGENTS.md` is the source of truth for standing rules. `CLAUDE.md`, when
   present, must remain a symlink to it.
+- Code reviewers must follow [REVIEW.md](REVIEW.md).
 
 ## Go development
 
