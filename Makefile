@@ -173,7 +173,7 @@ go-lint-ci:
 
 .PHONY: huma-check
 huma-check:
-	go run go.kenn.io/kit/cmd/huma-check@efb469cee12d24fd52640ea05b03ced275bf4370 ./...
+	go run go.kenn.io/kit/cmd/huma-check@3e1f59e9011e878ec595aa04aebc8a77c5292c4d ./...
 
 .PHONY: go-vet
 go-vet:
