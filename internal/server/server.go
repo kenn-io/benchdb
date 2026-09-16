@@ -149,6 +149,9 @@ func humaConfig() huma.Config {
 			Unmarshal: func(data []byte, v any) error { return json.Unmarshal(data, v) },
 		},
 	}
+	// Huma resolves structured content types such as application/problem+json
+	// through the suffix entry.
+	config.Formats["json"] = config.Formats["application/json"]
 	return config
 }
 

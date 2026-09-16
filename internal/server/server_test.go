@@ -28,6 +28,22 @@ func noAuthHandler() *api.AuthHandler {
 	return api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
 }
 
+func TestSignedOutAccountReturnsProblemJSON(t *testing.T) {
+	handler := server.New(nil, auth.New("", false, nil, nil), commit.LocalProvider{}, noAuthHandler(), nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/users/me", nil)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, "application/problem+json", rec.Header().Get("Content-Type"))
+	var problem struct {
+		Status int `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &problem))
+	assert.Equal(t, http.StatusUnauthorized, problem.Status)
+}
+
 // TestServerServesSeededHistory boots the real net/http handler (humago, not
 // humatest) over real Postgres and checks the health and history endpoints after
 // seeding — exercising the full routing the dev server uses.
