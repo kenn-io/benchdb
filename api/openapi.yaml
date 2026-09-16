@@ -1889,9 +1889,7 @@ components:
         series:
           items:
             $ref: "#/components/schemas/SeriesListItem"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - series
         - next_page_cursor

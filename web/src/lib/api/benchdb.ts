@@ -884,8 +884,7 @@ export interface SeriesPage {
   readonly $schema?: string;
   /** @nullable */
   next_page_cursor: string | null;
-  /** @nullable */
-  series: SeriesListItem[] | null;
+  series: SeriesListItem[];
 }
 
 export interface StatsInput {

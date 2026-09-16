@@ -314,7 +314,13 @@ func TestOpenAPICommandEmitsDowngradedSpec(t *testing.T) {
 }
 
 func TestLeafHelpDoesNotConsumeFlagValues(t *testing.T) {
-	srv := newCLITestServer(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/series", r.URL.Path)
+		assert.Equal(t, "-h", r.URL.Query().Get("q"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"series":[],"next_page_cursor":null}`)
+	}))
+	t.Cleanup(srv.Close)
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{

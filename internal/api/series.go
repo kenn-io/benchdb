@@ -29,7 +29,7 @@ type ListSeriesInput struct {
 // SeriesPage is the series list/search response: a page of rows plus the opaque
 // cursor for the next page (null when the page was not full).
 type SeriesPage struct {
-	Series         []service.SeriesListItem `json:"series"`
+	Series         []service.SeriesListItem `json:"series" nullable:"false"`
 	NextPageCursor *string                  `json:"next_page_cursor"`
 }
 

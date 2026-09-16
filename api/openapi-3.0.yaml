@@ -1770,7 +1770,6 @@ components:
         series:
           items:
             $ref: "#/components/schemas/SeriesListItem"
-          nullable: true
           type: array
       required:
         - series

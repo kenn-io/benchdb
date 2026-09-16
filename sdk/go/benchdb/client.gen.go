@@ -5370,7 +5370,7 @@ type SeriesPage struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema         *string          `json:"$schema,omitempty"`
 	NextPageCursor *string          `json:"next_page_cursor,omitempty" validate:"required"`
-	Series         []SeriesListItem `json:"series,omitempty" validate:"required"`
+	Series         []SeriesListItem `json:"series" validate:"required"`
 }
 
 func (s SeriesPage) Validate() error {
