@@ -70,7 +70,9 @@ components:
         status_reason:
           type: string
         summary:
-          x-go-type: any
+          x-go-type: jsontext.Value
+          x-go-type-import:
+            path: encoding/json/jsontext
       required:
         - id
         - rule_id
@@ -953,7 +955,9 @@ components:
           type: string
         value:
           description: The value at the given location
-          x-go-type: any
+          x-go-type: jsontext.Value
+          x-go-type-import:
+            path: encoding/json/jsontext
       type: object
     ErrorModel:
       additionalProperties: false

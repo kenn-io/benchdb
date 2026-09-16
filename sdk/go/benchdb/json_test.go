@@ -14,7 +14,7 @@ import (
 )
 
 func TestAlertSummaryPreservesArbitraryJSON(t *testing.T) {
-	for _, value := range []string{`{"count":2,"nested":{"enabled":true}}`, `"summary"`, `[1,"two",{"three":3}]`} {
+	for _, value := range []string{`{"count":2,"nested":{"enabled":true}}`, `"summary"`, `[1,"two",{"three":3}]`, `9007199254740993`} {
 		t.Run(value, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
@@ -31,13 +31,13 @@ func TestAlertSummaryPreservesArbitraryJSON(t *testing.T) {
 			require.Len(t, response.JSON200.Events, 1)
 			got, err := json.Marshal(response.JSON200.Events[0].Summary)
 			require.NoError(t, err)
-			assert.JSONEq(t, value, string(got))
+			assert.Equal(t, value, string(got))
 		})
 	}
 }
 
 func TestErrorDetailPreservesArbitraryJSON(t *testing.T) {
-	for _, value := range []string{`{"count":2,"nested":{"enabled":true}}`, `"invalid"`, `[1,"two",{"three":3}]`} {
+	for _, value := range []string{`{"count":2,"nested":{"enabled":true}}`, `"invalid"`, `[1,"two",{"three":3}]`, `9007199254740993`} {
 		t.Run(value, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/problem+json")
@@ -56,7 +56,7 @@ func TestErrorDetailPreservesArbitraryJSON(t *testing.T) {
 			require.Len(t, response.ApplicationProblemPlusJSON422.Errors, 1)
 			got, err := json.Marshal(response.ApplicationProblemPlusJSON422.Errors[0].Value)
 			require.NoError(t, err)
-			assert.JSONEq(t, value, string(got))
+			assert.Equal(t, value, string(got))
 		})
 	}
 }

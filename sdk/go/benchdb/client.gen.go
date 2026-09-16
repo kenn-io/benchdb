@@ -4,6 +4,7 @@ package benchdb
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -3883,17 +3884,17 @@ type Aggregates struct {
 }
 
 type AlertEventView struct {
-	CommitSha    *string   `json:"commit_sha,omitempty"`
-	CreatedAt    time.Time `json:"created_at" validate:"required"`
-	ID           string    `json:"id" validate:"required"`
-	Kind         string    `json:"kind" validate:"required"`
-	ReportURL    string    `json:"report_url" validate:"required"`
-	Repository   string    `json:"repository" validate:"required"`
-	RuleID       string    `json:"rule_id" validate:"required"`
-	RunID        *string   `json:"run_id,omitempty"`
-	Status       string    `json:"status" validate:"required"`
-	StatusReason string    `json:"status_reason" validate:"required"`
-	Summary      any       `json:"summary"`
+	CommitSha    *string        `json:"commit_sha,omitempty"`
+	CreatedAt    time.Time      `json:"created_at" validate:"required"`
+	ID           string         `json:"id" validate:"required"`
+	Kind         string         `json:"kind" validate:"required"`
+	ReportURL    string         `json:"report_url" validate:"required"`
+	Repository   string         `json:"repository" validate:"required"`
+	RuleID       string         `json:"rule_id" validate:"required"`
+	RunID        *string        `json:"run_id,omitempty"`
+	Status       string         `json:"status" validate:"required"`
+	StatusReason string         `json:"status_reason" validate:"required"`
+	Summary      jsontext.Value `json:"summary"`
 }
 
 func (a AlertEventView) Validate() error {
@@ -4672,7 +4673,7 @@ type ErrorDetail struct {
 	Message *string `json:"message,omitempty"`
 
 	// Value The value at the given location
-	Value *any `json:"value,omitempty"`
+	Value *jsontext.Value `json:"value,omitempty"`
 }
 
 func (e ErrorDetail) Validate() error {

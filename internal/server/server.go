@@ -110,7 +110,8 @@ func pinGeneratedClientExtensions(doc *huma.OpenAPI) {
 		if property.Extensions == nil {
 			property.Extensions = map[string]any{}
 		}
-		property.Extensions["x-go-type"] = "any"
+		property.Extensions["x-go-type"] = "jsontext.Value"
+		property.Extensions["x-go-type-import"] = map[string]string{"path": "encoding/json/jsontext"}
 	}
 	series := doc.Components.Schemas.Map()["SeriesListItem"]
 	if series == nil || series.Properties == nil {
