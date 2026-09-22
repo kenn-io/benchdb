@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, interceptNavClick, navigate, type Route } from "../router";
   import ThemeToggle from "./ThemeToggle.svelte";
 
@@ -52,7 +53,7 @@
 </script>
 
 <header class="topbar">
-  <a class="brand" href="/" onclick={(e) => go(e, "/")}>
+  <a class="brand" href={appURL("/")} onclick={(e) => go(e, "/")}>
     <span class="brand-mark" aria-hidden="true">B</span>
     <span class="brand-name">BenchDB</span>
   </a>
@@ -62,11 +63,11 @@
         class="nav-link"
         class:active={active(item)}
         aria-current={ariaCurrent(item)}
-        href={item.href}
+        href={appURL(item.href)}
         onclick={(e) => go(e, item.href)}
       >{item.label}</a>
     {/each}
-    <a class="nav-link docs-link" href="/docs">API Docs</a>
+    <a class="nav-link docs-link" href={appURL("/docs")}>API Docs</a>
   </nav>
   <div class="header-end">
     <form class="search" role="search" aria-label="Global series search" onsubmit={submit}>

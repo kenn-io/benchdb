@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { SearchInput } from "@kenn-io/kit-ui/search-input";
   import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
   import { Toggle } from "@kenn-io/kit-ui/toggle";
@@ -211,7 +212,7 @@
         <span>{loadedSummary}</span>
         {#if nextCursor !== null}<span>More available</span>{/if}
       </div>
-      <a class="button-pill secondary" href="/results" onclick={(e) => go(e, "/results")}>Result explorer</a>
+      <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Result explorer</a>
     </div>
   </header>
 
@@ -294,7 +295,7 @@
         </label>
         <div class="filter-actions">
           <button type="submit" class="button-pill">Apply advanced filters</button>
-          <a class="button-pill secondary" href="/series" onclick={(e) => go(e, "/series")}>Clear</a>
+          <a class="button-pill secondary" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Clear</a>
         </div>
       </form>
     </section>

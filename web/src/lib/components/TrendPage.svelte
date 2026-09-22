@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import {
     DateRangePicker,
     localDateStr,
@@ -310,7 +311,7 @@
 
   function browserOrigin(): string {
     if (typeof window === "undefined") return "";
-    return window.location.origin;
+    return window.location.origin + appURL("/").replace(/\/$/, "");
   }
 
   function pointMatchesFilter(point: SeriesPoint, filter: TrendFilter): boolean {
@@ -423,7 +424,7 @@
       {#if source.kind === "result"}
         <a
           class="button-pill"
-          href={`/results/${source.resultId}`}
+          href={appURL(`/results/${source.resultId}`)}
           onclick={(e) => {
             if (!interceptNavClick(e)) return;
             e.preventDefault();
@@ -647,7 +648,7 @@
           <div class="actions">
             <a
               class="button-pill"
-              href={`/results/${sel.resultId}`}
+              href={appURL(`/results/${sel.resultId}`)}
               onclick={(e) => {
                 if (!interceptNavClick(e)) return;
                 e.preventDefault();

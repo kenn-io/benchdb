@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -147,7 +148,7 @@
     <section class="panel empty-panel">
       <h2>No results found for this batch</h2>
       <p>Check the batch_id or open the recent-runs dashboard.</p>
-      <a class="button-pill" href="/" onclick={(e) => go(e, "/")}>Recent runs</a>
+      <a class="button-pill" href={appURL("/")} onclick={(e) => go(e, "/")}>Recent runs</a>
     </section>
   </main>
 {:else}
@@ -192,7 +193,7 @@
           </dd>
         </dl>
       </div>
-      <a class="button-pill" href="/series" onclick={(e) => go(e, "/series")}>Browse series</a>
+      <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
     </section>
 
     <section class="panel table-panel" aria-label="Runs in batch">
@@ -223,7 +224,7 @@
               <td data-label="Run">
                 <a
                   class="row-primary-link mono"
-                  href={run.runHref}
+                  href={appURL(run.runHref)}
                   aria-label={`Open run ${run.runId}`}
                   title={run.runId}
                   onclick={(e) => go(e, run.runHref)}
@@ -243,7 +244,7 @@
                   {#if run.ciReportHref}
                     <a
                       class="button-pill"
-                      href={run.ciReportHref}
+                      href={appURL(run.ciReportHref)}
                       aria-label={`Open CI report for run ${run.runId}`}
                       onclick={(e) => go(e, run.ciReportHref!)}
                     >CI report</a>
@@ -282,7 +283,7 @@
               <td data-label="Benchmark">
                 <a
                   class="row-primary-link"
-                  href={row.resultHref}
+                  href={appURL(row.resultHref)}
                   aria-label={`Open result ${row.id} for ${row.benchmarkName}`}
                   onclick={(e) => go(e, row.resultHref)}
                 >{row.benchmarkName}</a>
@@ -305,7 +306,7 @@
               <td data-label="Run">
                 <a
                   class="mono"
-                  href={row.runHref}
+                  href={appURL(row.runHref)}
                   aria-label={`Open run ${row.runId}`}
                   title={row.runId}
                   onclick={(e) => go(e, row.runHref)}
@@ -317,7 +318,7 @@
                   {@const trendHref = row.trendHref}
                   <a
                     class="button-pill secondary"
-                    href={trendHref}
+                    href={appURL(trendHref)}
                     aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
                     onclick={(e) => go(e, trendHref)}
                   >

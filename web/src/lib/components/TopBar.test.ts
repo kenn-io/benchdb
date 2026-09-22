@@ -102,3 +102,19 @@ describe("TopBar", () => {
     expect(window.location.search).toBe("?q=x");
   });
 });
+
+it("keeps native links and SPA navigation under the deployed base path", async () => {
+  const base = document.createElement("base");
+  base.href = "/tools/bench/";
+  document.head.append(base);
+  try {
+    render(TopBar);
+    expect(screen.getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/tools/bench/series");
+    expect(screen.getByRole("link", { name: "API Docs" })).toHaveAttribute("href", "/tools/bench/docs");
+    await fireEvent.click(screen.getByRole("link", { name: "Benchmarks" }));
+    expect(window.location.pathname).toBe("/tools/bench/series");
+  } finally {
+    base.remove();
+    history.replaceState(null, "", "/");
+  }
+});

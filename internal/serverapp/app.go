@@ -26,7 +26,8 @@
 //	                          BENCHDB_SESSION_SECRET are required; enables /api/auth login.
 //	BENCHDB_OIDC_CLIENT_ID   OIDC relying-party client id.
 //	BENCHDB_OIDC_CLIENT_SECRET OIDC relying-party client secret.
-//	BENCHDB_INTENDED_BASE_URL Public base URL; the OIDC redirect and post-login
+//	BENCHDB_INTENDED_BASE_URL Public base URL, including the application path prefix.
+//	                          The OIDC redirect and post-login
 //	                          target derive from it, and cookies are non-Secure only
 //	                          when its host is localhost/127.0.0.1/::1.
 //	BENCHDB_SESSION_SECRET   HMAC key for the session and pending-login cookies. When
@@ -42,6 +43,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"syscall"
 	"time"
@@ -232,6 +234,15 @@ func loadConfig() (config, error) {
 	oidcClientSecret := os.Getenv("BENCHDB_OIDC_CLIENT_SECRET")
 	baseURL := os.Getenv("BENCHDB_INTENDED_BASE_URL")
 	sessionSecret := os.Getenv("BENCHDB_SESSION_SECRET")
+	if baseURL != "" {
+		u, err := url.Parse(baseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+			u.EscapedPath() != u.Path || (u.Path != "" && path.Clean(u.Path) != strings.TrimSuffix(u.Path, "/") && u.Path != "/") {
+			return config{}, errors.New("BENCHDB_INTENDED_BASE_URL must be an absolute HTTP(S) URL with a clean, unescaped path and no credentials, query, or fragment")
+		}
+		baseURL = strings.TrimRight(u.String(), "/")
+	}
 	if err := validateOIDCConfig(oidcIssuerURL, oidcClientID, oidcClientSecret, baseURL, sessionSecret); err != nil {
 		return config{}, err
 	}

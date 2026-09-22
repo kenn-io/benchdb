@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import type { BrowseRow, SortKey, SortSpec } from "../browse/transform";
   import { interceptNavClick } from "../router";
   import MeasurementValue from "./MeasurementValue.svelte";
@@ -82,7 +83,7 @@
             <span class="identity-stack">
               <a
                 class="row-primary-link"
-                href={`/benchmarks/${row.benchmarkId}`}
+                href={appURL(`/benchmarks/${row.benchmarkId}`)}
                 onclick={(e) => {
                   if (!onopen || !interceptNavClick(e)) return;
                   e.preventDefault();

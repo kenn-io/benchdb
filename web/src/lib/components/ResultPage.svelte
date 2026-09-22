@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -209,7 +210,7 @@
       <h1>Result deleted</h1>
       {#if actionMsg}<p>{actionMsg}</p>{/if}
       <div class="action-row">
-        <a class="button-pill primary" href="/series" onclick={(e) => go(e, "/series")}>Browse series</a>
+        <a class="button-pill primary" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
       </div>
     </section>
   </main>
@@ -241,11 +242,11 @@
           {#if historyAvailable}
             <a
               class="button-pill"
-              href={seriesHref}
+              href={appURL(seriesHref)}
               onclick={(e) => go(e, seriesHref)}
             >Explore full series</a>
           {/if}
-          <a class="button-pill" href={vm.historyExportHref} download={`benchdb-history-${vm.id}.json`}>
+          <a class="button-pill" href={appURL(vm.historyExportHref)} download={`benchdb-history-${vm.id}.json`}>
             Export history JSON
           </a>
         </div>

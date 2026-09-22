@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "./lib/base-path";
   import { onMount } from "svelte";
 
   import AccountPage from "./lib/components/AccountPage.svelte";
@@ -85,7 +86,7 @@
     {:else}
       <main class="not-found">
         <h1>Not found</h1>
-        <p>No page for <code>{window.location.pathname}</code>. <a href="/series">Browse all series</a>.</p>
+        <p>No page for <code>{window.location.pathname}</code>. <a href={appURL("/series")}>Browse all series</a>.</p>
       </main>
     {/if}
   </div>
@@ -95,6 +96,6 @@
     <span class="status-sep">·</span>
     <span>public reads</span>
     <span class="status-sep">·</span>
-    <a href="/openapi.yaml">OpenAPI</a>
+    <a href={appURL("/openapi.yaml")}>OpenAPI</a>
   </footer>
 </div>

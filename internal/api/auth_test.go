@@ -338,3 +338,25 @@ func TestLogoutClearsSession(t *testing.T) {
 	assert.True(t, strings.Contains(set, "Max-Age=0") || strings.Contains(set, "Max-Age=-1"),
 		"logout expires the cookie")
 }
+
+func TestLoginCookiesUnderPublicBasePath(t *testing.T) {
+	iss := oidctestsupport.New(t)
+	pool, _ := dbtest.NewPool(t)
+	store := db.NewStore(pool)
+	h := api.NewAuthHandler(iss.Client(t), store, auth.NewSessionSigner(testSessionSecret), auth.NewSigner(testSessionSecret), true, "https://example.com/tools/bench", api.NewDBCodeStore(store), false)
+	tapi := registerAuth(t, h)
+	login := tapi.Get("/api/auth/login")
+	require.Equal(t, http.StatusFound, login.Code)
+	require.Len(t, login.Result().Cookies(), 1)
+	assert.Equal(t, "/tools/bench/api/auth", login.Result().Cookies()[0].Path)
+
+	pending := api.SignPendingForTest(testSessionSecret, "state", "nonce", "verifier")
+	iss.SetNextIDToken(map[string]any{"nonce": "nonce", "email": "user@example.com", "name": "User"})
+	callback := tapi.Get("/api/auth/callback?state=state&code=xyz", "Cookie: benchdb_pending="+pending)
+	require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
+	assert.Equal(t, "https://example.com/tools/bench/", callback.Header().Get("Location"))
+	cookies := callback.Result().Cookies()
+	require.Len(t, cookies, 2)
+	assert.Equal(t, "/tools/bench/", cookies[0].Path)
+	assert.Equal(t, "/tools/bench/api/auth", cookies[1].Path)
+}

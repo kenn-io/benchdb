@@ -13,7 +13,7 @@ truth; this table is the public deployment summary.
 | --- | --- | --- |
 | `BENCHDB_DB_URL` | yes | Postgres connection URL. `DATABASE_URL` is accepted only as a fallback when `BENCHDB_DB_URL` is unset. |
 | `BENCHDB_ADDR` | no | Listen address. Defaults to `:8080`. |
-| `BENCHDB_INTENDED_BASE_URL` | for OIDC/session deployments | Public browser URL for redirects, report links, and cookie security decisions. |
+| `BENCHDB_INTENDED_BASE_URL` | for OIDC or a path prefix | Public browser URL, including the optional path prefix, for routing, redirects, report links, and cookies. |
 | `BENCHDB_OIDC_ISSUER_URL` | for OIDC | OIDC issuer URL. If any OIDC variable is set, all OIDC variables, `BENCHDB_INTENDED_BASE_URL`, and `BENCHDB_SESSION_SECRET` must be set. |
 | `BENCHDB_OIDC_CLIENT_ID` | for OIDC | OIDC client id. |
 | `BENCHDB_OIDC_CLIENT_SECRET` | for OIDC | OIDC client secret. |
@@ -48,6 +48,32 @@ plaintext in the CI secret named `BENCHDB_TOKEN`.
 Cookie `Secure` behavior follows `BENCHDB_INTENDED_BASE_URL`: loopback
 development hosts (`localhost`, `127.0.0.1`, `::1`) allow non-secure cookies;
 other hosts use secure cookies.
+
+## Serve behind a path prefix
+
+Set `BENCHDB_INTENDED_BASE_URL=https://example.com/tools/bench` to serve the whole application under
+`/tools/bench/`. The same binary serves assets, browser navigation, API requests, downloads, login,
+and API documentation at that prefix. An unset URL or a URL without a path serves at `/`.
+
+Forward the complete path to BenchDB; do not strip the prefix or redirect browsers to its internal
+HTTP listener. For example, with Caddy terminating HTTPS:
+
+```caddyfile
+example.com {
+    handle /tools/bench* {
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+```
+
+Configure CLI clients with `--server https://example.com/tools/bench`. Health and metrics endpoints
+also move to `/tools/bench/api/ping` and `/tools/bench/metrics`. Register the OIDC callback URL with
+the same prefix. The URL must have a clean, unescaped path with no credentials, query, or fragment.
+No separate frontend build is needed for a different prefix.
+
+Run the existing browser and CLI checks against a prefix with
+`BENCHDB_E2E_BASE_PATH=/tools/bench make e2e` (requires Docker).
+
 
 ## Local Development
 

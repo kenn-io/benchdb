@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -351,7 +352,7 @@
         <h2>Signed out</h2>
         <p>{pageError ?? "authentication required"}</p>
       </div>
-      <a class="primary-link" href="/api/auth/login">Sign in</a>
+      <a class="primary-link" href={appURL("/api/auth/login")}>Sign in</a>
     </section>
   {:else if user !== null}
     <section class="account-grid" aria-label="Account overview">
@@ -564,7 +565,7 @@
                   <dt>Created</dt>
                   <dd>{dateText(event.created_at)}</dd>
                 </dl>
-                <a href={event.report_url} aria-label={`report for ${event.id}`}>Report</a>
+                <a href={appURL(event.report_url)} aria-label={`report for ${event.id}`}>Report</a>
               </article>
             {/each}
           </div>
