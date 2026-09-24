@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { formatMeasurement } from "../format";
   import type { BrowsePreviewPoint, BrowseRow } from "../browse/transform";
   import { observedValueRange, zeroBasedValueRange } from "../series/chart-geometry";
@@ -65,7 +66,7 @@
 <article class="trend-card panel">
   <header>
     <div class="identity">
-      <a href={`/benchmarks/${row.benchmarkId}`} onclick={(event) => {
+      <a href={appURL(`/benchmarks/${row.benchmarkId}`)} onclick={(event) => {
         if (!onopen) return;
         event.preventDefault();
         onopen(row);

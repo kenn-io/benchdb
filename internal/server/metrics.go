@@ -45,12 +45,12 @@ func newMetricsRecorder(provider any) *metricsRecorder {
 	}
 }
 
-func instrumentHTTP(next http.Handler, recorder *metricsRecorder) http.Handler {
+func instrumentHTTP(next http.Handler, recorder *metricsRecorder, basePath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rec, r)
-		recorder.observe(metricMethodLabel(r.Method), routeLabel(r.URL.Path), rec.status, time.Since(start).Seconds())
+		recorder.observe(metricMethodLabel(r.Method), routeLabel(strings.TrimPrefix(r.URL.Path, basePath)), rec.status, time.Since(start).Seconds())
 	})
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { createBenchDBClient } from "../api/client";
   import { formatBytes } from "../format";
   import type { ResultViewModel } from "../result/loader";
@@ -63,7 +64,7 @@
       {#each artifacts as artifact (artifact.id)}
         <li>
           <a
-            href={`${baseUrl.replace(/\/$/, "")}/api/benchmark-results/${encodeURIComponent(result.id)}/artifacts/${encodeURIComponent(artifact.id)}`}
+            href={appURL(`${baseUrl.replace(/\/$/, "")}/api/benchmark-results/${encodeURIComponent(result.id)}/artifacts/${encodeURIComponent(artifact.id)}`)}
             download={artifact.name}
           >{artifact.name}</a>
           <span>{formatBytes(artifact.size_bytes)}</span>

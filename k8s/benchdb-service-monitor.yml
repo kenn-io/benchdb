@@ -12,6 +12,6 @@ spec:
   endpoints:
     # ServiceMonitor refers to the Service port by name, not the container port.
     - port: benchdb-service-port
-      path: /metrics
+      path: "{{BENCHDB_BASE_PATH}}/metrics"
       scheme: http
       interval: 30s

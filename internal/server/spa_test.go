@@ -26,7 +26,7 @@ func doReq(t *testing.T, h http.Handler, method, target string) *httptest.Respon
 }
 
 func TestSPAHandler(t *testing.T) {
-	h := spaHandler(testAssets())
+	h := spaHandler(testAssets(), "")
 
 	t.Run("serves index.html at root", func(t *testing.T) {
 		rec := doReq(t, h, http.MethodGet, "/")
@@ -88,7 +88,7 @@ func TestSPAHandler(t *testing.T) {
 }
 
 func TestSPAHandlerMissingIndex(t *testing.T) {
-	h := spaHandler(fstest.MapFS{}) // SPA not built: no index.html present
+	h := spaHandler(fstest.MapFS{}, "") // SPA not built: no index.html present
 	rec := doReq(t, h, http.MethodGet, "/whatever")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { untrack } from "svelte";
   import {
     SelectDropdown,
@@ -502,7 +503,7 @@
         <div class="action-row">
           <a
             class="button-pill primary"
-            href={`/benchmarks/history/${m.baseline.id}`}
+            href={appURL(`/benchmarks/history/${m.baseline.id}`)}
             onclick={(e) => go(e, `/benchmarks/history/${m.baseline.id}`)}
           >View full trend</a>
         </div>
@@ -560,7 +561,7 @@
               <th>commit</th>
               <td data-label="baseline">
                 <span class="cell-value">
-                  <a href={`/results/${m.baseline.id}`} onclick={(e) => go(e, `/results/${m.baseline.id}`)}>
+                  <a href={appURL(`/results/${m.baseline.id}`)} onclick={(e) => go(e, `/results/${m.baseline.id}`)}>
                     {m.baseline.commitSha ?? "—"}
                   </a>
                   <span class="msg">{m.baseline.commitMessage ?? ""}</span>
@@ -568,7 +569,7 @@
               </td>
               <td data-label="contender">
                 <span class="cell-value">
-                  <a href={`/results/${m.contender.id}`} onclick={(e) => go(e, `/results/${m.contender.id}`)}>
+                  <a href={appURL(`/results/${m.contender.id}`)} onclick={(e) => go(e, `/results/${m.contender.id}`)}>
                     {m.contender.commitSha ?? "—"}
                   </a>
                   <span class="msg">{m.contender.commitMessage ?? ""}</span>
@@ -597,8 +598,8 @@
 
     <section class="panel chart-panel" aria-label="Comparison trend">
       <div class="comparison-key">
-        <a class="baseline-key" href={`/results/${m.baseline.id}`} onclick={(e) => go(e, `/results/${m.baseline.id}`)}>● Baseline · {m.baseline.svsText}</a>
-        <a class="contender-key" href={`/results/${m.contender.id}`} onclick={(e) => go(e, `/results/${m.contender.id}`)}>◆ Contender · {m.contender.svsText}</a>
+        <a class="baseline-key" href={appURL(`/results/${m.baseline.id}`)} onclick={(e) => go(e, `/results/${m.baseline.id}`)}>● Baseline · {m.baseline.svsText}</a>
+        <a class="contender-key" href={appURL(`/results/${m.contender.id}`)} onclick={(e) => go(e, `/results/${m.contender.id}`)}>◆ Contender · {m.contender.svsText}</a>
         <span>Default-branch history and rolling statistics. Selected results are shown separately.</span>
       </div>
       <SeriesChart points={m.points} height={280} comparisonMarkers={m.markers} onopen={(id) => navigate(`/results/${id}`)} />

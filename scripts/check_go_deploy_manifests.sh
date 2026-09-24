@@ -23,6 +23,7 @@ render_prod_deployment="$tmp/prod-deployment.yml"
 render_app_deployment="$tmp/app-deployment.yml"
 render_prod_migration="$tmp/prod-migration.yml"
 render_prod_ingress="$tmp/prod-ingress.yml"
+render_monitor="$tmp/service-monitor.yml"
 render_config="$tmp/config.yml"
 github_app_key_file="$tmp/github-app-private-key.pem"
 failures=0
@@ -63,6 +64,9 @@ fi
 if ! render_config_manifest > "$render_config"; then
 	record_failure "failed to render config manifest"
 	: > "$render_config"
+fi
+if ! render_template_from_env k8s/benchdb-service-monitor.yml > "$render_monitor"; then
+	record_failure "failed to render service monitor manifest"
 fi
 if BENCHDB_SERVER_IMAGE_SPEC= render_deployment_manifest >/dev/null 2>&1; then
 	record_failure "empty BENCHDB_SERVER_IMAGE_SPEC render unexpectedly succeeded"
@@ -476,7 +480,7 @@ require_contains "$render_prod_deployment" "startupProbe:"
 require_contains "$render_prod_deployment" "livenessProbe:"
 require_contains "$render_prod_deployment" "readinessProbe:"
 require_absent "$render_prod_deployment" "benchdb-github-app-key"
-require_line "$render_prod_deployment" '^[[:space:]]*path:[[:space:]]*/api/ping$'
+require_line "$render_prod_deployment" '^[[:space:]]*path:[[:space:]]*"/api/ping"$'
 require_contains "$render_prod_deployment" "port: http"
 require_absent "$render_prod_deployment" "{{"
 require_yaml_kinds "$render_prod_deployment" "Deployment"
@@ -485,11 +489,11 @@ require_contains "$render_app_deployment" "secretName: benchdb-github-app-key"
 require_yaml_kinds "$render_app_deployment" "Deployment"
 
 require_yaml_kinds "$root/k8s/benchdb-service.yml" "Service"
-require_line "$root/k8s/benchdb-service-monitor.yml" '^[[:space:]]*path:[[:space:]]*/metrics$'
-require_yaml_kinds "$root/k8s/benchdb-service-monitor.yml" "ServiceMonitor"
-require_line "$render_prod_ingress" '^[[:space:]]*alb.ingress.kubernetes.io/healthcheck-path:[[:space:]]*/api/ping$'
+require_line "$render_monitor" '^[[:space:]]*path:[[:space:]]*"/metrics"$'
+require_yaml_kinds "$render_monitor" "ServiceMonitor"
+require_line "$render_prod_ingress" '^[[:space:]]*alb.ingress.kubernetes.io/healthcheck-path:[[:space:]]*"/api/ping"$'
 require_contains "$render_prod_ingress" "alb.ingress.kubernetes.io/actions.benchdb-metrics-deny"
-require_line "$render_prod_ingress" '^[[:space:]]*- path:[[:space:]]*/metrics$'
+require_line "$render_prod_ingress" '^[[:space:]]*- path:[[:space:]]*"/metrics"$'
 require_contains "$render_prod_ingress" "name: benchdb-metrics-deny"
 require_contains "$render_prod_ingress" "name: use-annotation"
 require_absent "$render_prod_ingress" "gunicorn"
@@ -497,6 +501,39 @@ require_absent "$render_prod_ingress" "{{"
 require_absent "$render_prod_ingress" "<BENCHDB_INTENDED_DNS_NAME>"
 require_absent "$render_prod_ingress" "<CERTIFICATE_ARN>"
 require_yaml_kinds "$render_prod_ingress" "Ingress"
+
+# Exercise URL-to-manifest path derivation, including root and trailing slash URLs.
+for base_url in https://benchdb.example.com https://benchdb.example.com/ https://benchdb.example.com/tools/bench https://benchdb.example.com/tools/bench/; do
+	if ! (
+		export BENCHDB_INTENDED_BASE_URL="$base_url"
+		render_deployment_manifest > "$tmp/paths-deployment.yml" || exit 1
+		render_ingress_manifest > "$tmp/paths-ingress.yml" || exit 1
+		kubectl() {
+			if [[ "$*" == 'get crd servicemonitors.monitoring.coreos.com' ]]; then return 0; fi
+			[[ "$#" == 3 && "$1" == apply && "$2" == -f ]] || return 1
+			cat "$3" > "$tmp/paths-monitor.yml"
+		}
+		apply_service_monitor_if_supported || exit 1
+		python3 - "$tmp" "$base_url" <<'PY'
+import pathlib
+import re
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+prefix = "/tools/bench" if "/tools/bench" in sys.argv[2] else ""
+deployment = (directory / "paths-deployment.yml").read_text()
+ingress = (directory / "paths-ingress.yml").read_text()
+monitor = (directory / "paths-monitor.yml").read_text()
+paths = lambda text: re.findall(r'^\s*(?:- )?path: ["\']?([^"\'\s]+)', text, re.MULTILINE)
+assert paths(deployment) == [prefix + "/api/ping"] * 3
+assert re.search(r'healthcheck-path: ["\']?' + re.escape(prefix + "/api/ping") + r'["\']?$', ingress, re.MULTILINE)
+assert paths(ingress) == [prefix + "/metrics", "/"]
+assert paths(monitor) == [prefix + "/metrics"]
+PY
+	); then
+		record_failure "deployment paths do not match $base_url"
+	fi
+done
 
 require_contains "$render_prod_migration" "image: \"${BENCHDB_SERVER_IMAGE_SPEC}\""
 require_contains "$render_prod_migration" 'command: ["/usr/local/bin/benchdb", "migrate"]'

@@ -308,11 +308,11 @@ describe("CIReportPage", () => {
     expect(within(queue).getAllByText(/delta -233\.3% · z -10\.47/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /jump to regressed/i })).toHaveAttribute(
       "href",
-      "#ci-row-regressed-ci-run-fp-regressed",
+      "/#ci-row-regressed-ci-run-fp-regressed",
     );
     expect(screen.getByRole("link", { name: /jump to errored/i })).toHaveAttribute(
       "href",
-      "#ci-row-errored-ci-run-fp-errored",
+      "/#ci-row-errored-ci-run-fp-errored",
     );
     const baselineGap = screen.getByRole("region", { name: /missing baseline coverage for ci-run/i });
     expect(within(baselineGap).getByText(/1 benchmark has no matching baseline result/i)).toBeInTheDocument();

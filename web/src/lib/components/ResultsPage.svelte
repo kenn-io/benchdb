@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import {
@@ -210,7 +211,7 @@
           {#if vm.nextCursor !== null}<span>More available</span>{/if}
         </div>
       {/if}
-      <a class="button-pill secondary" href="/series" onclick={(e) => go(e, "/series")}>Series explorer</a>
+      <a class="button-pill secondary" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Series explorer</a>
     </div>
   </header>
 
@@ -224,7 +225,7 @@
       Exact result filters
     </button>
     {#if activeFilters.length > 0}
-      <a class="button-pill secondary" href="/results" onclick={(e) => go(e, "/results")}>Clear</a>
+      <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Clear</a>
     {/if}
   </div>
 
@@ -253,7 +254,7 @@
         </label>
         <div class="filter-actions">
           <button type="submit" class="button-pill">Apply exact filters</button>
-          <a class="button-pill secondary" href="/results" onclick={(e) => go(e, "/results")}>Clear</a>
+          <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Clear</a>
         </div>
       </form>
     </section>
@@ -285,7 +286,7 @@
     <section class="panel state-panel empty-panel" aria-label="No matching benchmark results">
       <h2>No benchmark results match the current filters</h2>
       <p>Clear the filters or open the series explorer to find a result from a benchmark family.</p>
-      <a class="button-pill" href="/series" onclick={(e) => go(e, "/series")}>Browse series</a>
+      <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
     </section>
   {:else}
     <p class="summary-line" aria-label="Result list summary">
@@ -328,7 +329,7 @@
               <td data-label="Benchmark">
                 <a
                   class="row-primary-link"
-                  href={row.resultHref}
+                  href={appURL(row.resultHref)}
                   aria-label={`Open result ${row.id} for ${row.benchmarkName}`}
                   onclick={(e) => go(e, row.resultHref)}
                 >{row.benchmarkName}</a>
@@ -351,7 +352,7 @@
               <td data-label="Run">
                 <a
                   class="mono"
-                  href={row.runHref}
+                  href={appURL(row.runHref)}
                   aria-label={`Open run ${row.runId}`}
                   title={row.runId}
                   onclick={(e) => go(e, row.runHref)}
@@ -364,7 +365,7 @@
                 {#if row.batchId && row.batchHref}
                   <a
                     class="mono"
-                    href={row.batchHref}
+                    href={appURL(row.batchHref)}
                     aria-label={`Open batch ${row.batchId}`}
                     title={row.batchId}
                     onclick={(e) => go(e, row.batchHref!)}
@@ -391,7 +392,7 @@
                   {@const trendHref = row.trendHref}
                   <a
                     class="button-pill secondary"
-                    href={trendHref}
+                    href={appURL(trendHref)}
                     aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
                     onclick={(e) => go(e, trendHref)}
                   >

@@ -22,7 +22,7 @@ metadata:
     alb.ingress.kubernetes.io/group.order: "9"
     # Configure health check against BenchDB containers.
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
-    alb.ingress.kubernetes.io/healthcheck-path: /api/ping
+    alb.ingress.kubernetes.io/healthcheck-path: "{{BENCHDB_BASE_PATH}}/api/ping"
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
     alb.ingress.kubernetes.io/success-codes: '200'
     # Configure exposure to Internet.
@@ -45,7 +45,7 @@ spec:
   - host: "{{BENCHDB_INTENDED_DNS_NAME}}"
     http:
       paths:
-      - path: /metrics
+      - path: "{{BENCHDB_BASE_PATH}}/metrics"
         pathType: Exact
         backend:
           service:

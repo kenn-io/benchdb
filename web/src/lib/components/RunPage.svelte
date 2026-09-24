@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -140,7 +141,7 @@
     <section class="panel empty-panel">
       <h2>No results found for this run</h2>
       <p>Check the run_id or open the recent-runs dashboard.</p>
-      <a href="/" onclick={(e) => go(e, "/")}>Recent runs</a>
+      <a href={appURL("/")} onclick={(e) => go(e, "/")}>Recent runs</a>
     </section>
   </main>
 {:else}
@@ -231,12 +232,12 @@
         {#if vm.ciReportHref}
           <a
             class="button-pill"
-            href={vm.ciReportHref}
+            href={appURL(vm.ciReportHref)}
             aria-label={`Open CI report for run ${vm.runId}`}
             onclick={goCIReport}
           >CI report</a>
         {/if}
-        <a class="button-pill" href="/series" onclick={(e) => go(e, "/series")}>Browse series</a>
+        <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
       </div>
     </section>
 
@@ -266,7 +267,7 @@
               <td data-label="Benchmark">
                 <a
                   class="row-primary-link"
-                  href={row.resultHref}
+                  href={appURL(row.resultHref)}
                   aria-label={`Open result ${row.id} for ${row.benchmarkName}`}
                   onclick={(e) => go(e, row.resultHref)}
                 >{row.benchmarkName}</a>
@@ -290,7 +291,7 @@
                 {#if row.batchId && row.batchHref}
                   <a
                     class="mono"
-                    href={row.batchHref}
+                    href={appURL(row.batchHref)}
                     aria-label={`Open batch ${row.batchId}`}
                     title={row.batchId}
                     onclick={(e) => go(e, row.batchHref!)}
@@ -308,14 +309,14 @@
                     {@const trendHref = row.trendHref}
                     <a
                       class="inline-action-link"
-                      href={trendHref}
+                      href={appURL(trendHref)}
                       aria-label={`Open series trend for ${row.benchmarkName} result ${row.id}`}
                       onclick={(e) => go(e, trendHref)}
                     >Trend</a>
                   {/if}
                   <a
                     class="inline-action-link"
-                    href={row.resultHref}
+                    href={appURL(row.resultHref)}
                     aria-label={`Open result ${row.id}`}
                     onclick={(e) => go(e, row.resultHref)}
                   >Result</a>

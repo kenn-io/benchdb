@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { interceptNavClick } from "../router";
   import type { TableRow } from "../series/transform";
   import MeasurementValue from "./MeasurementValue.svelte";
@@ -50,7 +51,7 @@
           <td class="commit" data-label="commit">
             <span class="cell-value">
               <a
-                href={`/results/${row.resultId}`}
+                href={appURL(`/results/${row.resultId}`)}
                 onclick={(e) => {
                   if (!onopen || !interceptNavClick(e)) return;
                   e.preventDefault();

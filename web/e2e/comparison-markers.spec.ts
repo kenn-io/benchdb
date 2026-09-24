@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+const baseURL = process.env.BENCHDB_E2E_BASE_URL ?? "http://localhost:8099";
+
 for (const hasHistory of [true, false]) {
   test(`shows selected comparison results with ${hasHistory ? "main history" : "no history"}`, async ({ page }, testInfo) => {
     const baselineDate = "2026-01-06T12:00:00Z";
@@ -18,7 +20,7 @@ for (const hasHistory of [true, false]) {
       history_fingerprint: "demo-history", timestamp: id === "baseline" ? baselineDate : contenderDate,
     });
     await page.route("**/api/**", async (route) => {
-      const path = new URL(route.request().url()).pathname;
+      const path = new URL(route.request().url()).pathname.slice(new URL(baseURL).pathname.replace(/\/$/, "").length);
       if (path === "/api/compare/benchmark-results") {
         await route.fulfill({ json: {
           unit: "s", less_is_better: true,
@@ -42,7 +44,7 @@ for (const hasHistory of [true, false]) {
       }
     });
     await page.setViewportSize({ width: 1280, height: 1000 });
-    await page.goto("/compare?baseline=baseline&contender=contender");
+    await page.goto(`${baseURL}/compare?baseline=baseline&contender=contender`);
     const baseline = page.getByRole("button", { name: "Baseline: 100 s", exact: true });
     const contender = page.getByRole("button", { name: "Contender: 140 s", exact: true });
     await expect(baseline).toBeVisible();

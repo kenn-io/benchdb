@@ -91,7 +91,7 @@ func TestLoadConfigPreservesCommitAuthenticationModes(t *testing.T) {
 func isolateLoadConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
-		"BENCHDB_BASE_URL",
+		"BENCHDB_INTENDED_BASE_URL",
 		"BENCHDB_SESSION_SECRET",
 		"BENCHDB_OIDC_ISSUER_URL",
 		"BENCHDB_OIDC_CLIENT_ID",
@@ -113,4 +113,18 @@ func TestSecureFromBaseURL(t *testing.T) {
 	assert.False(t, secureFromBaseURL("http://[::1]:8080"))
 	assert.True(t, secureFromBaseURL("https://benchdb.example"))
 	assert.True(t, secureFromBaseURL("%"))
+}
+
+func TestLoadConfigPublicBaseURL(t *testing.T) {
+	isolateLoadConfigEnv(t)
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_INTENDED_BASE_URL", "https://example.com/tools/bench/")
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/tools/bench", cfg.baseURL)
+	for _, invalid := range []string{"%", "/bench", "ftp://example.com/bench", "https://example.com/bench?view=all", "https://example.com/a/../bench", "https://example.com/a//bench", "https://example.com/{path}", "https://example.com/%2fbench"} {
+		t.Setenv("BENCHDB_INTENDED_BASE_URL", invalid)
+		_, err := loadConfig()
+		require.ErrorContains(t, err, "BENCHDB_INTENDED_BASE_URL", invalid)
+	}
 }

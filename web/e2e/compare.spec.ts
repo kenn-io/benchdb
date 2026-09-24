@@ -18,7 +18,15 @@ test("browse to trend to compare happy path", async ({ page }) => {
   await page.getByRole("button", { name: "set baseline" }).click();
   await rows.last().click();
   await page.getByRole("button", { name: "set contender" }).click();
-  await page.getByRole("region", { name: /trend context/i }).getByRole("link", { name: "Compare" }).click();
+  const compare = page.getByRole("region", { name: /trend context/i }).getByRole("link", { name: "Compare" });
+  const [tab] = await Promise.all([
+    page.context().waitForEvent("page"),
+    compare.click({ button: "middle" }),
+  ]);
+  await expect(tab.locator("table.sides")).toBeVisible();
+  expect(tab.url().startsWith(`${baseURL}/compare?`)).toBe(true);
+  await tab.close();
+  await compare.click();
 
   await expect(page).toHaveURL(/\/compare\?baseline=.+&contender=/);
   await expect(page.locator(".badge")).toBeVisible();

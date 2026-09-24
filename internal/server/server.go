@@ -10,7 +10,9 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"reflect"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -43,12 +45,21 @@ func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, a
 // 405 would mean nested muxes that hard-code huma's doc routes; the single mux
 // is the deliberate trade-off. The catch-all never serves HTML for /api paths.
 func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, assets fs.FS, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
+	publicURL, err := url.Parse(firstString(publicBaseURL))
+	if err != nil {
+		panic(fmt.Errorf("invalid public base URL: %w", err)) // Validated by serverapp before startup.
+	}
+	basePath := strings.TrimRight(publicURL.Path, "/")
 	mux := http.NewServeMux()
-	register(humago.New(mux, humaConfig()), store, authn, provider, authHandler, artifacts, firstString(publicBaseURL))
+	config := humaConfig()
+	config.OpenAPIPath = basePath + config.OpenAPIPath
+	config.DocsPath = basePath + config.DocsPath
+	config.SchemasPath = basePath + config.SchemasPath
+	register(huma.NewGroup(humago.New(mux, config), basePath), store, authn, provider, authHandler, artifacts, firstString(publicBaseURL))
 	metrics := newMetricsRecorder(provider)
-	mux.HandleFunc("/metrics", metrics.serveMetrics)
-	mux.Handle("/", spaHandler(assets))
-	return instrumentHTTP(mux, metrics)
+	mux.HandleFunc(basePath+"/metrics", metrics.serveMetrics)
+	mux.Handle(basePath+"/", http.StripPrefix(basePath, spaHandler(assets, basePath)))
+	return instrumentHTTP(mux, metrics, basePath)
 }
 
 // specAPI builds the throwaway huma API used for spec emission: the same

@@ -1,3 +1,4 @@
+import { appURL, basePath } from "./base-path";
 import type { RangeSelection } from "@kenn-io/kit-ui/date-range-picker";
 
 export interface LeafRoute {
@@ -358,7 +359,7 @@ export function formatResultListQuery(query: ResultListQuery): string {
 export const NAVIGATE_EVENT = "benchdb:navigate";
 
 export function navigate(url: string): void {
-  history.pushState(null, "", url);
+  history.pushState(null, "", appURL(url));
   window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT));
 }
 
@@ -397,6 +398,11 @@ function decodePathSegment(raw: string): string | null {
 }
 
 export function matchRoute(pathname: string, search = ""): Route {
+  const prefix = basePath();
+  if (prefix) {
+    if (!pathname.startsWith(prefix + "/")) return { name: "not-found" };
+    pathname = pathname.slice(prefix.length);
+  }
   if (pathname === "/" || pathname === "") {
     return { name: "home", query: parseHomeQuery(search) };
   }

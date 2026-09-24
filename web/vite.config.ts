@@ -5,6 +5,7 @@ import { svelteTesting } from "@testing-library/svelte/vite";
 import { configDefaults } from "vitest/config";
 
 export default defineConfig({
+  base: "./",
   plugins: [svelte(), svelteTesting()],
   server: {
     proxy: {

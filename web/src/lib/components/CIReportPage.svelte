@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { tick } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -506,7 +507,7 @@
         </header>
         <div class="issue-grid">
           {#each issueTargets as target}
-            <a class={`issue-card ${target.status}`} href={target.href} onclick={(e) => jumpToIssue(e, target)}>
+            <a class={`issue-card ${target.status}`} href={appURL(target.href)} onclick={(e) => jumpToIssue(e, target)}>
               <span class={`row-status ${target.status}`}>{target.label}</span>
               <strong>{target.benchmark}</strong>
               <span>{target.hardware}</span>
@@ -605,11 +606,11 @@
                       <td data-label="Contender" class="num">{numberText(row.contender.single_value_summary)}</td>
                       <td data-label="Baseline" class="num">{numberText(row.baseline?.single_value_summary ?? null)}</td>
                       <td data-label="Links" class="links">
-                        <a href={row.links.result} onclick={(e) => go(e, row.links.result)}>result</a>
+                        <a href={appURL(row.links.result)} onclick={(e) => go(e, row.links.result)}>result</a>
                         {#if row.links.compare}
-                          <a href={row.links.compare} onclick={(e) => go(e, row.links.compare!)}>compare</a>
+                          <a href={appURL(row.links.compare)} onclick={(e) => go(e, row.links.compare!)}>compare</a>
                         {/if}
-                        <a href={row.links.series} onclick={(e) => go(e, row.links.series)}>series</a>
+                        <a href={appURL(row.links.series)} onclick={(e) => go(e, row.links.series)}>series</a>
                       </td>
                     </tr>
                     {#if row.status === "errored" && row.contender.error}

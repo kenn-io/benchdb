@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -60,6 +61,7 @@ type AuthHandler struct {
 	codes        CLICodeStore
 	secure       bool
 	baseURL      string
+	basePath     string
 	authDisabled bool
 }
 
@@ -69,7 +71,11 @@ type AuthHandler struct {
 // authDisabled mirrors the write authenticator's local-dev bypass so the SPA
 // can expose write controls only when writes are actually possible.
 func NewAuthHandler(oidcClient *oidcauth.Client, users UserStore, sessions *auth.SessionSigner, pending *auth.Signer, secure bool, baseURL string, codes CLICodeStore, authDisabled bool) *AuthHandler {
-	return &AuthHandler{oidc: oidcClient, users: users, sessions: sessions, pending: pending, codes: codes, secure: secure, baseURL: baseURL, authDisabled: authDisabled}
+	publicURL, err := url.Parse(baseURL)
+	if err != nil {
+		panic(err) // Validated by serverapp before startup.
+	}
+	return &AuthHandler{basePath: strings.TrimRight(publicURL.Path, "/"), oidc: oidcClient, users: users, sessions: sessions, pending: pending, codes: codes, secure: secure, baseURL: baseURL, authDisabled: authDisabled}
 }
 
 // Register wires the auth operations onto a huma API.
@@ -390,7 +396,7 @@ func (h *AuthHandler) me(ctx context.Context, in *meInput) (*meOutput, error) {
 
 func (h *AuthHandler) cookie(name, value string, maxAge int, path string) http.Cookie {
 	return http.Cookie{
-		Name: name, Value: value, Path: path,
+		Name: name, Value: value, Path: h.basePath + path,
 		MaxAge: maxAge, HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteLaxMode,
 	}
 }

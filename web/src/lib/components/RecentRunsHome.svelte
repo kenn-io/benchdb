@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appURL } from "../base-path";
   import { onMount, untrack } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -175,7 +176,7 @@
         placeholder="Commit SHA or part of a commit URL" aria-describedby="commit-search-help" />
       <button type="submit">Search</button>
       {#if query.q}
-        <a href={`/${formatHomeQuery({ repository: query.repository })}`}
+        <a href={appURL(`/${formatHomeQuery({ repository: query.repository })}`)}
           onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository })}`)}>Clear search</a>
       {/if}
     </div>
@@ -190,7 +191,7 @@
     <section class="panel empty-panel">
       <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No recent runs"}</h2>
       <p>{query.q ? "Try a shorter SHA or URL fragment, or choose All projects." : "Submitted benchmark results will appear here once a run is available."}</p>
-      <a href="/series" onclick={(e) => go(e, "/series")}>Browse benchmark series</a>
+      <a href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse benchmark series</a>
     </section>
   {:else}
     <p class="summary-line" aria-label="Recent run summary">
@@ -215,7 +216,7 @@
             {@const attention = run.attention!}
             <a
               class={`attention-link ${attention.status}`}
-              href={attention.reportHref}
+              href={appURL(attention.reportHref)}
               aria-label={`Review CI report for run ${run.runId}`}
               onclick={(e) => go(e, attention.reportHref)}
             >
@@ -269,7 +270,7 @@
               <td data-label="Time">
                 <a
                   class="time-link"
-                  href={run.runHref}
+                  href={appURL(run.runHref)}
                   aria-label={`Open run detail for ${run.runId}`}
                   title={run.runId}
                   onclick={(e) => go(e, run.runHref)}
@@ -334,7 +335,7 @@
                 <div class="message-cell">
                   <a
                     class="row-primary-link"
-                    href={run.runHref}
+                    href={appURL(run.runHref)}
                     aria-label={`Open run ${run.runId}`}
                     title={run.runId}
                     onclick={(e) => go(e, run.runHref)}
@@ -345,7 +346,7 @@
                       {#if run.latestBatchHref}
                         <a
                           class="muted-detail batch-link"
-                          href={run.latestBatchHref}
+                          href={appURL(run.latestBatchHref)}
                           aria-label={`Open batch ${run.latestBatchId}`}
                           title={run.latestBatchId}
                           onclick={(e) => go(e, run.latestBatchHref!)}
@@ -368,14 +369,14 @@
                       class:failure={run.attention?.status === "failure"}
                       class:action_required={run.attention?.status === "action_required"}
                       class:inline-action-link={run.attention === null}
-                      href={run.ciReportHref}
+                      href={appURL(run.ciReportHref)}
                       aria-label={`Open CI report for run ${run.runId}`}
                       onclick={(e) => go(e, run.ciReportHref!)}
                     >{reportLabel(run)}</a>
                   {/if}
                   <a
                     class="inline-action-link"
-                    href={run.latestResultHref}
+                    href={appURL(run.latestResultHref)}
                     aria-label={`Open sample result for run ${run.runId}`}
                     onclick={(e) => go(e, run.latestResultHref)}
                   >Result</a>
@@ -390,12 +391,12 @@
   {#if !loading && !errorMsg && (runs.length > 0 || query.offset > 0)}
     <nav class="run-pagination" aria-label="Run pages">
       {#if query.offset > 0}
-        <a href={pageHref(Math.max(0, query.offset - RECENT_RUNS_PAGE_SIZE))}
+        <a href={appURL(pageHref(Math.max(0, query.offset - RECENT_RUNS_PAGE_SIZE)))}
           onclick={(e) => go(e, pageHref(Math.max(0, query.offset - RECENT_RUNS_PAGE_SIZE)))}>Previous</a>
       {:else}<span aria-disabled="true">Previous</span>{/if}
       <span aria-live="polite">{runs.length ? `Runs ${query.offset + 1}–${query.offset + runs.length}` : "No more runs"}</span>
       {#if hasMore}
-        <a href={pageHref(query.offset + RECENT_RUNS_PAGE_SIZE)}
+        <a href={appURL(pageHref(query.offset + RECENT_RUNS_PAGE_SIZE))}
           onclick={(e) => go(e, pageHref(query.offset + RECENT_RUNS_PAGE_SIZE))}>Next</a>
       {:else}<span aria-disabled="true">Next</span>{/if}
     </nav>

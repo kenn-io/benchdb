@@ -520,21 +520,33 @@ describe("TrendPage", () => {
     );
   });
 
-  it("builds a compare link from baseline and contender picks", async () => {
-    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
-    render(TrendPage, {
-      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
-    });
-    await waitFor(() => screen.getByText("sha-r1"));
-    await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
-    await fireEvent.click(screen.getByRole("button", { name: "set baseline" }));
-    expect(screen.getByText(/pick both points to compare/i)).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
-    await fireEvent.click(screen.getByRole("button", { name: "set contender" }));
-    expect(screen.getByRole("link", { name: "Compare" })).toHaveAttribute(
-      "href",
-      "/compare?baseline=r1&contender=r2",
-    );
+  it.each(["", "/tools/bench"])("keeps the compare link and navigation under prefix %s", async (prefix) => {
+    const base = document.createElement("base");
+    base.href = `${prefix}/`;
+    document.head.append(base);
+    try {
+      mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z")]);
+      render(TrendPage, {
+        props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
+      });
+      await waitFor(() => screen.getByText("sha-r1"));
+      await fireEvent.click(screen.getByText("sha-r1").closest("tr")!);
+      await fireEvent.click(screen.getByRole("button", { name: "set baseline" }));
+      expect(screen.getByText(/pick both points to compare/i)).toBeInTheDocument();
+      await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
+      await fireEvent.click(screen.getByRole("button", { name: "set contender" }));
+      const compare = screen.getByRole("link", { name: "Compare" });
+      expect(compare).toHaveAttribute(
+        "href",
+        `${prefix}/compare?baseline=r1&contender=r2`,
+      );
+      await fireEvent.click(compare);
+      expect(window.location.pathname + window.location.search).toBe(
+        `${prefix}/compare?baseline=r1&contender=r2`,
+      );
+    } finally {
+      base.remove();
+    }
   });
 
   it("rejects compare picks from different fingerprint segments", async () => {

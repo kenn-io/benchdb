@@ -11,7 +11,7 @@ cd "$ROOT"
 command -v jq >/dev/null 2>&1 || { echo "jq is required to parse the submit response; please install jq" >&2; exit 1; }
 
 PORT="${BENCHDB_E2E_PORT:-8099}"
-BASE_URL="http://localhost:${PORT}"
+BASE_URL="http://localhost:${PORT}${BENCHDB_E2E_BASE_PATH:-}"
 TOKEN="e2e-token"
 DEV_TOKEN="cb_e2e_dev_token_value"
 PG_CONTAINER="benchdb-e2e-pg-$$"
@@ -66,7 +66,7 @@ fi
 
 echo "==> start benchdb serve on :${PORT}"
 BENCHDB_ADDR=":${PORT}" BENCHDB_INIT_SCHEMA=true BENCHDB_SEED=true BENCHDB_API_TOKEN="$TOKEN" \
-  BENCHDB_SEED_DEV_TOKEN="$DEV_TOKEN" \
+  BENCHDB_SEED_DEV_TOKEN="$DEV_TOKEN" BENCHDB_INTENDED_BASE_URL="$BASE_URL" \
   ./bin/benchdb serve >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
