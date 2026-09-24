@@ -16,7 +16,7 @@ export BENCHDB_ADDR="${BENCHDB_ADDR:-:8080}"
 # specific set of well-known environment variables. Not all of these
 # configuration parameters are secrets. Non-sensitive parameter names include:
 #
-# BENCHDB_INTENDED_BASE_URL (scheme and DNS name)
+# BENCHDB_INTENDED_BASE_URL (scheme, DNS name, and optional path prefix)
 # EKS_CLUSTER (the name of the EKS cluster to operate on)
 # NAMESPACE (indicating the k8s namespace to deploy into)
 # ...
@@ -74,10 +74,15 @@ import os
 import pathlib
 import re
 import sys
+from urllib.parse import urlsplit
 
 template = pathlib.Path(sys.argv[1])
 keys = sys.argv[2:]
 text = template.read_text()
+
+if "{{BENCHDB_BASE_PATH}}" in text:
+    base_path = urlsplit(os.environ["BENCHDB_INTENDED_BASE_URL"]).path.rstrip("/")
+    text = text.replace("{{BENCHDB_BASE_PATH}}", base_path)
 
 for key in keys:
     value = os.environ.get(key)
@@ -375,7 +380,7 @@ PY
 
 apply_service_monitor_if_supported() {
   if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
-    kubectl apply -f k8s/benchdb-service-monitor.yml || return 1
+    render_template_from_env k8s/benchdb-service-monitor.yml | kubectl apply -f - || return 1
   else
     echo "skip ServiceMonitor apply; servicemonitors.monitoring.coreos.com CRD not found"
   fi
@@ -461,7 +466,7 @@ deploy() {
     echo "skip k8s ingress patch"
   fi
 
-  echo "Go runtime metrics are exposed at /metrics; design Grafana dashboards from current metrics"
+  echo "Go runtime metrics are exposed at ${BENCHDB_INTENDED_BASE_URL%/}/metrics"
 
   # Note(JP); this might be nonobvious, but `rollout status` waits for
   # progressDeadlineSeconds (see deployment manifast) before it exits non-zero.

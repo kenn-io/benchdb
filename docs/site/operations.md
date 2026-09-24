@@ -71,6 +71,9 @@ also move to `/tools/bench/api/ping` and `/tools/bench/metrics`. Register the OI
 the same prefix. The URL must have a clean, unescaped path with no credentials, query, or fragment.
 No separate frontend build is needed for a different prefix.
 
+The Kubernetes deployment script derives probe, load-balancer health-check, metrics-deny,
+and ServiceMonitor paths from this URL. Use the script to render and apply these manifests.
+
 Run the existing browser and CLI checks against a prefix with
 `BENCHDB_E2E_BASE_PATH=/tools/bench make e2e` (requires Docker).
 

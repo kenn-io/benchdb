@@ -567,7 +567,7 @@
           {@const href = compareHref}
           <a
             class="button-pill primary"
-            {href}
+            href={appURL(href)}
             onclick={(e) => {
               if (!interceptNavClick(e)) return;
               e.preventDefault();

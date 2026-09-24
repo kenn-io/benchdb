@@ -68,7 +68,7 @@ spec:
         startupProbe:
           failureThreshold: 30
           httpGet:
-            path: /api/ping
+            path: "{{BENCHDB_BASE_PATH}}/api/ping"
             port: http
             scheme: HTTP
           periodSeconds: 2
@@ -76,7 +76,7 @@ spec:
         livenessProbe:
           failureThreshold: 3
           httpGet:
-            path: /api/ping
+            path: "{{BENCHDB_BASE_PATH}}/api/ping"
             port: http
             scheme: HTTP
           periodSeconds: 30
@@ -84,7 +84,7 @@ spec:
         readinessProbe:
           failureThreshold: 3
           httpGet:
-            path: /api/ping
+            path: "{{BENCHDB_BASE_PATH}}/api/ping"
             port: http
             scheme: HTTP
           periodSeconds: 10
