@@ -31,10 +31,11 @@ import (
 func TestArtifactStorageLifecycle(t *testing.T) {
 	tapi, store, ctx := newAPI(t)
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		Context:      "testdata/minio",
+		// MinIO no longer publishes images, so this runs RustFS 1.0.0 pinned by digest.
+		Image:        "docker.io/rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff",
 		ExposedPorts: []string{"9000/tcp"},
-		Env:          map[string]string{"MINIO_ROOT_USER": "testaccess", "MINIO_ROOT_PASSWORD": "testsecret"},
-		Cmd:          []string{"server", "/data"}, WaitingFor: wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp"), Started: true,
+		Env:          map[string]string{"RUSTFS_ACCESS_KEY": "testaccess", "RUSTFS_SECRET_KEY": "testsecret"},
+		WaitingFor:   wait.ForHTTP("/health/ready").WithPort("9000/tcp"), Started: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, testcontainers.TerminateContainer(container)) })
