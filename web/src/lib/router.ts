@@ -90,6 +90,7 @@ export interface BrowseQuery {
   hardware: string;
   repository: string;
   window: BrowseWindow;
+  view: "table" | "charts";
 }
 
 export interface BrowseRoute {
@@ -276,7 +277,7 @@ export function formatCompareQuery(query: CompareQuery): string {
   return s === "" ? "" : `?${s}`;
 }
 
-export const DEFAULT_BROWSE_QUERY: BrowseQuery = { q: "", hardware: "", repository: "", window: "all" };
+export const DEFAULT_BROWSE_QUERY: BrowseQuery = { q: "", hardware: "", repository: "", window: "all", view: "table" };
 export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0 };
 export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
   runID: "",
@@ -307,7 +308,7 @@ export function formatHomeQuery(query: Partial<HomeQuery>): string {
   return s === "" ? "" : `?${s}`;
 }
 
-/** parseBrowseQuery is total: absent params and unknown window values fall back
+/** parseBrowseQuery is total: absent params and unknown window/view values fall back
  * to the defaults, so a hand-edited URL can never produce an invalid route. */
 export function parseBrowseQuery(search: string): BrowseQuery {
   const params = new URLSearchParams(search);
@@ -317,17 +318,19 @@ export function parseBrowseQuery(search: string): BrowseQuery {
     hardware: params.get("hardware") ?? "",
     repository: params.get("repository") ?? "",
     window: BROWSE_WINDOWS.includes(window as BrowseWindow) ? (window as BrowseWindow) : "all",
+    view: params.get("view") === "charts" ? "charts" : "table",
   };
 }
 
 /** formatBrowseQuery renders the canonical search string, omitting defaults so
- * the home URL stays bare and shared links carry only the active filters. */
+ * the browse URL stays bare and shared links carry the active filters and view. */
 export function formatBrowseQuery(query: BrowseQuery): string {
   const params = new URLSearchParams();
   if (query.q !== "") params.set("q", query.q);
   if (query.hardware !== "") params.set("hardware", query.hardware);
   if (query.repository !== "") params.set("repository", query.repository);
   if (query.window !== "all") params.set("window", query.window);
+  if (query.view === "charts") params.set("view", "charts");
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
 }

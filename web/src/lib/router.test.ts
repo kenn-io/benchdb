@@ -72,30 +72,30 @@ describe("browse route", () => {
   it("matches /series as browse with default query", () => {
     expect(matchRoute("/series")).toEqual({
       name: "browse",
-      query: { q: "", hardware: "", repository: "", window: "all" },
+      query: { q: "", hardware: "", repository: "", window: "all", view: "table" },
     });
   });
 
   it("parses filters from the search string", () => {
-    expect(matchRoute("/series", "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo")).toEqual({
+    expect(matchRoute("/series", "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo&view=charts")).toEqual({
       name: "browse",
-      query: { q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo" },
+      query: { q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo", view: "charts" },
     });
   });
 
   it("is total over junk search strings", () => {
-    expect(parseBrowseQuery("?window=bogus&unknown=x")).toEqual({
-      q: "", hardware: "", repository: "", window: "all",
+    expect(parseBrowseQuery("?window=bogus&view=bogus&unknown=x")).toEqual({
+      q: "", hardware: "", repository: "", window: "all", view: "table",
     });
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatBrowseQuery({ q: "", hardware: "", repository: "", window: "all" })).toBe("");
-    expect(formatBrowseQuery({ q: "tpch", hardware: "", repository: "", window: "30d" })).toBe("?q=tpch&window=30d");
+    expect(formatBrowseQuery({ q: "", hardware: "", repository: "", window: "all", view: "table" })).toBe("");
+    expect(formatBrowseQuery({ q: "tpch", hardware: "", repository: "", window: "30d", view: "charts" })).toBe("?q=tpch&window=30d&view=charts");
   });
 
   it("round-trips parse(format(q))", () => {
-    const q = { q: "a b", hardware: "m5", repository: "https://github.com/o/r", window: "1y" as const };
+    const q = { q: "a b", hardware: "m5", repository: "https://github.com/o/r", window: "1y" as const, view: "charts" as const };
     expect(parseBrowseQuery(formatBrowseQuery(q))).toEqual(q);
   });
 });

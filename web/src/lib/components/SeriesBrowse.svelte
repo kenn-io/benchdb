@@ -2,13 +2,12 @@
   import { appURL } from "../base-path";
   import { SearchInput } from "@kenn-io/kit-ui/search-input";
   import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
-  import { Toggle } from "@kenn-io/kit-ui/toggle";
   import { onDestroy } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
   import { sortRows, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
-  import { formatBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
+  import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, parseBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
   import BrowseTrendCard from "./BrowseTrendCard.svelte";
 
@@ -36,7 +35,10 @@
   let searchFilter = $state("");
   let repositoryFilter = $state("");
   let exactFiltersOpen = $state(false);
-  let chartView = $state(false);
+  const chartView = $derived(query.view === "charts");
+  const clearedURL = $derived(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, view: query.view })}`);
+  // View-only navigation keeps the loaded rows and pagination cursor.
+  const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table" }));
   let zeroBased = $state(true);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   // Monotonic token: a stale response (filters changed mid-flight) must not
@@ -44,9 +46,10 @@
   let reqToken = 0;
 
   $effect(() => {
-    searchFilter = query.q;
-    repositoryFilter = query.repository;
-    void load(query);
+    const filters = parseBrowseQuery(filterQuery);
+    searchFilter = filters.q;
+    repositoryFilter = filters.repository;
+    void load(filters);
   });
 
   async function load(q: BrowseQuery) {
@@ -218,6 +221,15 @@
 
   <div class="panel browse-filters">
     <div class="primary-filters">
+      <div class="filter-row" role="group" aria-label="Series view">
+        <span class="filter-row-label">View</span>
+        <div class="segmented-control">
+          <button type="button" class:active={!chartView} aria-pressed={!chartView}
+            onclick={() => setFilter({ view: "table" })}>Table</button>
+          <button type="button" class:active={chartView} aria-pressed={chartView}
+            onclick={() => setFilter({ view: "charts" })}>Charts</button>
+        </div>
+      </div>
       <div class="benchmark-search">
         <SearchInput
           bind:value={searchFilter}
@@ -252,7 +264,6 @@
           {/each}
         </div>
       </div>
-      <Toggle checked={chartView} label="Trend charts" onchange={(checked) => (chartView = checked)} />
       {#if chartView}
         <label class="filter-label machine-select">
           Y-axis
@@ -266,7 +277,7 @@
       {/if}
     </div>
     {#if activeFilters.length > 0}
-      <button type="button" class="button-pill secondary" onclick={() => navigate("/series")}>Clear filters</button>
+      <button type="button" class="button-pill secondary" onclick={() => navigate(clearedURL)}>Clear filters</button>
     {/if}
   </div>
 
@@ -295,7 +306,7 @@
         </label>
         <div class="filter-actions">
           <button type="submit" class="button-pill">Apply advanced filters</button>
-          <a class="button-pill secondary" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Clear</a>
+          <a class="button-pill secondary" href={appURL(clearedURL)} onclick={(e) => go(e, clearedURL)}>Clear</a>
         </div>
       </form>
     </section>

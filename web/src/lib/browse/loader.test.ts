@@ -42,7 +42,7 @@ describe("listSeries", () => {
     const now = new Date("2026-06-09T00:00:00Z");
     const page = await listSeries(
       client,
-      { q: "demo", hardware: "m5", repository: "https://github.com/benchdb/demo", window: "30d" },
+      { ...DEFAULT_BROWSE_QUERY, q: "demo", hardware: "m5", repository: "https://github.com/benchdb/demo", window: "30d" },
       "cur1",
       now,
     );
