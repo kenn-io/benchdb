@@ -38,6 +38,10 @@ jobs:
       - run: make migration-history-check
       - run: make huma-check
       - run: make go-lint-ci
+      - name: Run lint for Windows
+        env:
+          GOOS: windows
+        run: make go-lint-ci
       - run: make go-vet
       - run: make go-test
 
