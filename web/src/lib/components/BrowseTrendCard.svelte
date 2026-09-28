@@ -2,17 +2,19 @@
   import { appURL } from "../base-path";
   import { formatMeasurement } from "../format";
   import type { BrowsePreviewPoint, BrowseRow } from "../browse/transform";
-  import { observedValueRange, zeroBasedValueRange } from "../series/chart-geometry";
+  import { observedValueRange, zeroBasedValueRange, type ValueRange } from "../series/chart-geometry";
   import MeasurementValue from "./MeasurementValue.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
   let {
     row,
-    zeroBased = true,
+    zeroBased = false,
+    timeRange = null,
     onopen,
   }: {
     row: BrowseRow;
     zeroBased?: boolean;
+    timeRange?: ValueRange | null;
     onopen?: (row: BrowseRow) => void;
   } = $props();
 
@@ -25,10 +27,16 @@
   const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"];
 
   let hovered = $state<{ machineName: string; point: BrowsePreviewPoint } | null>(null);
-  let allPoints = $derived(row.previewTracks.flatMap((track) => track.points));
+  let visibleTracks = $derived(row.previewTracks.map((track) => ({
+    ...track,
+    points: timeRange === null ? track.points : track.points.filter((point) =>
+      point.chartMs >= timeRange!.min && point.chartMs <= timeRange!.max,
+    ),
+  })));
+  let allPoints = $derived(visibleTracks.flatMap((track) => track.points));
   let previewUnitCount = $derived(new Set(allPoints.map((point) => point.unit)).size);
-  let minX = $derived(allPoints.length === 0 ? 0 : Math.min(...allPoints.map((point) => point.chartMs)));
-  let maxX = $derived(allPoints.length === 0 ? 1 : Math.max(...allPoints.map((point) => point.chartMs)));
+  let minX = $derived(timeRange?.min ?? (allPoints.length === 0 ? 0 : Math.min(...allPoints.map((point) => point.chartMs))));
+  let maxX = $derived(timeRange?.max ?? (allPoints.length === 0 ? 1 : Math.max(...allPoints.map((point) => point.chartMs))));
   let yRange = $derived(
     (zeroBased ? zeroBasedValueRange : observedValueRange)(allPoints.map((point) => point.value)),
   );
@@ -90,7 +98,7 @@
           <line class="axis-tick" x1={WIDTH - PAD_X} y1={PLOT_BOTTOM} x2={WIDTH - PAD_X} y2={PLOT_BOTTOM + 4} />
           <text class="axis-label" x={WIDTH - PAD_X} y={AXIS_LABEL_Y} text-anchor="end">{axisDate(maxX)}</text>
         {/if}
-        {#each row.previewTracks as track, trackIndex (track.machineName)}
+        {#each visibleTracks as track, trackIndex (track.machineName)}
           <path d={path(track.points)} stroke={palette[trackIndex % palette.length]} />
           {#each track.points as point, pointIndex (`${point.chartMs}-${pointIndex}`)}
             <circle

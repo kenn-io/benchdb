@@ -54,12 +54,14 @@ describe("BrowseTrendCard", () => {
   });
 
   it("can scale its preview from the observed minimum", async () => {
-    const { container, rerender } = render(BrowseTrendCard, { props: { row, zeroBased: true } });
-    const zeroPath = container.querySelector("path")?.getAttribute("d");
+    const { container, rerender } = render(BrowseTrendCard, { props: { row } });
+    const marks = container.querySelectorAll(".point-mark");
+    expect(Number(marks[0]!.getAttribute("cy")) - Number(marks[2]!.getAttribute("cy"))).toBeGreaterThan(100);
+    const observedPath = container.querySelector("path")?.getAttribute("d");
 
-    await rerender({ row, zeroBased: false });
+    await rerender({ row, zeroBased: true });
 
-    expect(container.querySelector("path")?.getAttribute("d")).not.toBe(zeroPath);
+    expect(container.querySelector("path")?.getAttribute("d")).not.toBe(observedPath);
   });
 
   it("does not plot preview points with mixed units", () => {

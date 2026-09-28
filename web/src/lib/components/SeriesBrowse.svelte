@@ -6,7 +6,7 @@
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
-  import { sortRows, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
+  import { sortRows, windowStartIso, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
   import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, parseBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
   import BrowseTrendCard from "./BrowseTrendCard.svelte";
@@ -39,7 +39,12 @@
   const clearedURL = $derived(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, view: query.view })}`);
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table" }));
-  let zeroBased = $state(true);
+  let zeroBased = $state(false);
+  const timeRange = $derived.by(() => {
+    const now = new Date();
+    const since = windowStartIso(query.window, now);
+    return since === null ? null : { min: Date.parse(since), max: now.getTime() };
+  });
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   // Monotonic token: a stale response (filters changed mid-flight) must not
   // overwrite a newer page.
@@ -343,7 +348,7 @@
     {#if chartView}
       <section class="trend-grid" aria-label="Benchmark trend cards">
         {#each visible as row (row.benchmarkId)}
-          <BrowseTrendCard {row} {zeroBased} onopen={open} />
+          <BrowseTrendCard {row} {zeroBased} {timeRange} onopen={open} />
         {/each}
       </section>
     {:else}

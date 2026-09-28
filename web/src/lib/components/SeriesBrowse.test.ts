@@ -143,6 +143,45 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("fits chart axes to the selected time window and its visible values", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-09T12:00:00Z"));
+    try {
+      GET.mockResolvedValue({ status: 200, data: {
+        benchmarks: [item("f1", "demo", { preview_tracks: [{ machine_name: "m5", points: [
+          { commit_timestamp: "2026-01-01T12:00:00Z", value: 1000, unit: "s" },
+          { commit_timestamp: "2026-05-10T12:00:00Z", value: 10, unit: "s" },
+          { commit_timestamp: "2026-06-08T12:00:00Z", value: 12, unit: "s" },
+        ] }] })],
+        next_page_cursor: null,
+      } });
+      window.history.replaceState(null, "", "/series?view=charts");
+      const { container, rerender } = render(SeriesBrowse, {
+        props: { query: parseBrowseQuery(window.location.search) },
+      });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
+
+      await fireEvent.click(screen.getByRole("button", { name: /last 30 days/i }));
+      await rerender({ query: parseBrowseQuery(window.location.search) });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+
+      const marks = container.querySelectorAll(".point-mark");
+      expect(marks).toHaveLength(2);
+      expect(Number(marks[0]!.getAttribute("cy")) - Number(marks[1]!.getAttribute("cy"))).toBeGreaterThan(100);
+      expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual(["May 10", "Jun 9"]);
+      expect(Number(marks[1]!.getAttribute("cx"))).toBeLessThan(512);
+
+      await fireEvent.click(screen.getByRole("button", { name: /all time/i }));
+      await rerender({ query: parseBrowseQuery(window.location.search) });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
+      expect(container.querySelector(".axis-label")).toHaveTextContent("Jan 1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("preserves charts while changing search, machine, and repository filters", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
@@ -213,10 +252,10 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
-    const yAxis = screen.getByRole("combobox", { name: /y-axis: zero baseline/i });
+    const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
     await fireEvent.click(yAxis);
-    await fireEvent.click(screen.getByRole("option", { name: /observed range/i }));
-    expect(screen.getByRole("combobox", { name: /y-axis: observed range/i })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("option", { name: /zero baseline/i }));
+    expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await screen.findByRole("img", { name: /second fleet trend preview/i });
