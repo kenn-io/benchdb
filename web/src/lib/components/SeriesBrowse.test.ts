@@ -3,12 +3,13 @@ import type { AxiosInstance } from "axios";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_BROWSE_QUERY } from "../router";
+import { DEFAULT_BROWSE_QUERY, parseBrowseQuery } from "../router";
 import SeriesBrowse from "./SeriesBrowse.svelte";
 
 const GET = vi.fn();
+const client = getBenchDB({ get: GET } as unknown as AxiosInstance);
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
+  createBenchDBClient: () => client,
 }));
 
 const item = (fp: string, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -131,27 +132,77 @@ describe("SeriesBrowse", () => {
     expect(screen.queryByRole("link", { name: "two" })).toBeNull();
   });
 
-  it("navigates with updated URL filters when a window preset changes", async () => {
+  it("keeps charts selected when a window preset changes", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
-    window.history.replaceState(null, "", "/series");
-    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    window.history.replaceState(null, "", "/series?view=charts");
+    render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
     await waitFor(() => screen.getByText(/no series match/i));
     await fireEvent.click(screen.getByRole("button", { name: /last 3 months/i }));
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?window=3mo");
+    expect(window.location.search).toBe("?window=3mo&view=charts");
+    expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("uses the primary search and machine controls while keeping repository filtering advanced", async () => {
+  it("fits chart axes to the selected time window and its visible values", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-09T12:00:00Z"));
+    try {
+      GET.mockResolvedValue({ status: 200, data: {
+        benchmarks: [item("f1", "demo", { preview_tracks: [{ machine_name: "m5", points: [
+          { commit_timestamp: "2026-01-01T12:00:00Z", value: 1000, unit: "s" },
+          { commit_timestamp: "2026-05-10T12:00:00Z", value: 10, unit: "s" },
+          { commit_timestamp: "2026-06-08T12:00:00Z", value: 12, unit: "s" },
+        ] }] })],
+        next_page_cursor: null,
+      } });
+      window.history.replaceState(null, "", "/series?view=charts");
+      const { container, rerender } = render(SeriesBrowse, {
+        props: { query: parseBrowseQuery(window.location.search) },
+      });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
+
+      await fireEvent.click(screen.getByRole("button", { name: /last 30 days/i }));
+      await rerender({ query: parseBrowseQuery(window.location.search) });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+
+      const marks = container.querySelectorAll(".point-mark");
+      expect(marks).toHaveLength(2);
+      expect(Number(marks[0]!.getAttribute("cy")) - Number(marks[1]!.getAttribute("cy"))).toBeGreaterThan(100);
+      expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual(["May 10", "Jun 9"]);
+      expect(Number(marks[1]!.getAttribute("cx"))).toBeLessThan(512);
+
+      await fireEvent.click(screen.getByRole("button", { name: /all time/i }));
+      await rerender({ query: parseBrowseQuery(window.location.search) });
+      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
+      expect(container.querySelector(".axis-label")).toHaveTextContent("Jan 1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves charts while changing search, machine, and repository filters", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
-    window.history.replaceState(null, "", "/series");
-    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    window.history.replaceState(null, "", "/series?view=charts");
+    const { rerender } = render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
 
     expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toBeInTheDocument();
     const machineSelect = screen.getByRole("combobox", { name: /machine: all machines/i });
     await fireEvent.click(machineSelect);
     await fireEvent.click(screen.getByRole("option", { name: "m5" }));
-    expect(window.location.search).toBe("?hardware=m5");
+    expect(window.location.search).toBe("?hardware=m5&view=charts");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
+    await waitFor(() => expect(GET).toHaveBeenLastCalledWith("/api/benchmarks", {
+      params: { page_size: 25, hardware: "m5" },
+    }));
+
+    await fireEvent.input(screen.getByRole("searchbox", { name: /search benchmarks/i }), {
+      target: { value: "demo" },
+    });
+    await waitFor(() => expect(window.location.search).toBe("?q=demo&hardware=m5&view=charts"));
+    await rerender({ query: parseBrowseQuery(window.location.search) });
 
     expect(screen.queryByLabelText(/^repository url$/i)).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: /advanced filters/i }));
@@ -161,23 +212,63 @@ describe("SeriesBrowse", () => {
     await fireEvent.submit(screen.getByRole("button", { name: /apply advanced filters/i }).closest("form")!);
 
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow");
+    expect(window.location.search).toBe("?q=demo&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&view=charts");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
+    await waitFor(() => expect(GET).toHaveBeenLastCalledWith("/api/benchmarks", {
+      params: { page_size: 25, q: "demo", hardware: "m5", repository: "https://github.com/apache/arrow" },
+    }));
+    expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
+
+    const clear = screen.getByRole("link", { name: "Clear" });
+    expect(clear).toHaveAttribute("href", "/series?view=charts");
+    await fireEvent.click(clear);
+    expect(window.location.search).toBe("?view=charts");
   });
 
-  it("switches from the table to fleet trend cards", async () => {
-    GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
-    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
-    await waitFor(() => screen.getByRole("link", { name: "demo" }));
+  it("loads charts directly from the URL with benchmark detail links", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f1", "demo", { status: "regressed" })], next_page_cursor: null } });
+    window.history.replaceState(null, "", "/series?view=charts");
+    render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
+    const cards = await screen.findByRole("region", { name: /benchmark trend cards/i });
+    expect(within(cards).getByText("regressed")).toBeInTheDocument();
+    expect(within(cards).getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
+    const link = within(cards).getByRole("link", { name: "demo" });
+    expect(link).toHaveAttribute("href", "/benchmarks/f1");
+  });
 
-    await fireEvent.click(screen.getByRole("switch", { name: /trend charts/i }));
+  it("switches views without refetching or losing loaded pages", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: "cur2" } });
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f2", "second")], next_page_cursor: null } });
+    window.history.replaceState(null, "", "/series");
+    const { rerender } = render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
+    await waitFor(() => screen.getByRole("link", { name: "demo" }));
+    expect(screen.getByRole("button", { name: "Table" })).toHaveAttribute("aria-pressed", "true");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Charts" }));
+    expect(window.location.search).toBe("?view=charts");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
 
     expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
-    const yAxis = screen.getByRole("combobox", { name: /y-axis: zero baseline/i });
+    const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
     await fireEvent.click(yAxis);
-    await fireEvent.click(screen.getByRole("option", { name: /observed range/i }));
-    expect(screen.getByRole("combobox", { name: /y-axis: observed range/i })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("option", { name: /zero baseline/i }));
+    expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByRole("img", { name: /second fleet trend preview/i });
+    expect(GET.mock.calls[1]![1].params.cursor).toBe("cur2");
+    await fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    expect(window.location.search).toBe("");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
+    expect(within(screen.getByRole("table")).getByRole("link", { name: "second" })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Charts" }));
+    await rerender({ query: parseBrowseQuery(window.location.search) });
+    expect(screen.getByRole("img", { name: /second fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+    expect(GET).toHaveBeenCalledTimes(2);
   });
 
   it("shows active filters and can clear them", async () => {
@@ -189,6 +280,7 @@ describe("SeriesBrowse", () => {
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
           window: "30d",
+          view: "charts",
         },
       },
     });
@@ -199,7 +291,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("button", { name: /remove window filter last 30 days/i })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("");
+    expect(window.location.search).toBe("?view=charts");
   });
 
   it("removes individual active filters without dropping the others", async () => {
@@ -211,6 +303,7 @@ describe("SeriesBrowse", () => {
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
           window: "30d",
+          view: "charts",
         },
       },
     });
@@ -224,6 +317,7 @@ describe("SeriesBrowse", () => {
     expect(params.get("hardware")).toBeNull();
     expect(params.get("repository")).toBe("https://github.com/benchdb/demo");
     expect(params.get("window")).toBe("30d");
+    expect(params.get("view")).toBe("charts");
   });
 
   it("sorts the visible rows when a header is clicked", async () => {
