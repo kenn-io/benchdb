@@ -3,8 +3,8 @@
 The supported write path is:
 
 1. benchmark code emits BenchDB-compatible JSON payload files,
-2. each file contains either one result object or an array of result objects,
-3. the Go `benchdb` CLI submits those files with bounded concurrency.
+1. each file contains either one result object or an array of result objects,
+1. the Go `benchdb` CLI submits those files with bounded concurrency.
 
 ```bash
 benchdb results submit "bench-results/*.json" \
@@ -47,6 +47,18 @@ Useful production payloads should also include:
 - `batch_id`: optional grouping across related runs,
 - `github.repository` and `github.commit`: required for commit-wide CI reports,
 - `github.pr_number` or `github.branch`: useful for display and audit.
+
+To retain a result for comparisons without including it in continuous history,
+submit `"change_annotations": {"exclude_from_history": true}`. This excludes the
+result from history samples, series and benchmark summaries, and lookback
+distributions. The result keeps its fingerprint and remains available through
+result/run reads and explicit comparisons. `run_reason` is descriptive metadata
+and does not control history membership.
+
+The annotation accepts booleans only. Omit it or set it to `false` for normal
+history membership. The existing result update endpoint can change the flag;
+setting it to `null` removes it and restores normal membership. Changes take
+effect on subsequent reads. No measurements are deleted.
 
 ## Diagnostic artifacts
 

@@ -67,6 +67,9 @@ func NewIngester(store storage.Store, commits commit.Provider) *Ingester {
 // partial-data error), get-or-create the related entities, resolve the commit,
 // compute the fingerprint, and insert the result row.
 func (i *Ingester) Submit(ctx context.Context, req SubmitRequest) (*Result, error) {
+	if err := validateChangeAnnotations(req.ChangeAnnotations); err != nil {
+		return nil, err
+	}
 	canonicalHash := ""
 	if req.SubmissionKey != "" {
 		if utf8.RuneCountInString(req.SubmissionKey) > maxSubmissionKeyLength {

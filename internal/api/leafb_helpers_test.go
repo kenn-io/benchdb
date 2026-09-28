@@ -51,6 +51,8 @@ type seedOpts struct {
 	context   map[string]any // context tags; defaults to validBody's fixed context
 	machine   string         // hardware name; defaults to "m1"
 	repo      string         // repository url; defaults to the org/repo remote
+
+	changeAnnotations map[string]any // optional statistical annotations
 }
 
 // defaultRepo is the repository every seeded result uses unless seedOpts.repo
@@ -90,6 +92,9 @@ func seedResult(t *testing.T, tapi humatest.TestAPI, o seedOpts) string {
 	body["run_id"] = runID
 	if o.runReason != "" {
 		body["run_reason"] = o.runReason
+	}
+	if o.changeAnnotations != nil {
+		body["change_annotations"] = o.changeAnnotations
 	}
 	if o.batchID != "" {
 		body["batch_id"] = o.batchID

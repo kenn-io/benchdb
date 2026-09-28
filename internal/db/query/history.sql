@@ -1,6 +1,6 @@
 -- name: SelectHistoryForFingerprint :many
--- History membership, ported from history.py:get_history_for_fingerprint. The
--- four filters define the series: non-errored, on the default branch
+-- History membership, ported from history.py:get_history_for_fingerprint.
+-- Membership requires non-errored results on the default branch
 -- (sha == fork_point_sha), joined to a commit (the INNER JOIN drops results with
 -- no commit), and joined to a commit with a non-null timestamp. Also selects
 -- change_annotations, from which the service derives begins_distribution_change
@@ -10,6 +10,8 @@
 -- definition; both require a non-null commit timestamp because the series is
 -- time-ordered by it (a null would sort as the zero time and corrupt the
 -- rolling-statistics window).
+-- Results annotated exclude_from_history=true remain available for direct
+-- comparisons but do not participate in history or its statistical distribution.
 SELECT
   br.id,
   br.history_fingerprint,
@@ -30,6 +32,7 @@ JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
 JOIN commit c ON c.id = br.commit_id
 WHERE br.error IS NULL
+  AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
   AND br.history_fingerprint = $1
   AND c.sha = c.fork_point_sha
   AND c."timestamp" IS NOT NULL
@@ -70,6 +73,7 @@ JOIN hardware hw ON hw.id = br.hardware_id
 JOIN commit c ON c.id = br.commit_id
 WHERE br.benchmark_id = sqlc.arg('benchmark_id')
   AND br.error IS NULL
+  AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
   AND c.sha = c.fork_point_sha
   AND c."timestamp" IS NOT NULL
 ORDER BY hw.name, br.history_fingerprint, c."timestamp", br.id;
@@ -105,6 +109,7 @@ JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
 JOIN commit c ON c.id = br.commit_id
 WHERE br.error IS NULL
+  AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
   AND br.history_fingerprint = sqlc.arg('history_fingerprint')
   AND c.sha = c.fork_point_sha
   AND c."timestamp" IS NOT NULL
