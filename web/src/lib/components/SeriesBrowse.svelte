@@ -348,7 +348,7 @@
     {#if chartView}
       <section class="trend-grid" aria-label="Benchmark trend cards">
         {#each visible as row (row.benchmarkId)}
-          <BrowseTrendCard {row} {zeroBased} {timeRange} onopen={open} />
+          <BrowseTrendCard {row} {baseUrl} {zeroBased} {timeRange} onopen={open} />
         {/each}
       </section>
     {:else}

@@ -27,7 +27,7 @@ const item = (fp: string, name: string, overrides: Record<string, unknown> = {})
   latest_commit_sha: "abc1234def",
   latest_commit_timestamp: "2024-01-07T12:00:00Z",
   latest_result_timestamp: "2024-01-07T13:00:00Z",
-  point_count: 6,
+  point_count: 2,
   preview_tracks: [
     {
       machine_name: "m5",
@@ -143,7 +143,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("fits chart axes to the selected time window and its visible values", async () => {
+  it("filters chart data by the selected window and fits axes to the visible values", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-09T12:00:00Z"));
     try {
@@ -169,8 +169,8 @@ describe("SeriesBrowse", () => {
       const marks = container.querySelectorAll(".point-mark");
       expect(marks).toHaveLength(2);
       expect(Number(marks[0]!.getAttribute("cy")) - Number(marks[1]!.getAttribute("cy"))).toBeGreaterThan(100);
-      expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual(["May 10", "Jun 9"]);
-      expect(Number(marks[1]!.getAttribute("cx"))).toBeLessThan(512);
+      expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual(["May 10", "Jun 8"]);
+      expect(Number(marks[1]!.getAttribute("cx"))).toBe(512);
 
       await fireEvent.click(screen.getByRole("button", { name: /all time/i }));
       await rerender({ query: parseBrowseQuery(window.location.search) });
