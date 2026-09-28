@@ -126,6 +126,9 @@ func (h *Handler) update(ctx context.Context, in *UpdateResultInput) (*UpdateRes
 		if errors.Is(err, service.ErrNotFound) {
 			return nil, huma.Error404NotFound("benchmark result not found")
 		}
+		if ve, ok := errors.AsType[*service.ValidationError](err); ok {
+			return nil, huma.Error422UnprocessableEntity(ve.Message)
+		}
 		return nil, err
 	}
 	// Update-then-read is not transactional: the echoed detail reflects the row

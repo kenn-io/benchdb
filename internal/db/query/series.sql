@@ -1,6 +1,7 @@
 -- name: SelectSeriesPage :many
 -- One row per history-fingerprint, scoped to history membership (non-errored,
--- default-branch sha==fork_point_sha, commit-joined, non-null commit timestamp).
+-- default-branch sha==fork_point_sha, commit-joined, non-null commit timestamp,
+-- and not annotated exclude_from_history=true).
 -- The membership predicates are identical to SelectHistoryForFingerprint in
 -- history.sql, which is canonical for "what belongs to a series' history".
 --
@@ -24,6 +25,7 @@ WITH recent_commit_seed AS MATERIALIZED (
       FROM benchmark_result br
       WHERE br.commit_id = c.id
         AND br.error IS NULL
+        AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
         AND (
           sqlc.narg('hardware')::text IS NULL
@@ -64,6 +66,7 @@ recent_commit AS MATERIALIZED (
       FROM benchmark_result br
       WHERE br.commit_id = c.id
         AND br.error IS NULL
+        AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
         AND (
           sqlc.narg('hardware')::text IS NULL
@@ -85,6 +88,7 @@ members AS MATERIALIZED (
   JOIN benchmark_result br ON br.commit_id = rc.id
   JOIN hardware hw ON hw.id = br.hardware_id
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
     AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
     AND (
@@ -95,6 +99,7 @@ members AS MATERIALIZED (
         JOIN commit newer_c ON newer_c.id = newer.commit_id
         WHERE newer.history_fingerprint = br.history_fingerprint
           AND newer.error IS NULL
+          AND (newer.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
           AND newer_c.sha = newer_c.fork_point_sha
           AND newer_c."timestamp" IS NOT NULL
           AND (sqlc.narg('active_since')::timestamp IS NULL OR newer_c."timestamp" >= sqlc.narg('active_since')::timestamp)
@@ -158,6 +163,7 @@ counts AS (
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
   GROUP BY br.history_fingerprint
@@ -205,6 +211,7 @@ members AS MATERIALIZED (
     FROM benchmark_result
     WHERE case_id = mc.id
       AND error IS NULL
+      AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
       AND (sqlc.narg('repository')::text IS NULL OR commit_repo_url = sqlc.narg('repository'))
     OFFSET 0
   ) br
@@ -253,6 +260,7 @@ counts AS (
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
   GROUP BY br.history_fingerprint
@@ -322,6 +330,7 @@ members AS MATERIALIZED (
   JOIN matched_case mc ON mc.id = br.case_id
   JOIN hardware hw ON hw.id = br.hardware_id
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
     AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
     AND (sqlc.narg('active_since')::timestamp IS NULL OR rc.commit_timestamp >= sqlc.narg('active_since'))
@@ -333,6 +342,7 @@ members AS MATERIALIZED (
         JOIN commit newer_c ON newer_c.id = newer.commit_id
         WHERE newer.history_fingerprint = br.history_fingerprint
           AND newer.error IS NULL
+          AND (newer.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
           AND newer_c.sha = newer_c.fork_point_sha
           AND newer_c."timestamp" IS NOT NULL
           AND (newer_c."timestamp", newer.history_fingerprint)
@@ -377,6 +387,7 @@ counts AS (
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
   GROUP BY br.history_fingerprint
@@ -409,6 +420,7 @@ WITH members AS MATERIALIZED (
   FROM benchmark_result br
   JOIN commit c ON c.id = br.commit_id
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND br.history_fingerprint = sqlc.arg('fingerprint')::text
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
@@ -457,6 +469,7 @@ counts AS (
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
   GROUP BY br.history_fingerprint
@@ -509,6 +522,7 @@ members AS MATERIALIZED (
              change_annotations, hardware_id, commit_id
       FROM benchmark_result
       WHERE error IS NULL
+        AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND history_fingerprint = req.fingerprint
       OFFSET 0
     ) br
@@ -563,6 +577,7 @@ WITH recent_commit_seed AS MATERIALIZED (
       JOIN hardware hw ON hw.id = br.hardware_id
       WHERE br.commit_id = c.id
         AND br.error IS NULL
+        AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND (sqlc.narg('q')::text IS NULL OR cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')
         AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
         AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
@@ -597,6 +612,7 @@ recent_commit AS MATERIALIZED (
       JOIN hardware hw ON hw.id = br.hardware_id
       WHERE br.commit_id = c.id
         AND br.error IS NULL
+        AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND (sqlc.narg('q')::text IS NULL OR cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')
         AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
         AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
@@ -621,6 +637,7 @@ members AS MATERIALIZED (
   JOIN hardware hw ON hw.id = br.hardware_id
   JOIN "case" cs ON cs.id = br.case_id
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND (sqlc.narg('q')::text IS NULL OR cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')
     AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))
     AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository'))
@@ -634,6 +651,7 @@ members AS MATERIALIZED (
         JOIN hardware newer_hw ON newer_hw.id = newer.hardware_id
         WHERE newer.benchmark_id = br.benchmark_id
           AND newer.error IS NULL
+          AND (newer.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
           AND newer_c.sha = newer_c.fork_point_sha
           AND newer_c."timestamp" IS NOT NULL
           AND (sqlc.narg('hardware')::text IS NULL OR newer_hw.name = sqlc.narg('hardware'))
@@ -680,6 +698,7 @@ counts AS (
   JOIN commit c ON c.id = br.commit_id
   JOIN hardware hw ON hw.id = br.hardware_id
   WHERE br.error IS NULL
+    AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
     AND c.sha = c.fork_point_sha
     AND c."timestamp" IS NOT NULL
     AND (sqlc.narg('hardware')::text IS NULL OR hw.name = sqlc.narg('hardware'))

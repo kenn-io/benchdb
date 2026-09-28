@@ -104,14 +104,22 @@ func TestHistoryExcludesNullCommitTimestamp(t *testing.T) {
 	}
 }
 
-func TestReleaseReadinessRunsRemainComparableWithoutChangingHistory(t *testing.T) {
+func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
 	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
-	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}, runReason: "commit"})
+	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}, runReason: "manual", changeAnnotations: map[string]any{"exclude_from_history": false}})
 	baseline := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{30}})
 	contender := seedResult(t, tapi, seedOpts{sha: "c4", ts: day(4), data: []float64{100}})
 	fp := fpForResult(t, tapi, contender)
 	before := historyByFP(t, tapi, fp)
+	require.Len(t, before.Samples, 4)
+	benchmarkID := getResultDetail(t, tapi, contender).BenchmarkID
+	pages := map[string]string{}
+	for _, path := range []string{"/api/series", "/api/series?fingerprint=" + fp, "/api/series?q=bench", "/api/benchmarks", "/api/benchmarks/" + benchmarkID} {
+		resp := tapi.Get(path)
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		pages[path] = resp.Body.String()
+	}
 	compareURL := "/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender
 	response := tapi.Get(compareURL)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -119,11 +127,21 @@ func TestReleaseReadinessRunsRemainComparableWithoutChangingHistory(t *testing.T
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparisonBefore))
 	require.NotNil(t, comparisonBefore.Analysis.LookbackZScore)
 
-	release := seedResult(t, tapi, seedOpts{
-		sha: "c3", ts: day(3), data: []float64{200}, runID: "release-backfill", runReason: "release_readiness",
+	excluded := seedResult(t, tapi, seedOpts{
+		sha: "c3", ts: day(3), data: []float64{200}, runID: "ad-hoc-run", runReason: "manual",
+		changeAnnotations: map[string]any{"exclude_from_history": true},
 	})
-	assert.Equal(t, fp, fpForResult(t, tapi, release), "release runs remain directly comparable")
+	seedResult(t, tapi, seedOpts{
+		sha: "c5", ts: day(5), data: []float64{500}, runID: "newest-run",
+		changeAnnotations: map[string]any{"exclude_from_history": true},
+	})
+	assert.Equal(t, fp, fpForResult(t, tapi, excluded), "excluded results remain directly comparable")
 	assert.Equal(t, before, historyByFP(t, tapi, fp), "backfill must not add a recovery observation or change statistics")
+	for path, beforePage := range pages {
+		resp := tapi.Get(path)
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		assert.JSONEq(t, beforePage, resp.Body.String(), "history membership must agree for %s", path)
+	}
 
 	response = tapi.Get(compareURL)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -131,23 +149,40 @@ func TestReleaseReadinessRunsRemainComparableWithoutChangingHistory(t *testing.T
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparisonAfter))
 	assert.Equal(t, comparisonBefore.Analysis, comparisonAfter.Analysis, "as-of lookback must exclude the backfill too")
 
-	detail := getResultDetail(t, tapi, release)
-	response = tapi.Get("/api/benchmarks/" + detail.BenchmarkID)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	var history service.BenchmarkHistory
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &history))
-	require.Len(t, history.Tracks, 1)
-	require.Len(t, history.Tracks[0].Segments, 1)
-	assert.Equal(t, before.Samples, history.Tracks[0].Segments[0].Samples)
-
-	response = tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + release + "&contender_result_id=" + contender)
+	response = tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + excluded + "&contender_result_id=" + contender)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var direct service.CompareResult
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &direct))
 	require.NotNil(t, direct.Analysis.Pairwise)
 	assert.True(t, direct.Analysis.Pairwise.ImprovementIndicated)
-	assert.Equal(t, "release-backfill", direct.Baseline.RunID)
+	assert.Equal(t, "ad-hoc-run", direct.Baseline.RunID)
 	assert.Equal(t, comparisonBefore.Analysis.LookbackZScore, direct.Analysis.LookbackZScore)
+}
+
+func TestHistoryExclusionAnnotationUpdatesAndValidation(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	id := seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
+	fp := fpForResult(t, tapi, id)
+	for _, tc := range []struct {
+		value any
+		count int
+	}{{true, 0}, {nil, 1}, {true, 0}, {false, 1}} {
+		resp := tapi.Put("/api/benchmark-results/"+id, "Authorization: Bearer "+testToken,
+			map[string]any{"change_annotations": map[string]any{"exclude_from_history": tc.value}})
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		assert.Len(t, historyByFP(t, tapi, fp).Samples, tc.count)
+	}
+	for _, invalid := range []any{"true", 1, []any{true}, map[string]any{"value": true}} {
+		annotations := map[string]any{"exclude_from_history": invalid}
+		body := validBody()
+		body["change_annotations"] = annotations
+		resp := tapi.Post("/api/results", "Authorization: Bearer "+testToken, body)
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
+		resp = tapi.Put("/api/benchmark-results/"+id, "Authorization: Bearer "+testToken,
+			map[string]any{"change_annotations": annotations})
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
+		assert.Equal(t, false, getResultDetail(t, tapi, id).ChangeAnnotations["exclude_from_history"])
+	}
 }
 
 func TestHistoryZScoreStatsStepDoesNotAdvanceSegment(t *testing.T) {

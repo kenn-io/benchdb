@@ -48,10 +48,17 @@ Useful production payloads should also include:
 - `github.repository` and `github.commit`: required for commit-wide CI reports,
 - `github.pr_number` or `github.branch`: useful for display and audit.
 
-Use `run_reason: "release_readiness"` for runs made only to compare a candidate
-with a release. These results remain available for explicit comparisons, but
-do not enter history samples or the lookback distribution. Other reasons,
-including an omitted reason, retain their existing history behavior.
+To retain a result for comparisons without including it in continuous history,
+submit `"change_annotations": {"exclude_from_history": true}`. This excludes the
+result from history samples, series and benchmark summaries, and lookback
+distributions. The result keeps its fingerprint and remains available through
+result/run reads and explicit comparisons. `run_reason` is descriptive metadata
+and does not control history membership.
+
+The annotation accepts booleans only. Omit it or set it to `false` for normal
+history membership. The existing result update endpoint can change the flag;
+setting it to `null` removes it and restores normal membership. Changes take
+effect on subsequent reads. No measurements are deleted.
 
 ## Diagnostic artifacts
 

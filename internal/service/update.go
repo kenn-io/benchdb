@@ -15,6 +15,9 @@ import (
 // null-valued key — that is how a key is deleted. Only change_annotations is
 // updatable; everything else on the result is immutable.
 func (i *Ingester) UpdateChangeAnnotations(ctx context.Context, id string, given map[string]any) error {
+	if err := validateChangeAnnotations(given); err != nil {
+		return err
+	}
 	row, err := i.store.GetBenchmarkResultByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -41,6 +44,15 @@ func (i *Ingester) UpdateChangeAnnotations(ctx context.Context, id string, given
 			return ErrNotFound
 		}
 		return fmt.Errorf("update change_annotations: %w", err)
+	}
+	return nil
+}
+
+func validateChangeAnnotations(annotations map[string]any) error {
+	if value := annotations["exclude_from_history"]; value != nil {
+		if _, ok := value.(bool); !ok {
+			return &ValidationError{Message: "change_annotations.exclude_from_history must be a boolean or null"}
+		}
 	}
 	return nil
 }
