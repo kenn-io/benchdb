@@ -85,3 +85,61 @@ benchmark before enough history exists for the lookback model.
 `skipped` CI reports are not failures. They mean every contender had a matching
 baseline, but no row had enough history for z-score analysis. Missing baseline
 coverage is `action_required`, not `skipped` or `success`.
+
+## Minimum meaningful changes in run reports
+
+Run reports and result comparisons require a change to clear both the existing
+statistical threshold and a practical tolerance. This applies equally to
+improvements and regressions. Values remain visible when a change is suppressed.
+The series/history views retain their raw historical diagnostics.
+
+The practical floor is `max(absolute, abs(reference) * relative_percent / 100)`.
+Changes exactly at the floor are within tolerance. Pairwise analysis uses the
+selected baseline as its reference; lookback analysis uses its historical mean.
+Each analysis returns `tolerance` with the reference, signed measured-minus-reference
+`delta`, effective floors, `minimum_change`, and `within_tolerance`. Delta is in
+measurement units, without the performance-direction sign reversal used by the
+existing percentage and z-score fields. Missing history remains `insufficient`.
+
+Publishers configure each benchmark through the contender result's existing
+`optional_benchmark_info` object:
+
+```json
+{
+  "optional_benchmark_info": {
+    "tolerance": {
+      "metric_kind": "memory_peak",
+      "absolute": 8388608,
+      "relative_percent": 5
+    }
+  }
+}
+```
+
+| Metric kind | Required unit | Default absolute floor | Default relative floor |
+| --- | --- | --- | --- |
+| `duration` | `s` or `ns` | 30 ms, converted to the result unit | 0% |
+| `microbenchmark` | `s` or `ns` | 0 | 0% |
+| `memory_peak` | `B` | 8 MiB | 5% |
+| `heap_live` | `B` | 8 MiB | 5% |
+| `allocation` | `B` | 0 | 0% |
+| `unspecified` | Any supported unit | 0 | 0% |
+
+Without a metric kind, `s` and `ns` use `duration`; other units use `unspecified`.
+Byte measurements are not assumed to be peak memory, and names are not parsed to
+infer metric kinds. Publishers must identify peak memory or live heap explicitly.
+Microbenchmark publishers must select `microbenchmark` or supply a smaller floor.
+Large iteration/sample counts never automatically disable tolerances.
+
+Both floors are optional, finite, non-negative numbers. Omitted or null floors
+inherit the metric default; explicit zero disables that floor. Absolute values
+are in the submitted unit, so 30 ms is `0.03` for `s` and `30000000` for `ns`.
+The metric kind and overrides must accompany every contender submission that
+needs them. These settings describe reporting policy, not proof of CPU or GC noise.
+
+No schema migration or new table is required. The policy uses the existing
+JSONB metadata column, participates in submission idempotency, and does not change
+the history fingerprint. Existing duration results receive the default floor
+when compared; existing byte results retain their previous behavior. Stored
+report evaluations are not backfilled; refresh or reevaluate them to use this
+policy. Changing policy does not rewrite measurements or historical distributions.

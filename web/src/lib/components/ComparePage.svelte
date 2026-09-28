@@ -17,7 +17,7 @@
     type ComparableTrack,
   } from "../compare/benchmark-picker";
   import { loadCompare, NotComparableError, type CompareViewModel } from "../compare/loader";
-  import { lookbackText, pairwiseText } from "../compare/transform";
+  import { lookbackText, pairwiseText, toleranceText } from "../compare/transform";
   import { loadTrend } from "../series/loader";
   import {
     DEFAULT_BROWSE_QUERY,
@@ -515,9 +515,9 @@
         <StatusBadge status={m.status} />
         <dl class="verdicts">
           <dt>lookback z</dt>
-          <dd>{lookbackText(m.lookback)}</dd>
+          <dd>{lookbackText(m.lookback)}{#if m.lookback?.tolerance}<div>{toleranceText(m.lookback.tolerance, m.unit)}</div>{/if}</dd>
           <dt>pairwise</dt>
-          <dd>{pairwiseText(m.pairwise)}</dd>
+          <dd>{pairwiseText(m.pairwise)}{#if m.pairwise?.tolerance}<div>{toleranceText(m.pairwise.tolerance, m.unit)}</div>{/if}</dd>
         </dl>
       </div>
     </section>

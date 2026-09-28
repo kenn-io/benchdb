@@ -39,6 +39,7 @@ func seedAPI(t *testing.T) (humatest.TestAPI, *pgxpool.Pool, context.Context) {
 // series still shares it. To seed DISTINCT series, vary name/machine/repo: the case
 // name, hardware name, and repository all feed the history_fingerprint.
 type seedOpts struct {
+	tolerance map[string]any
 	sha       string         // github commit sha (distinct sha => distinct default-branch commit)
 	ts        time.Time      // result timestamp == commit timestamp (LocalProvider)
 	unit      string         // measurement unit; defaults to "s"
@@ -87,6 +88,9 @@ func seedResult(t *testing.T, tapi humatest.TestAPI, o seedOpts) string {
 	body["github"] = map[string]any{"commit": o.sha, "repository": repo}
 	body["timestamp"] = o.ts.UTC().Format(time.RFC3339)
 	body["stats"] = map[string]any{"data": o.data, "unit": unit}
+	if o.tolerance != nil {
+		body["optional_benchmark_info"] = map[string]any{"tolerance": o.tolerance}
+	}
 	body["run_id"] = runID
 	if o.runReason != "" {
 		body["run_reason"] = o.runReason

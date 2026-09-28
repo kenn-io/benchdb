@@ -154,3 +154,24 @@ func assertCIReportURL(t *testing.T, report service.CIReport) {
 	t.Helper()
 	assert.True(t, strings.HasPrefix(report.ReportURL, "https://benchdb.example/ci/report?"))
 }
+
+func TestCIReportSuppressesChangesWithinTolerance(t *testing.T) {
+	tapi, _, _ := seedCIReportAPI(t, "")
+	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{.1}})
+	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{.101}})
+	seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c3", ts: day(3), data: []float64{.102}})
+	seedResult(t, tapi, seedOpts{runID: "small", sha: "c4", ts: day(4), data: []float64{.12}})
+	seedResult(t, tapi, seedOpts{runID: "large", sha: "c5", ts: day(5), data: []float64{.15}})
+	for _, tt := range []struct {
+		run         string
+		status      service.CIReportStatus
+		regressions int
+	}{
+		{"small", service.CIReportStatusSuccess, 0},
+		{"large", service.CIReportStatusFailure, 1},
+	} {
+		report := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids="+tt.run+"&baseline_run_ids=baseline"))
+		assert.Equal(t, tt.status, report.Status)
+		assert.Equal(t, tt.regressions, report.Summary.Regressions)
+	}
+}

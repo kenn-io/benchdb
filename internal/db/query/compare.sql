@@ -9,6 +9,7 @@ SELECT
   br.unit,
   br.data,
   br.error,
+  br.optional_benchmark_info,
   br.commit_id,
   c."timestamp" AS commit_timestamp
 FROM benchmark_result br

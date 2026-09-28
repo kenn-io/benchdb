@@ -18,6 +18,7 @@ SELECT
   br.unit,
   br.data,
   br.error,
+  br.optional_benchmark_info,
   br.commit_id,
   c."timestamp" AS commit_timestamp
 FROM benchmark_result br
@@ -26,14 +27,15 @@ WHERE br.id = $1
 `
 
 type GetResultForCompareRow struct {
-	ID                 string
-	RunID              string
-	HistoryFingerprint string
-	Unit               *string
-	Data               []*float64
-	Error              []byte
-	CommitID           *string
-	CommitTimestamp    *time.Time
+	ID                    string
+	RunID                 string
+	HistoryFingerprint    string
+	Unit                  *string
+	Data                  []*float64
+	Error                 []byte
+	OptionalBenchmarkInfo []byte
+	CommitID              *string
+	CommitTimestamp       *time.Time
 }
 
 // The fields the compare endpoint needs for one result: SVS inputs (unit, data,
@@ -49,6 +51,7 @@ func (q *Queries) GetResultForCompare(ctx context.Context, id string) (GetResult
 		&i.Unit,
 		&i.Data,
 		&i.Error,
+		&i.OptionalBenchmarkInfo,
 		&i.CommitID,
 		&i.CommitTimestamp,
 	)

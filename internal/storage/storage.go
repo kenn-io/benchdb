@@ -561,14 +561,15 @@ type HistoryRow struct {
 // the baseline ancestry cutoff. CommitID/CommitTimestamp are nil for a result
 // submitted without a commit.
 type CompareResultRow struct {
-	ID                 string
-	RunID              string
-	HistoryFingerprint string
-	Unit               *string
-	Data               []*float64
-	Error              []byte
-	CommitID           *string
-	CommitTimestamp    *time.Time
+	OptionalBenchmarkInfo []byte
+	ID                    string
+	RunID                 string
+	HistoryFingerprint    string
+	Unit                  *string
+	Data                  []*float64
+	Error                 []byte
+	CommitID              *string
+	CommitTimestamp       *time.Time
 }
 
 // ListResultsParams is the filter + pagination input for the list endpoint. Nil

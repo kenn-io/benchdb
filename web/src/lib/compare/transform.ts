@@ -1,4 +1,5 @@
-import type { LookbackAnalysis, PairwiseAnalysis } from "../api/benchdb";
+import { formatMeasurement } from "../format";
+import type { ChangeTolerance, LookbackAnalysis, PairwiseAnalysis } from "../api/benchdb";
 import type { SeriesStatus } from "../browse/transform";
 import type { SeriesPoint } from "../series/transform";
 
@@ -36,7 +37,7 @@ export function lookbackText(lookback: LookbackAnalysis): string {
   if (lookback === null) {
     return "n/a";
   }
-  const ind = indication(lookback.improvement_indicated, lookback.regression_indicated);
+  const ind = lookback.tolerance?.within_tolerance ? "within configured tolerance" : indication(lookback.improvement_indicated, lookback.regression_indicated);
   return `z ${lookback.z_score.toFixed(2)} vs threshold ${lookback.z_threshold} — ${ind}`;
 }
 
@@ -51,7 +52,7 @@ export function pairwiseText(pairwise: PairwiseAnalysis): string {
   const rounded = Number(pairwise.percent_change.toFixed(1));
   const display = Object.is(rounded, -0) ? 0 : rounded;
   const signed = `${display > 0 ? "+" : ""}${display.toFixed(1)}%`;
-  const ind = indication(pairwise.improvement_indicated, pairwise.regression_indicated);
+  const ind = pairwise.tolerance?.within_tolerance ? "within configured tolerance" : indication(pairwise.improvement_indicated, pairwise.regression_indicated);
   return `${signed} vs threshold ${pairwise.percent_threshold}% — ${ind}`;
 }
 
@@ -61,4 +62,9 @@ export function pairwiseText(pairwise: PairwiseAnalysis): string {
 export function markedIndices(points: SeriesPoint[], resultIds: string[]): number[] {
   const wanted = new Set(resultIds);
   return points.flatMap((p, i) => (wanted.has(p.resultId) ? [i] : []));
+}
+
+/** Values use the same reference as the verdict, not an unrelated pairwise baseline. */
+export function toleranceText(tolerance: ChangeTolerance, unit: string | null): string {
+  return `Change ${formatMeasurement(tolerance.delta, unit)} from reference ${formatMeasurement(tolerance.reference, unit)}; must exceed ${formatMeasurement(tolerance.minimum_change, unit)}.`;
 }

@@ -371,14 +371,15 @@ func historyRowsFromRows(rows []SelectHistoryForFingerprintRow) []storage.Histor
 
 func compareResultFromRow(r GetResultForCompareRow) storage.CompareResultRow {
 	return storage.CompareResultRow{
-		ID:                 r.ID,
-		RunID:              r.RunID,
-		HistoryFingerprint: r.HistoryFingerprint,
-		Unit:               r.Unit,
-		Data:               r.Data,
-		Error:              r.Error,
-		CommitID:           r.CommitID,
-		CommitTimestamp:    r.CommitTimestamp,
+		OptionalBenchmarkInfo: r.OptionalBenchmarkInfo,
+		ID:                    r.ID,
+		RunID:                 r.RunID,
+		HistoryFingerprint:    r.HistoryFingerprint,
+		Unit:                  r.Unit,
+		Data:                  r.Data,
+		Error:                 r.Error,
+		CommitID:              r.CommitID,
+		CommitTimestamp:       r.CommitTimestamp,
 	}
 }
 
