@@ -3,8 +3,8 @@
 The supported write path is:
 
 1. benchmark code emits BenchDB-compatible JSON payload files,
-2. each file contains either one result object or an array of result objects,
-3. the Go `benchdb` CLI submits those files with bounded concurrency.
+1. each file contains either one result object or an array of result objects,
+1. the Go `benchdb` CLI submits those files with bounded concurrency.
 
 ```bash
 benchdb results submit "bench-results/*.json" \
@@ -47,6 +47,11 @@ Useful production payloads should also include:
 - `batch_id`: optional grouping across related runs,
 - `github.repository` and `github.commit`: required for commit-wide CI reports,
 - `github.pr_number` or `github.branch`: useful for display and audit.
+
+Use `run_reason: "release_readiness"` for runs made only to compare a candidate
+with a release. These results remain available for explicit comparisons, but
+do not enter history samples or the lookback distribution. Other reasons,
+including an omitted reason, retain their existing history behavior.
 
 ## Diagnostic artifacts
 

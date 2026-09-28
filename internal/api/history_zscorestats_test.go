@@ -104,6 +104,52 @@ func TestHistoryExcludesNullCommitTimestamp(t *testing.T) {
 	}
 }
 
+func TestReleaseReadinessRunsRemainComparableWithoutChangingHistory(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
+	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}, runReason: "commit"})
+	baseline := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{30}})
+	contender := seedResult(t, tapi, seedOpts{sha: "c4", ts: day(4), data: []float64{100}})
+	fp := fpForResult(t, tapi, contender)
+	before := historyByFP(t, tapi, fp)
+	compareURL := "/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender
+	response := tapi.Get(compareURL)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var comparisonBefore service.CompareResult
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparisonBefore))
+	require.NotNil(t, comparisonBefore.Analysis.LookbackZScore)
+
+	release := seedResult(t, tapi, seedOpts{
+		sha: "c3", ts: day(3), data: []float64{200}, runID: "release-backfill", runReason: "release_readiness",
+	})
+	assert.Equal(t, fp, fpForResult(t, tapi, release), "release runs remain directly comparable")
+	assert.Equal(t, before, historyByFP(t, tapi, fp), "backfill must not add a recovery observation or change statistics")
+
+	response = tapi.Get(compareURL)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var comparisonAfter service.CompareResult
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparisonAfter))
+	assert.Equal(t, comparisonBefore.Analysis, comparisonAfter.Analysis, "as-of lookback must exclude the backfill too")
+
+	detail := getResultDetail(t, tapi, release)
+	response = tapi.Get("/api/benchmarks/" + detail.BenchmarkID)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var history service.BenchmarkHistory
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &history))
+	require.Len(t, history.Tracks, 1)
+	require.Len(t, history.Tracks[0].Segments, 1)
+	assert.Equal(t, before.Samples, history.Tracks[0].Segments[0].Samples)
+
+	response = tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + release + "&contender_result_id=" + contender)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var direct service.CompareResult
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &direct))
+	require.NotNil(t, direct.Analysis.Pairwise)
+	assert.True(t, direct.Analysis.Pairwise.ImprovementIndicated)
+	assert.Equal(t, "release-backfill", direct.Baseline.RunID)
+	assert.Equal(t, comparisonBefore.Analysis.LookbackZScore, direct.Analysis.LookbackZScore)
+}
+
 func TestHistoryZScoreStatsStepDoesNotAdvanceSegment(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
 	// [1,1,1,1,5,5,5,5] auto-detects a step at index 4; with no manual
