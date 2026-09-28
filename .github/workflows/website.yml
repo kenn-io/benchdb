@@ -32,7 +32,7 @@ permissions: {}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 15
     permissions:
       contents: read
