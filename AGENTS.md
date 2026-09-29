@@ -29,6 +29,13 @@ provides browsing, comparison, and regression analysis.
   present, must remain a symlink to it.
 - Code reviewers must follow [REVIEW.md](REVIEW.md).
 
+## CI runners
+
+Public CI profiles use Namespace's
+[Restricted access level](https://namespace.so/docs/solutions/github-actions/runner-controls/access-levels),
+which disables workload access to Namespace features and APIs. GitHub fork
+approvals, token permissions, and secrets are separate controls.
+
 ## Go development
 
 - The module path is `go.kenn.io/benchdb`.

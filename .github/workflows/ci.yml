@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   go:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -46,7 +46,7 @@ jobs:
       - run: make go-test
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 15
     defaults:
       run:
@@ -65,7 +65,7 @@ jobs:
       - run: bun run test
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -78,7 +78,7 @@ jobs:
       - run: make build-docs-ci
 
   docs-screenshots:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -103,7 +103,7 @@ jobs:
           retention-days: 14
 
   codegen-drift:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -132,7 +132,7 @@ jobs:
       - run: make codegen-check
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -155,7 +155,7 @@ jobs:
           retention-days: 14
 
   server-container:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -164,7 +164,7 @@ jobs:
       - run: make server-container-smoke
 
   deploy-manifests:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -173,7 +173,7 @@ jobs:
       - run: make go-deploy-manifest-check
 
   workflows:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -187,7 +187,7 @@ jobs:
       - run: make docs-screenshots-check
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
