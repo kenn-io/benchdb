@@ -1,18 +1,22 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
-  import type { BrowsePreviewPoint, BrowseRow } from "../browse/transform";
+  import type { BrowsePreviewPoint, BrowsePreviewTrack, BrowseRow } from "../browse/transform";
+  import { loadTrend } from "../series/loader";
   import { observedValueRange, zeroBasedValueRange, type ValueRange } from "../series/chart-geometry";
   import MeasurementValue from "./MeasurementValue.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
   let {
     row,
+    baseUrl = "",
     zeroBased = false,
     timeRange = null,
     onopen,
   }: {
     row: BrowseRow;
+    baseUrl?: string;
     zeroBased?: boolean;
     timeRange?: ValueRange | null;
     onopen?: (row: BrowseRow) => void;
@@ -27,7 +31,43 @@
   const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"];
 
   let hovered = $state<{ machineName: string; point: BrowsePreviewPoint } | null>(null);
-  let visibleTracks = $derived(row.previewTracks.map((track) => ({
+  let historyTracks = $state<BrowsePreviewTrack[] | null>(null);
+  let loadingHistory = $state(false);
+  let historyError = $state<string | null>(null);
+  const tracks = $derived(historyTracks ?? row.previewTracks);
+
+  $effect(() => {
+    const current = row;
+    historyTracks = null;
+    historyError = null;
+    hovered = null;
+    const incomplete = current.previewTracks.reduce((count, track) => count + track.points.length, 0) < current.pointCount;
+    loadingHistory = incomplete;
+    if (!incomplete) return;
+
+    let active = true;
+    void loadTrend(createBenchDBClient(baseUrl), { kind: "benchmark", benchmarkId: current.benchmarkId })
+      .then((history) => {
+        if (!active) return;
+        historyTracks = history.tracks
+          .filter((track) => current.machineNames.includes(track.machineName))
+          .map((track) => ({
+            machineName: track.machineName,
+            points: track.segments.flatMap((segment) => segment.points)
+              .map((point) => ({ chartMs: point.chartMs, value: point.svs, unit: point.unit }))
+              .sort((a, b) => a.chartMs - b.chartMs),
+          }));
+      })
+      .catch((err) => {
+        if (active) historyError = err instanceof Error ? err.message : String(err);
+      })
+      .finally(() => {
+        if (active) loadingHistory = false;
+      });
+    return () => { active = false; };
+  });
+
+  let visibleTracks = $derived(tracks.map((track) => ({
     ...track,
     points: timeRange === null ? track.points : track.points.filter((point) =>
       point.chartMs >= timeRange!.min && point.chartMs <= timeRange!.max,
@@ -35,8 +75,9 @@
   })));
   let allPoints = $derived(visibleTracks.flatMap((track) => track.points));
   let previewUnitCount = $derived(new Set(allPoints.map((point) => point.unit)).size);
-  let minX = $derived(timeRange?.min ?? (allPoints.length === 0 ? 0 : Math.min(...allPoints.map((point) => point.chartMs))));
-  let maxX = $derived(timeRange?.max ?? (allPoints.length === 0 ? 1 : Math.max(...allPoints.map((point) => point.chartMs))));
+  // The window filters the history; its empty time should not squeeze the data.
+  let minX = $derived(allPoints.reduce((min, point) => Math.min(min, point.chartMs), Infinity));
+  let maxX = $derived(allPoints.reduce((max, point) => Math.max(max, point.chartMs), -Infinity));
   let yRange = $derived(
     (zeroBased ? zeroBasedValueRange : observedValueRange)(allPoints.map((point) => point.value)),
   );
@@ -57,11 +98,14 @@
   }
 
   function pointTitle(machineName: string, point: BrowsePreviewPoint): string {
-    return `${machineName} · ${new Date(point.chartMs).toLocaleDateString()} · ${formatMeasurement(point.value, point.unit)}`;
+    return `${machineName} · ${new Date(point.chartMs).toLocaleString()} · ${formatMeasurement(point.value, point.unit)}`;
   }
 
   function axisDate(chartMs: number): string {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(chartMs);
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short", day: "numeric",
+      ...(maxX - minX < 86_400_000 ? { hour: "numeric", minute: "2-digit" } as const : {}),
+    }).format(chartMs);
   }
 
   function tooltipStyle(point: BrowsePreviewPoint): string {
@@ -85,7 +129,11 @@
   </header>
 
   <button type="button" class="chart-button" aria-label={`Open trend ${row.name}`} onclick={() => onopen?.(row)}>
-    {#if allPoints.length === 0}
+    {#if loadingHistory}
+      <span class="no-preview" aria-live="polite">Loading history…</span>
+    {:else if historyError}
+      <span class="no-preview" role="alert">{historyError}</span>
+    {:else if allPoints.length === 0}
       <span class="no-preview">No trend preview</span>
     {:else if previewUnitCount > 1}
       <span class="no-preview">Preview unavailable: mixed units</span>
@@ -126,7 +174,7 @@
 
   <footer>
     <div class="machines">
-      {#each row.previewTracks as track, index (track.machineName)}
+      {#each tracks as track, index (track.machineName)}
         <span><i style={`background:${palette[index % palette.length]}`}></i>{track.machineName}</span>
       {/each}
     </div>
