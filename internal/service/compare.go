@@ -27,22 +27,24 @@ type CompareSide struct {
 // nullable marker makes huma emit the schema as nullable (it is null when the
 // baseline SVS is 0); see the Commit type in read.go for the same pattern.
 type PairwiseAnalysis struct {
-	_                    struct{} `json:"-" nullable:"true"`
-	PercentChange        float64  `json:"percent_change"`
-	PercentThreshold     float64  `json:"percent_threshold"`
-	RegressionIndicated  bool     `json:"regression_indicated"`
-	ImprovementIndicated bool     `json:"improvement_indicated"`
+	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`
+	_                    struct{}         `json:"-" nullable:"true"`
+	PercentChange        float64          `json:"percent_change"`
+	PercentThreshold     float64          `json:"percent_threshold"`
+	RegressionIndicated  bool             `json:"regression_indicated"`
+	ImprovementIndicated bool             `json:"improvement_indicated"`
 }
 
 // LookbackAnalysis is the contender's z-score verdict against its baseline
 // window. Null when there is no baseline commit, the window is not single-unit,
 // or the z-score is not computable.
 type LookbackAnalysis struct {
-	_                    struct{} `json:"-" nullable:"true"`
-	ZScore               float64  `json:"z_score"`
-	ZThreshold           float64  `json:"z_threshold"`
-	RegressionIndicated  bool     `json:"regression_indicated"`
-	ImprovementIndicated bool     `json:"improvement_indicated"`
+	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`
+	_                    struct{}         `json:"-" nullable:"true"`
+	ZScore               float64          `json:"z_score"`
+	ZThreshold           float64          `json:"z_threshold"`
+	RegressionIndicated  bool             `json:"regression_indicated"`
+	ImprovementIndicated bool             `json:"improvement_indicated"`
 }
 
 // CompareAnalysis holds the two verdicts; either may be null.
@@ -95,9 +97,17 @@ func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, th
 		return nil, fmt.Errorf("%w: history fingerprints differ", ErrNotComparable)
 	}
 
+	info, err := jsonObject(contender.OptionalBenchmarkInfo)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := resolveTolerance(info, unit)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotComparable, err)
+	}
 	lookback, err := r.lookbackAnalysis(ctx, lookbackInput{
 		contender: contender, baseline: baseline, contSVS: contSVS,
-		unit: unit, lessIsBetter: lessIsBetter, thresholdZ: thresholdZ,
+		unit: unit, lessIsBetter: lessIsBetter, thresholdZ: thresholdZ, tolerance: policy,
 	})
 	if err != nil {
 		return nil, err
@@ -111,6 +121,13 @@ func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, th
 			Pairwise:       pairwiseAnalysis(baseSVS, contSVS, lessIsBetter, threshold),
 			LookbackZScore: lookback,
 		},
+	}
+	if pairwise := out.Analysis.Pairwise; pairwise != nil {
+		pairwise.Tolerance = policy.evaluate(baseSVS, contSVS)
+		if pairwise.Tolerance.WithinTolerance {
+			pairwise.RegressionIndicated = false
+			pairwise.ImprovementIndicated = false
+		}
 	}
 	return out, nil
 }
@@ -164,6 +181,7 @@ func pairwiseAnalysis(baseSVS, contSVS float64, lessIsBetter bool, threshold flo
 
 // lookbackInput carries the contender's z-score inputs for the baseline window.
 type lookbackInput struct {
+	tolerance    TolerancePolicy
 	contender    storage.CompareResultRow
 	baseline     storage.CompareResultRow
 	contSVS      float64
@@ -210,11 +228,13 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 	if v == nil {
 		return nil, nil // z not computable (nil/zero-stddev/NaN) — a legitimate absent lookback
 	}
+	tolerance := in.tolerance.evaluate(*mean, in.contSVS)
 	return &LookbackAnalysis{
+		Tolerance:            tolerance,
 		ZScore:               round4SigFigs(v.ZScore),
 		ZThreshold:           v.ZThreshold,
-		RegressionIndicated:  v.RegressionIndicated,
-		ImprovementIndicated: v.ImprovementIndicated,
+		RegressionIndicated:  v.RegressionIndicated && !tolerance.WithinTolerance,
+		ImprovementIndicated: v.ImprovementIndicated && !tolerance.WithinTolerance,
 	}, nil
 }
 

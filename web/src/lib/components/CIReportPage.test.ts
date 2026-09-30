@@ -424,3 +424,16 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("bench-200")).not.toBeInTheDocument();
   });
 });
+
+it("keeps a suppressed change visible with its tolerance explanation", async () => {
+  const tolerance = {metric_kind: "duration", absolute: 0.03, relative_percent: 0, reference: 0.1, delta: 0.02, minimum_change: 0.03, within_tolerance: true};
+  const row = comparison({status: "stable", analysis: {
+    pairwise: {percent_change: -20, percent_threshold: 5, regression_indicated: false, improvement_indicated: false, tolerance},
+    lookback_z_score: {z_score: -12, z_threshold: 2, regression_indicated: false, improvement_indicated: false, tolerance},
+  }});
+  GET.mockResolvedValue({data: {...report, status: "success", status_reason: "no regressions", summary: {...report.summary, regressions: 0}, runs: [{...report.runs[0], comparisons: [row]}]}});
+  render(CIReportPage, {props: {query: QUERY}});
+  expect(await screen.findByText("within tolerance")).toBeInTheDocument();
+  expect(screen.getByText("0.02 s")).toBeInTheDocument();
+  expect(screen.getByText("Change 0.02 s from reference 0.1 s; must exceed 0.03 s.")).toBeInTheDocument();
+});

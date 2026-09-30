@@ -107,6 +107,12 @@ func (i *Ingester) Submit(ctx context.Context, req SubmitRequest) (*Result, erro
 		return nil, err
 	}
 
+	if rs.unit != nil {
+		if _, err := resolveTolerance(req.OptionalBenchmarkInfo, *rs.unit); err != nil {
+			return nil, err
+		}
+	}
+
 	caseTagsJSON, err := json.Marshal(caseTags)
 	if err != nil {
 		return nil, fmt.Errorf("marshal case tags: %w", err)

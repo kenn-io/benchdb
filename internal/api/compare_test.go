@@ -175,3 +175,54 @@ func TestCompareNotFoundIs404(t *testing.T) {
 	resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + missing + "&contender_result_id=" + contender)
 	require.Equal(t, http.StatusNotFound, resp.Code, "body %s", resp.Body.String())
 }
+
+func TestCompareMeaningfulChangeTolerance(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	for _, tt := range []struct {
+		name, unit string
+		history    []float64
+		measured   float64
+		policy     map[string]any
+		changed    bool
+	}{
+		{"duration noise", "s", []float64{.1, .101, .102}, .12, nil, false},
+		{"duration regression", "s", []float64{.1, .101, .102}, .15, nil, true},
+		{"duration improvement", "s", []float64{.1, .101, .102}, .05, nil, true},
+		{"microbenchmark", "s", []float64{.1, .101, .102}, .12, map[string]any{"metric_kind": "microbenchmark"}, true},
+		{"zero override", "s", []float64{.1, .101, .102}, .12, map[string]any{"absolute": 0}, true},
+		{"peak memory noise", "B", []float64{64 * 1048576, 65 * 1048576, 66 * 1048576}, 70 * 1048576, map[string]any{"metric_kind": "memory_peak"}, false},
+		{"heap relative noise", "B", []float64{1024 * 1048576, 1025 * 1048576, 1026 * 1048576}, 1060 * 1048576, map[string]any{"metric_kind": "heap_live"}, false},
+		{"heap regression", "B", []float64{1024 * 1048576, 1025 * 1048576, 1026 * 1048576}, 1200 * 1048576, map[string]any{"metric_kind": "heap_live"}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var baseline string
+			for i, v := range tt.history {
+				baseline = seedResult(t, tapi, seedOpts{name: tt.name, sha: tt.name + time.Duration(i).String(), ts: day(i + 1), unit: tt.unit, data: []float64{v}})
+			}
+			contender := seedResult(t, tapi, seedOpts{name: tt.name, sha: tt.name + "head", ts: day(4), unit: tt.unit, data: []float64{tt.measured}, tolerance: tt.policy})
+			resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
+			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			var out service.CompareResult
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+			lookback := out.Analysis.LookbackZScore
+			require.NotNil(t, lookback)
+			require.NotNil(t, lookback.Tolerance)
+			assert.Equal(t, tt.changed, lookback.RegressionIndicated || lookback.ImprovementIndicated)
+			assert.Equal(t, !tt.changed, lookback.Tolerance.WithinTolerance)
+			// Historical reference is the window mean, not the last baseline result.
+			assert.InDelta(t, tt.history[1], lookback.Tolerance.Reference, 1e-6)
+			require.NotNil(t, out.Analysis.Pairwise.Tolerance)
+			assert.Equal(t, tt.changed, out.Analysis.Pairwise.RegressionIndicated || out.Analysis.Pairwise.ImprovementIndicated)
+			assert.InDelta(t, tt.history[2], out.Analysis.Pairwise.Tolerance.Reference, 1e-6)
+			assert.Equal(t, fpForResult(t, tapi, baseline), fpForResult(t, tapi, contender))
+		})
+	}
+}
+
+func TestSubmitRejectsInvalidTolerance(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	body := validBody()
+	body["optional_benchmark_info"] = map[string]any{"tolerance": map[string]any{"absolute": -1}}
+	resp := tapi.Post("/api/results", "Authorization: Bearer "+testToken, body)
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
+}

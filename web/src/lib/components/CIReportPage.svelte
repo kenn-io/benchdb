@@ -3,7 +3,8 @@
   import { tick } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
-  import { formatNumber } from "../format";
+  import { toleranceText } from "../compare/transform";
+  import { formatNumber, formatMeasurement } from "../format";
   import { hasCIReportSelector, loadCIReport, type CIReport } from "../ci-report/loader";
   import { interceptNavClick, navigate, type CIReportQuery } from "../router";
 
@@ -594,14 +595,20 @@
                 <tbody>
                   {#each visibleComparisons as row}
                     <tr id={anchorID(run.run_id, row)} class={`row-${row.status}`}>
-                      <td data-label="Status"><span class={`row-status ${row.status}`}>{statusLabel(row.status)}</span></td>
+                      <td data-label="Status"><span class={`row-status ${row.status}`}>{row.status === "stable" && row.analysis?.lookback_z_score?.tolerance?.within_tolerance ? "within tolerance" : statusLabel(row.status)}</span>
+                        {#if row.analysis?.lookback_z_score?.tolerance}
+                          <details><summary>Tolerance</summary>{toleranceText(row.analysis.lookback_z_score.tolerance, row.unit)}</details>
+                        {/if}
+                      </td>
                       <td data-label="Benchmark">
                         <div class="bench-name">{row.name}</div>
                         <div class="fingerprint">{row.history_fingerprint}</div>
                       </td>
                       <td data-label="Machine">{row.hardware.name}</td>
                       <td data-label="Unit">{unitText(row.unit)}</td>
-                      <td data-label="Delta" class="num">{percentText(row)}</td>
+                      <td data-label="Delta" class="num">{percentText(row)}
+                        {#if row.analysis?.pairwise?.tolerance}<div>{formatMeasurement(row.analysis.pairwise.tolerance.delta, row.unit)}</div>{/if}
+                      </td>
                       <td data-label="Z" class="num">{zText(row)}</td>
                       <td data-label="Contender" class="num">{numberText(row.contender.single_value_summary)}</td>
                       <td data-label="Baseline" class="num">{numberText(row.baseline?.single_value_summary ?? null)}</td>

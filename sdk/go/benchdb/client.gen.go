@@ -4516,6 +4516,20 @@ type CapabilitiesOutputBody struct {
 	SignedIn        bool    `json:"signed_in"`
 }
 
+type ChangeTolerance struct {
+	Absolute        float64 `json:"absolute"`
+	Delta           float64 `json:"delta"`
+	MetricKind      string  `json:"metric_kind" validate:"required"`
+	MinimumChange   float64 `json:"minimum_change"`
+	Reference       float64 `json:"reference"`
+	RelativePercent float64 `json:"relative_percent"`
+	WithinTolerance bool    `json:"within_tolerance"`
+}
+
+func (c ChangeTolerance) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(c))
+}
+
 type CliExchangeInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string `json:"$schema,omitempty"`
@@ -4940,10 +4954,26 @@ func (l ListTokensOutputBody) Validate() error {
 }
 
 type LookbackAnalysis struct {
-	ImprovementIndicated bool    `json:"improvement_indicated"`
-	RegressionIndicated  bool    `json:"regression_indicated"`
-	ZScore               float64 `json:"z_score"`
-	ZThreshold           float64 `json:"z_threshold"`
+	ImprovementIndicated bool             `json:"improvement_indicated"`
+	RegressionIndicated  bool             `json:"regression_indicated"`
+	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`
+	ZScore               float64          `json:"z_score"`
+	ZThreshold           float64          `json:"z_threshold"`
+}
+
+func (l LookbackAnalysis) Validate() error {
+	var errors runtime.ValidationErrors
+	if l.Tolerance != nil {
+		if v, ok := any(l.Tolerance).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Tolerance", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type MachineInfo struct {
@@ -4982,10 +5012,26 @@ func (m MeOutputBody) Validate() error {
 }
 
 type PairwiseAnalysis struct {
-	ImprovementIndicated bool    `json:"improvement_indicated"`
-	PercentChange        float64 `json:"percent_change"`
-	PercentThreshold     float64 `json:"percent_threshold"`
-	RegressionIndicated  bool    `json:"regression_indicated"`
+	ImprovementIndicated bool             `json:"improvement_indicated"`
+	PercentChange        float64          `json:"percent_change"`
+	PercentThreshold     float64          `json:"percent_threshold"`
+	RegressionIndicated  bool             `json:"regression_indicated"`
+	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`
+}
+
+func (p PairwiseAnalysis) Validate() error {
+	var errors runtime.ValidationErrors
+	if p.Tolerance != nil {
+		if v, ok := any(p.Tolerance).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Tolerance", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type RecentRunAttention struct {
@@ -5476,15 +5522,17 @@ func (s SubmitOutputBody) Validate() error {
 
 type SubmitRequest struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema                *string        `json:"$schema,omitempty"`
-	BatchID               *string        `json:"batch_id,omitempty"`
-	ChangeAnnotations     map[string]any `json:"change_annotations,omitempty"`
-	ClusterInfo           *ClusterInfo   `json:"cluster_info,omitempty"`
-	Context               map[string]any `json:"context"`
-	ErrorData             map[string]any `json:"error,omitempty"`
-	Github                GitHubInfo     `json:"github"`
-	Info                  map[string]any `json:"info,omitempty"`
-	MachineInfo           *MachineInfo   `json:"machine_info,omitempty"`
+	Schema            *string        `json:"$schema,omitempty"`
+	BatchID           *string        `json:"batch_id,omitempty"`
+	ChangeAnnotations map[string]any `json:"change_annotations,omitempty"`
+	ClusterInfo       *ClusterInfo   `json:"cluster_info,omitempty"`
+	Context           map[string]any `json:"context"`
+	ErrorData         map[string]any `json:"error,omitempty"`
+	Github            GitHubInfo     `json:"github"`
+	Info              map[string]any `json:"info,omitempty"`
+	MachineInfo       *MachineInfo   `json:"machine_info,omitempty"`
+
+	// OptionalBenchmarkInfo Optional metadata. The tolerance object accepts metric_kind, absolute (result units), and relative_percent. Omitted floors inherit metric defaults; zero disables a floor.
 	OptionalBenchmarkInfo map[string]any `json:"optional_benchmark_info,omitempty"`
 	RunID                 string         `json:"run_id" validate:"required"`
 	RunName               *string        `json:"run_name,omitempty"`

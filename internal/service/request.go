@@ -34,7 +34,7 @@ type SubmitRequest struct {
 	// deviation: legacy 400s on null, but the stored outcome is identical), so
 	// the schema must advertise them as nullable or generated clients would
 	// reject payloads the server accepts.
-	OptionalBenchmarkInfo map[string]any `json:"optional_benchmark_info,omitempty" nullable:"true"`
+	OptionalBenchmarkInfo map[string]any `json:"optional_benchmark_info,omitempty" nullable:"true" doc:"Optional metadata. The tolerance object accepts metric_kind, absolute (result units), and relative_percent. Omitted floors inherit metric defaults; zero disables a floor."`
 	Validation            map[string]any `json:"validation,omitempty" nullable:"true"`
 	ChangeAnnotations     map[string]any `json:"change_annotations,omitempty" nullable:"true"`
 }

@@ -296,12 +296,23 @@ export type CIReportBaselineError = {
   searched_commit_shas?: string[] | null;
 } | null;
 
+export interface ChangeTolerance {
+  absolute: number;
+  delta: number;
+  metric_kind: string;
+  minimum_change: number;
+  reference: number;
+  relative_percent: number;
+  within_tolerance: boolean;
+}
+
 /**
  * @nullable
  */
 export type LookbackAnalysis = {
   improvement_indicated: boolean;
   regression_indicated: boolean;
+  tolerance?: ChangeTolerance;
   z_score: number;
   z_threshold: number;
 } | null;
@@ -314,6 +325,7 @@ export type PairwiseAnalysis = {
   percent_change: number;
   percent_threshold: number;
   regression_indicated: boolean;
+  tolerance?: ChangeTolerance;
 } | null;
 
 /**
@@ -925,6 +937,7 @@ export type SubmitRequestError = { [key: string]: unknown };
 export type SubmitRequestInfo = { [key: string]: unknown };
 
 /**
+ * Optional metadata. The tolerance object accepts metric_kind, absolute (result units), and relative_percent. Omitted floors inherit metric defaults; zero disables a floor.
  * @nullable
  */
 export type SubmitRequestOptionalBenchmarkInfo = { [key: string]: unknown } | null;
@@ -950,7 +963,10 @@ export interface SubmitRequest {
   github: GitHubInfo;
   info?: SubmitRequestInfo;
   machine_info?: MachineInfo;
-  /** @nullable */
+  /**
+     * Optional metadata. The tolerance object accepts metric_kind, absolute (result units), and relative_percent. Omitted floors inherit metric defaults; zero disables a floor.
+     * @nullable
+     */
   optional_benchmark_info?: SubmitRequestOptionalBenchmarkInfo;
   run_id: string;
   run_name?: string;

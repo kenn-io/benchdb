@@ -809,6 +809,37 @@ components:
         - auth_disabled
         - can_write_results
       type: object
+    ChangeTolerance:
+      additionalProperties: false
+      properties:
+        absolute:
+          format: double
+          type: number
+        delta:
+          format: double
+          type: number
+        metric_kind:
+          type: string
+        minimum_change:
+          format: double
+          type: number
+        reference:
+          format: double
+          type: number
+        relative_percent:
+          format: double
+          type: number
+        within_tolerance:
+          type: boolean
+      required:
+        - metric_kind
+        - absolute
+        - relative_percent
+        - reference
+        - delta
+        - minimum_change
+        - within_tolerance
+      type: object
     CliExchangeInputBody:
       additionalProperties: false
       properties:
@@ -1306,6 +1337,8 @@ components:
           type: boolean
         regression_indicated:
           type: boolean
+        tolerance:
+          $ref: "#/components/schemas/ChangeTolerance"
         z_score:
           format: double
           type: number
@@ -1405,6 +1438,8 @@ components:
           type: number
         regression_indicated:
           type: boolean
+        tolerance:
+          $ref: "#/components/schemas/ChangeTolerance"
       required:
         - percent_change
         - percent_threshold
@@ -2010,6 +2045,7 @@ components:
           $ref: "#/components/schemas/MachineInfo"
         optional_benchmark_info:
           additionalProperties: true
+          description: Optional metadata. The tolerance object accepts metric_kind, absolute (result units), and relative_percent. Omitted floors inherit metric defaults; zero disables a floor.
           type:
             - object
             - "null"
