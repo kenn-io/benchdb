@@ -1288,7 +1288,7 @@ const deleteAlertRule = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/alert-rules/${id}`,options
+      `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1299,7 +1299,7 @@ const getAlertRule = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<AlertRuleView>> => {
     return axiosInstance.get(
-      `/api/alert-rules/${id}`,options
+      `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1311,7 +1311,7 @@ const updateAlertRule = (
     alertRuleBody: NonReadonly<AlertRuleBody>, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<AlertRuleView>> => {
     return axiosInstance.put(
-      `/api/alert-rules/${id}`,
+      `/api/alert-rules/${encodeURIComponent(id)}`,
       alertRuleBody,options
     );
   }
@@ -1324,7 +1324,7 @@ const listAlertEvents = (
     params?: ListAlertEventsParams, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ListAlertEventsOutputBody>> => {
     return axiosInstance.get(
-      `/api/alert-rules/${id}/events`,{
+      `/api/alert-rules/${encodeURIComponent(id)}/events`,{
     ...options,
         params: {...params, ...options?.params},}
     );
@@ -1422,7 +1422,7 @@ const deleteResult = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/benchmark-results/${id}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1433,7 +1433,7 @@ const getBenchmarkResult = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ResultDetail>> => {
     return axiosInstance.get(
-      `/api/benchmark-results/${id}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1445,7 +1445,7 @@ const updateResult = (
     updateResultInputBody: NonReadonly<UpdateResultInputBody>, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ResultDetail>> => {
     return axiosInstance.put(
-      `/api/benchmark-results/${id}`,
+      `/api/benchmark-results/${encodeURIComponent(id)}`,
       updateResultInputBody,options
     );
   }
@@ -1459,7 +1459,7 @@ const uploadResultArtifact = (
     params: UploadResultArtifactParams, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ArtifactMetadata>> => {
     return axiosInstance.post(
-      `/api/benchmark-results/${id}/artifacts`,
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts`,
       uploadResultArtifactBody,{
     ...options,
         params: {...params, ...options?.params},}
@@ -1474,7 +1474,7 @@ const deleteResultArtifact = (
     artifactId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/benchmark-results/${id}/artifacts/${artifactId}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,options
     );
   }
 
@@ -1486,7 +1486,7 @@ const downloadResultArtifact = (
     artifactId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<Blob>> => {
     return axiosInstance.get(
-      `/api/benchmark-results/${id}/artifacts/${artifactId}`,{
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,{
         responseType: 'blob',
     ...options,}
     );
@@ -1512,7 +1512,7 @@ const getBenchmarkHistory = (
     benchmarkId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<BenchmarkHistory>> => {
     return axiosInstance.get(
-      `/api/benchmarks/${benchmarkId}`,options
+      `/api/benchmarks/${encodeURIComponent(benchmarkId)}`,options
     );
   }
 
@@ -1549,7 +1549,7 @@ const getSavedRunReport = (
     runId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<CIReport>> => {
     return axiosInstance.get(
-      `/api/ci/reports/${runId}`,options
+      `/api/ci/reports/${encodeURIComponent(runId)}`,options
     );
   }
 
@@ -1561,7 +1561,7 @@ const finalizeRunReport = (
     finalizeRunReportInputBody: NonReadonly<FinalizeRunReportInputBody>, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<RunReportSummary>> => {
     return axiosInstance.post(
-      `/api/ci/reports/${runId}`,
+      `/api/ci/reports/${encodeURIComponent(runId)}`,
       finalizeRunReportInputBody,options
     );
   }
@@ -1599,7 +1599,7 @@ const getHistoryForResult = (
     benchmarkResultId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<HistorySeries>> => {
     return axiosInstance.get(
-      `/api/history/${benchmarkResultId}`,options
+      `/api/history/${encodeURIComponent(benchmarkResultId)}`,options
     );
   }
 
@@ -1682,7 +1682,7 @@ const deleteToken = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/tokens/${id}`,options
+      `/api/tokens/${encodeURIComponent(id)}`,options
     );
   }
 
