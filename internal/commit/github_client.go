@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/cenkalti/backoff/v7"
 )
 
 // defaultGitHubBaseURL is the live API; tests inject an httptest URL.
@@ -23,7 +24,7 @@ const maxResponseBytes = 8 << 20
 
 // GitHubClient is a minimal GitHub HTTP API client: the five endpoints the
 // commit provider and the ancestry backfill need, with the legacy token-pool
-// rotation and bounded retry behavior (commit.py:836-995). Stdlib only.
+// rotation and bounded retry behavior (commit.py:836-995).
 // Safe for concurrent use: the rotating token index is atomic.
 type GitHubClient struct {
 	baseURL     string
@@ -281,31 +282,40 @@ func isoZ(t time.Time) string {
 func (c *GitHubClient) getJSON(ctx context.Context, u string, out any) error {
 	rotations := 0
 	refreshedSource := false
-	for attempt := 1; ; attempt++ {
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = 2 * time.Second / 3
+	policy.MaxInterval = 5500 * time.Millisecond
+	policy.Multiplier = 2
+	policy.RandomizationFactor = 0
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
 		body, retryable, err := c.attempt(ctx, u, &rotations)
-		if err == nil {
-			if uerr := json.Unmarshal(body, out); uerr != nil {
-				return fmt.Errorf("decode github response for %s: %w", u, uerr)
-			}
-			return nil
-		}
 		var unauthorized *unauthorizedError
 		if errors.As(err, &unauthorized) && c.tokenSource != nil && !refreshedSource {
 			c.tokenSource.Invalidate(unauthorized.token)
 			refreshedSource = true
-			continue
+			// Refresh immediately, but consume the rejected attempt's backoff step.
+			_ = policy.NextBackOff()
+			body, retryable, err = c.attempt(ctx, u, &rotations)
+		}
+		if err == nil {
+			if err := json.Unmarshal(body, out); err != nil {
+				return struct{}{}, backoff.Permanent(fmt.Errorf("decode github response for %s: %w", u, err))
+			}
+			return struct{}{}, nil
 		}
 		if !retryable {
-			return err
+			return struct{}{}, backoff.Permanent(err)
 		}
-		// Legacy backoff: 0.66, 1.33, 2.66, 5.33, 5.5, 5.5, ... seconds.
-		wait := time.Duration(math.Min(math.Exp2(float64(attempt))/3.0, 5.5) * float64(time.Second))
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("github request budget exceeded for %s (last error: %w): %w", u, err, ctx.Err())
-		case <-time.After(wait):
-		}
+		return struct{}{}, err
+	}, backoff.WithBackOff(policy), backoff.WithMaxTries(0), backoff.WithMaxElapsedTime(0))
+	if err == nil {
+		return nil
 	}
+	retryErr := backoff.AsRetryError(err)
+	if errors.Is(retryErr.Cause, backoff.ErrPermanent) {
+		return retryErr.LastErr
+	}
+	return fmt.Errorf("github request budget exceeded for %s (last error: %w): %w", u, retryErr.LastErr, ctx.Err())
 }
 
 // attempt performs one GET. It returns the body on 200; otherwise an error and
