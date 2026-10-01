@@ -458,9 +458,11 @@ export interface CIReportSummary {
 export interface CIReport {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
+  analysis_version?: number;
   baseline: string;
   /** @nullable */
   commit_sha: string | null;
+  evaluated_at?: string;
   /** @nullable */
   missing_run_ids: string[] | null;
   report_url: string;
@@ -577,6 +579,17 @@ export interface ErrorModel {
   title?: string;
   /** A URI reference to human-readable documentation for the error. */
   type?: string;
+}
+
+export interface FinalizeRunReportInputBody {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  /**
+     * @minItems 1
+     * @maxItems 5000
+     * @nullable
+     */
+  result_ids: string[] | null;
 }
 
 export interface GitHubInfo {
@@ -852,6 +865,36 @@ export interface ResultPage {
   results: ResultListItem[] | null;
 }
 
+export type RunReportSummaryStatus = typeof RunReportSummaryStatus[keyof typeof RunReportSummaryStatus];
+
+
+export const RunReportSummaryStatus = {
+  success: 'success',
+  failure: 'failure',
+  action_required: 'action_required',
+  skipped: 'skipped',
+} as const;
+
+export interface RunReportSummary {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  analysis_version: number;
+  evaluated_at: string;
+  report_url: string;
+  run_id: string;
+  status: RunReportSummaryStatus;
+  status_reason: string;
+  summary: CIReportSummary;
+}
+
+export type RunReportSummariesOutputBodyReports = {[key: string]: RunReportSummary};
+
+export interface RunReportSummariesOutputBody {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  reports: RunReportSummariesOutputBodyReports;
+}
+
 export type SeriesListItemContext = { [key: string]: unknown };
 
 export type SeriesListItemStatus = typeof SeriesListItemStatus[keyof typeof SeriesListItemStatus];
@@ -1120,6 +1163,13 @@ export const GetCiReportBaseline = {
   parent: 'parent',
   latest_default: 'latest_default',
 } as const;
+
+export type GetRunReportSummariesParams = {
+/**
+ * @maxLength 25600
+ */
+run_ids: string;
+};
 
 export type CompareBenchmarkResultsParams = {
 /**
@@ -1480,6 +1530,43 @@ const getCiReport = (
   }
 
 /**
+ * @summary Read saved benchmark report summaries
+ */
+const getRunReportSummaries = (
+    params: GetRunReportSummariesParams, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RunReportSummariesOutputBody>> => {
+    return axiosInstance.get(
+      `/api/ci/reports`,{
+    ...options,
+        params: {...params, ...options?.params},}
+    );
+  }
+
+/**
+ * @summary Read a saved benchmark report
+ */
+const getSavedRunReport = (
+    runId: string, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<CIReport>> => {
+    return axiosInstance.get(
+      `/api/ci/reports/${runId}`,options
+    );
+  }
+
+/**
+ * @summary Finalize a completed run's benchmark report
+ */
+const finalizeRunReport = (
+    runId: string,
+    finalizeRunReportInputBody: NonReadonly<FinalizeRunReportInputBody>, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RunReportSummary>> => {
+    return axiosInstance.post(
+      `/api/ci/reports/${runId}`,
+      finalizeRunReportInputBody,options
+    );
+  }
+
+/**
  * @summary Compare two benchmark results
  */
 const compareBenchmarkResults = (
@@ -1610,7 +1697,7 @@ const usersMe = (
     );
   }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -1633,6 +1720,9 @@ export type DownloadResultArtifactResult = AxiosResponse<Blob>
 export type ListBenchmarksResult = AxiosResponse<BenchmarkPage>
 export type GetBenchmarkHistoryResult = AxiosResponse<BenchmarkHistory>
 export type GetCiReportResult = AxiosResponse<CIReport>
+export type GetRunReportSummariesResult = AxiosResponse<RunReportSummariesOutputBody>
+export type GetSavedRunReportResult = AxiosResponse<CIReport>
+export type FinalizeRunReportResult = AxiosResponse<RunReportSummary>
 export type CompareBenchmarkResultsResult = AxiosResponse<CompareResult>
 export type GetHistoryResult = AxiosResponse<HistorySeries>
 export type GetHistoryForResultResult = AxiosResponse<HistorySeries>

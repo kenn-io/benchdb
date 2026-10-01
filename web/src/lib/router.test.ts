@@ -251,6 +251,7 @@ describe("ci report route", () => {
       name: "ci-report",
       query: {
         repository: "https://github.com/o/r",
+        saved: false,
         commit: "abc",
         runIDs: "r1,r2",
         baselineRunIDs: "b1,b2",
@@ -263,6 +264,7 @@ describe("ci report route", () => {
 
   it("is total over junk baseline values", () => {
     expect(parseCIReportQuery("?baseline=bad")).toEqual({
+      saved: false,
       repository: "",
       commit: "",
       runIDs: "",

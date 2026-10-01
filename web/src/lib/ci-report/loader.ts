@@ -24,7 +24,9 @@ export function hasCIReportSelector(query: CIReportQuery): boolean {
 }
 
 export async function loadCIReport(client: Client, query: CIReportQuery): Promise<CIReport> {
-  const res = await client.getCiReport(apiQuery(query));
+  const res = query.saved
+    ? await client.getSavedRunReport(query.runIDs)
+    : await client.getCiReport(apiQuery(query));
   if (res.status >= 400 || !res.data) {
     throw new Error((res.data as { detail?: string })?.detail ?? "failed to load CI report");
   }

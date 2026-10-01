@@ -976,6 +976,156 @@ func (o *GetCiReportRequestOptions) GetHeader() (map[string]string, error) {
 	return nil, nil
 }
 
+// GetRunReportSummariesRequestOptions is the options needed to make a request to GetRunReportSummaries.
+type GetRunReportSummariesRequestOptions struct {
+	Query *GetRunReportSummariesQuery
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *GetRunReportSummariesRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.Query != nil {
+		if v, ok := any(o.Query).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Query", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *GetRunReportSummariesRequestOptions) GetPathParams() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetQuery returns the query params as a map.
+func (o *GetRunReportSummariesRequestOptions) GetQuery() (map[string]any, error) {
+	return runtime.AsMap[any](o.Query)
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *GetRunReportSummariesRequestOptions) GetBody() any {
+	return nil
+}
+
+// GetHeader returns the headers as a map.
+func (o *GetRunReportSummariesRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
+// GetSavedRunReportRequestOptions is the options needed to make a request to GetSavedRunReport.
+type GetSavedRunReportRequestOptions struct {
+	PathParams *GetSavedRunReportPath
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *GetSavedRunReportRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.PathParams != nil {
+		if v, ok := any(o.PathParams).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("PathParams", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *GetSavedRunReportRequestOptions) GetPathParams() (map[string]any, error) {
+	return runtime.AsMap[any](o.PathParams)
+}
+
+// GetQuery returns the query params as a map.
+func (o *GetSavedRunReportRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *GetSavedRunReportRequestOptions) GetBody() any {
+	return nil
+}
+
+// GetHeader returns the headers as a map.
+func (o *GetSavedRunReportRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
+// FinalizeRunReportRequestOptions is the options needed to make a request to FinalizeRunReport.
+type FinalizeRunReportRequestOptions struct {
+	PathParams *FinalizeRunReportPath
+	Body       *FinalizeRunReportBody
+	Header     *FinalizeRunReportHeaders
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *FinalizeRunReportRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.PathParams != nil {
+		if v, ok := any(o.PathParams).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("PathParams", err)
+			}
+		}
+	}
+
+	if o.Body != nil {
+		if v, ok := any(o.Body).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Body", err)
+			}
+		}
+	}
+
+	if o.Header != nil {
+		if v, ok := any(o.Header).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Header", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *FinalizeRunReportRequestOptions) GetPathParams() (map[string]any, error) {
+	return runtime.AsMap[any](o.PathParams)
+}
+
+// GetQuery returns the query params as a map.
+func (o *FinalizeRunReportRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *FinalizeRunReportRequestOptions) GetBody() any {
+	return o.Body
+}
+
+// GetHeader returns the headers as a map.
+func (o *FinalizeRunReportRequestOptions) GetHeader() (map[string]string, error) {
+	return runtime.AsMap[string](o.Header)
+}
+
 // CompareBenchmarkResultsRequestOptions is the options needed to make a request to CompareBenchmarkResults.
 type CompareBenchmarkResultsRequestOptions struct {
 	Query *CompareBenchmarkResultsQuery
@@ -1443,6 +1593,9 @@ type ClientInterface interface {
 	ListBenchmarksWithResponse(ctx context.Context, options *ListBenchmarksRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListBenchmarksResp, error)
 	GetBenchmarkHistoryWithResponse(ctx context.Context, options *GetBenchmarkHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetBenchmarkHistoryResp, error)
 	GetCiReportWithResponse(ctx context.Context, options *GetCiReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetCiReportResp, error)
+	GetRunReportSummariesWithResponse(ctx context.Context, options *GetRunReportSummariesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetRunReportSummariesResp, error)
+	GetSavedRunReportWithResponse(ctx context.Context, options *GetSavedRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetSavedRunReportResp, error)
+	FinalizeRunReportWithResponse(ctx context.Context, options *FinalizeRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*FinalizeRunReportResp, error)
 	CompareBenchmarkResultsWithResponse(ctx context.Context, options *CompareBenchmarkResultsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CompareBenchmarkResultsResp, error)
 	GetHistoryWithResponse(ctx context.Context, options *GetHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryResp, error)
 	GetHistoryForResultWithResponse(ctx context.Context, options *GetHistoryForResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryForResultResp, error)
@@ -2489,6 +2642,154 @@ func (c *Client) GetCiReportWithResponse(ctx context.Context, options *GetCiRepo
 	}
 }
 
+// GetRunReportSummaries Read saved benchmark report summaries
+func (c *Client) GetRunReportSummariesWithResponse(ctx context.Context, options *GetRunReportSummariesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetRunReportSummariesResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/ci/reports",
+		Method:     "GET",
+		Options:    options,
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/ci/reports")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &GetRunReportSummariesResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(GetRunReportSummariesResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetRunReportSummariesResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
+// GetSavedRunReport Read a saved benchmark report
+func (c *Client) GetSavedRunReportWithResponse(ctx context.Context, options *GetSavedRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetSavedRunReportResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/ci/reports/{run_id}",
+		Method:     "GET",
+		Options:    options,
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/ci/reports/{run_id}")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &GetSavedRunReportResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(GetSavedRunReportResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetSavedRunReportResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
+// FinalizeRunReport Finalize a completed run's benchmark report
+func (c *Client) FinalizeRunReportWithResponse(ctx context.Context, options *FinalizeRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*FinalizeRunReportResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL:  c.apiClient.GetBaseURL() + "/api/ci/reports/{run_id}",
+		Method:      "POST",
+		Options:     options,
+		ContentType: "application/json",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/ci/reports/{run_id}")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &FinalizeRunReportResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(FinalizeRunReportResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "FinalizeRunReportResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
 // CompareBenchmarkResults Compare two benchmark results
 func (c *Client) CompareBenchmarkResultsWithResponse(ctx context.Context, options *CompareBenchmarkResultsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CompareBenchmarkResultsResp, error) {
 	var err error
@@ -3095,6 +3396,25 @@ func (r RecentRunAttentionStatus) Validate() error {
 	}
 }
 
+type RunReportSummaryStatus string
+
+const (
+	RunReportSummaryStatusActionRequired RunReportSummaryStatus = "action_required"
+	RunReportSummaryStatusFailure        RunReportSummaryStatus = "failure"
+	RunReportSummaryStatusSkipped        RunReportSummaryStatus = "skipped"
+	RunReportSummaryStatusSuccess        RunReportSummaryStatus = "success"
+)
+
+// Validate checks if the RunReportSummaryStatus value is valid
+func (r RunReportSummaryStatus) Validate() error {
+	switch r {
+	case RunReportSummaryStatusActionRequired, RunReportSummaryStatusFailure, RunReportSummaryStatusSkipped, RunReportSummaryStatusSuccess:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid RunReportSummaryStatus value, got: %v", r))
+	}
+}
+
 type SeriesListItemStatus string
 
 const (
@@ -3180,6 +3500,10 @@ type UploadResultArtifactHeaders struct {
 }
 
 type DeleteResultArtifactHeaders struct {
+	Authorization *string `json:"Authorization,omitempty"`
+}
+
+type FinalizeRunReportHeaders struct {
 	Authorization *string `json:"Authorization,omitempty"`
 }
 
@@ -3295,6 +3619,22 @@ func (g GetBenchmarkHistoryPath) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(g))
 }
 
+type GetSavedRunReportPath struct {
+	RunID string `json:"run_id" validate:"required,max=255"`
+}
+
+func (g GetSavedRunReportPath) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(g))
+}
+
+type FinalizeRunReportPath struct {
+	RunID string `json:"run_id" validate:"required,max=255"`
+}
+
+func (f FinalizeRunReportPath) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(f))
+}
+
 type GetHistoryForResultPath struct {
 	// BenchmarkResultID Benchmark result id whose history to load.
 	BenchmarkResultID string `json:"benchmark_result_id" validate:"required"`
@@ -3321,6 +3661,8 @@ type AuthCliExchangeBody = CliExchangeInputBody
 type UpdateResultBody = UpdateResultInputBody
 
 type UploadResultArtifactBody = runtime.File
+
+type FinalizeRunReportBody = FinalizeRunReportInputBody
 
 type SubmitResultBody = SubmitRequest
 
@@ -3435,6 +3777,14 @@ func (g GetCiReportQuery) Validate() error {
 		return nil
 	}
 	return errors
+}
+
+type GetRunReportSummariesQuery struct {
+	RunIds string `json:"run_ids" validate:"required,max=25600"`
+}
+
+func (g GetRunReportSummariesQuery) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(g))
 }
 
 type CompareBenchmarkResultsQuery struct {
@@ -3590,6 +3940,18 @@ type GetBenchmarkHistoryErrorResponse = ErrorModel
 type GetCiReportResponse = CIReport
 
 type GetCiReportErrorResponse = ErrorModel
+
+type GetRunReportSummariesResponse = RunReportSummariesOutputBody
+
+type GetRunReportSummariesErrorResponse = ErrorModel
+
+type GetSavedRunReportResponse = CIReport
+
+type GetSavedRunReportErrorResponse = ErrorModel
+
+type FinalizeRunReportResponse = RunReportSummary
+
+type FinalizeRunReportErrorResponse = ErrorModel
 
 type CompareBenchmarkResultsResponse = CompareResult
 
@@ -3794,6 +4156,27 @@ type GetCiReportResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *GetCiReportResponse
+}
+
+type GetRunReportSummariesResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *GetRunReportSummariesResponse
+}
+
+type GetSavedRunReportResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *GetSavedRunReportResponse
+}
+
+type FinalizeRunReportResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *FinalizeRunReportResponse
 }
 
 type CompareBenchmarkResultsResp struct {
@@ -4216,19 +4599,21 @@ func (b BenchmarkTrack) Validate() error {
 
 type CIReport struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema         *string         `json:"$schema,omitempty"`
-	Baseline       string          `json:"baseline" validate:"required"`
-	CommitSha      *string         `json:"commit_sha,omitempty" validate:"required"`
-	MissingRunIds  []string        `json:"missing_run_ids,omitempty" validate:"required"`
-	ReportURL      string          `json:"report_url" validate:"required"`
-	Repository     string          `json:"repository" validate:"required"`
-	Runs           []CIReportRun   `json:"runs,omitempty" validate:"required"`
-	SelectedRunIds []string        `json:"selected_run_ids,omitempty" validate:"required"`
-	Status         CIReportStatus  `json:"status" validate:"required"`
-	StatusReason   string          `json:"status_reason" validate:"required"`
-	Summary        CIReportSummary `json:"summary"`
-	Threshold      float64         `json:"threshold"`
-	ThresholdZ     float64         `json:"threshold_z"`
+	Schema          *string         `json:"$schema,omitempty"`
+	AnalysisVersion *int64          `json:"analysis_version,omitempty"`
+	Baseline        string          `json:"baseline" validate:"required"`
+	CommitSha       *string         `json:"commit_sha,omitempty" validate:"required"`
+	EvaluatedAt     *time.Time      `json:"evaluated_at,omitempty"`
+	MissingRunIds   []string        `json:"missing_run_ids,omitempty" validate:"required"`
+	ReportURL       string          `json:"report_url" validate:"required"`
+	Repository      string          `json:"repository" validate:"required"`
+	Runs            []CIReportRun   `json:"runs,omitempty" validate:"required"`
+	SelectedRunIds  []string        `json:"selected_run_ids,omitempty" validate:"required"`
+	Status          CIReportStatus  `json:"status" validate:"required"`
+	StatusReason    string          `json:"status_reason" validate:"required"`
+	Summary         CIReportSummary `json:"summary"`
+	Threshold       float64         `json:"threshold"`
+	ThresholdZ      float64         `json:"threshold_z"`
 }
 
 func (c CIReport) Validate() error {
@@ -4745,6 +5130,16 @@ func (e ErrorModel) Validate() error {
 
 func (s ErrorModel) Error() string {
 	return "unmapped client error"
+}
+
+type FinalizeRunReportInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema    *string  `json:"$schema,omitempty"`
+	ResultIds []string `json:"result_ids,omitempty" validate:"required"`
+}
+
+func (f FinalizeRunReportInputBody) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(f))
 }
 
 type GitHubInfo struct {
@@ -5381,6 +5776,69 @@ func (r ResultPage) Validate() error {
 			if err := v.Validate(); err != nil {
 				errors = errors.Append(fmt.Sprintf("Results[%d]", i), err)
 			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
+type RunReportSummariesOutputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema  *string                     `json:"$schema,omitempty"`
+	Reports map[string]RunReportSummary `json:"reports"`
+}
+
+func (r RunReportSummariesOutputBody) Validate() error {
+	var errors runtime.ValidationErrors
+	for k, v := range r.Reports {
+		if validator, ok := any(v).(runtime.Validator); ok {
+			if err := validator.Validate(); err != nil {
+				errors = errors.Append(fmt.Sprintf("Reports[%s]", k), err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
+type RunReportSummary struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema          *string                `json:"$schema,omitempty"`
+	AnalysisVersion int64                  `json:"analysis_version"`
+	EvaluatedAt     time.Time              `json:"evaluated_at" validate:"required"`
+	ReportURL       string                 `json:"report_url" validate:"required"`
+	RunID           string                 `json:"run_id" validate:"required"`
+	Status          RunReportSummaryStatus `json:"status" validate:"required"`
+	StatusReason    string                 `json:"status_reason" validate:"required"`
+	Summary         CIReportSummary        `json:"summary"`
+}
+
+func (r RunReportSummary) Validate() error {
+	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(r.EvaluatedAt, "required"); err != nil {
+		errors = errors.Append("EvaluatedAt", err)
+	}
+	if err := typesValidator.Var(r.ReportURL, "required"); err != nil {
+		errors = errors.Append("ReportURL", err)
+	}
+	if err := typesValidator.Var(r.RunID, "required"); err != nil {
+		errors = errors.Append("RunID", err)
+	}
+	if v, ok := any(r.Status).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Status", err)
+		}
+	}
+	if err := typesValidator.Var(r.StatusReason, "required"); err != nil {
+		errors = errors.Append("StatusReason", err)
+	}
+	if v, ok := any(r.Summary).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Summary", err)
 		}
 	}
 	if len(errors) == 0 {

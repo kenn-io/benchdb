@@ -190,6 +190,7 @@ func register(humaAPI huma.API, store *db.Store, authn *auth.Authenticator, prov
 	api.NewHandler(service.NewIngester(store, provider), reader, authn).Register(humaAPI)
 	api.NewReadHandler(reader).Register(humaAPI)
 	api.NewCIReportHandler(service.NewCIReporter(store, publicBaseURL)).Register(humaAPI)
+	api.NewRunReportHandler(service.NewRunReports(store, publicBaseURL), authn).Register(humaAPI)
 	api.RegisterHealth(humaAPI)
 	authHandler.Register(humaAPI)
 	api.NewTokenHandler(store, authn).Register(humaAPI)

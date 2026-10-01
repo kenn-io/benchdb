@@ -70,19 +70,21 @@ type CIReportQuery struct {
 }
 
 type CIReport struct {
-	Repository     string               `json:"repository"`
-	CommitSHA      *string              `json:"commit_sha"`
-	SelectedRunIDs []string             `json:"selected_run_ids"`
-	MissingRunIDs  []string             `json:"missing_run_ids"`
-	Baseline       CIReportBaseline     `json:"baseline"`
-	Status         CIReportStatus       `json:"status" enum:"success,failure,action_required,skipped"`
-	StatusReason   string               `json:"status_reason"`
-	Threshold      float64              `json:"threshold"`
-	ThresholdZ     float64              `json:"threshold_z"`
-	Summary        CIReportSummary      `json:"summary"`
-	Runs           []CIReportRun        `json:"runs"`
-	ReportURL      string               `json:"report_url"`
-	Comparisons    []CIReportComparison `json:"-"`
+	EvaluatedAt     *time.Time           `json:"evaluated_at,omitempty"`
+	AnalysisVersion int                  `json:"analysis_version,omitempty"`
+	Repository      string               `json:"repository"`
+	CommitSHA       *string              `json:"commit_sha"`
+	SelectedRunIDs  []string             `json:"selected_run_ids"`
+	MissingRunIDs   []string             `json:"missing_run_ids"`
+	Baseline        CIReportBaseline     `json:"baseline"`
+	Status          CIReportStatus       `json:"status" enum:"success,failure,action_required,skipped"`
+	StatusReason    string               `json:"status_reason"`
+	Threshold       float64              `json:"threshold"`
+	ThresholdZ      float64              `json:"threshold_z"`
+	Summary         CIReportSummary      `json:"summary"`
+	Runs            []CIReportRun        `json:"runs"`
+	ReportURL       string               `json:"report_url"`
+	Comparisons     []CIReportComparison `json:"-"`
 }
 
 type CIReportSummary struct {

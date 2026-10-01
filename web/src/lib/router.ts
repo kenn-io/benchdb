@@ -69,6 +69,7 @@ export interface AccountRoute {
 export type CIReportBaseline = "" | "fork_point" | "parent" | "latest_default";
 
 export interface CIReportQuery {
+  saved: boolean;
   repository: string;
   commit: string;
   runIDs: string;
@@ -247,6 +248,7 @@ export function parseCIReportQuery(search: string): CIReportQuery {
   const params = new URLSearchParams(search);
   const baseline = params.get("baseline") ?? "";
   return {
+    saved: params.get("saved") === "true",
     repository: params.get("repository") ?? "",
     commit: params.get("commit_sha") ?? params.get("commit") ?? "",
     runIDs: params.get("run_ids") ?? "",

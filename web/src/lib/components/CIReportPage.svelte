@@ -403,7 +403,7 @@
       </div>
       <div class="page-meta">
         {#if r.commit_sha}<span>commit {r.commit_sha}</span>{/if}
-        <span>baseline {r.baseline}</span>
+        {#if r.evaluated_at}<span>Saved report · {new Date(r.evaluated_at).toLocaleString()}</span>{:else}<span>baseline {r.baseline}</span>{/if}
         <span class={`report-status ${r.status}`}>{reportStatusLabel(r.status)}</span>
       </div>
     </header>

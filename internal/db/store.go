@@ -637,12 +637,38 @@ func (s *Store) InsertBenchmarkResult(ctx context.Context, p storage.InsertBench
 	dbp := toInsertBenchmarkResultParams(p)
 	dbp.ID = id
 
-	inserted, err := s.q.InsertBenchmarkResult(ctx, dbp)
+	tx, err := s.lockRun(ctx, p.RunID)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// A concurrent publisher may have inserted this submission before sealing
+	// the run. Let the ingester validate its replay identity in that case.
+	if p.SubmissionKey != nil {
+		_, err := NewStore(tx).GetBenchmarkResultBySubmissionKey(ctx, *p.SubmissionKey)
+		if err == nil {
+			return "", storage.ErrConflict
+		}
+		if !errors.Is(err, storage.ErrNotFound) {
+			return "", err
+		}
+	}
+	var finalized bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ci_run_report WHERE run_id = $1)`, p.RunID).Scan(&finalized); err != nil {
+		return "", err
+	}
+	if finalized {
+		return "", storage.ErrRunFinalized
+	}
+	inserted, err := New(tx).InsertBenchmarkResult(ctx, dbp)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.ConstraintName == "benchmark_result_submission_key_index" {
 		return "", storage.ErrConflict
 	}
-	return inserted, err
+	if err != nil {
+		return "", err
+	}
+	return inserted, tx.Commit(ctx)
 }
 
 // GetBenchmarkResultBySubmissionKey returns the replay identity for a client key.

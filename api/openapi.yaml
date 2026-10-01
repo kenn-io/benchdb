@@ -432,12 +432,18 @@ components:
           format: uri
           readOnly: true
           type: string
+        analysis_version:
+          format: int64
+          type: integer
         baseline:
           type: string
         commit_sha:
           type:
             - string
             - "null"
+        evaluated_at:
+          format: date-time
+          type: string
         missing_run_ids:
           items:
             type: string
@@ -1088,6 +1094,27 @@ components:
             - https://example.com/errors/example
           format: uri
           type: string
+      type: object
+    FinalizeRunReportInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/FinalizeRunReportInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        result_ids:
+          items:
+            type: string
+          maxItems: 5000
+          minItems: 1
+          type:
+            - array
+            - "null"
+      required:
+        - result_ids
       type: object
     GitHubInfo:
       additionalProperties: false
@@ -1827,6 +1854,63 @@ components:
       required:
         - results
         - next_page_cursor
+      type: object
+    RunReportSummariesOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/RunReportSummariesOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        reports:
+          additionalProperties:
+            $ref: "#/components/schemas/RunReportSummary"
+          type: object
+      required:
+        - reports
+      type: object
+    RunReportSummary:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/RunReportSummary.json
+          format: uri
+          readOnly: true
+          type: string
+        analysis_version:
+          format: int64
+          type: integer
+        evaluated_at:
+          format: date-time
+          type: string
+        report_url:
+          type: string
+        run_id:
+          type: string
+        status:
+          enum:
+            - success
+            - failure
+            - action_required
+            - skipped
+          type: string
+        status_reason:
+          type: string
+        summary:
+          $ref: "#/components/schemas/CIReportSummary"
+      required:
+        - run_id
+        - status
+        - status_reason
+        - summary
+        - report_url
+        - evaluated_at
+        - analysis_version
       type: object
     SeriesListItem:
       additionalProperties: false
@@ -3013,6 +3097,92 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Get a PR/CI benchmark report
+  /api/ci/reports:
+    get:
+      operationId: get-run-report-summaries
+      parameters:
+        - explode: false
+          in: query
+          name: run_ids
+          required: true
+          schema:
+            maxLength: 25600
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunReportSummariesOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read saved benchmark report summaries
+  /api/ci/reports/{run_id}:
+    get:
+      operationId: get-saved-run-report
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            maxLength: 255
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIReport"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read a saved benchmark report
+    post:
+      operationId: finalize-run-report
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            maxLength: 255
+            type: string
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: cookie
+          name: benchdb_session
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeRunReportInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunReportSummary"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Finalize a completed run's benchmark report
   /api/compare/benchmark-results:
     get:
       operationId: compare-benchmark-results
