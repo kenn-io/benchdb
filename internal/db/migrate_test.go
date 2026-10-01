@@ -15,7 +15,27 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 2
+const latestMigrationVersion = 3
+
+func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	artifacts, err := os.ReadFile("migrations/000002_result_artifacts.up.sql")
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, string(artifacts))
+	require.NoError(t, err)
+	createMigrationLedger(t, ctx, pool, 2, false)
+	assertCurrentBaseline(t, ctx, pool)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	var resultID string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM benchmark_result WHERE submission_key = 'submission-1'`).Scan(&resultID))
+	var savedRun string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ci_run_report (run_id, result_ids, evaluated_at, report, summary)
+		VALUES ('run-1', $1, now(), '{"status":"skipped"}', '{"status":"skipped"}') RETURNING run_id`, []string{resultID}).Scan(&savedRun))
+	assert.Equal(t, "run-1", savedRun)
+}
 
 func TestMigrateAddsArtifactsToExistingBaseline(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -90,10 +110,10 @@ func TestMigrateRejectsDirtyVersion(t *testing.T) {
 func TestMigrateRejectsPreResetMigrationVersion(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
 	applyBaselineSchema(t, ctx, pool)
-	createMigrationLedger(t, ctx, pool, 3, false)
+	createMigrationLedger(t, ctx, pool, latestMigrationVersion+1, false)
 
 	err := db.Migrate(ctx, pool)
-	require.ErrorContains(t, err, "version 3 is newer than this binary")
+	require.ErrorContains(t, err, "is newer than this binary")
 }
 
 func TestMigrateRejectsSubmissionIndexDrift(t *testing.T) {

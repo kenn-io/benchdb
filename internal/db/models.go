@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AlertDelivery struct {
@@ -110,6 +111,14 @@ type Case struct {
 	ID   string
 	Name string
 	Tags []byte
+}
+
+type CiRunReport struct {
+	RunID       string
+	ResultIds   []string
+	EvaluatedAt pgtype.Timestamptz
+	Report      []byte
+	Summary     []byte
 }
 
 type CliLoginCode struct {

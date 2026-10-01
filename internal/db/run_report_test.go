@@ -16,7 +16,7 @@ import (
 func TestRunReportRetriesFailureAndBuildsOnceAcrossConcurrentStores(t *testing.T) {
 	store, pool, ctx := newTestStore(t)
 	seed := newCIReportSeed(t, store, ctx)
-	id := insertCIReportResult(t, store, ctx, seed, ciResultSeed{RunID: "completed-run", HistoryFingerprint: "series", ResultTimestamp: time.Now()})
+	id := insertCIReportResult(t, store, ctx, seed, ciResultSeed{RunID: "completed-run", RunTags: []byte(`{}`), HistoryFingerprint: "series", ResultTimestamp: time.Now()})
 	failed := errors.New("evaluation interrupted")
 	_, err := store.FinalizeRunReport(ctx, "completed-run", []string{id}, func(storage.Store) (storage.RunReport, error) {
 		return storage.RunReport{}, failed
