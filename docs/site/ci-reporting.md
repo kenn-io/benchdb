@@ -295,10 +295,9 @@ at the time and replaces the original historical verdict.
 
 Roll out saved reports in this order:
 
-1. Obtain explicit operator approval for migration `000003_saved_run_reports`
-   before applying it to a shared or production database. Application deployment
-   approval alone does not authorize that migration.
-1. Apply the approved migration and deploy the BenchDB API.
+1. Deploy the BenchDB API with migration `000003_saved_run_reports`. Merged
+   migrations apply as part of deployment without separate approval. Take a
+   recovery backup before migration and retain the rollback path.
 1. Deploy a publisher that finalizes each completed run. BenchDB does not finalize
    runs automatically and its CLI has no saved-report finalization command.
 1. Use the publisher's explicit backfill command for historical runs whose full

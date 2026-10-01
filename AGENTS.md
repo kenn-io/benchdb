@@ -20,9 +20,10 @@ provides browsing, comparison, and regression analysis.
   dual configuration paths without express permission.
 - Keep credentials, private hostnames, production-derived data, and local
   runtime artifacts out of Git and CI.
-- Do not apply a database migration to a shared or production environment
-  unless a human operator explicitly approves that exact migration. Approval
-  to deploy application code does not authorize schema changes.
+- Apply merged database migrations automatically as part of deployment; do not
+  request separate migration approval. Take a recovery backup before schema
+  changes and retain the deployment's rollback path. Unmerged or ad hoc schema
+  changes still require explicit operator authorization.
 - Tests verify behavior or a meaningful contract. Do not add tests that only
   match text or restate configuration.
 - `AGENTS.md` is the source of truth for standing rules. `CLAUDE.md`, when
