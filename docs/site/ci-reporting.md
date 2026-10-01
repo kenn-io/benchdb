@@ -199,17 +199,17 @@ row. Precedence is:
 
 1. Request, authentication, transport, or decode errors: no report is produced;
    the CLI exits `2`.
-2. `action_required`: selected runs are missing, no contender results are
+1. `action_required`: selected runs are missing, no contender results are
    found, benchmark results contain error payloads, or commit metadata is
    missing enough that a requested baseline cannot be resolved.
-3. `failure`: at least one row has a lookback z-score regression.
-4. `action_required`: no matching baseline exists for one or more contender
+1. `failure`: at least one row has a lookback z-score regression.
+1. `action_required`: no matching baseline exists for one or more contender
    results. A confirmed regression still takes precedence when incomplete
    baseline coverage is the only other condition.
-5. `skipped`: results exist, every contender has a matching baseline, but no
+1. `skipped`: results exist, every contender has a matching baseline, but no
    row has computable lookback z-score
    analysis. Pairwise-only changes do not make a report pass or fail.
-6. `success`: at least one row has computable lookback z-score analysis and no
+1. `success`: at least one row has computable lookback z-score analysis and no
    higher-precedence condition applies.
 
 `compared` counts rows where both sides were present and pairwise comparison was
@@ -244,6 +244,77 @@ Row statuses mean:
 
 Always publish the Markdown summary when exit code `1` is possible. That is the
 case where the diagnostic is most useful.
+
+## Saved run reports
+
+Publishers can finalize a completed run once, so dashboards read its saved
+verdict without repeating baseline selection or statistical analysis. Submit
+every measurement first, then send an authenticated
+`POST /api/ci/reports/{run_id}` with the complete manifest of returned result IDs:
+
+```json
+{"result_ids": ["result-a", "result-b"]}
+```
+
+BenchDB requires an exact match with the run's stored results. It evaluates
+`latest_default` with the default thresholds, then saves the full report and a
+compact summary in one transaction. Concurrent requests share the same saved
+evaluation. The manifest's result rows stay locked until the report commits, so
+concurrent deletion cannot leave analysis with a partial run. A retry with the
+same manifest returns that summary; a different manifest returns HTTP 409. New
+measurements for a finalized run also return HTTP 409, while identical
+submission-key replays remain valid.
+
+`GET /api/ci/reports/{run_id}` reads the full saved report, or returns HTTP 404
+when it has not been finalized. `GET /api/ci/reports?run_ids=a,b` reads compact
+summaries for up to 100 run IDs in one request. Its `reports` object is keyed by
+run ID and omits runs without saved reports. Neither read endpoint runs analysis.
+The returned `report_url` opens the saved dashboard view.
+
+The comma-separated `run_ids` selectors split on commas and trim surrounding
+whitespace after URL decoding. Use run IDs without commas or leading/trailing
+whitespace for batch summaries and live comparisons; percent-encoding does not
+remove this restriction. The single-run API paths and saved-report links carry
+one URL-encoded run ID without this CSV restriction.
+
+The baseline, measurements, thresholds, verdict, evaluation time, and analysis
+version remain fixed even when main advances or annotations change. Missing
+baseline or insufficient history stays visible as the original outcome; it is
+never treated as a clean result. Evaluation errors save nothing and can be
+retried. Existing runs need explicit publisher finalization; ordinary reads
+never backfill them. The live report endpoint and CLI remain available for
+intentional comparisons against other baselines.
+
+Saved reports have no reset or re-evaluation API. `analysis_version` records the
+implementation that produced the snapshot; changing it does not invalidate old
+reports. Deleting source results also leaves the snapshot intact. Prefer a new
+run for corrected measurements. Correcting an existing snapshot requires an
+operator-managed database change and explicit finalization from a complete
+manifest of the remaining results. That evaluation uses the baseline available
+at the time and replaces the original historical verdict.
+
+Roll out saved reports in this order:
+
+1. Obtain explicit operator approval for migration `000003_saved_run_reports`
+   before applying it to a shared or production database. Application deployment
+   approval alone does not authorize that migration.
+1. Apply the approved migration and deploy the BenchDB API.
+1. Deploy a publisher that finalizes each completed run. BenchDB does not finalize
+   runs automatically and its CLI has no saved-report finalization command.
+1. Use the publisher's explicit backfill command for historical runs whose full
+   manifests it retains. Historical finalization selects the baseline available
+   when the backfill runs, not a reconstructed past verdict.
+1. Verify that a newly published run and the historical runs needed by the
+   dashboard appear in `GET /api/ci/reports?run_ids=...` before switching readers
+   to saved reports. Missing reports are omitted, so switching early leaves
+   those verdicts unavailable.
+
+Finalize requests and uploads waiting for the same run's transaction lock each
+hold a database connection. Submit finalization retries sequentially rather
+than concurrently. The server uses pgx's pool settings from its database URL:
+`pool_max_conns` overrides the default maximum of the greater of 4 or
+`runtime.NumCPU()`. Check the deployment's pool limit when choosing publisher
+concurrency.
 
 ## Scheduled Alerts
 

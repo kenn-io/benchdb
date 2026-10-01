@@ -458,9 +458,11 @@ export interface CIReportSummary {
 export interface CIReport {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
+  analysis_version?: number;
   baseline: string;
   /** @nullable */
   commit_sha: string | null;
+  evaluated_at?: string;
   /** @nullable */
   missing_run_ids: string[] | null;
   report_url: string;
@@ -577,6 +579,17 @@ export interface ErrorModel {
   title?: string;
   /** A URI reference to human-readable documentation for the error. */
   type?: string;
+}
+
+export interface FinalizeRunReportInputBody {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  /**
+     * @minItems 1
+     * @maxItems 5000
+     * @nullable
+     */
+  result_ids: string[] | null;
 }
 
 export interface GitHubInfo {
@@ -852,6 +865,36 @@ export interface ResultPage {
   results: ResultListItem[] | null;
 }
 
+export type RunReportSummaryStatus = typeof RunReportSummaryStatus[keyof typeof RunReportSummaryStatus];
+
+
+export const RunReportSummaryStatus = {
+  success: 'success',
+  failure: 'failure',
+  action_required: 'action_required',
+  skipped: 'skipped',
+} as const;
+
+export interface RunReportSummary {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  analysis_version: number;
+  evaluated_at: string;
+  report_url: string;
+  run_id: string;
+  status: RunReportSummaryStatus;
+  status_reason: string;
+  summary: CIReportSummary;
+}
+
+export type RunReportSummariesOutputBodyReports = {[key: string]: RunReportSummary};
+
+export interface RunReportSummariesOutputBody {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  reports: RunReportSummariesOutputBodyReports;
+}
+
 export type SeriesListItemContext = { [key: string]: unknown };
 
 export type SeriesListItemStatus = typeof SeriesListItemStatus[keyof typeof SeriesListItemStatus];
@@ -1121,6 +1164,13 @@ export const GetCiReportBaseline = {
   latest_default: 'latest_default',
 } as const;
 
+export type GetRunReportSummariesParams = {
+/**
+ * @maxLength 25600
+ */
+run_ids: string;
+};
+
 export type CompareBenchmarkResultsParams = {
 /**
  * Baseline benchmark result id.
@@ -1238,7 +1288,7 @@ const deleteAlertRule = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/alert-rules/${id}`,options
+      `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1249,7 +1299,7 @@ const getAlertRule = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<AlertRuleView>> => {
     return axiosInstance.get(
-      `/api/alert-rules/${id}`,options
+      `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1261,7 +1311,7 @@ const updateAlertRule = (
     alertRuleBody: NonReadonly<AlertRuleBody>, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<AlertRuleView>> => {
     return axiosInstance.put(
-      `/api/alert-rules/${id}`,
+      `/api/alert-rules/${encodeURIComponent(id)}`,
       alertRuleBody,options
     );
   }
@@ -1274,7 +1324,7 @@ const listAlertEvents = (
     params?: ListAlertEventsParams, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ListAlertEventsOutputBody>> => {
     return axiosInstance.get(
-      `/api/alert-rules/${id}/events`,{
+      `/api/alert-rules/${encodeURIComponent(id)}/events`,{
     ...options,
         params: {...params, ...options?.params},}
     );
@@ -1372,7 +1422,7 @@ const deleteResult = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/benchmark-results/${id}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1383,7 +1433,7 @@ const getBenchmarkResult = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ResultDetail>> => {
     return axiosInstance.get(
-      `/api/benchmark-results/${id}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1395,7 +1445,7 @@ const updateResult = (
     updateResultInputBody: NonReadonly<UpdateResultInputBody>, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ResultDetail>> => {
     return axiosInstance.put(
-      `/api/benchmark-results/${id}`,
+      `/api/benchmark-results/${encodeURIComponent(id)}`,
       updateResultInputBody,options
     );
   }
@@ -1409,7 +1459,7 @@ const uploadResultArtifact = (
     params: UploadResultArtifactParams, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<ArtifactMetadata>> => {
     return axiosInstance.post(
-      `/api/benchmark-results/${id}/artifacts`,
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts`,
       uploadResultArtifactBody,{
     ...options,
         params: {...params, ...options?.params},}
@@ -1424,7 +1474,7 @@ const deleteResultArtifact = (
     artifactId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/benchmark-results/${id}/artifacts/${artifactId}`,options
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,options
     );
   }
 
@@ -1436,7 +1486,7 @@ const downloadResultArtifact = (
     artifactId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<Blob>> => {
     return axiosInstance.get(
-      `/api/benchmark-results/${id}/artifacts/${artifactId}`,{
+      `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,{
         responseType: 'blob',
     ...options,}
     );
@@ -1462,7 +1512,7 @@ const getBenchmarkHistory = (
     benchmarkId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<BenchmarkHistory>> => {
     return axiosInstance.get(
-      `/api/benchmarks/${benchmarkId}`,options
+      `/api/benchmarks/${encodeURIComponent(benchmarkId)}`,options
     );
   }
 
@@ -1476,6 +1526,43 @@ const getCiReport = (
       `/api/ci/report`,{
     ...options,
         params: {...params, ...options?.params},}
+    );
+  }
+
+/**
+ * @summary Read saved benchmark report summaries
+ */
+const getRunReportSummaries = (
+    params: GetRunReportSummariesParams, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RunReportSummariesOutputBody>> => {
+    return axiosInstance.get(
+      `/api/ci/reports`,{
+    ...options,
+        params: {...params, ...options?.params},}
+    );
+  }
+
+/**
+ * @summary Read a saved benchmark report
+ */
+const getSavedRunReport = (
+    runId: string, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<CIReport>> => {
+    return axiosInstance.get(
+      `/api/ci/reports/${encodeURIComponent(runId)}`,options
+    );
+  }
+
+/**
+ * @summary Finalize a completed run's benchmark report
+ */
+const finalizeRunReport = (
+    runId: string,
+    finalizeRunReportInputBody: NonReadonly<FinalizeRunReportInputBody>, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RunReportSummary>> => {
+    return axiosInstance.post(
+      `/api/ci/reports/${encodeURIComponent(runId)}`,
+      finalizeRunReportInputBody,options
     );
   }
 
@@ -1512,7 +1599,7 @@ const getHistoryForResult = (
     benchmarkResultId: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<HistorySeries>> => {
     return axiosInstance.get(
-      `/api/history/${benchmarkResultId}`,options
+      `/api/history/${encodeURIComponent(benchmarkResultId)}`,options
     );
   }
 
@@ -1595,7 +1682,7 @@ const deleteToken = (
     id: string, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<void>> => {
     return axiosInstance.delete(
-      `/api/tokens/${id}`,options
+      `/api/tokens/${encodeURIComponent(id)}`,options
     );
   }
 
@@ -1610,7 +1697,7 @@ const usersMe = (
     );
   }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -1633,6 +1720,9 @@ export type DownloadResultArtifactResult = AxiosResponse<Blob>
 export type ListBenchmarksResult = AxiosResponse<BenchmarkPage>
 export type GetBenchmarkHistoryResult = AxiosResponse<BenchmarkHistory>
 export type GetCiReportResult = AxiosResponse<CIReport>
+export type GetRunReportSummariesResult = AxiosResponse<RunReportSummariesOutputBody>
+export type GetSavedRunReportResult = AxiosResponse<CIReport>
+export type FinalizeRunReportResult = AxiosResponse<RunReportSummary>
 export type CompareBenchmarkResultsResult = AxiosResponse<CompareResult>
 export type GetHistoryResult = AxiosResponse<HistorySeries>
 export type GetHistoryForResultResult = AxiosResponse<HistorySeries>

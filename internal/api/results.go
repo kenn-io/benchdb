@@ -12,6 +12,7 @@ import (
 
 	"go.kenn.io/benchdb/internal/auth"
 	"go.kenn.io/benchdb/internal/service"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 // Handler serves the result write endpoints. It holds the ingestion service, the
@@ -83,6 +84,9 @@ func (h *Handler) submit(ctx context.Context, in *SubmitInput) (*SubmitOutput, e
 
 	res, err := h.ingester.Submit(ctx, in.Body)
 	if err != nil {
+		if errors.Is(err, storage.ErrRunFinalized) {
+			return nil, huma.Error409Conflict("benchmark run is finalized")
+		}
 		if errors.Is(err, service.ErrSubmissionConflict) {
 			return nil, huma.Error409Conflict("submission key already exists with different content")
 		}

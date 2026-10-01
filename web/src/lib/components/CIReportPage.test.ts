@@ -11,6 +11,7 @@ vi.mock("../api/client", () => ({
 }));
 
 const QUERY = {
+  saved: false,
   repository: "https://github.com/benchdb/demo",
   commit: "c4",
   runIDs: "ci-run",
@@ -19,6 +20,15 @@ const QUERY = {
   threshold: "",
   thresholdZ: "",
 };
+
+it("opens a saved report without requesting a live comparison", async () => {
+  GET.mockResolvedValue({ status: 200, data: { ...report, evaluated_at: "2026-09-30T12:00:00Z", analysis_version: 1 } });
+  render(CIReportPage, { props: { query: { ...QUERY, saved: true } } });
+  await screen.findByText("lookback regression detected");
+  expect(GET).toHaveBeenCalledTimes(1);
+  expect(GET.mock.calls[0]?.[0]).toBe("/api/ci/reports/ci-run");
+  expect(screen.getByText(/Saved report/)).toBeInTheDocument();
+});
 
 const report = {
   repository: "https://github.com/benchdb/demo",
@@ -257,7 +267,7 @@ describe("CIReportPage", () => {
   it("does not call the API without a selector", () => {
     render(CIReportPage, {
       props: {
-        query: { repository: "", commit: "", runIDs: "", baselineRunIDs: "", baseline: "", threshold: "", thresholdZ: "" },
+        query: { saved: false, repository: "", commit: "", runIDs: "", baselineRunIDs: "", baseline: "", threshold: "", thresholdZ: "" },
       },
     });
     expect(screen.getByText(/open a ci report url/i)).toBeInTheDocument();

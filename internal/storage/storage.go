@@ -25,10 +25,24 @@ var ErrNotFound = errors.New("storage: entity not found")
 // ErrConflict marks a unique submission-key race that the service resolves by lookup.
 var ErrConflict = errors.New("storage: entity conflict")
 
+// ErrRunFinalized rejects new measurements after a report seals the run.
+var ErrRunFinalized = errors.New("benchmark run is finalized")
+
+// RunReport preserves a completed evaluation independently of live measurements.
+type RunReport struct {
+	ResultIDs   []string
+	EvaluatedAt time.Time
+	Report      []byte
+	Summary     []byte
+}
+
 // Store is the persistence port: the get-or-create operations and reads the
 // ingestion and read services need. Implementations own primary-key generation,
 // so the insert-params types below carry no ID.
 type Store interface {
+	FinalizeRunReport(context.Context, string, []string, func(Store) (RunReport, error)) (RunReport, error)
+	GetRunReport(context.Context, string) (RunReport, error)
+	RunReportSummaries(context.Context, []string) (map[string][]byte, error)
 	ListResultArtifacts(ctx context.Context, resultID string) ([]ArtifactMetadata, error)
 	GetOrCreateCase(ctx context.Context, name string, tags []byte) (string, error)
 	GetOrCreateContext(ctx context.Context, tags []byte) (string, error)
