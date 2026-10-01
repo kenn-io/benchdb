@@ -269,6 +269,12 @@ summaries for up to 100 run IDs in one request. Its `reports` object is keyed by
 run ID and omits runs without saved reports. Neither read endpoint runs analysis.
 The returned `report_url` opens the saved dashboard view.
 
+The comma-separated `run_ids` selectors split on commas and trim surrounding
+whitespace after URL decoding. Use run IDs without commas or leading/trailing
+whitespace for batch summaries and live comparisons; percent-encoding does not
+remove this restriction. The single-run API paths and saved-report links carry
+one URL-encoded run ID without this CSV restriction.
+
 The baseline, measurements, thresholds, verdict, evaluation time, and analysis
 version remain fixed even when main advances or annotations change. Missing
 baseline or insufficient history stays visible as the original outcome; it is
@@ -277,9 +283,36 @@ retried. Existing runs need explicit publisher finalization; ordinary reads
 never backfill them. The live report endpoint and CLI remain available for
 intentional comparisons against other baselines.
 
-Deploy the database migration and BenchDB API before enabling publisher
-finalization or saved-report readers. Historical finalization selects the
-baseline available when the backfill runs, not a reconstructed past verdict.
+Saved reports have no reset or re-evaluation API. `analysis_version` records the
+implementation that produced the snapshot; changing it does not invalidate old
+reports. Deleting source results also leaves the snapshot intact. Prefer a new
+run for corrected measurements. Correcting an existing snapshot requires an
+operator-managed database change and explicit finalization from a complete
+manifest of the remaining results. That evaluation uses the baseline available
+at the time and replaces the original historical verdict.
+
+Roll out saved reports in this order:
+
+1. Obtain explicit operator approval for migration `000003_saved_run_reports`
+   before applying it to a shared or production database. Application deployment
+   approval alone does not authorize that migration.
+1. Apply the approved migration and deploy the BenchDB API.
+1. Deploy a publisher that finalizes each completed run. BenchDB does not finalize
+   runs automatically and its CLI has no saved-report finalization command.
+1. Use the publisher's explicit backfill command for historical runs whose full
+   manifests it retains. Historical finalization selects the baseline available
+   when the backfill runs, not a reconstructed past verdict.
+1. Verify that a newly published run and the historical runs needed by the
+   dashboard appear in `GET /api/ci/reports?run_ids=...` before switching readers
+   to saved reports. Missing reports are omitted, so switching early leaves
+   those verdicts unavailable.
+
+Finalize requests and uploads waiting for the same run's transaction lock each
+hold a database connection. Submit finalization retries sequentially rather
+than concurrently. The server uses pgx's pool settings from its database URL:
+`pool_max_conns` overrides the default maximum of the greater of 4 or
+`runtime.NumCPU()`. Check the deployment's pool limit when choosing publisher
+concurrency.
 
 ## Scheduled Alerts
 

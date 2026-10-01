@@ -47,7 +47,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if !errors.Is(err, storage.ErrNotFound) {
 		return storage.RunReport{}, err
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result WHERE run_id = $1 ORDER BY id`, runID)
+	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result WHERE run_id = $1`, runID)
 	if err != nil {
 		return storage.RunReport{}, err
 	}
@@ -55,6 +55,8 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if err != nil {
 		return storage.RunReport{}, err
 	}
+	// Use the manifest's Go ordering, independent of database collation.
+	slices.Sort(actual)
 	if !slices.Equal(actual, resultIDs) {
 		return storage.RunReport{}, storage.ErrConflict
 	}
