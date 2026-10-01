@@ -47,7 +47,8 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if !errors.Is(err, storage.ErrNotFound) {
 		return storage.RunReport{}, err
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result WHERE run_id = $1`, runID)
+	// Keep every manifest result available to analysis until the report commits.
+	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result WHERE run_id = $1 FOR SHARE`, runID)
 	if err != nil {
 		return storage.RunReport{}, err
 	}

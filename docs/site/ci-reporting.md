@@ -259,9 +259,11 @@ every measurement first, then send an authenticated
 BenchDB requires an exact match with the run's stored results. It evaluates
 `latest_default` with the default thresholds, then saves the full report and a
 compact summary in one transaction. Concurrent requests share the same saved
-evaluation. A retry with the same manifest returns that summary; a different
-manifest returns HTTP 409. New measurements for a finalized run also return
-HTTP 409, while identical submission-key replays remain valid.
+evaluation. The manifest's result rows stay locked until the report commits, so
+concurrent deletion cannot leave analysis with a partial run. A retry with the
+same manifest returns that summary; a different manifest returns HTTP 409. New
+measurements for a finalized run also return HTTP 409, while identical
+submission-key replays remain valid.
 
 `GET /api/ci/reports/{run_id}` reads the full saved report, or returns HTTP 404
 when it has not been finalized. `GET /api/ci/reports?run_ids=a,b` reads compact
