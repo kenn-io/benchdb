@@ -276,7 +276,7 @@ func isoZ(t time.Time) string {
 }
 
 // getJSON fetches url, retrying retryable failures (network errors, 5xx,
-// rate-limit 403s) with the legacy backoff curve until ctx expires, and decodes
+// rate-limit 403s) with exponential backoff and jitter until ctx expires, and decodes
 // the 200 body into out. Token rotation on quota exhaustion follows
 // commit.py:944-973: rotate and retry until rotations exceed the pool size.
 func (c *GitHubClient) getJSON(ctx context.Context, u string, out any) error {
@@ -286,7 +286,6 @@ func (c *GitHubClient) getJSON(ctx context.Context, u string, out any) error {
 	policy.InitialInterval = 2 * time.Second / 3
 	policy.MaxInterval = 5500 * time.Millisecond
 	policy.Multiplier = 2
-	policy.RandomizationFactor = 0
 	_, err := backoff.Retry(ctx, func() (struct{}, error) {
 		body, retryable, err := c.attempt(ctx, u, &rotations)
 		var unauthorized *unauthorizedError
