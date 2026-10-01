@@ -3377,6 +3377,24 @@ func (c CIReportComparisonStatus) Validate() error {
 	}
 }
 
+// FinalizeRunReportInputBodyBaseline Choose the recorded run or resolve the latest default-branch baseline.
+type FinalizeRunReportInputBodyBaseline string
+
+const (
+	ExplicitRun   FinalizeRunReportInputBodyBaseline = "explicit_run"
+	LatestDefault FinalizeRunReportInputBodyBaseline = "latest_default"
+)
+
+// Validate checks if the FinalizeRunReportInputBodyBaseline value is valid
+func (f FinalizeRunReportInputBodyBaseline) Validate() error {
+	switch f {
+	case ExplicitRun, LatestDefault:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid FinalizeRunReportInputBodyBaseline value, got: %v", f))
+	}
+}
+
 type RecentRunAttentionStatus string
 
 const (
@@ -3393,6 +3411,23 @@ func (r RecentRunAttentionStatus) Validate() error {
 		return nil
 	default:
 		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid RecentRunAttentionStatus value, got: %v", r))
+	}
+}
+
+type RunReportSummaryBaseline string
+
+const (
+	RunReportSummaryBaselineExplicitRun   RunReportSummaryBaseline = "explicit_run"
+	RunReportSummaryBaselineLatestDefault RunReportSummaryBaseline = "latest_default"
+)
+
+// Validate checks if the RunReportSummaryBaseline value is valid
+func (r RunReportSummaryBaseline) Validate() error {
+	switch r {
+	case RunReportSummaryBaselineExplicitRun, RunReportSummaryBaselineLatestDefault:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid RunReportSummaryBaseline value, got: %v", r))
 	}
 }
 
@@ -3438,15 +3473,15 @@ func (s SeriesListItemStatus) Validate() error {
 type GetCiReportQueryBaseline string
 
 const (
-	ForkPoint     GetCiReportQueryBaseline = "fork_point"
-	LatestDefault GetCiReportQueryBaseline = "latest_default"
-	Parent        GetCiReportQueryBaseline = "parent"
+	ForkPoint                             GetCiReportQueryBaseline = "fork_point"
+	GetCiReportQueryBaselineLatestDefault GetCiReportQueryBaseline = "latest_default"
+	Parent                                GetCiReportQueryBaseline = "parent"
 )
 
 // Validate checks if the GetCiReportQueryBaseline value is valid
 func (g GetCiReportQueryBaseline) Validate() error {
 	switch g {
-	case ForkPoint, LatestDefault, Parent:
+	case ForkPoint, GetCiReportQueryBaselineLatestDefault, Parent:
 		return nil
 	default:
 		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid GetCiReportQueryBaseline value, got: %v", g))
@@ -4599,21 +4634,24 @@ func (b BenchmarkTrack) Validate() error {
 
 type CIReport struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema          *string         `json:"$schema,omitempty"`
-	AnalysisVersion *int64          `json:"analysis_version,omitempty"`
-	Baseline        string          `json:"baseline" validate:"required"`
-	CommitSha       *string         `json:"commit_sha,omitempty" validate:"required"`
-	EvaluatedAt     *time.Time      `json:"evaluated_at,omitempty"`
-	MissingRunIds   []string        `json:"missing_run_ids,omitempty" validate:"required"`
-	ReportURL       string          `json:"report_url" validate:"required"`
-	Repository      string          `json:"repository" validate:"required"`
-	Runs            []CIReportRun   `json:"runs,omitempty" validate:"required"`
-	SelectedRunIds  []string        `json:"selected_run_ids,omitempty" validate:"required"`
-	Status          CIReportStatus  `json:"status" validate:"required"`
-	StatusReason    string          `json:"status_reason" validate:"required"`
-	Summary         CIReportSummary `json:"summary"`
-	Threshold       float64         `json:"threshold"`
-	ThresholdZ      float64         `json:"threshold_z"`
+	Schema          *string `json:"$schema,omitempty"`
+	AnalysisVersion *int64  `json:"analysis_version,omitempty"`
+	Baseline        string  `json:"baseline" validate:"required"`
+
+	// BaselineRunID Resolved baseline run for a saved report.
+	BaselineRunID  *string         `json:"baseline_run_id,omitempty"`
+	CommitSha      *string         `json:"commit_sha,omitempty" validate:"required"`
+	EvaluatedAt    *time.Time      `json:"evaluated_at,omitempty"`
+	MissingRunIds  []string        `json:"missing_run_ids,omitempty" validate:"required"`
+	ReportURL      string          `json:"report_url" validate:"required"`
+	Repository     string          `json:"repository" validate:"required"`
+	Runs           []CIReportRun   `json:"runs,omitempty" validate:"required"`
+	SelectedRunIds []string        `json:"selected_run_ids,omitempty" validate:"required"`
+	Status         CIReportStatus  `json:"status" validate:"required"`
+	StatusReason   string          `json:"status_reason" validate:"required"`
+	Summary        CIReportSummary `json:"summary"`
+	Threshold      float64         `json:"threshold"`
+	ThresholdZ     float64         `json:"threshold_z"`
 }
 
 func (c CIReport) Validate() error {
@@ -5134,12 +5172,35 @@ func (s ErrorModel) Error() string {
 
 type FinalizeRunReportInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema    *string  `json:"$schema,omitempty"`
-	ResultIds []string `json:"result_ids,omitempty" validate:"required"`
+	Schema *string `json:"$schema,omitempty"`
+
+	// Baseline Choose the recorded run or resolve the latest default-branch baseline.
+	Baseline FinalizeRunReportInputBodyBaseline `json:"baseline" validate:"required"`
+
+	// BaselineRunID Required for explicit_run; omitted for latest_default.
+	BaselineRunID *string  `json:"baseline_run_id,omitempty" validate:"omitempty,max=255"`
+	ResultIds     []string `json:"result_ids,omitempty" validate:"required"`
 }
 
 func (f FinalizeRunReportInputBody) Validate() error {
-	return runtime.ConvertValidatorError(typesValidator.Struct(f))
+	var errors runtime.ValidationErrors
+	if v, ok := any(f.Baseline).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Baseline", err)
+		}
+	}
+	if f.BaselineRunID != nil {
+		if err := typesValidator.Var(f.BaselineRunID, "omitempty,max=255"); err != nil {
+			errors = errors.Append("BaselineRunID", err)
+		}
+	}
+	if err := typesValidator.Var(f.ResultIds, "required"); err != nil {
+		errors = errors.Append("ResultIds", err)
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type GitHubInfo struct {
@@ -5807,18 +5868,27 @@ func (r RunReportSummariesOutputBody) Validate() error {
 
 type RunReportSummary struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema          *string                `json:"$schema,omitempty"`
-	AnalysisVersion int64                  `json:"analysis_version"`
-	EvaluatedAt     time.Time              `json:"evaluated_at" validate:"required"`
-	ReportURL       string                 `json:"report_url" validate:"required"`
-	RunID           string                 `json:"run_id" validate:"required"`
-	Status          RunReportSummaryStatus `json:"status" validate:"required"`
-	StatusReason    string                 `json:"status_reason" validate:"required"`
-	Summary         CIReportSummary        `json:"summary"`
+	Schema          *string                   `json:"$schema,omitempty"`
+	AnalysisVersion int64                     `json:"analysis_version"`
+	Baseline        *RunReportSummaryBaseline `json:"baseline,omitempty"`
+	BaselineRunID   *string                   `json:"baseline_run_id,omitempty"`
+	EvaluatedAt     time.Time                 `json:"evaluated_at" validate:"required"`
+	ReportURL       string                    `json:"report_url" validate:"required"`
+	RunID           string                    `json:"run_id" validate:"required"`
+	Status          RunReportSummaryStatus    `json:"status" validate:"required"`
+	StatusReason    string                    `json:"status_reason" validate:"required"`
+	Summary         CIReportSummary           `json:"summary"`
 }
 
 func (r RunReportSummary) Validate() error {
 	var errors runtime.ValidationErrors
+	if r.Baseline != nil {
+		if v, ok := any(r.Baseline).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Baseline", err)
+			}
+		}
+	}
 	if err := typesValidator.Var(r.EvaluatedAt, "required"); err != nil {
 		errors = errors.Append("EvaluatedAt", err)
 	}

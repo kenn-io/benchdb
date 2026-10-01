@@ -30,5 +30,9 @@ export async function loadCIReport(client: Client, query: CIReportQuery): Promis
   if (res.status >= 400 || !res.data) {
     throw new Error((res.data as { detail?: string })?.detail ?? "failed to load CI report");
   }
+  if (query.saved && query.baselineRunIDs !== "" &&
+      (res.data.baseline !== "explicit_run" || res.data.baseline_run_id !== query.baselineRunIDs)) {
+    throw new Error("Saved report does not match the requested baseline.");
+  }
   return res.data;
 }

@@ -460,6 +460,8 @@ export interface CIReport {
   readonly $schema?: string;
   analysis_version?: number;
   baseline: string;
+  /** Resolved baseline run for a saved report. */
+  baseline_run_id?: string;
   /** @nullable */
   commit_sha: string | null;
   evaluated_at?: string;
@@ -581,9 +583,27 @@ export interface ErrorModel {
   type?: string;
 }
 
+/**
+ * Choose the recorded run or resolve the latest default-branch baseline.
+ */
+export type FinalizeRunReportInputBodyBaseline = typeof FinalizeRunReportInputBodyBaseline[keyof typeof FinalizeRunReportInputBodyBaseline];
+
+
+export const FinalizeRunReportInputBodyBaseline = {
+  explicit_run: 'explicit_run',
+  latest_default: 'latest_default',
+} as const;
+
 export interface FinalizeRunReportInputBody {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
+  /** Choose the recorded run or resolve the latest default-branch baseline. */
+  baseline: FinalizeRunReportInputBodyBaseline;
+  /**
+     * Required for explicit_run; omitted for latest_default.
+     * @maxLength 255
+     */
+  baseline_run_id?: string;
   /**
      * @minItems 1
      * @maxItems 5000
@@ -865,6 +885,14 @@ export interface ResultPage {
   results: ResultListItem[] | null;
 }
 
+export type RunReportSummaryBaseline = typeof RunReportSummaryBaseline[keyof typeof RunReportSummaryBaseline];
+
+
+export const RunReportSummaryBaseline = {
+  explicit_run: 'explicit_run',
+  latest_default: 'latest_default',
+} as const;
+
 export type RunReportSummaryStatus = typeof RunReportSummaryStatus[keyof typeof RunReportSummaryStatus];
 
 
@@ -879,6 +907,8 @@ export interface RunReportSummary {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
   analysis_version: number;
+  baseline?: RunReportSummaryBaseline;
+  baseline_run_id?: string;
   evaluated_at: string;
   report_url: string;
   run_id: string;

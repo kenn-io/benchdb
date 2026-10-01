@@ -253,23 +253,45 @@ every measurement first, then send an authenticated
 `POST /api/ci/reports/{run_id}` with the complete manifest of returned result IDs:
 
 ```json
-{"result_ids": ["result-a", "result-b"]}
+{
+  "result_ids": ["result-a", "result-b"],
+  "baseline": "explicit_run",
+  "baseline_run_id": "recorded-baseline-run"
+}
 ```
 
-BenchDB requires an exact match with the run's stored results. It evaluates
-`latest_default` with the default thresholds, then saves the full report and a
-compact summary in one transaction. Concurrent requests share the same saved
-evaluation. The manifest's result rows stay locked until the report commits, so
-concurrent deletion cannot leave analysis with a partial run. A retry with the
-same manifest returns that summary; a different manifest returns HTTP 409. New
-measurements for a finalized run also return HTTP 409, while identical
-submission-key replays remain valid.
+Choose `explicit_run` to preserve a recorded baseline, such as the exact
+base-branch run associated with a pull request. `baseline_run_id` is required
+and must identify an available run in the same repository with commit metadata.
+An unresolved explicit baseline returns HTTP 409 and saves nothing; retry after
+publishing that baseline. A resolved baseline that lacks measurements for a new
+benchmark can still produce a saved `action_required` diagnostic.
+
+Choose `latest_default` to resolve the latest default-branch baseline when the
+run is finalized, and omit `baseline_run_id`. The `baseline` field is required;
+there is no implicit selector. Default analysis thresholds apply to both modes.
+
+BenchDB requires an exact match with the run's stored results, then saves the
+full report and a compact summary in one transaction. Concurrent requests share
+the same saved evaluation. The manifest's result rows stay locked until the
+report commits, so concurrent deletion cannot leave analysis with a partial
+run. A retry with the same manifest and baseline selection returns that summary.
+A different manifest, selector, or explicit baseline ID returns HTTP 409. A
+`latest_default` retry keeps its originally resolved baseline even if a newer
+run has arrived. New measurements for a finalized run also return HTTP 409,
+while identical submission-key replays remain valid.
 
 `GET /api/ci/reports/{run_id}` reads the full saved report, or returns HTTP 404
 when it has not been finalized. `GET /api/ci/reports?run_ids=a,b` reads compact
 summaries for up to 100 run IDs in one request. Its `reports` object is keyed by
 run ID and omits runs without saved reports. Neither read endpoint runs analysis.
-The returned `report_url` opens the saved dashboard view.
+New saved summaries include `baseline` and, when resolved, `baseline_run_id`.
+The full report includes the same top-level baseline ID as well as each run's
+`baseline_run_id`. The returned `report_url` opens the saved dashboard view.
+A saved dashboard link can also include `baseline_run_ids=<recorded-run>` to
+require that exact baseline. The page shows an error if the snapshot used a
+different selector or baseline ID, including older snapshots without the new
+identity field. It does not fall back to a live comparison.
 
 The comma-separated `run_ids` selectors split on commas and trim surrounding
 whitespace after URL decoding. Use run IDs without commas or leading/trailing
@@ -279,9 +301,9 @@ one URL-encoded run ID without this CSV restriction.
 
 The baseline, measurements, thresholds, verdict, evaluation time, and analysis
 version remain fixed even when main advances or annotations change. Missing
-baseline or insufficient history stays visible as the original outcome; it is
-never treated as a clean result. Evaluation errors save nothing and can be
-retried. Existing runs need explicit publisher finalization; ordinary reads
+matching measurements, an unresolved automatic baseline, or insufficient history
+stay visible as the original outcome; none is treated as a clean result.
+Evaluation errors save nothing and can be retried. Existing runs need explicit publisher finalization; ordinary reads
 never backfill them. The live report endpoint and CLI remain available for
 intentional comparisons against other baselines.
 
@@ -290,19 +312,28 @@ implementation that produced the snapshot; changing it does not invalidate old
 reports. Deleting source results also leaves the snapshot intact. Prefer a new
 run for corrected measurements. Correcting an existing snapshot requires an
 operator-managed database change and explicit finalization from a complete
-manifest of the remaining results. That evaluation uses the baseline available
-at the time and replaces the original historical verdict.
+manifest of the remaining results. That evaluation uses the explicitly requested
+run or resolves `latest_default` at that time and replaces the original historical
+verdict.
 
 Roll out saved reports in this order:
 
 1. Deploy the BenchDB API with migration `000003_saved_run_reports`. Merged
    migrations apply as part of deployment without separate approval. Take a
    recovery backup before migration and retain the rollback path.
-1. Deploy a publisher that finalizes each completed run. BenchDB does not finalize
-   runs automatically and its CLI has no saved-report finalization command.
+1. Deploy a publisher that sends the required baseline choice when finalizing
+   each completed run. This contract update needs no additional migration.
+   Coordinate the API and publisher upgrades: older publishers receive HTTP 422
+   and save nothing after the API upgrade. Retain manifests and retry those
+   requests with an explicit choice after upgrading the publisher. BenchDB does
+   not finalize runs automatically and its CLI has no finalization command.
 1. Use the publisher's explicit backfill command for historical runs whose full
-   manifests it retains. Historical finalization selects the baseline available
-   when the backfill runs, not a reconstructed past verdict.
+   manifests it retains. Use `explicit_run` when the recorded baseline is known;
+   `latest_default` selects the baseline available when the backfill runs.
+   Existing snapshots remain immutable and are not automatically corrected.
+   Snapshots created before this contract update lack the new summary fields
+   and top-level baseline ID; inspect their per-run baseline IDs when planning
+   an operator-managed correction.
 1. Verify that a newly published run and the historical runs needed by the
    dashboard appear in `GET /api/ci/reports?run_ids=...` before switching readers
    to saved reports. Missing reports are omitted, so switching early leaves

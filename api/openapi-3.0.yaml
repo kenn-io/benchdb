@@ -408,6 +408,9 @@ components:
           type: integer
         baseline:
           type: string
+        baseline_run_id:
+          description: Resolved baseline run for a saved report.
+          type: string
         commit_sha:
           nullable: true
           type: string
@@ -1045,6 +1048,16 @@ components:
           format: uri
           readOnly: true
           type: string
+        baseline:
+          description: Choose the recorded run or resolve the latest default-branch baseline.
+          enum:
+            - explicit_run
+            - latest_default
+          type: string
+        baseline_run_id:
+          description: Required for explicit_run; omitted for latest_default.
+          maxLength: 255
+          type: string
         result_ids:
           items:
             type: string
@@ -1053,6 +1066,7 @@ components:
           nullable: true
           type: array
       required:
+        - baseline
         - result_ids
       type: object
     GitHubInfo:
@@ -1769,6 +1783,13 @@ components:
         analysis_version:
           format: int64
           type: integer
+        baseline:
+          enum:
+            - explicit_run
+            - latest_default
+          type: string
+        baseline_run_id:
+          type: string
         evaluated_at:
           format: date-time
           type: string
