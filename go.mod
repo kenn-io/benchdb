@@ -3,6 +3,7 @@ module go.kenn.io/benchdb
 go 1.27.0
 
 require (
+	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/doordash-oss/oapi-codegen-dd/v3 v3.75.15
