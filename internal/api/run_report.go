@@ -31,7 +31,9 @@ type FinalizeRunReportInput struct {
 	Authorization string `header:"Authorization"`
 	Session       string `cookie:"benchdb_session"`
 	Body          struct {
-		ResultIDs []string `json:"result_ids" minItems:"1" maxItems:"5000"`
+		Baseline      service.CIReportBaseline `json:"baseline" enum:"explicit_run,latest_default" doc:"Choose the recorded run or resolve the latest default-branch baseline."`
+		BaselineRunID string                   `json:"baseline_run_id,omitempty" maxLength:"255" doc:"Required for explicit_run; omitted for latest_default."`
+		ResultIDs     []string                 `json:"result_ids" minItems:"1" maxItems:"5000"`
 	}
 }
 
@@ -41,9 +43,12 @@ func (h *RunReportHandler) finalize(ctx context.Context, in *FinalizeRunReportIn
 	if err := h.auth.Authenticate(ctx, in.Authorization, in.Session); err != nil {
 		return nil, huma.Error401Unauthorized("authentication required")
 	}
-	report, err := h.reports.Finalize(ctx, in.RunID, in.Body.ResultIDs)
+	report, err := h.reports.Finalize(ctx, in.RunID, in.Body.ResultIDs, in.Body.Baseline, in.Body.BaselineRunID)
+	if errors.Is(err, service.ErrRunReportBaselineUnavailable) {
+		return nil, huma.Error409Conflict("requested baseline run is unavailable")
+	}
 	if errors.Is(err, storage.ErrConflict) {
-		return nil, huma.Error409Conflict("result manifest does not match the run")
+		return nil, huma.Error409Conflict("result manifest or baseline selection does not match the run report")
 	}
 	if err != nil {
 		return nil, mapCIReportError(err)

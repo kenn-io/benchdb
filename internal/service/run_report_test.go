@@ -16,12 +16,12 @@ func TestFinalizedRunRejectsNewResultsAndAllowsSubmissionReplay(t *testing.T) {
 	first, err := ing.Submit(ctx, req)
 	require.NoError(t, err)
 	reports := service.NewRunReports(store, "https://example.com")
-	_, err = reports.Finalize(ctx, req.RunID, []string{first.ID, "missing-result"})
+	_, err = reports.Finalize(ctx, req.RunID, []string{first.ID, "missing-result"}, service.CIReportBaselineLatestDefault, "")
 	require.ErrorIs(t, err, storage.ErrConflict)
 	_, err = reports.Get(ctx, req.RunID)
 	require.ErrorIs(t, err, service.ErrNotFound)
 
-	summary, err := reports.Finalize(ctx, req.RunID, []string{first.ID})
+	summary, err := reports.Finalize(ctx, req.RunID, []string{first.ID}, service.CIReportBaselineLatestDefault, "")
 	require.NoError(t, err)
 	assert.NotEqual(t, service.CIReportStatusSuccess, summary.Status, "missing baseline must not become a clean verdict")
 

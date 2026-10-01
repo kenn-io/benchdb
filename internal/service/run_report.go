@@ -14,15 +14,19 @@ import (
 
 const runReportAnalysisVersion = 1
 
+var ErrRunReportBaselineUnavailable = errors.New("requested baseline run is unavailable")
+
 // RunReportSummary is the saved verdict needed by run lists, without comparisons.
 type RunReportSummary struct {
-	RunID           string          `json:"run_id"`
-	Status          CIReportStatus  `json:"status" enum:"success,failure,action_required,skipped"`
-	StatusReason    string          `json:"status_reason"`
-	Summary         CIReportSummary `json:"summary"`
-	ReportURL       string          `json:"report_url"`
-	EvaluatedAt     time.Time       `json:"evaluated_at"`
-	AnalysisVersion int             `json:"analysis_version"`
+	Baseline        CIReportBaseline `json:"baseline,omitempty" enum:"explicit_run,latest_default"`
+	BaselineRunID   *string          `json:"baseline_run_id,omitempty"`
+	RunID           string           `json:"run_id"`
+	Status          CIReportStatus   `json:"status" enum:"success,failure,action_required,skipped"`
+	StatusReason    string           `json:"status_reason"`
+	Summary         CIReportSummary  `json:"summary"`
+	ReportURL       string           `json:"report_url"`
+	EvaluatedAt     time.Time        `json:"evaluated_at"`
+	AnalysisVersion int              `json:"analysis_version"`
 }
 
 // RunReports stores completed evaluations; ordinary reads never run analysis.
@@ -35,9 +39,21 @@ func NewRunReports(store storage.Store, publicBaseURL string) *RunReports {
 	return &RunReports{store: store, publicBaseURL: publicBaseURL}
 }
 
-func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []string) (*RunReportSummary, error) {
+func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []string, baseline CIReportBaseline, baselineRunID string) (*RunReportSummary, error) {
 	if strings.TrimSpace(runID) == "" || len(resultIDs) == 0 || len(resultIDs) > CIReportMaxComparisonRows {
 		return nil, &ValidationError{Message: "run ID and a complete result manifest are required"}
+	}
+	switch baseline {
+	case CIReportBaselineExplicitRun:
+		if strings.TrimSpace(baselineRunID) == "" {
+			return nil, &ValidationError{Message: "baseline_run_id is required for explicit_run"}
+		}
+	case CIReportBaselineLatestDefault:
+		if baselineRunID != "" {
+			return nil, &ValidationError{Message: "baseline_run_id must be omitted for latest_default"}
+		}
+	default:
+		return nil, &ValidationError{Message: "baseline must be explicit_run or latest_default"}
 	}
 	ids := slices.Clone(resultIDs)
 	slices.Sort(ids)
@@ -47,9 +63,20 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 		}
 	}
 	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(transaction storage.Store) (storage.RunReport, error) {
-		report, err := NewCIReporter(transaction, r.publicBaseURL).Report(ctx, CIReportQuery{RunIDs: []string{runID}, Baseline: CIReportBaselineLatestDefault})
+		query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline}
+		if baseline == CIReportBaselineExplicitRun {
+			query.Baseline = ""
+			query.BaselineRunIDs = []string{baselineRunID}
+		}
+		report, err := NewCIReporter(transaction, r.publicBaseURL).Report(ctx, query)
 		if err != nil {
 			return storage.RunReport{}, err
+		}
+		if len(report.Runs) > 0 {
+			report.BaselineRunID = report.Runs[0].BaselineRunID
+		}
+		if baseline == CIReportBaselineExplicitRun && (report.BaselineRunID == nil || *report.BaselineRunID != baselineRunID) {
+			return storage.RunReport{}, ErrRunReportBaselineUnavailable
 		}
 		now := time.Now().UTC()
 		report.EvaluatedAt = &now
@@ -59,11 +86,21 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 		if err != nil {
 			return storage.RunReport{}, err
 		}
-		summary, err := json.Marshal(RunReportSummary{RunID: runID, Status: report.Status, StatusReason: report.StatusReason, Summary: report.Summary, ReportURL: report.ReportURL, EvaluatedAt: now, AnalysisVersion: runReportAnalysisVersion})
+		summary, err := json.Marshal(RunReportSummary{RunID: runID, Baseline: report.Baseline, BaselineRunID: report.BaselineRunID, Status: report.Status, StatusReason: report.StatusReason, Summary: report.Summary, ReportURL: report.ReportURL, EvaluatedAt: now, AnalysisVersion: runReportAnalysisVersion})
 		return storage.RunReport{EvaluatedAt: now, Report: full, Summary: summary}, err
 	})
 	if err != nil {
 		return nil, err
+	}
+	var selection struct {
+		Baseline      CIReportBaseline `json:"baseline"`
+		BaselineRunID *string          `json:"baseline_run_id"`
+	}
+	if err := json.Unmarshal(saved.Report, &selection); err != nil {
+		return nil, err
+	}
+	if selection.Baseline != baseline || (baseline == CIReportBaselineExplicitRun && (selection.BaselineRunID == nil || *selection.BaselineRunID != baselineRunID)) {
+		return nil, storage.ErrConflict
 	}
 	var summary RunReportSummary
 	if err := json.Unmarshal(saved.Summary, &summary); err != nil {

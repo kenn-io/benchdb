@@ -70,6 +70,7 @@ type CIReportQuery struct {
 }
 
 type CIReport struct {
+	BaselineRunID   *string              `json:"baseline_run_id,omitempty" doc:"Resolved baseline run for a saved report."`
 	EvaluatedAt     *time.Time           `json:"evaluated_at,omitempty"`
 	AnalysisVersion int                  `json:"analysis_version,omitempty"`
 	Repository      string               `json:"repository"`
