@@ -4,13 +4,24 @@ BenchDB is a language-independent benchmark results service. Clients publish
 JSON results to a Go API backed by PostgreSQL; an embedded Svelte application
 provides browsing, comparison, and regression analysis.
 
+## Contributions and remotes
+
+- BenchDB is public and welcomes contributions through pull requests from forks.
+- `kenn-io/benchdb` is the upstream repository and the destination for BenchDB
+  issues and pull requests. Target its `main` branch by default.
+- Contributors may push feature branches to their own BenchDB forks and open
+  pull requests against `kenn-io/benchdb`. Upstream write access is not required.
+  Maintainers with write access may also use branches in `kenn-io/benchdb`.
+- Inspect `git remote -v` before pushing. In a fork checkout, `origin` usually
+  points to the contributor's fork and `upstream` to `kenn-io/benchdb`; confirm
+  the URLs instead of assuming either name identifies the push destination.
+- Treat the original Conbench repository as read-only. Do not push changes or
+  open issues, pull requests, or comments there.
+- Follow the [contributing guide](docs/site/contributing.md) for the fork
+  workflow and local checks.
+
 ## Repository rules
 
-- `kenn-io/benchdb` is the only writable remote. Treat the original Conbench
-  repository as read-only and do not open issues, pull requests, or comments
-  there.
-- Keep this repository private until an operator explicitly authorizes the
-  open-source release. Run the private-data scrub before any public release.
 - Make changes on feature branches and open one pull request by default. Do not
   commit directly to `main`, merge a pull request, or create stacked pull
   requests without explicit authorization.

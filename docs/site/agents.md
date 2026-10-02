@@ -5,6 +5,15 @@ needs to submit, inspect, or operate BenchDB. Read
 [`/llms.txt`](https://benchdb.io/llms.txt) for an index of every
 machine-readable documentation page.
 
+## Contributing to BenchDB
+
+Contributions from forks are welcome. Read the repository's `AGENTS.md` and the
+[contributing guide](contributing.md#submit-a-pull-request-from-a-fork) before
+changing BenchDB itself. Push a feature branch to the contributor's fork and
+open a pull request against `kenn-io/benchdb`'s `main` branch; upstream write
+access is not required. Inspect remote URLs before pushing, and direct BenchDB
+issues and pull requests to `kenn-io/benchdb`.
+
 ## Mental model
 
 BenchDB receives structured benchmark result JSON, stores each result with its
