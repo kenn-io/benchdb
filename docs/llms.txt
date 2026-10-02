@@ -34,7 +34,7 @@ as raw Markdown at `/docs/<page>.md`.
 - [Upgrading](https://benchdb.io/docs/upgrading.md): Rebuild private experimental databases on the current baseline and preserve released migration history
 - [Production clone compatibility](https://benchdb.io/docs/prod-clone-compatibility.md): Compatibility constraints for cloned production data
 - [Storage roadmap](https://benchdb.io/docs/storage-roadmap.md): Current storage boundaries and planned direction
-- [Contributing](https://benchdb.io/docs/contributing.md): Local development and repository checks
+- [Contributing](https://benchdb.io/docs/contributing.md): Fork pull requests, local development, and repository checks
 
 ## Other
 

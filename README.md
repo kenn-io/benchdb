@@ -75,8 +75,15 @@ make build
 ./bin/benchdb results submit results.json --server https://example.com
 ```
 
-Contributor setup, tests, documentation builds, and website deployment are in
-the [contributing guide](https://benchdb.io/docs/contributing/).
+## Contributing
+
+Contributions are welcome, including pull requests from forks. Push a feature
+branch to your fork and open a pull request against `kenn-io/benchdb`'s `main`
+branch. You do not need write access to this repository.
+
+See the [contributing guide](docs/site/contributing.md) for the fork workflow,
+local checks, and documentation builds. Coding agents should also read
+[AGENTS.md](AGENTS.md).
 
 ## Project status
 

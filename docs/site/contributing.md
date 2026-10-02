@@ -1,7 +1,49 @@
 # Contributing
 
+Contributions are welcome, including pull requests from forks. You do not need
+write access to `kenn-io/benchdb` to contribute.
+
 BenchDB is maintained as a Go backend, Svelte dashboard, CLI-first write path,
 generated Go and TypeScript clients, and Markdown/Zensical documentation.
+
+## Submit a pull request from a fork
+
+1. Fork [kenn-io/benchdb](https://github.com/kenn-io/benchdb) on GitHub.
+2. Clone your fork and add BenchDB as the upstream remote. Replace
+   `YOUR-USERNAME` with your GitHub username:
+
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/benchdb.git
+   cd benchdb
+   git remote add upstream https://github.com/kenn-io/benchdb.git
+   git fetch upstream
+   git switch -c my-change upstream/main
+   ```
+
+3. Make your changes and run the relevant checks below. Read the repository's
+   `AGENTS.md` for standing rules and required checks, including when working
+   with a coding agent.
+4. Commit your changes, confirm that `origin` points to your fork, and push:
+
+   ```bash
+   git remote -v
+   git push -u origin my-change
+   ```
+
+5. Open a pull request with **base repository** `kenn-io/benchdb`, **base branch**
+   `main`, and **head branch** `YOUR-USERNAME:my-change`. With the GitHub CLI:
+
+   ```bash
+   gh pr create --repo kenn-io/benchdb --base main --head YOUR-USERNAME:my-change
+   ```
+
+For an existing checkout, inspect the remote URLs before pushing; remote names
+alone do not establish which repository they point to. Maintainers with write
+access may use a feature branch in `kenn-io/benchdb` instead of a fork. Keep each
+contribution focused and open one pull request by default.
+
+BenchDB is developed independently of Conbench. Send BenchDB issues and pull
+requests to `kenn-io/benchdb`, not to the original Conbench repository.
 
 ## Core Commands
 
