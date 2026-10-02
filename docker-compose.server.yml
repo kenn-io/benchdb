@@ -29,7 +29,7 @@ services:
     ports:
       - "${DCOMP_BENCHDB_SERVER_HOST_PORT:-127.0.0.1:8080}:8080"
     healthcheck:
-      test: [ "CMD", "/usr/local/bin/benchdb", "series", "list", "--server", "http://127.0.0.1:8080", "--page-size", "1" ]
+      test: [ "CMD", "/usr/local/bin/benchdb", "health", "--server", "http://127.0.0.1:8080" ]
       interval: 5s
       timeout: 10s
       retries: 12

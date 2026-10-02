@@ -90,6 +90,12 @@ func TestLoadConfigPreservesCommitAuthenticationModes(t *testing.T) {
 
 func isolateLoadConfigEnv(t *testing.T) {
 	t.Helper()
+	for _, name := range []string{"BENCHDB_DB_URL", "BENCHDB_API_TOKEN", "BENCHDB_SESSION_SECRET", "BENCHDB_OIDC_CLIENT_SECRET"} {
+		t.Setenv(name+"_FILE", "")
+		t.Setenv(name+"_ENV", "")
+	}
+	t.Setenv("BENCHDB_DATA_DIR", "")
+	t.Setenv("BENCHDB_API_TOKEN", "")
 	for _, key := range []string{
 		"BENCHDB_INTENDED_BASE_URL",
 		"BENCHDB_SESSION_SECRET",

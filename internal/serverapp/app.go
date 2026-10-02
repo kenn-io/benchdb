@@ -12,6 +12,8 @@
 //	                       Idempotent; only the 8-char prefix is logged, never the value.
 //	BENCHDB_API_TOKEN     Static operator bearer token accepted on writes.
 //	                       User-attributed api_token rows also authenticate writes.
+//	BENCHDB_DATA_DIR      Optional private directory for a persisted operator token
+//	                       and, when OIDC is enabled, session signing secret.
 //	BENCHDB_AUTH_DISABLED "true" disables write auth (dev only).
 //	GITHUB_API_TOKEN          GitHub API token(s), comma-separated. Enables remote
 //	                          commit metadata enrichment.
@@ -58,6 +60,7 @@ import (
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/oidcauth"
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 	"go.kenn.io/benchdb/internal/seed"
 	"go.kenn.io/benchdb/internal/server"
 	"go.kenn.io/benchdb/internal/service"
@@ -75,12 +78,12 @@ func Run(ctx context.Context) error {
 
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
-		return fmt.Errorf("connect db: %w", err)
+		return errors.New("invalid BENCHDB_DB_URL database configuration")
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
+		return errors.New("database connection failed; check BENCHDB_DB_URL and database availability")
 	}
 
 	if cfg.initSchema {
@@ -205,12 +208,13 @@ type config struct {
 }
 
 func loadConfig() (config, error) {
-	dbURL := os.Getenv("BENCHDB_DB_URL")
-	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+	dbURL, err := runtimeconfig.DatabaseURL(true)
+	if err != nil {
+		return config{}, err
 	}
-	if dbURL == "" {
-		return config{}, errors.New("BENCHDB_DB_URL (or DATABASE_URL) is required")
+	apiToken, err := runtimeconfig.Secret("BENCHDB_API_TOKEN")
+	if err != nil {
+		return config{}, err
 	}
 	addr := os.Getenv("BENCHDB_ADDR")
 	if addr == "" {
@@ -231,9 +235,15 @@ func loadConfig() (config, error) {
 
 	oidcIssuerURL := os.Getenv("BENCHDB_OIDC_ISSUER_URL")
 	oidcClientID := os.Getenv("BENCHDB_OIDC_CLIENT_ID")
-	oidcClientSecret := os.Getenv("BENCHDB_OIDC_CLIENT_SECRET")
+	oidcClientSecret, err := runtimeconfig.Secret("BENCHDB_OIDC_CLIENT_SECRET")
+	if err != nil {
+		return config{}, err
+	}
 	baseURL := os.Getenv("BENCHDB_INTENDED_BASE_URL")
-	sessionSecret := os.Getenv("BENCHDB_SESSION_SECRET")
+	sessionSecret, err := runtimeconfig.Secret("BENCHDB_SESSION_SECRET")
+	if err != nil {
+		return config{}, err
+	}
 	if baseURL != "" {
 		u, err := url.Parse(baseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
@@ -243,11 +253,34 @@ func loadConfig() (config, error) {
 		}
 		baseURL = strings.TrimRight(u.String(), "/")
 	}
-	if err := validateOIDCConfig(oidcIssuerURL, oidcClientID, oidcClientSecret, baseURL, sessionSecret); err != nil {
+	dataDir := os.Getenv("BENCHDB_DATA_DIR")
+	authDisabled := os.Getenv("BENCHDB_AUTH_DISABLED") == "true"
+	oidcConfigured := oidcIssuerURL != "" || oidcClientID != "" || oidcClientSecret != ""
+	mintSession := dataDir != "" && oidcConfigured && sessionSecret == ""
+	validationSecret := sessionSecret
+	if mintSession {
+		validationSecret = "persisted session key"
+	}
+	if err := validateOIDCConfig(oidcIssuerURL, oidcClientID, oidcClientSecret, baseURL, validationSecret); err != nil {
 		return config{}, err
 	}
 	if err := validateSessionSecret(sessionSecret); err != nil {
 		return config{}, err
+	}
+	if _, err := pgxpool.ParseConfig(dbURL); err != nil {
+		return config{}, errors.New("invalid BENCHDB_DB_URL database configuration")
+	}
+	if mintSession {
+		sessionSecret, err = persistedSecret(dataDir, "session-secret")
+		if err != nil {
+			return config{}, err
+		}
+	}
+	if dataDir != "" && !authDisabled && apiToken == "" {
+		apiToken, err = persistedSecret(dataDir, "api-token")
+		if err != nil {
+			return config{}, err
+		}
 	}
 
 	return config{
@@ -255,8 +288,8 @@ func loadConfig() (config, error) {
 		databaseURL:      dbURL,
 		seed:             os.Getenv("BENCHDB_SEED") == "true",
 		initSchema:       os.Getenv("BENCHDB_INIT_SCHEMA") == "true",
-		apiToken:         os.Getenv("BENCHDB_API_TOKEN"),
-		authDisabled:     os.Getenv("BENCHDB_AUTH_DISABLED") == "true",
+		apiToken:         apiToken,
+		authDisabled:     authDisabled,
 		githubClient:     githubClient,
 		githubTimeout:    githubTimeout,
 		oidcIssuerURL:    oidcIssuerURL,
