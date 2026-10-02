@@ -22,6 +22,7 @@ import (
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/commitrepair"
 	"go.kenn.io/benchdb/internal/db"
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -143,10 +144,11 @@ func newAdminTokensCreateCommand(
 			if cfg.UserName == "" {
 				cfg.UserName = cfg.Email
 			}
-			cfg.DatabaseURL = os.Getenv("BENCHDB_DB_URL")
-			if cfg.DatabaseURL == "" {
-				return errors.New("BENCHDB_DB_URL is required")
+			databaseURL, dbErr := runtimeconfig.DatabaseURL(false)
+			if dbErr != nil {
+				return dbErr
 			}
+			cfg.DatabaseURL = databaseURL
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -265,10 +267,11 @@ func newAdminAlertsDeliverCommand(
 				cfg.Channel != service.AlertDeliveryChannelEmail:
 				return commandUsageError(cmd, "--channel must be webhook, slack, github-check, github-comment, or email")
 			}
-			cfg.DatabaseURL = os.Getenv("BENCHDB_DB_URL")
-			if cfg.DatabaseURL == "" {
-				return errors.New("BENCHDB_DB_URL is required")
+			databaseURL, dbErr := runtimeconfig.DatabaseURL(false)
+			if dbErr != nil {
+				return dbErr
 			}
+			cfg.DatabaseURL = databaseURL
 			switch cfg.Channel {
 			case service.AlertDeliveryChannelWebhook:
 				if cfg.WebhookURL == "" {
@@ -538,10 +541,11 @@ func newAdminAlertsEvaluateCommand(
 			case cfg.Format != "text" && cfg.Format != "json":
 				return commandUsageError(cmd, "--format must be text or json")
 			}
-			cfg.DatabaseURL = os.Getenv("BENCHDB_DB_URL")
-			if cfg.DatabaseURL == "" {
-				return errors.New("BENCHDB_DB_URL is required")
+			databaseURL, dbErr := runtimeconfig.DatabaseURL(false)
+			if dbErr != nil {
+				return dbErr
 			}
+			cfg.DatabaseURL = databaseURL
 			cfg.PublicBaseURL = os.Getenv("BENCHDB_INTENDED_BASE_URL")
 			return nil
 		},
@@ -747,10 +751,11 @@ func newAdminRepairCommand(
 				)
 			}
 
-			cfg.DatabaseURL = os.Getenv("BENCHDB_DB_URL")
-			if cfg.DatabaseURL == "" {
-				return errors.New("BENCHDB_DB_URL is required")
+			databaseURL, dbErr := runtimeconfig.DatabaseURL(false)
+			if dbErr != nil {
+				return dbErr
 			}
+			cfg.DatabaseURL = databaseURL
 			githubClient, err := newAdminGitHubClient()
 			if err != nil {
 				return err

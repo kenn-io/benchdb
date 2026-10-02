@@ -14,17 +14,34 @@ truth; this table is the public deployment summary.
 | `BENCHDB_DB_URL` | yes | Postgres connection URL. `DATABASE_URL` is accepted only as a fallback when `BENCHDB_DB_URL` is unset. |
 | `BENCHDB_ADDR` | no | Listen address. Defaults to `:8080`. |
 | `BENCHDB_INTENDED_BASE_URL` | for OIDC or a path prefix | Public browser URL, including the optional path prefix, for routing, redirects, report links, and cookies. |
-| `BENCHDB_OIDC_ISSUER_URL` | for OIDC | OIDC issuer URL. If any OIDC variable is set, all OIDC variables, `BENCHDB_INTENDED_BASE_URL`, and `BENCHDB_SESSION_SECRET` must be set. |
+| `BENCHDB_OIDC_ISSUER_URL` | for OIDC | OIDC issuer URL. If any OIDC variable is set, all OIDC variables and `BENCHDB_INTENDED_BASE_URL` must be set, with an explicit session key or `BENCHDB_DATA_DIR`. |
 | `BENCHDB_OIDC_CLIENT_ID` | for OIDC | OIDC client id. |
 | `BENCHDB_OIDC_CLIENT_SECRET` | for OIDC | OIDC client secret. |
-| `BENCHDB_SESSION_SECRET` | for session auth | HMAC key for session and pending-login cookies. If set, it must be at least 32 characters. |
+| `BENCHDB_SESSION_SECRET` | for session auth | HMAC key for session and pending-login cookies. If set, it must be at least 32 characters; OIDC can mint one with `BENCHDB_DATA_DIR`. |
 | `BENCHDB_API_TOKEN` | optional | Static operator bearer token for break-glass writes. Prefer server-minted reporter tokens for normal automation. |
+| `BENCHDB_DATA_DIR` | optional | Private writable directory for a self-minted operator token and, with OIDC, a persisted session signing key. Explicit secret sources take priority. |
 | `BENCHDB_AUTH_DISABLED` | dev only | Set to `true` to disable write auth. Do not use in shared deployments. |
 | `GITHUB_API_TOKEN` | optional | Comma-separated GitHub token pool. Enables commit metadata fetch and asynchronous default-branch ancestry backfill. |
 | `BENCHDB_GITHUB_TIMEOUT` | optional | Go duration budget for in-request GitHub enrichment. Defaults to `5s`. |
 | `BENCHDB_INIT_SCHEMA` | dev only | Set to `true` to apply embedded numbered migrations. Do not point this at a production database. |
 | `BENCHDB_SEED` | dev only | Set to `true` to seed deterministic demo data. |
 | `BENCHDB_SEED_DEV_TOKEN` | dev/e2e only | Seeds a user-owned API token for local/e2e authentication. The server logs only the token prefix. |
+
+`BENCHDB_DB_URL`, `BENCHDB_API_TOKEN`, `BENCHDB_SESSION_SECRET`, and
+`BENCHDB_OIDC_CLIENT_SECRET` also accept `_FILE` and `_ENV` sources. For each
+setting, the first nonempty selector wins: inline value, file path, then the
+name of another environment variable. `_ENV` performs one lookup; it does not
+resolve that variable's own `_FILE` or `_ENV` settings.
+
+A selected source must succeed. An unreadable, nonregular, empty, oversized,
+or NUL-containing file, or an empty/missing referenced variable, fails startup
+without trying a lower source. File reads allow a terminal LF or CRLF and preserve
+all other bytes; the 64 KiB limit includes the terminal newline. Mounted-secret
+symlinks are supported. Keep source paths and their parent directories under the
+deployer's control.
+
+`serve` and `migrate` use `DATABASE_URL` only when no `BENCHDB_DB_URL` source is
+selected. Database-backed admin commands require a `BENCHDB_DB_URL` source.
 
 Reads are public by default. Writes accept server-minted API tokens, valid
 session cookies, or the static operator token when configured. Token management
@@ -44,6 +61,32 @@ benchdb admin tokens create \
 The command requires `BENCHDB_DB_URL`, creates the user row if absent, stores
 only the token hash and prefix, and prints the plaintext token once. Store that
 plaintext in the CI secret named `BENCHDB_TOKEN`.
+
+Set `BENCHDB_DATA_DIR` to opt into bootstrap credentials. Its parent must exist;
+the server creates the directory with mode `0700` if missing. When auth is enabled
+and no operator token source is configured, BenchDB generates 32 random bytes,
+stores their 64-character lowercase hexadecimal encoding in `api-token` with
+mode `0600`, and reuses it on every restart. With OIDC configured, an absent
+session signing key is persisted in `session-secret` the same way. Without OIDC,
+absent session authentication stays disabled. Auth-disabled deployments do not
+mint an operator token.
+
+The container runs as UID/GID `65532:65532`; provision a private data mount owned
+by that account. Existing group/world-accessible directories or credential files,
+symlinks, and corrupt credentials fail startup. BenchDB never overwrites existing
+state or silently regenerates a missing explicit `_FILE` source. Creation uses a
+synced temporary file, atomic hard-link publication, and directory synchronization;
+the filesystem must support these operations. Existing valid state can be reused
+on a read-only mount. Protect the directory with owner-only filesystem permissions
+or, on Windows, equivalent ACLs.
+
+Read `api-token` from the private host mount into your reporter's secret store.
+Back up this directory as credentials: losing it can change the operator token
+and invalidate sessions. To rotate a persisted value, stop the server, deliberately
+replace the file with a new 64-character lowercase random hexadecimal credential
+and mode `0600`, then restart. Update reporters when rotating the operator token.
+Multiple replicas must share explicit secrets or the same persisted files. Removing
+an explicit override can reactivate an older persisted credential.
 
 Cookie `Secure` behavior follows `BENCHDB_INTENDED_BASE_URL`: loopback
 development hosts (`localhost`, `127.0.0.1`, `::1`) allow non-secure cookies;
@@ -124,10 +167,112 @@ target defaults to `127.0.0.1:18080` to avoid common local development
 conflicts; override `SERVER_CONTAINER_SMOKE_HOST_PORT` and
 `SERVER_CONTAINER_SMOKE_URL` together if needed.
 
+Use an exec-form health check in a container without a shell or wget:
+
+```yaml
+healthcheck:
+  test: ["CMD", "/usr/local/bin/benchdb", "health", "--server", "http://127.0.0.1:8080"]
+  interval: 15s
+  timeout: 10s
+  retries: 10
+```
+
+Include the configured path prefix in that container-local URL. `/api/ping`
+checks process liveness; migration-service completion gates startup separately.
+
 The same image also runs schema upgrades through `benchdb migrate`; there is no
 separate schema runtime.
 
+## Umbrel deployment
+
+For fresh installs, use Umbrel's native `exports.sh` to derive stable credentials
+from the installation seed. Give each secret a distinct identifier and keep those
+identifiers unchanged across upgrades:
+
+```bash
+export APP_BENCHDB_POSTGRES_PASSWORD="$(derive_entropy "benchdb-postgres-password")"
+export APP_BENCHDB_API_TOKEN="$(derive_entropy "benchdb-api-token")"
+```
+
+Compose can pass the password directly to Postgres and construct the connection
+URL directly for BenchDB. Hexadecimal derived passwords need no URL escaping.
+This example shows the application services; retain the app store's normal
+proxy/network settings and pin `APP_BENCHDB_IMAGE` to a published image digest:
+
+```yaml
+services:
+  db:
+    image: postgres:15.2-alpine
+    environment:
+      POSTGRES_USER: benchdb
+      POSTGRES_DB: benchdb
+      POSTGRES_PASSWORD: "${APP_BENCHDB_POSTGRES_PASSWORD:?required}"
+    volumes:
+      - "${APP_DATA_DIR}/db:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "benchdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  migrate:
+    image: "${APP_BENCHDB_IMAGE:?pin a published image digest}"
+    entrypoint: ["/usr/local/bin/benchdb", "migrate"]
+    environment:
+      BENCHDB_DB_URL: "postgres://benchdb:${APP_BENCHDB_POSTGRES_PASSWORD:?required}@db:5432/benchdb?sslmode=disable"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+  server:
+    image: "${APP_BENCHDB_IMAGE:?pin a published image digest}"
+    environment:
+      BENCHDB_DB_URL: "postgres://benchdb:${APP_BENCHDB_POSTGRES_PASSWORD:?required}@db:5432/benchdb?sslmode=disable"
+      BENCHDB_API_TOKEN: "${APP_BENCHDB_API_TOKEN:?required}"
+      BENCHDB_ADDR: ":8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/benchdb", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+```
+
+These services use the images' normal server/Postgres entrypoints and a direct
+migration command. Provision persistent database directories through the normal
+app package layout. BenchDB does not require a custom pre-start hook, shell
+entrypoint, generated `.env`, seeded config, or `BENCHDB_INIT_SCHEMA`/`BENCHDB_SEED`
+in production. For OIDC or a public path prefix, set `BENCHDB_INTENDED_BASE_URL`
+to the browser URL and use that prefix in the native health command.
+
+Alternatively, pass explicit `_FILE` secrets from readable mounts, or use
+`BENCHDB_DATA_DIR` for product-managed credentials on a private mount owned by
+UID/GID `65532:65532`. This is optional when Umbrel derives the operator token.
+
+Existing installations with randomly generated `.env` credentials must keep
+those values during the image cutover. Derived credentials differ from existing
+ones; changing the variable does not change an initialized Postgres password.
+To switch deliberately, take a recovery backup, change the Postgres role password,
+update all connection URLs and reporter secrets together, verify the new deployment,
+and retain the previous image and backup as the rollback path. Never delete the
+old credential file or rotate passwords implicitly during an app update.
+
 ## CI And Releases
+
+Published stable GitHub releases trigger `.github/workflows/release.yml`. A release
+tag must be `vMAJOR.MINOR.PATCH`, with no leading zeroes or prerelease suffixes,
+and its actual commit must already be merged into `origin/main`. The workflow
+builds that exact commit with `Dockerfile.server` for Linux amd64 and arm64 and
+publishes `ghcr.io/kenn-io/benchdb:<version>` and `:sha-<full-commit-sha>`.
+The job summary records the immutable `ghcr.io/kenn-io/benchdb@sha256:...` reference;
+pin deployments to that digest. PRs build both platforms without publishing.
+
+After merging the release workflow, an operator must publish the first stable
+GitHub release and verify the image digest before updating app-store packaging.
+This workflow does not create tags, publish prereleases, or migrate live installs.
+Run `python3 -B -m unittest scripts.test_release_image` to verify tag selection.
 
 The active GitHub Actions CI workflow is `.github/workflows/ci.yml`. It runs the
 Go, web, generated clients, docs, codegen drift, container, deploy-manifest,

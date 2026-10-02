@@ -4,3 +4,5 @@
 !web/bun.lock
 !web/docs-screenshots/
 !web/docs-screenshots/**
+**/.env*
+**/node_modules
