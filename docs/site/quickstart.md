@@ -1,3 +1,8 @@
+---
+title: "Quickstart"
+description: "Build the BenchDB CLI, configure credentials, submit a first benchmark result, and browse it in the dashboard."
+last_edited: 2026-08-27
+---
 # Quickstart
 
 This quickstart assumes you have a BenchDB server URL and an API token.

@@ -1,3 +1,8 @@
+---
+title: "Contributing"
+description: "Fork contribution workflow, repository layout, generated artifacts, development checks, and public documentation practices."
+last_edited: 2026-10-02
+---
 # Contributing
 
 Contributions are welcome, including pull requests from forks. You do not need

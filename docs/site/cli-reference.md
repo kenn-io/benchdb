@@ -1,3 +1,8 @@
+---
+title: "CLI Reference"
+description: "Reference for BenchDB command groups covering results, comparisons, CI reports, authentication, and operations."
+last_edited: 2026-08-27
+---
 # CLI Reference
 
 The `benchdb` binary is the supported command-line surface for writes,

@@ -1,3 +1,8 @@
+---
+title: "Authentication And Tokens"
+description: "Authenticate users through OIDC, configure reporter tokens for automation, and manage CLI credentials and API tokens."
+last_edited: 2026-08-27
+---
 # Authentication And Tokens
 
 Read endpoints are generally public unless a deployment is configured otherwise.

@@ -22,6 +22,11 @@ provides browsing, comparison, and regression analysis.
 
 ## Repository rules
 
+Every new Markdown file, except root `README.md` and `AGENTS.md`, must have YAML
+frontmatter with `title`, `description`, and `last_edited`, in that order.
+Update `last_edited` to the body-edit date whenever you change the body of any
+nonexempt Markdown file; preserve it for metadata-only edits.
+
 - Make changes on feature branches and open one pull request by default. Do not
   commit directly to `main`, merge a pull request, or create stacked pull
   requests without explicit authorization.

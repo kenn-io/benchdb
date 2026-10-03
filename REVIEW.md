@@ -1,3 +1,8 @@
+---
+title: "Review guidance"
+description: "Review guidance for assessing runtime behavior and API contracts while relying on compiler and CI results."
+last_edited: 2026-09-15
+---
 # Review guidance
 
 Review agents must never assess or predict whether code compiles. Compilation

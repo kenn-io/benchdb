@@ -1,3 +1,8 @@
+---
+title: "BenchDB documentation"
+description: "Entry point to BenchDB workflows, supported interfaces, and machine-readable reference documentation."
+last_edited: 2026-08-30
+---
 # BenchDB documentation
 
 BenchDB is a continuous benchmarking system for teams that need performance

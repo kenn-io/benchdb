@@ -1,3 +1,8 @@
+---
+title: "Regression Analysis"
+description: "Understand pairwise changes, historical z-scores, regression thresholds, report statuses, and practical change tolerances."
+last_edited: 2026-09-30
+---
 # Regression Analysis
 
 BenchDB uses history-aware analysis to avoid treating every pairwise change as

@@ -229,6 +229,12 @@ def validate_markdown_file(markdown: Path, failures: list[str]) -> None:
 
 
 def validate_markdown_title(markdown: Path, text: str, failures: list[str]) -> None:
+    lines = text.splitlines(keepends=True)
+    if lines and lines[0].rstrip("\r\n \t") == "---":
+        for index, line in enumerate(lines[1:], start=1):
+            if line.rstrip("\r\n \t") in ("---", "..."):
+                text = "".join(lines[index + 1 :])
+                break
     if markdown.name == "README.md":
         stripped_text = strip_fenced_code(text)
         if not any(re.match(r"^#[ \t]+\S", line) for line in stripped_text.splitlines()):

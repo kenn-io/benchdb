@@ -1,3 +1,8 @@
+---
+title: "Operations"
+description: "Configure, deploy, and operate BenchDB, including authentication, migrations, metrics, commit repair, and alert jobs."
+last_edited: 2026-09-24
+---
 # Operations
 
 BenchDB runs as a Go server with an embedded Svelte application and a Postgres

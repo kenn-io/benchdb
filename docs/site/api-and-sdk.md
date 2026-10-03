@@ -1,3 +1,8 @@
+---
+title: "API And Clients"
+description: "Discover the OpenAPI contract, regenerate Go and TypeScript clients, and use supported product and alert APIs."
+last_edited: 2026-09-15
+---
 # API And Clients
 
 The Go server publishes OpenAPI from the same huma routes that serve requests.

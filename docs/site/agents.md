@@ -1,3 +1,8 @@
+---
+title: "Agent And Automation Guide"
+description: "Guide for agents and scripts publishing results, using supported interfaces, and preserving BenchDB contracts."
+last_edited: 2026-10-02
+---
 # Agent And Automation Guide
 
 This page is the shortest reliable entry point for an agent or script that

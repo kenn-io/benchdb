@@ -138,6 +138,46 @@ class DocsLinksTest(unittest.TestCase):
         with self.assertRaisesRegex(DocsLinkError, r"untitled\.md: first non-empty line must be an H1 title"):
             validate_docs_links([docs / "untitled.md"])
 
+    def test_accepts_frontmatter_before_docs_h1(self) -> None:
+        docs = self.make_docs()
+        page = docs / "quickstart.md"
+        for closing in ("---", "..."):
+            with self.subTest(closing=closing):
+                page.write_text(
+                    "---\ntitle: Quickstart\ndescription: |\n"
+                    "  Publish a result.\n  ---\nlast_edited: 2026-10-03\n"
+                    f"{closing}\n\n# Quickstart\n\n[Overview](index.md#heading)\n",
+                    encoding="utf-8",
+                )
+
+                validate_docs_links([docs])
+
+    def test_frontmatter_does_not_replace_docs_h1(self) -> None:
+        docs = self.make_docs()
+        page = docs / "untitled.md"
+        for body in ("## Untitled\n", "Body before title\n\n# Title\n"):
+            with self.subTest(body=body):
+                page.write_text("---\ntitle: Title\n---\n" + body, encoding="utf-8")
+
+                with self.assertRaisesRegex(DocsLinkError, r"first non-empty line must be an H1 title"):
+                    validate_docs_links([page])
+
+    def test_frontmatter_comment_does_not_replace_readme_h1(self) -> None:
+        docs = self.make_docs()
+        readme = docs.parent / "README.md"
+        readme.write_text("---\n# Metadata comment\ntitle: Project\n---\nBody\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(DocsLinkError, r"README\.md: must contain an H1 title"):
+            validate_docs_links([readme])
+
+    def test_rejects_unclosed_frontmatter_before_docs_h1(self) -> None:
+        docs = self.make_docs()
+        page = docs / "quickstart.md"
+        page.write_text("---\ntitle: Quickstart\n\n# Quickstart\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(DocsLinkError, r"first non-empty line must be an H1 title"):
+            validate_docs_links([page])
+
     def test_rejects_docs_page_with_code_fence_before_h1(self) -> None:
         docs = self.make_docs()
         (docs / "code-first.md").write_text("```text\nnot a title\n```\n\n# Title\n", encoding="utf-8")

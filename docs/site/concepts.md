@@ -1,3 +1,8 @@
+---
+title: "Concepts"
+description: "Core BenchDB concepts for results, comparable series, runs, batches, commit metadata, and regression health."
+last_edited: 2026-08-27
+---
 # Concepts
 
 BenchDB stores benchmark results as structured JSON and groups them into

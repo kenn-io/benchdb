@@ -1,3 +1,8 @@
+---
+title: "Storage Roadmap"
+description: "Staged storage plan and proof gates for a read-only columnar analytical replica alongside PostgreSQL."
+last_edited: 2026-08-27
+---
 # Storage Roadmap
 
 The current new BenchDB server runs on the frozen legacy Postgres schema. That

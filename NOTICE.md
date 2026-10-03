@@ -1,3 +1,8 @@
+---
+title: "BenchDB attribution"
+description: "BenchDB attribution, Conbench origins, copyright ownership, and preserved MIT licensing."
+last_edited: 2026-08-27
+---
 # BenchDB attribution
 
 BenchDB began as a fork of the Go rewrite developed in the Conbench project:

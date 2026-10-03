@@ -1,3 +1,8 @@
+---
+title: "Temporary Production-Clone Migration Gate"
+description: "Run the read-only production-clone migration gate and record sanitized compatibility, timing, and storage findings."
+last_edited: 2026-08-27
+---
 # Temporary Production-Clone Migration Gate
 
 Use this temporary migration gate with a production-derived Postgres clone to

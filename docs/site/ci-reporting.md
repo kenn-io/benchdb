@@ -1,3 +1,8 @@
+---
+title: "CI Reporting"
+description: "Publish benchmark CI diagnostics with matching metadata, baseline selectors, GitHub integration, and documented exit codes."
+last_edited: 2026-10-01
+---
 # CI Reporting
 
 `benchdb ci report` turns submitted benchmark results into a synchronous CI

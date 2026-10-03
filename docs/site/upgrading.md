@@ -1,3 +1,8 @@
+---
+title: "Upgrading BenchDB"
+description: "Export and rebuild experimental databases safely and preserve migration history for future released versions."
+last_edited: 2026-08-30
+---
 # Upgrading BenchDB
 
 BenchDB has not published its first release. Private experimental builds used several temporary database layouts. Those layouts are not supported upgrade sources.

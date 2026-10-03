@@ -1,3 +1,8 @@
+---
+title: "Alerting"
+description: "Configure regression alert rules, evaluate benchmark runs, and deliver durable notifications through supported channels."
+last_edited: 2026-08-27
+---
 # Alerting
 
 Server-side alerting is the long-running counterpart to `benchdb ci report`.

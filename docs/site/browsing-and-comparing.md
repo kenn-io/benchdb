@@ -1,3 +1,8 @@
+---
+title: "Browsing And Comparing"
+description: "Browse benchmark activity, investigate fleet trends, inspect results, export history, and compare runs in the dashboard."
+last_edited: 2026-09-03
+---
 # Browsing And Comparing
 
 The Svelte dashboard is the supported web interface.

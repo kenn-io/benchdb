@@ -1,3 +1,8 @@
+---
+title: "Submitting Results"
+description: "Publish benchmark JSON through the CLI with required metadata, retryable submission, and diagnostic attachments."
+last_edited: 2026-09-28
+---
 # Submitting Results
 
 The supported write path is:

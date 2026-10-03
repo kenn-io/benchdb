@@ -1,3 +1,8 @@
+---
+title: "Dashboard Screenshots"
+description: "Generate and verify deterministic dashboard screenshots and evidence for documented benchmark investigation routes."
+last_edited: 2026-08-30
+---
 # Dashboard Screenshots
 
 These screenshots are generated from the deterministic demo database used by
