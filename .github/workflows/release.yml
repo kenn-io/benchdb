@@ -72,9 +72,7 @@ jobs:
           file: Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}
-            ${{ steps.release.outputs.image }}:sha-${{ steps.release.outputs.revision }}
+          tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/kenn-io/benchdb
             org.opencontainers.image.version=${{ steps.release.outputs.version }}

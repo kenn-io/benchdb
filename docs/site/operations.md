@@ -265,7 +265,7 @@ Published stable GitHub releases trigger `.github/workflows/release.yml`. A rele
 tag must be `vMAJOR.MINOR.PATCH`, with no leading zeroes or prerelease suffixes,
 and its actual commit must already be merged into `origin/main`. The workflow
 builds that exact commit with `Dockerfile.server` for Linux amd64 and arm64 and
-publishes `ghcr.io/kenn-io/benchdb:<version>` and `:sha-<full-commit-sha>`.
+publishes only `ghcr.io/kenn-io/benchdb:<version>`; nothing else is published.
 The job summary records the immutable `ghcr.io/kenn-io/benchdb@sha256:...` reference;
 pin deployments to that digest. PRs build both platforms without publishing.
 
