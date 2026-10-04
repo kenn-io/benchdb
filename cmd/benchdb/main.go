@@ -15,6 +15,7 @@
 //	benchdb admin alerts evaluate [--format text|json]
 //	benchdb admin alerts deliver [--channel webhook|slack|github-check|github-comment|email] [--webhook-url URL] [--slack-webhook-url URL] [--github-repository URL] [--github-token TOKEN] [--github-api-url URL] [--email-smtp-addr HOST:PORT] [--email-from ADDRESS] [--email-to ADDRESS[,ADDRESS...]] [--email-username USERNAME] [--email-password PASSWORD] [--limit N] [--retry-after DURATION] [--timeout DURATION] [--format text|json]
 //	benchdb migrate
+//	benchdb health [--server URL] [--timeout DURATION]
 //	benchdb serve
 //
 // `results submit` submits a benchmark result (read from the JSON file) to a
@@ -144,6 +145,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		authCommand(stdout, stderr),
 		adminCommand(stdout, stderr),
 		migrateCommand(stdout),
+		healthCommand(stdout),
 		serveCommand(),
 	)
 	cmd.SetHelpCommand(helpCommand(cmd))

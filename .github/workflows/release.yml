@@ -1,0 +1,97 @@
+name: release image
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile.server
+      - Dockerfile.server.dockerignore
+      - go.mod
+      - go.sum
+      - web/**
+      - cmd/**
+      - internal/**
+      - sdk/go/**
+      - scripts/release_image.sh
+      - scripts/test_release_image.py
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: namespace-profile-linux-8cpu
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Test release metadata validation
+        run: python3 -B -m unittest scripts.test_release_image
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build both supported platforms without publishing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.server
+          platforms: linux/amd64,linux/arm64
+          push: false
+
+  publish:
+    if: github.event_name == 'release' && github.repository == 'kenn-io/benchdb' && !github.event.release.prerelease && !github.event.release.draft
+    runs-on: namespace-profile-linux-8cpu
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate the actual release tag and main ancestry
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          scripts/release_image.sh "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Build the validated commit
+        env:
+          RELEASE_REVISION: ${{ steps.release.outputs.revision }}
+        run: |
+          git checkout --detach "$RELEASE_REVISION"
+          test "$(git rev-parse HEAD)" = "$RELEASE_REVISION"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the release image
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/kenn-io/benchdb
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.revision }}
+      - name: Record immutable deployment reference
+        env:
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}
+          RELEASE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          # shellcheck disable=SC2016
+          printf 'Deploy image: `%s@%s`\n' "$RELEASE_IMAGE" "$RELEASE_DIGEST" >> "$GITHUB_STEP_SUMMARY"

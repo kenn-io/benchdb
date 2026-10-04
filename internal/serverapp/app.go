@@ -58,6 +58,7 @@ import (
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/oidcauth"
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 	"go.kenn.io/benchdb/internal/seed"
 	"go.kenn.io/benchdb/internal/server"
 	"go.kenn.io/benchdb/internal/service"
@@ -75,12 +76,12 @@ func Run(ctx context.Context) error {
 
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
-		return fmt.Errorf("connect db: %w", err)
+		return errors.New("invalid database configuration")
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
+		return fmt.Errorf("ping database: %w", err)
 	}
 
 	if cfg.initSchema {
@@ -205,12 +206,13 @@ type config struct {
 }
 
 func loadConfig() (config, error) {
-	dbURL := os.Getenv("BENCHDB_DB_URL")
-	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+	dbURL, err := runtimeconfig.DatabaseURL(true)
+	if err != nil {
+		return config{}, err
 	}
-	if dbURL == "" {
-		return config{}, errors.New("BENCHDB_DB_URL (or DATABASE_URL) is required")
+	apiToken, err := runtimeconfig.Secret("BENCHDB_API_TOKEN")
+	if err != nil {
+		return config{}, err
 	}
 	addr := os.Getenv("BENCHDB_ADDR")
 	if addr == "" {
@@ -231,9 +233,15 @@ func loadConfig() (config, error) {
 
 	oidcIssuerURL := os.Getenv("BENCHDB_OIDC_ISSUER_URL")
 	oidcClientID := os.Getenv("BENCHDB_OIDC_CLIENT_ID")
-	oidcClientSecret := os.Getenv("BENCHDB_OIDC_CLIENT_SECRET")
+	oidcClientSecret, err := runtimeconfig.Secret("BENCHDB_OIDC_CLIENT_SECRET")
+	if err != nil {
+		return config{}, err
+	}
 	baseURL := os.Getenv("BENCHDB_INTENDED_BASE_URL")
-	sessionSecret := os.Getenv("BENCHDB_SESSION_SECRET")
+	sessionSecret, err := runtimeconfig.Secret("BENCHDB_SESSION_SECRET")
+	if err != nil {
+		return config{}, err
+	}
 	if baseURL != "" {
 		u, err := url.Parse(baseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
@@ -249,13 +257,16 @@ func loadConfig() (config, error) {
 	if err := validateSessionSecret(sessionSecret); err != nil {
 		return config{}, err
 	}
+	if _, err := pgxpool.ParseConfig(dbURL); err != nil {
+		return config{}, errors.New("invalid database configuration")
+	}
 
 	return config{
 		addr:             addr,
 		databaseURL:      dbURL,
 		seed:             os.Getenv("BENCHDB_SEED") == "true",
 		initSchema:       os.Getenv("BENCHDB_INIT_SCHEMA") == "true",
-		apiToken:         os.Getenv("BENCHDB_API_TOKEN"),
+		apiToken:         apiToken,
 		authDisabled:     os.Getenv("BENCHDB_AUTH_DISABLED") == "true",
 		githubClient:     githubClient,
 		githubTimeout:    githubTimeout,

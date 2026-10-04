@@ -182,3 +182,17 @@ benchdb serve
 
 Use [API And SDK](api-and-sdk.md) for generated clients and
 [Operations](operations.md) for the runtime environment contract.
+
+## Health
+
+Probe server liveness without database configuration or authentication:
+
+```bash
+benchdb health --server http://127.0.0.1:8080 --timeout 5s
+```
+
+The defaults are `http://127.0.0.1:8080` and `5s`. Include the application prefix
+in `--server` when configured, for example `http://127.0.0.1:8080/tools/bench`.
+The command checks `/api/ping`, prints `ok` on success, and returns a nonzero exit
+code for an HTTP failure, redirect, timeout, or invalid response. It probes
+process liveness; it does not query PostgreSQL.

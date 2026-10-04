@@ -12,3 +12,10 @@ web/dist
 web/playwright-report
 web/test-results
 .cache
+.env*
+**/.env*
+secrets
+data
+backups
+**/node_modules
+**/__pycache__

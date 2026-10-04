@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
 	"go.kenn.io/benchdb/internal/db"
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 )
 
 var runMigrate = runMigrateReal
@@ -26,17 +26,14 @@ func migrateCommand(stdout io.Writer) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			databaseURL := os.Getenv("BENCHDB_DB_URL")
-			if databaseURL == "" {
-				databaseURL = os.Getenv("DATABASE_URL")
-			}
-			if databaseURL == "" {
-				return errors.New("BENCHDB_DB_URL (or DATABASE_URL) is required")
+			databaseURL, err := runtimeconfig.DatabaseURL(true)
+			if err != nil {
+				return err
 			}
 			if err := runMigrate(cmd.Context(), databaseURL); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintln(stdout, "database schema is current")
+			_, err = fmt.Fprintln(stdout, "database schema is current")
 			return err
 		},
 	})
@@ -45,7 +42,7 @@ func migrateCommand(stdout io.Writer) *cobra.Command {
 func runMigrateReal(ctx context.Context, databaseURL string) error {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
-		return fmt.Errorf("connect database: %w", err)
+		return errors.New("invalid database configuration")
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
