@@ -12,7 +12,7 @@ import (
 
 func isolate(t *testing.T) {
 	t.Helper()
-	for _, n := range []string{"TEST_SECRET", "TEST_SECRET_FILE", "TEST_SECRET_ENV", "TEST_REFERENCE", "BENCHDB_DB_URL", "BENCHDB_DB_URL_FILE", "BENCHDB_DB_URL_ENV", "DATABASE_URL"} {
+	for _, n := range []string{"TEST_SECRET", "TEST_SECRET_FILE", "BENCHDB_DB_URL", "BENCHDB_DB_URL_FILE", "DATABASE_URL"} {
 		t.Setenv(n, "")
 	}
 }
@@ -22,26 +22,25 @@ func TestSecretSources(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "secret")
 	require.NoError(t, os.WriteFile(file, []byte("  file value  \r\n"), 0600))
 	t.Setenv("TEST_SECRET_FILE", file)
-	t.Setenv("TEST_SECRET_ENV", "TEST_REFERENCE")
-	t.Setenv("TEST_REFERENCE", "reference")
 	v, err := Secret("TEST_SECRET")
 	require.NoError(t, err)
 	assert.Equal(t, "  file value  ", v)
 	t.Setenv("TEST_SECRET", "inline")
 	t.Setenv("TEST_SECRET_FILE", file+"missing")
+	_, err = Secret("TEST_SECRET")
+	require.ErrorContains(t, err, "TEST_SECRET and TEST_SECRET_FILE")
+	t.Setenv("TEST_SECRET_FILE", "")
 	v, err = Secret("TEST_SECRET")
 	require.NoError(t, err)
 	assert.Equal(t, "inline", v)
 	t.Setenv("TEST_SECRET", "")
+	t.Setenv("TEST_SECRET_FILE", file+"missing")
 	_, err = Secret("TEST_SECRET")
 	require.ErrorContains(t, err, "TEST_SECRET_FILE")
 	t.Setenv("TEST_SECRET_FILE", "")
 	v, err = Secret("TEST_SECRET")
 	require.NoError(t, err)
-	assert.Equal(t, "reference", v)
-	t.Setenv("TEST_REFERENCE", "")
-	_, err = Secret("TEST_SECRET")
-	require.ErrorContains(t, err, "TEST_SECRET_ENV")
+	assert.Empty(t, v)
 }
 
 func TestSecretRejectsInvalidFile(t *testing.T) {
@@ -51,8 +50,6 @@ func TestSecretRejectsInvalidFile(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "secret")
 			require.NoError(t, os.WriteFile(p, []byte(contents), 0600))
 			t.Setenv("TEST_SECRET_FILE", p)
-			t.Setenv("TEST_SECRET_ENV", "TEST_REFERENCE")
-			t.Setenv("TEST_REFERENCE", "fallback")
 			v, err := Secret("TEST_SECRET")
 			require.Error(t, err)
 			assert.Empty(t, v)
@@ -80,14 +77,6 @@ func TestSecretFileSupportsMountedSymlink(t *testing.T) {
 	assert.Equal(t, "mounted-value", v)
 }
 
-func TestSecretEnvDoesNotResolveRecursively(t *testing.T) {
-	isolate(t)
-	t.Setenv("TEST_SECRET_ENV", "TEST_REFERENCE")
-	t.Setenv("TEST_REFERENCE_FILE", "unused")
-	_, err := Secret("TEST_SECRET")
-	require.ErrorContains(t, err, "TEST_SECRET_ENV")
-}
-
 func TestDatabaseURLFallbackBoundary(t *testing.T) {
 	isolate(t)
 	t.Setenv("DATABASE_URL", "postgres://db/fallback")
@@ -101,9 +90,8 @@ func TestDatabaseURLFallbackBoundary(t *testing.T) {
 	require.ErrorContains(t, err, "BENCHDB_DB_URL_FILE")
 }
 
-// Every valid inline byte sequence wins even when both lower sources are broken.
-// Invalid inline bytes fail instead of silently using a lower source.
-func FuzzSecretInlinePrecedence(f *testing.F) {
+// Inline values preserve every byte within the secret size limit.
+func FuzzSecretInlineValue(f *testing.F) {
 	for _, s := range []string{"inline", " ", "\n", "private\x00value", ""} {
 		f.Add(s)
 	}
@@ -116,10 +104,8 @@ func FuzzSecretInlinePrecedence(f *testing.F) {
 			return
 		}
 		t.Setenv("TEST_SECRET", s)
-		t.Setenv("TEST_SECRET_FILE", filepath.Join(t.TempDir(), "missing"))
-		t.Setenv("TEST_SECRET_ENV", "TEST_REFERENCE")
 		v, err := Secret("TEST_SECRET")
-		if s == "" || len(s) > 64*1024 {
+		if len(s) > 64*1024 {
 			require.Error(t, err)
 			assert.Empty(t, v)
 		} else {

@@ -14,7 +14,7 @@ import (
 
 func isolateDatabaseSources(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"BENCHDB_DB_URL", "BENCHDB_DB_URL_FILE", "BENCHDB_DB_URL_ENV", "DATABASE_URL"} {
+	for _, k := range []string{"BENCHDB_DB_URL", "BENCHDB_DB_URL_FILE", "DATABASE_URL"} {
 		t.Setenv(k, "")
 	}
 }
@@ -51,4 +51,12 @@ func TestMigrateRedactsInvalidDatabaseURL(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "private-password")
 	assert.NotContains(t, err.Error(), "private-marker")
+}
+
+func TestMigratePreservesDatabaseConnectionCause(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runMigrateReal(ctx, "postgres://localhost/unused")
+	require.ErrorIs(t, err, context.Canceled)
+	assert.ErrorContains(t, err, "ping database")
 }

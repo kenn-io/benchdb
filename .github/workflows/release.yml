@@ -3,6 +3,18 @@ name: release image
 on:
   pull_request:
     branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile.server
+      - Dockerfile.server.dockerignore
+      - go.mod
+      - go.sum
+      - web/**
+      - cmd/**
+      - internal/**
+      - sdk/go/**
+      - scripts/release_image.sh
+      - scripts/test_release_image.py
   release:
     types: [published]
 
@@ -32,7 +44,6 @@ jobs:
           file: Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: false
-          outputs: type=oci,dest=${{ runner.temp }}/benchdb-image.tar
 
   publish:
     if: github.event_name == 'release' && github.repository == 'kenn-io/benchdb' && !github.event.release.prerelease && !github.event.release.draft

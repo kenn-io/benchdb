@@ -11,12 +11,13 @@ import (
 
 const maxSecretBytes = 64 << 10
 
-// Secret selects the first nonempty selector: NAME, NAME_FILE, then NAME_ENV.
-// A selected source must succeed; lower-priority sources are never fallbacks.
-// NAME_ENV is a single environment-variable lookup. File secrets may end in
-// one LF or CRLF; all other bytes are preserved.
+// Secret reads NAME or NAME_FILE, rejecting conflicting nonempty selectors.
+// File secrets may end in one LF or CRLF; all other bytes are preserved.
 func Secret(name string) (string, error) {
 	if value := os.Getenv(name); value != "" {
+		if os.Getenv(name+"_FILE") != "" {
+			return "", fmt.Errorf("%s and %s_FILE cannot both be set", name, name)
+		}
 		return validate(name, value)
 	}
 	if file := os.Getenv(name + "_FILE"); file != "" {
@@ -48,9 +49,6 @@ func Secret(name string) (string, error) {
 			value = strings.TrimSuffix(value, "\r")
 		}
 		return validate(setting, value)
-	}
-	if reference := os.Getenv(name + "_ENV"); reference != "" {
-		return validate(name+"_ENV", os.Getenv(reference))
 	}
 	return "", nil
 }

@@ -29,8 +29,6 @@ func TestLoadConfigSecretSources(t *testing.T) {
 			require.NoError(t, os.WriteFile(file, []byte(value+"\n"), 0600))
 			t.Setenv(key, "")
 			t.Setenv(key+"_FILE", file)
-			t.Setenv(key+"_ENV", "TEST_DEPLOYMENT_SECRET")
-			t.Setenv("TEST_DEPLOYMENT_SECRET", "lower-priority")
 			read := func() string {
 				cfg, err := loadConfig()
 				require.NoError(t, err)
@@ -48,13 +46,14 @@ func TestLoadConfigSecretSources(t *testing.T) {
 			assert.Equal(t, value, read())
 			t.Setenv(key, value+"inline")
 			t.Setenv(key+"_FILE", file+"missing")
+			_, err := loadConfig()
+			require.ErrorContains(t, err, key+" and "+key+"_FILE")
+			t.Setenv(key+"_FILE", "")
 			assert.Equal(t, value+"inline", read())
 			t.Setenv(key, "")
-			_, err := loadConfig()
+			t.Setenv(key+"_FILE", file+"missing")
+			_, err = loadConfig()
 			require.ErrorContains(t, err, key+"_FILE")
-			t.Setenv(key+"_FILE", "")
-			t.Setenv("TEST_DEPLOYMENT_SECRET", value)
-			assert.Equal(t, value, read())
 		})
 	}
 }
@@ -75,4 +74,14 @@ func TestRunRedactsInvalidDatabaseURL(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "private-password")
 	assert.NotContains(t, err.Error(), "private-marker")
+}
+
+func TestRunPreservesDatabaseConnectionCause(t *testing.T) {
+	isolateLoadConfigEnv(t)
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := Run(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.ErrorContains(t, err, "ping database")
 }

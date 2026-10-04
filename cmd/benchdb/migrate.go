@@ -42,11 +42,11 @@ func migrateCommand(stdout io.Writer) *cobra.Command {
 func runMigrateReal(ctx context.Context, databaseURL string) error {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
-		return errors.New("invalid BENCHDB_DB_URL database configuration")
+		return errors.New("invalid database configuration")
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
-		return errors.New("database connection failed; check BENCHDB_DB_URL and database availability")
+		return fmt.Errorf("ping database: %w", err)
 	}
 	return db.Migrate(ctx, pool)
 }
