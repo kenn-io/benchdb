@@ -35,16 +35,18 @@ hooks = [
     always_run = true,
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 5,
   },
   {
     id = "golangci-lint",
-    name = "golangci-lint --fix",
+    name = "golangci-lint",
     language = "system",
-    entry = "make go-lint",
+    entry = "make go-lint-ci",
     files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 10,
   },
   {
@@ -85,6 +87,7 @@ hooks = [
     files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 20,
   },
 ]
