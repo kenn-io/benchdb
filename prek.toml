@@ -40,9 +40,9 @@ hooks = [
   },
   {
     id = "golangci-lint",
-    name = "golangci-lint --fix",
+    name = "golangci-lint",
     language = "system",
-    entry = "make go-lint",
+    entry = "make go-lint-ci",
     files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     require_serial = true,
