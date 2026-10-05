@@ -25,6 +25,8 @@ provides browsing, comparison, and regression analysis.
 - Make changes on feature branches and open one pull request by default. Do not
   commit directly to `main`, merge a pull request, or create stacked pull
   requests without explicit authorization.
+- Pull requests must have a user-facing benefit or improve the developer
+  experience, and the body must say which one.
 - Commit completed repository changes. Create new commits only; do not amend,
   squash, rebase, or rewrite published history without explicit authorization.
 - Keep changes focused. Do not add compatibility aliases, legacy fallbacks, or
