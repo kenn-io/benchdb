@@ -61,7 +61,8 @@ approvals, token permissions, and secrets are separate controls.
 - Number migrations sequentially under `internal/db/migrations` with matching
   up and down files. Never edit a migration already present on `main`.
 - Run `make go-fmt`, `make go-vet`, `make go-test-short`, and
-  `make go-lint-ci` for Go changes. Run `prek run` before committing.
+  `make go-lint-ci` for Go changes. Run `prek run` before committing; the
+  pre-push hook runs huma-check, golangci-lint, and short tests.
 
 <!-- BEGIN KATA (managed by `kata init --with-agents`) -->
 ## kata issue tracker

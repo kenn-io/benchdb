@@ -35,6 +35,7 @@ hooks = [
     always_run = true,
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 5,
   },
   {
@@ -45,6 +46,7 @@ hooks = [
     files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 10,
   },
   {
@@ -85,6 +87,7 @@ hooks = [
     files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     require_serial = true,
+    stages = ["pre-push"],
     priority = 20,
   },
 ]
