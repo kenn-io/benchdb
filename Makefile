@@ -163,13 +163,16 @@ migration-history-check:
 go-fmt:
 	gofmt -w cmd internal tools
 
+.cache/golangci-lint/custom-gcl: .custom-gcl.yml
+	GOOS= GOARCH= golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
+
 .PHONY: go-lint
-go-lint:
-	golangci-lint run --fix ./...
+go-lint: .cache/golangci-lint/custom-gcl
+	.cache/golangci-lint/custom-gcl run --fix ./...
 
 .PHONY: go-lint-ci
-go-lint-ci:
-	golangci-lint run ./...
+go-lint-ci: .cache/golangci-lint/custom-gcl
+	.cache/golangci-lint/custom-gcl run ./...
 
 .PHONY: huma-check
 huma-check:

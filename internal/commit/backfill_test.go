@@ -75,7 +75,7 @@ func TestBackfillerShutdownReportsTimeoutBranch(t *testing.T) {
 		Until:         time.Date(2021, 1, 4, 0, 0, 0, 0, time.UTC),
 	})
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond) //nolint:kennlint // the deadline is the expected result; blockingBackfillStore holds the job until its context ends
 	defer cancel()
 	timedOut := b.Shutdown(shutdownCtx)
 
