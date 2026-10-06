@@ -12,12 +12,20 @@ linters:
     - forbidigo
     - govet
     - ineffassign
+    - kennlint
     - misspell
     - modernize
     - staticcheck
     - testifylint
     - unused
   settings:
+    custom:
+      kennlint:
+        type: module
+        description: Kit deadlinetest, sub-second wall-clock budgets in tests outside synctest.
+        original-url: go.kenn.io/kit/lint
+        settings:
+          disable: [errtext, nohttpmux, rowserrcheck, sleeptest, sqlcheck, sqlclosecheck, testifyhelper]
     depguard:
       rules:
         # internal/service depends on the storage port, never the concrete

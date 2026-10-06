@@ -163,13 +163,19 @@ migration-history-check:
 go-fmt:
 	gofmt -w cmd internal tools
 
+# The host's suffix, not GOEXE: CI's Windows lint pass sets GOOS=windows on Linux.
+CUSTOM_GCL := .cache/golangci-lint/custom-gcl$(if $(filter Windows_NT,$(OS)),.exe)
+
+$(CUSTOM_GCL): .custom-gcl.yml
+	GOOS= GOARCH= golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
+
 .PHONY: go-lint
-go-lint:
-	golangci-lint run --fix ./...
+go-lint: $(CUSTOM_GCL)
+	$(CUSTOM_GCL) run --fix ./...
 
 .PHONY: go-lint-ci
-go-lint-ci:
-	golangci-lint run ./...
+go-lint-ci: $(CUSTOM_GCL)
+	$(CUSTOM_GCL) run ./...
 
 .PHONY: huma-check
 huma-check:

@@ -273,7 +273,7 @@ func TestClientBudgetExceeded(t *testing.T) {
 	srv.HandleStatus("/repos/org/repo", http.StatusBadGateway) // always retryable
 	c := NewGitHubClient("", srv.URL)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) //nolint:kennlint // the deadline is the expected result; the fake always returns 502, so only the context ends the retries
 	defer cancel()
 	_, err := c.defaultBranch(ctx, "org/repo")
 	require.Error(t, err)
