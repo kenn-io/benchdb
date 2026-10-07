@@ -13,7 +13,7 @@ WORKDIR /workspace
 COPY web/package.json web/bun.lock ./web/
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs ca-certificates && \
     cd web && bun install --frozen-lockfile && \
-    bunx playwright install --with-deps chromium && \
+    bun x playwright install --with-deps chromium && \
     chmod -R a+rX /ms-playwright && \
     rm -rf /var/lib/apt/lists/*
 
