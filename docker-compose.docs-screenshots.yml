@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile.docs-screenshots
       args:
         BUN_VERSION: "1.3.14"
-        PLAYWRIGHT_VERSION: "1.60.0"
     environment:
       BENCHDB_DOCS_SCREENSHOT_BASE_URL: "http://server:8080"
       BENCHDB_DOCS_SCREENSHOT_OUT_DIR: "/screenshots"

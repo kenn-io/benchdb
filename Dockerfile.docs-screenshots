@@ -1,16 +1,21 @@
 ARG BUN_VERSION=1.3.14
-ARG PLAYWRIGHT_VERSION=1.60.0
 
 FROM docker.io/oven/bun:${BUN_VERSION} AS bun
 
-FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
+FROM ubuntu:24.04
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /workspace
 
 COPY web/package.json web/bun.lock ./web/
-RUN cd web && bun install --frozen-lockfile
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs ca-certificates && \
+    cd web && bun install --frozen-lockfile && \
+    bun x playwright install --with-deps chromium && \
+    chmod -R a+rX /ms-playwright && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY web/docs-screenshots ./web/docs-screenshots
 RUN chmod -R a+rX /workspace/web && \
