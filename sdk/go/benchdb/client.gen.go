@@ -4811,6 +4811,7 @@ type CIReportBaselineSide struct {
 	RunID                  string     `json:"run_id" validate:"required"`
 	SingleValueSummary     *float64   `json:"single_value_summary,omitempty"`
 	SingleValueSummaryType string     `json:"single_value_summary_type" validate:"required"`
+	Unit                   *string    `json:"unit,omitempty" validate:"required"`
 }
 
 func (c CIReportBaselineSide) Validate() error {

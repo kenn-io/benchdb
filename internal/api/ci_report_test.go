@@ -123,6 +123,25 @@ func TestCIReportEndpointAcceptsExplicitBaselineRunIDs(t *testing.T) {
 	assert.Equal(t, service.CIReportRowStatusRegressed, report.Runs[0].Comparisons[0].Status)
 }
 
+func TestCIReportReportsEachSidesUnitWhenUnitsDiffer(t *testing.T) {
+	tapi, _, _ := seedCIReportAPI(t, "")
+	seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c1", ts: day(1), unit: "ns", data: []float64{77720}})
+	seedResult(t, tapi, seedOpts{runID: "contender", sha: "c2", ts: day(2), unit: "s", data: []float64{0.0001304}})
+
+	report := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids=contender&baseline_run_ids=baseline"))
+	require.Len(t, report.Runs, 1)
+	require.Len(t, report.Runs[0].Comparisons, 1)
+	row := report.Runs[0].Comparisons[0]
+	assert.Equal(t, service.CIReportRowStatusNotComparable, row.Status)
+	require.NotNil(t, row.Unit)
+	assert.Equal(t, "s", *row.Unit)
+	require.NotNil(t, row.Baseline)
+	require.NotNil(t, row.Baseline.Unit)
+	assert.Equal(t, "ns", *row.Baseline.Unit)
+	require.NotNil(t, row.Baseline.SVS)
+	assert.InDelta(t, 77720, *row.Baseline.SVS, 1e-9)
+}
+
 func TestCIReportEndpointValidation(t *testing.T) {
 	tapi, _, _ := seedCIReportAPI(t, "")
 

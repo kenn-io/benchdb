@@ -92,6 +92,7 @@ const report = {
             commit_timestamp: "2024-01-03T12:00:00Z",
             single_value_summary: 30,
             single_value_summary_type: "min",
+            unit: "s",
           },
           analysis: {
             pairwise: {
@@ -465,4 +466,25 @@ it("shows contender, baseline, and delta in the same scaled unit", async () => {
   expect(cell("Contender")).toHaveTextContent("130.4 µs");
   expect(cell("Baseline")).toHaveTextContent("77.72 µs");
   expect(cell("Delta")).toHaveTextContent("52.68 µs");
+});
+
+it("shows each side in its own unit when the units differ", async () => {
+  const base = comparison();
+  const row = comparison({
+    status: "not_comparable",
+    unit: "s",
+    analysis: null,
+    reason: "not comparable: units differ (ns vs s)",
+    contender: {...base.contender, single_value_summary: 0.0001304},
+    baseline: {...base.baseline, single_value_summary: 77720, unit: "ns"},
+  });
+  GET.mockResolvedValue({data: {...report, runs: [{...report.runs[0], comparisons: [row]}]}});
+  render(CIReportPage, {props: {query: QUERY}});
+
+  const table = await screen.findByRole("table");
+  const cells = within(table).getAllByRole("cell");
+  const cell = (label: string) => cells.find((c) => c.dataset["label"] === label);
+  expect(cell("Contender")).toHaveTextContent("130.4 µs");
+  expect(cell("Baseline")).toHaveTextContent("77.72 µs");
+  expect(cell("Baseline")).not.toHaveTextContent("77,720 s");
 });

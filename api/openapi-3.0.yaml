@@ -533,6 +533,9 @@ components:
           type: number
         single_value_summary_type:
           type: string
+        unit:
+          nullable: true
+          type: string
       required:
         - result_id
         - run_id
@@ -541,6 +544,7 @@ components:
         - commit_timestamp
         - single_value_summary
         - single_value_summary_type
+        - unit
       type: object
     CIReportComparison:
       additionalProperties: false

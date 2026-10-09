@@ -607,7 +607,7 @@
                       </td>
                       <td data-label="Z" class="num">{zText(row)}</td>
                       <td data-label="Contender" class="num">{formatMeasurement(row.contender.single_value_summary, row.unit, "-")}</td>
-                      <td data-label="Baseline" class="num">{formatMeasurement(row.baseline?.single_value_summary ?? null, row.unit, "-")}</td>
+                      <td data-label="Baseline" class="num">{formatMeasurement(row.baseline?.single_value_summary ?? null, row.baseline?.unit ?? null, "-")}</td>
                       <td data-label="Links" class="links">
                         <a href={appURL(row.links.result)} onclick={(e) => go(e, row.links.result)}>result</a>
                         {#if row.links.compare}

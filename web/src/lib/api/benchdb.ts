@@ -350,6 +350,8 @@ export type CIReportBaselineSide = {
   /** @nullable */
   single_value_summary: number | null;
   single_value_summary_type: string;
+  /** @nullable */
+  unit: string | null;
 } | null;
 
 /**

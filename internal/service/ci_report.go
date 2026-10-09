@@ -169,6 +169,9 @@ type CIReportBaselineSide struct {
 	CommitTimestamp *time.Time `json:"commit_timestamp"`
 	SVS             *float64   `json:"single_value_summary"`
 	SVSType         string     `json:"single_value_summary_type"`
+	// Unit is the baseline result's own unit. It differs from the row's unit
+	// when the row is not comparable because the units differ.
+	Unit *string `json:"unit"`
 }
 
 type CIReportRowLinks struct {
@@ -947,6 +950,7 @@ func ciReportBaselineSideFromRow(row storage.CIReportResultRow) CIReportBaseline
 		CommitTimestamp: side.CommitTimestamp,
 		SVS:             side.SVS,
 		SVSType:         side.SVSType,
+		Unit:            row.Unit,
 	}
 }
 
