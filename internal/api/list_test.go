@@ -324,6 +324,32 @@ func TestListRepositoriesMostRecentFirst(t *testing.T) {
 	}, list.Repositories)
 }
 
+func TestListRepositoriesFollowsExistingResults(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	listed := func() []string {
+		t.Helper()
+		resp := tapi.Get("/api/repositories")
+		require.Equal(t, http.StatusOK, resp.Code, "repositories: %s", resp.Body.String())
+		var list service.RepositoryList
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &list))
+		urls := make([]string, 0, len(list.Repositories))
+		for _, item := range list.Repositories {
+			urls = append(urls, item.Repository)
+		}
+		return urls
+	}
+
+	// A result submitted without a commit still names its repository.
+	seedResult(t, tapi, seedOpts{ts: day(1), data: []float64{10}, repo: "https://github.com/apache/commitless"})
+	only := seedResult(t, tapi, seedOpts{sha: "c1", ts: day(2), data: []float64{20}, repo: "https://github.com/apache/arrow"})
+	assert.ElementsMatch(t, []string{"https://github.com/apache/arrow", "https://github.com/apache/commitless"}, listed())
+
+	// Deleting a repository's last result removes it, though its commit row stays.
+	resp := tapi.Delete("/api/benchmark-results/"+only, "Authorization: Bearer "+testToken)
+	require.Equal(t, http.StatusNoContent, resp.Code, "delete: %s", resp.Body.String())
+	assert.Equal(t, []string{"https://github.com/apache/commitless"}, listed())
+}
+
 func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
 	tapi, pool, ctx := seedAPI(t)
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c1", ts: day(1), data: []float64{10}})
