@@ -274,7 +274,7 @@
       <section class="benchmark-group" aria-label={group.label}>
         {#if showGroupHeadings}
           <h2 class="group-heading">
-            <a href={appURL(`/series${formatBrowseQuery({ ...query, repository: group.repository, hardware: "" })}`)}
+            <a class="wrap-anywhere" href={appURL(`/series${formatBrowseQuery({ ...query, repository: group.repository, hardware: "" })}`)}
               onclick={(e) => go(e, `/series${formatBrowseQuery({ ...query, repository: group.repository, hardware: "" })}`)}
             >{group.label}</a>
             <span>{plural(group.rows.length, "benchmark")}</span>
@@ -343,16 +343,19 @@
   }
   .benchmark-group {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
   .group-heading {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 8px;
     margin: 6px 0 0;
     font-size: 0.95rem;
   }
   .group-heading a {
+    min-width: 0;
     color: var(--c-text);
     text-decoration: none;
   }
