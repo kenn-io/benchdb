@@ -1,9 +1,9 @@
 import type { createBenchDBClient } from "../api/client";
 import type { RecentRunListItem } from "../api/benchdb";
+import { repositoryLabel } from "../repository";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 type RecentRun = RecentRunListItem;
-type RecentRunRepository = { repository: string };
 type RecentRunCommit = NonNullable<RecentRun["commit"]> & {
   message?: string | null;
   author_name?: string | null;
@@ -58,12 +58,6 @@ export interface RecentRunAttentionViewModel {
 export interface RecentRunsViewModel {
   hasMore: boolean;
   runs: RecentRunViewModel[];
-  repositories: RecentRunRepositoryViewModel[];
-}
-
-export interface RecentRunRepositoryViewModel {
-  repository: string;
-  label: string;
 }
 
 export interface RecentRunsQuery {
@@ -101,13 +95,7 @@ export async function listRecentRuns(
   return {
     hasMore: res.data.has_more,
     runs: (res.data.runs ?? []).map(toRecentRunViewModel),
-    repositories: (((res.data as { repositories?: RecentRunRepository[] }).repositories ?? [])
-      .map(toRecentRunRepositoryViewModel)),
   };
-}
-
-function toRecentRunRepositoryViewModel(row: RecentRunRepository): RecentRunRepositoryViewModel {
-  return { repository: row.repository, label: formatRepositoryLabel(row.repository) };
 }
 
 function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
@@ -139,7 +127,7 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     latestResultId: run.latest_result_id,
     latestResultHref: `/results/${encodeURIComponent(run.latest_result_id)}`,
     repository: run.repository,
-    repositoryLabel: formatRepositoryLabel(run.repository),
+    repositoryLabel: repositoryLabel(run.repository),
     commitSha,
     shortCommit,
     commitMessage,
@@ -205,23 +193,6 @@ function compactIdentifier(value: string, head: number, tail: number): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
-function formatRepositoryLabel(repository: string): string {
-  if (repository === "") {
-    return "not set";
-  }
-  let u: URL;
-  try {
-    u = new URL(repository);
-  } catch {
-    return repository;
-  }
-  const parts = u.pathname.split("/").filter(Boolean);
-  if ((u.hostname === "github.com" || u.hostname === "www.github.com") && parts.length >= 2) {
-    return `${parts[0]}/${parts[1]}`;
-  }
-  const path = u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "");
-  return `${u.hostname}${path}`;
-}
 
 function commitHref(repository: string, commitSha: string | null): string | null {
   if (commitSha === null || commitSha === "") {

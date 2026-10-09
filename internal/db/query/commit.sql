@@ -20,7 +20,7 @@ WHERE repository = $1 AND branch = $2
 ORDER BY timestamp DESC
 LIMIT 1;
 
--- name: SelectRecentRunRepositories :many
+-- name: SelectRepositories :many
 SELECT repository
 FROM commit
 WHERE repository <> ''

@@ -67,14 +67,8 @@ type RecentRunListItem struct {
 
 // RecentRunsPage is the GET /api/runs/recent response.
 type RecentRunsPage struct {
-	HasMore      bool                      `json:"has_more"`
-	Runs         []RecentRunListItem       `json:"runs"`
-	Repositories []RecentRunRepositoryItem `json:"repositories"`
-}
-
-// RecentRunRepositoryItem is one project choice for the recent-runs page.
-type RecentRunRepositoryItem struct {
-	Repository string `json:"repository"`
+	HasMore bool                `json:"has_more"`
+	Runs    []RecentRunListItem `json:"runs"`
 }
 
 // ListRecentRuns returns grouped summaries for the newest runs.
@@ -96,11 +90,6 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	if err != nil {
 		return nil, fmt.Errorf("list recent runs: %w", err)
 	}
-	repositories, err := r.store.SelectRecentRunRepositories(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list recent run repositories: %w", err)
-	}
-
 	hasMore := len(rows) > pageSize
 	if hasMore {
 		rows = rows[:pageSize]
@@ -116,15 +105,7 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	if q.IncludeAttention {
 		r.attachRecentRunAttention(ctx, items)
 	}
-	return &RecentRunsPage{HasMore: hasMore, Runs: items, Repositories: recentRunRepositoryItems(repositories)}, nil
-}
-
-func recentRunRepositoryItems(rows []storage.RecentRunRepositoryRow) []RecentRunRepositoryItem {
-	items := make([]RecentRunRepositoryItem, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, RecentRunRepositoryItem{Repository: row.Repository})
-	}
-	return items
+	return &RecentRunsPage{HasMore: hasMore, Runs: items}, nil
 }
 
 func (r *Reader) attachRecentRunAttention(ctx context.Context, items []RecentRunListItem) {

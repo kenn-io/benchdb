@@ -20,10 +20,6 @@ function fakeClient(page: unknown, error: false | { detail: string } = false): {
 describe("listRecentRuns", () => {
   it("loads a production-credible recent-run page", async () => {
     const { client, GET } = fakeClient({
-      repositories: [
-        { repository: "https://github.com/apache/arrow" },
-        { repository: "https://github.com/apache/arrow-go" },
-      ],
       runs: [
         {
           run_id: "run-a",
@@ -68,10 +64,6 @@ describe("listRecentRuns", () => {
 
     expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25, include_attention: true } });
     expect(page.runs).toHaveLength(1);
-    expect(page.repositories).toEqual([
-      { repository: "https://github.com/apache/arrow", label: "apache/arrow" },
-      { repository: "https://github.com/apache/arrow-go", label: "apache/arrow-go" },
-    ]);
     expect(page.runs[0]).toMatchObject({
       runId: "run-a",
       runReason: "nightly",
@@ -104,7 +96,6 @@ describe("listRecentRuns", () => {
 
   it("passes the selected repository to the recent-runs endpoint", async () => {
     const { client, GET } = fakeClient({
-      repositories: [{ repository: "https://github.com/apache/arrow-go" }],
       runs: [
         {
           ...runPayload(),
@@ -171,7 +162,7 @@ describe("listRecentRuns", () => {
 
   it("treats null runs as an empty page", async () => {
     const { client } = fakeClient({ runs: null });
-    await expect(listRecentRuns(client)).resolves.toEqual({ runs: [], repositories: [] });
+    await expect(listRecentRuns(client)).resolves.toEqual({ runs: [] });
   });
 
   it("throws endpoint detail on failure", async () => {

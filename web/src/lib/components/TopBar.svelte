@@ -1,40 +1,98 @@
 <script lang="ts">
+  import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
+  import { onMount } from "svelte";
+
+  import { createBenchDBClient } from "../api/client";
   import { appURL } from "../base-path";
-  import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, interceptNavClick, navigate, type Route } from "../router";
+  import { listRepositories, repositoryLabel } from "../repository";
+  import {
+    DEFAULT_BROWSE_QUERY,
+    formatBrowseQuery,
+    formatHomeQuery,
+    interceptNavClick,
+    navigate,
+    type Route,
+  } from "../router";
   import ThemeToggle from "./ThemeToggle.svelte";
 
-  let { initialQ = "", routeName = "browse" }: { initialQ?: string; routeName?: Route["name"] } = $props();
+  let { route, baseUrl = "" }: { route: Route; baseUrl?: string } = $props();
 
-  // term is writable (bind:value below), so it must be $state, not $derived.
-  // Seeding it from the initialQ prop triggers state_referenced_locally
-  // ("will never update"), but seeding once is exactly what we want — the
-  // $effect below re-syncs term on later route changes.
-  // svelte-ignore state_referenced_locally
-  let term = $state(initialQ);
+  const client = $derived(createBenchDBClient(baseUrl));
+  const routeName = $derived(route.name);
+  const routeQ = $derived(route.name === "browse" ? route.query.q : "");
 
-  // Keep the box in sync when the route's q changes underneath (back/forward).
+  // term is writable (bind:value below), so it must be $state. The effect
+  // re-syncs it when the route's q changes underneath (back/forward).
+  let term = $state("");
   $effect(() => {
-    term = initialQ;
+    term = routeQ;
   });
 
-  // A global search is a fresh query: it intentionally resets the other filters.
+  // Runs and Benchmarks carry the project in their URL. Other pages keep the
+  // last project the viewer chose so the nav links and search stay scoped.
+  const routeRepository = $derived(
+    route.name === "home" || route.name === "browse" ? route.query.repository : null,
+  );
+  let rememberedRepository = $state("");
+  $effect(() => {
+    if (routeRepository !== null) rememberedRepository = routeRepository;
+  });
+  const repository = $derived(routeRepository ?? rememberedRepository);
+
+  let repositories = $state<string[]>([]);
+  let repositoriesError = $state<string | null>(null);
+  onMount(() => {
+    listRepositories(client).then(
+      (loaded) => (repositories = loaded),
+      (err: unknown) => (repositoriesError = err instanceof Error ? err.message : String(err)),
+    );
+  });
+
+  const projectOptions = $derived.by((): SelectDropdownOption[] => {
+    const urls = repository !== "" && !repositories.includes(repository) ? [repository, ...repositories] : repositories;
+    return [
+      { value: "", label: "All projects" },
+      ...urls.map((url) => ({ value: url, label: repositoryLabel(url) })),
+    ];
+  });
+  const showProjects = $derived(repositoriesError !== null || projectOptions.length > 2 || repository !== "");
+
+  const runsHref = $derived(`/${formatHomeQuery({ repository })}`);
+  const benchmarksHref = $derived(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository })}`);
+
+  // A global search is a fresh query: it keeps only the project scope.
   function submit(e: SubmitEvent) {
     e.preventDefault();
-    navigate(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, q: term.trim() })}`);
+    navigate(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, q: term.trim(), repository })}`);
   }
 
-  const nav: Array<{ label: string; href: string; route: Route["name"]; active: Array<Route["name"]> }> = [
-    { label: "Runs", href: "/", route: "home", active: ["home", "run", "batch"] },
-    {
-      label: "Benchmarks",
-      href: "/series",
-      route: "browse",
-      active: ["browse", "trend", "benchmark-trend", "series-leaf", "results-list", "result"],
-    },
-    { label: "Compare", href: "/compare", route: "compare", active: ["compare"] },
-    { label: "Reports", href: "/ci/report", route: "ci-report", active: ["ci-report"] },
-    { label: "Account", href: "/account", route: "account", active: ["account"] },
+  const BENCHMARK_ROUTES: Array<Route["name"]> = [
+    "browse",
+    "trend",
+    "benchmark-trend",
+    "series-leaf",
+    "results-list",
+    "result",
   ];
+
+  // Machines differ between projects, so a project change clears the machine
+  // filter and keeps the rest of the Benchmarks view.
+  function selectRepository(next: string) {
+    if (route.name === "browse") {
+      navigate(`/series${formatBrowseQuery({ ...route.query, repository: next, hardware: "" })}`);
+    } else if (BENCHMARK_ROUTES.includes(route.name)) {
+      navigate(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository: next })}`);
+    } else {
+      navigate(`/${formatHomeQuery({ repository: next })}`);
+    }
+  }
+
+  const nav = $derived<Array<{ label: string; href: string; route: Route["name"]; active: Array<Route["name"]> }>>([
+    { label: "Runs", href: runsHref, route: "home", active: ["home", "run", "batch", "ci-report"] },
+    { label: "Benchmarks", href: benchmarksHref, route: "browse", active: BENCHMARK_ROUTES },
+    { label: "Compare", href: "/compare", route: "compare", active: ["compare"] },
+    { label: "Account", href: "/account", route: "account", active: ["account"] },
+  ]);
 
   function go(e: MouseEvent, href: string) {
     if (!interceptNavClick(e)) return;
@@ -53,12 +111,25 @@
 </script>
 
 <header class="topbar">
-  <a class="brand" href={appURL("/")} onclick={(e) => go(e, "/")}>
-    <span class="brand-mark" aria-hidden="true">B</span>
-    <span class="brand-name">BenchDB</span>
-  </a>
+  <div class="brand-group">
+    <a class="brand" href={appURL("/")} onclick={(e) => go(e, "/")}>
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span class="brand-name">BenchDB</span>
+    </a>
+    {#if showProjects}
+      <div class="project-switcher" title={repositoriesError ?? undefined}>
+        <SelectDropdown
+          value={repository}
+          options={projectOptions}
+          title="Project"
+          disabled={repositoriesError !== null}
+          onchange={selectRepository}
+        />
+      </div>
+    {/if}
+  </div>
   <nav class="primary-nav" aria-label="Primary navigation">
-    {#each nav as item (item.href)}
+    {#each nav as item (item.label)}
       <a
         class="nav-link"
         class:active={active(item)}
@@ -104,6 +175,23 @@
     position: sticky;
     top: 0;
     z-index: 20;
+  }
+
+  .brand-group {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .project-switcher {
+    min-width: 0;
+    max-width: 240px;
+  }
+
+  .project-switcher :global(.kit-select-dropdown__trigger) {
+    max-width: 100%;
+    font-weight: 650;
   }
 
   .brand {
@@ -298,7 +386,7 @@
       padding: 7px 8px;
     }
 
-    .brand {
+    .brand-group {
       grid-area: brand;
     }
 
@@ -322,7 +410,7 @@
         "nav";
     }
 
-    .brand,
+    .brand-group,
     .header-end,
     .primary-nav {
       width: 100%;

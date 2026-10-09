@@ -68,7 +68,7 @@ type Store interface {
 	GetResultForCompare(ctx context.Context, id string) (CompareResultRow, error)
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)
-	SelectRecentRunRepositories(ctx context.Context) ([]RecentRunRepositoryRow, error)
+	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
 	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
@@ -632,9 +632,8 @@ type RecentRunsParams struct {
 	Repository *string
 }
 
-// RecentRunRepositoryRow is one repository with benchmark results for the home
-// page project selector.
-type RecentRunRepositoryRow struct {
+// RepositoryRow is one repository with benchmark commits.
+type RepositoryRow struct {
 	Repository string
 }
 

@@ -7,9 +7,9 @@
     listRecentRuns,
     RECENT_RUNS_PAGE_SIZE,
     type RecentRunAttentionViewModel,
-    type RecentRunRepositoryViewModel,
     type RecentRunViewModel,
   } from "../home/loader";
+  import { repositoryLabel } from "../repository";
   import { DEFAULT_HOME_QUERY, formatHomeQuery, interceptNavClick, navigate, type HomeQuery } from "../router";
 
   let {
@@ -25,7 +25,6 @@
   let search = $state(untrack(() => query.q));
   let hasMore = $state(false);
   let runs = $state<RecentRunViewModel[]>([]);
-  let repositories = $state<RecentRunRepositoryViewModel[]>([]);
   let loading = $state(true);
   let errorMsg = $state<string | null>(null);
 
@@ -40,7 +39,6 @@
       const page = await listRecentRuns(client, query);
       runs = page.runs;
       hasMore = page.hasMore;
-      repositories = page.repositories;
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
     } finally {
@@ -57,10 +55,7 @@
   const attentionRuns = $derived(runs.filter((run) => run.attention !== null));
   const ATTENTION_WINDOW = 5;
   const selectedRepositoryLabel = $derived(
-    query.repository === ""
-      ? "All projects"
-      : repositories.find((repository) => repository.repository === query.repository)?.label ??
-        formatRepositoryLabel(query.repository),
+    query.repository === "" ? "All projects" : repositoryLabel(query.repository),
   );
 
   function go(e: MouseEvent, href: string) {
@@ -98,25 +93,8 @@
     return plural(labels.length, "repository", "repositories");
   }
 
-  function formatRepositoryLabel(repository: string): string {
-    if (repository === "") return "not set";
-    try {
-      const u = new URL(repository);
-      const parts = u.pathname.split("/").filter(Boolean);
-      return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : repository;
-    } catch {
-      return repository;
-    }
-  }
 
-  function projectHref(repository: string): string {
-    return `/${formatHomeQuery({ repository, q: query.q })}`;
-  }
 
-  function setRepository(e: Event) {
-    const repository = e.currentTarget instanceof HTMLSelectElement ? e.currentTarget.value : "";
-    navigate(projectHref(repository));
-  }
 
   function submitSearch(e: SubmitEvent) {
     e.preventDefault();
@@ -142,28 +120,9 @@
     <div>
       <p class="eyebrow">{selectedRepositoryLabel}</p>
       <h1>Benchmark runs</h1>
-      <p class="page-subtitle">Recent commits, the machines that measured them, and results needing attention.</p>
     </div>
     <div class="header-controls">
-      {#if repositories.length > 0}
-        <label class="project-selector">
-          Project
-          <select value={query.repository} onchange={setRepository}>
-            <option value="">All projects</option>
-            {#each repositories as repository (repository.repository)}
-              <option value={repository.repository}>{repository.label}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
       <div class="page-meta">
-        {#if query.repository !== ""}
-          <span>{selectedRepositoryLabel}</span>
-        {:else if repositoryLabels.length === 1}
-          <span>{repositoryLabels[0]}</span>
-        {:else if repositoryLabels.length > 1}
-          <span>{plural(repositoryLabels.length, "repository", "repositories")}</span>
-        {/if}
         <span>Newest first</span>
       </div>
     </div>
@@ -462,29 +421,6 @@
     justify-content: flex-end;
     align-items: flex-start;
     gap: 8px;
-  }
-  .project-selector {
-    display: grid;
-    gap: 4px;
-    color: var(--c-text-muted);
-    font-size: 0.68rem;
-    font-weight: 750;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .project-selector select {
-    min-height: 28px;
-    min-width: 180px;
-    max-width: min(48vw, 280px);
-    padding: 0 28px 0 9px;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    color: var(--c-text);
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
   }
   .runs-table .time-col {
     width: 10%;

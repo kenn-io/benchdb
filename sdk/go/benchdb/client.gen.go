@@ -1600,6 +1600,7 @@ type ClientInterface interface {
 	GetHistoryWithResponse(ctx context.Context, options *GetHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryResp, error)
 	GetHistoryForResultWithResponse(ctx context.Context, options *GetHistoryForResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryForResultResp, error)
 	PingWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*PingResp, error)
+	ListRepositoriesWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*ListRepositoriesResp, error)
 	SubmitResultWithResponse(ctx context.Context, options *SubmitResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SubmitResultResp, error)
 	ListRecentRunsWithResponse(ctx context.Context, options *ListRecentRunsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListRecentRunsResp, error)
 	ListSeriesWithResponse(ctx context.Context, options *ListSeriesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListSeriesResp, error)
@@ -2985,6 +2986,54 @@ func (c *Client) PingWithResponse(ctx context.Context, reqEditors ...runtime.Req
 	}
 }
 
+// ListRepositories List repositories with benchmark results
+func (c *Client) ListRepositoriesWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*ListRepositoriesResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/repositories",
+		Method:     "GET",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/repositories")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &ListRepositoriesResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(ListRepositoriesResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListRepositoriesResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
 // SubmitResult Submit a benchmark result
 func (c *Client) SubmitResultWithResponse(ctx context.Context, options *SubmitResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SubmitResultResp, error) {
 	var err error
@@ -4004,6 +4053,10 @@ type PingResponse = HealthOutputBody
 
 type PingErrorResponse = ErrorModel
 
+type ListRepositoriesResponse = RepositoryList
+
+type ListRepositoriesErrorResponse = ErrorModel
+
 type SubmitResultResponse = SubmitOutputBody
 
 type SubmitResultErrorResponse = ErrorModel
@@ -4240,6 +4293,13 @@ type PingResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *PingResponse
+}
+
+type ListRepositoriesResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *ListRepositoriesResponse
 }
 
 type SubmitResultResp struct {
@@ -5603,35 +5663,49 @@ func (r RecentRunListItem) Validate() error {
 	return errors
 }
 
-type RecentRunRepositoryItem struct {
-	Repository string `json:"repository" validate:"required"`
-}
-
-func (r RecentRunRepositoryItem) Validate() error {
-	return runtime.ConvertValidatorError(typesValidator.Struct(r))
-}
-
 type RecentRunsPage struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema       *string                   `json:"$schema,omitempty"`
-	HasMore      bool                      `json:"has_more"`
-	Repositories []RecentRunRepositoryItem `json:"repositories,omitempty" validate:"required"`
-	Runs         []RecentRunListItem       `json:"runs,omitempty" validate:"required"`
+	Schema  *string             `json:"$schema,omitempty"`
+	HasMore bool                `json:"has_more"`
+	Runs    []RecentRunListItem `json:"runs,omitempty" validate:"required"`
 }
 
 func (r RecentRunsPage) Validate() error {
+	var errors runtime.ValidationErrors
+	for i, item := range r.Runs {
+		if v, ok := any(item).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append(fmt.Sprintf("Runs[%d]", i), err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
+type RepositoryItem struct {
+	// Repository Repository URL, as submitted in github.repository.
+	Repository string `json:"repository" validate:"required"`
+}
+
+func (r RepositoryItem) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(r))
+}
+
+type RepositoryList struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema       *string          `json:"$schema,omitempty"`
+	Repositories []RepositoryItem `json:"repositories,omitempty" validate:"required"`
+}
+
+func (r RepositoryList) Validate() error {
 	var errors runtime.ValidationErrors
 	for i, item := range r.Repositories {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
 				errors = errors.Append(fmt.Sprintf("Repositories[%d]", i), err)
-			}
-		}
-	}
-	for i, item := range r.Runs {
-		if v, ok := any(item).(runtime.Validator); ok {
-			if err := v.Validate(); err != nil {
-				errors = errors.Append(fmt.Sprintf("Runs[%d]", i), err)
 			}
 		}
 	}

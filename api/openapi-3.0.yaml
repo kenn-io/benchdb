@@ -1517,14 +1517,6 @@ components:
         - last_result_at
         - commit
       type: object
-    RecentRunRepositoryItem:
-      additionalProperties: false
-      properties:
-        repository:
-          type: string
-      required:
-        - repository
-      type: object
     RecentRunsPage:
       additionalProperties: false
       properties:
@@ -1536,11 +1528,6 @@ components:
           type: string
         has_more:
           type: boolean
-        repositories:
-          items:
-            $ref: "#/components/schemas/RecentRunRepositoryItem"
-          nullable: true
-          type: array
         runs:
           items:
             $ref: "#/components/schemas/RecentRunListItem"
@@ -1549,6 +1536,31 @@ components:
       required:
         - has_more
         - runs
+      type: object
+    RepositoryItem:
+      additionalProperties: false
+      properties:
+        repository:
+          description: Repository URL, as submitted in github.repository.
+          type: string
+      required:
+        - repository
+      type: object
+    RepositoryList:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RepositoryList.json
+          format: uri
+          readOnly: true
+          type: string
+        repositories:
+          items:
+            $ref: "#/components/schemas/RepositoryItem"
+          nullable: true
+          type: array
+      required:
         - repositories
       type: object
     ResultDetail:
@@ -3185,6 +3197,23 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Liveness check
+  /api/repositories:
+    get:
+      operationId: list-repositories
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryList"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List repositories with benchmark results
   /api/results:
     post:
       operationId: submit-result

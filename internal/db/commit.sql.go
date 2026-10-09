@@ -93,7 +93,7 @@ func (q *Queries) InsertCommit(ctx context.Context, arg InsertCommitParams) (str
 	return id, err
 }
 
-const selectRecentRunRepositories = `-- name: SelectRecentRunRepositories :many
+const selectRepositories = `-- name: SelectRepositories :many
 SELECT repository
 FROM commit
 WHERE repository <> ''
@@ -101,8 +101,8 @@ GROUP BY repository
 ORDER BY max(timestamp) DESC NULLS LAST, repository ASC
 `
 
-func (q *Queries) SelectRecentRunRepositories(ctx context.Context) ([]string, error) {
-	rows, err := q.db.Query(ctx, selectRecentRunRepositories)
+func (q *Queries) SelectRepositories(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, selectRepositories)
 	if err != nil {
 		return nil, err
 	}
