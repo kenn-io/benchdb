@@ -36,6 +36,19 @@
   let historyError = $state<string | null>(null);
   const tracks = $derived(historyTracks ?? row.previewTracks);
 
+  // A page can hold hundreds of cards, so each card fetches its full history
+  // only when it comes near the viewport.
+  let card = $state<HTMLElement>();
+  let nearViewport = $state(false);
+  $effect(() => {
+    if (card === undefined || nearViewport) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) nearViewport = true;
+    }, { rootMargin: "600px 0px" });
+    observer.observe(card);
+    return () => observer.disconnect();
+  });
+
   $effect(() => {
     const current = row;
     historyTracks = null;
@@ -43,7 +56,7 @@
     hovered = null;
     const incomplete = current.previewTracks.reduce((count, track) => count + track.points.length, 0) < current.pointCount;
     loadingHistory = incomplete;
-    if (!incomplete) return;
+    if (!incomplete || !nearViewport) return;
 
     let active = true;
     void loadTrend(createBenchDBClient(baseUrl), { kind: "benchmark", benchmarkId: current.benchmarkId })
@@ -115,7 +128,7 @@
   }
 </script>
 
-<article class="trend-card panel">
+<article class="trend-card panel" bind:this={card}>
   <header>
     <div class="identity">
       <a href={appURL(`/benchmarks/${row.benchmarkId}`)} onclick={(event) => {
