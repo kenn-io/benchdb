@@ -568,6 +568,11 @@ type HistoryRow struct {
 	CommitRepository   string
 	CommitMessage      string
 	CommitTimestamp    *time.Time
+
+	// SegmentFirstCommitTimestamp is the earliest member commit of the row's
+	// fingerprint. Only SelectSeriesMembers sets it, because that query returns
+	// a bounded tail whose first row is not the segment's start.
+	SegmentFirstCommitTimestamp time.Time
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,

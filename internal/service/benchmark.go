@@ -253,16 +253,17 @@ func currentSegments(
 }
 
 // supersededSegment reports whether another segment on the same machine begins
-// strictly after segment's latest commit. Members are ordered oldest commit first.
+// strictly after segment's latest commit. A segment begins at its earliest
+// member, which can precede the bounded tail of members loaded here.
 func supersededSegment(segment []storage.HistoryRow, segments [][]storage.HistoryRow) bool {
 	machine := segment[0].HardwareName
 	latest := latestHistoryRowTime(segment)
 	for _, other := range segments {
 		first := other[0]
-		if first.HardwareName != machine || first.CommitTimestamp == nil {
+		if first.HardwareName != machine || first.SegmentFirstCommitTimestamp.IsZero() {
 			continue
 		}
-		if first.CommitTimestamp.After(latest) {
+		if first.SegmentFirstCommitTimestamp.After(latest) {
 			return true
 		}
 	}

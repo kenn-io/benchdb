@@ -1,10 +1,12 @@
 package service
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -91,6 +93,9 @@ func machineSegment(
 		rows[i].CommitTimestamp = &ts
 		rows[i].Timestamp = ts
 	}
+	for i := range rows {
+		rows[i].SegmentFirstCommitTimestamp = *rows[0].CommitTimestamp
+	}
 	return rows
 }
 
@@ -130,6 +135,22 @@ func TestBenchmarkStatusKeepsOverlappingMachineSegments(t *testing.T) {
 	assert.Equal(t, statusRegressed, benchmarkStatus(
 		[]string{"context-a", "context-b"},
 		map[string][]storage.HistoryRow{"context-a": stable, "context-b": regressed},
+		unit,
+		lessIsBetter,
+	))
+}
+
+func TestBenchmarkStatusKeepsOverlappingSegmentWithTruncatedTail(t *testing.T) {
+	regressed := machineSegment("context-a", "m1", 0, regressedSVS)
+	// context-b began before context-a's last commit, but only its later tail
+	// was loaded, so its first loaded row starts after context-a ends.
+	overlapping := machineSegment("context-b", "m1", 0, append(slices.Clone(stableSVS), stableSVS...))
+	tail := overlapping[len(regressedSVS)+2:]
+	require.True(t, tail[0].CommitTimestamp.After(latestHistoryRowTime(regressed)))
+	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(regressed), tail...))
+	assert.Equal(t, statusRegressed, benchmarkStatus(
+		[]string{"context-a", "context-b"},
+		map[string][]storage.HistoryRow{"context-a": regressed, "context-b": tail},
 		unit,
 		lessIsBetter,
 	))

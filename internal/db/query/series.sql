@@ -516,7 +516,10 @@ members AS MATERIALIZED (
       c.sha AS commit_sha,
       c.repository AS commit_repository,
       c.message AS commit_message,
-      c."timestamp" AS commit_timestamp
+      c."timestamp" AS commit_timestamp,
+      -- The window runs before LIMIT, so it sees the whole membership, not
+      -- just the returned tail.
+      (min(c."timestamp") OVER ())::timestamp AS segment_first_commit_timestamp
     FROM (
       SELECT id, history_fingerprint, "timestamp", unit, mean, data,
              change_annotations, hardware_id, commit_id
@@ -558,7 +561,8 @@ SELECT
   commit_sha,
   commit_repository,
   commit_message,
-  commit_timestamp
+  commit_timestamp,
+  segment_first_commit_timestamp
 FROM members
 ORDER BY history_fingerprint, commit_timestamp, id;
 
