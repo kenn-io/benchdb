@@ -167,11 +167,43 @@ describe("ResultPage", () => {
     expect(screen.getByText("Identifiers").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("raw data").nextElementSibling).toHaveTextContent("3 values");
     expect(screen.getByText("raw times").nextElementSibling).toHaveTextContent("3 values");
+    expect(screen.getByText("time unit").nextElementSibling).toHaveTextContent("s");
+    expect(screen.getByText("iterations").nextElementSibling).toHaveTextContent("3");
     expect(screen.getAllByText(/"suite": "arrow"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/"owner": "perf"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/"validator": "pandas.testing"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/"note": "checked"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/"data": \[/).length).toBeGreaterThan(0);
+  });
+
+  it("omits fields that are absent or trivially empty", async () => {
+    mockPage({
+      ...detail,
+      tags: { name: "demo-benchmark" },
+      iterations: 1,
+      data: [1.5],
+      times: [],
+      time_unit: null,
+      less_is_better: null,
+      info: {},
+      artifacts: [],
+      commit: null,
+      commit_repo_url: "",
+    });
+    render(ResultPage, { props: { resultId: "r1" } });
+    await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
+
+    const measurement = screen.getByRole("region", { name: /result measurement/i });
+    expect(measurement).toHaveTextContent("1.5 s");
+    expect(measurement).toHaveTextContent("mean");
+    for (const label of ["iterations", "time unit", "raw data", "raw times"]) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    expect(measurement).not.toHaveTextContent(/better|direction/i);
+    expect(screen.queryByText(/no benchmark parameters/i)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Diagnostics" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Commit" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Run" })).toBeInTheDocument();
   });
 
   it("does not show write actions to signed-out viewers", async () => {

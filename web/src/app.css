@@ -275,7 +275,7 @@ p {
   font-size: 0.76rem;
 }
 
-.page-meta span {
+.page-meta > span {
   min-height: 24px;
   display: inline-flex;
   align-items: center;

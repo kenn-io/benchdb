@@ -34,7 +34,7 @@ export interface ResultViewModel {
   commitMessage: string | null;
   commitDateText: string | null;
   repository: string;
-  repositoryLabel: string;
+  repositoryLabel: string | null;
   runId: string;
   displayRunId: string;
   runReason: string | null;
@@ -48,10 +48,9 @@ export interface ResultViewModel {
   displayBenchmarkId: string;
   unit: string | null;
   lessIsBetter: boolean | null;
-  lessIsBetterText: string;
-  timeUnitText: string;
-  dataCountText: string;
-  timesCountText: string;
+  timeUnit: string | null;
+  dataCountText: string | null;
+  timesCountText: string | null;
   historyExportHref: string;
   beginsDistributionChange: boolean;
   jsonBlocks: JSONBlock[];
@@ -73,8 +72,11 @@ function jsonText(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);
 }
 
-function valueCountText(values: unknown[] | null): string {
-  if (values === null) return "not stored";
+/** valueCountText describes stored raw values, or returns null when there
+ * are fewer than `minimum`, because an empty or single-value array adds
+ * nothing beyond the summary value. */
+function valueCountText(values: unknown[] | null, minimum: number): string | null {
+  if (values === null || values.length < minimum) return null;
   return `${values.length.toLocaleString()} ${values.length === 1 ? "value" : "values"}`;
 }
 
@@ -132,10 +134,9 @@ export function resultViewModelFromDetail(
     displayBenchmarkId: compactIdentifier(d.benchmark_id, 12, 8),
     unit: d.unit,
     lessIsBetter: d.less_is_better,
-    lessIsBetterText: d.less_is_better === null ? "not set" : String(d.less_is_better),
-    timeUnitText: d.time_unit ?? "not set",
-    dataCountText: valueCountText(d.data),
-    timesCountText: valueCountText(d.times),
+    timeUnit: d.time_unit === null || d.time_unit === "" ? null : d.time_unit,
+    dataCountText: valueCountText(d.data, 2),
+    timesCountText: valueCountText(d.times, 1),
     historyExportHref: `/api/history/${encodeURIComponent(d.id)}`,
     beginsDistributionChange: changeAnnotations["begins_distribution_change"] === true,
     jsonBlocks: [
@@ -155,8 +156,8 @@ function compactIdentifier(value: string, head: number, tail: number): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
-function formatRepositoryLabel(repository: string): string {
-  if (repository === "") return "repository not set";
+function formatRepositoryLabel(repository: string): string | null {
+  if (repository === "") return null;
   let u: URL;
   try {
     u = new URL(repository);
