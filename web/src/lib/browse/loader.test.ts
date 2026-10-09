@@ -47,7 +47,7 @@ describe("listSeries", () => {
       now,
     );
     expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: {
-          page_size: 25,
+          page_size: 200,
           q: "demo",
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
@@ -62,7 +62,7 @@ describe("listSeries", () => {
   it("omits empty filters and the cursor on the first page", async () => {
     const { client, GET } = fakeClient({ benchmarks: [], next_page_cursor: null });
     const page = await listSeries(client, DEFAULT_BROWSE_QUERY);
-    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 25 } });
+    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 200 } });
     expect(page.rows).toEqual([]);
     expect(page.nextCursor).toBeNull();
   });
@@ -70,7 +70,7 @@ describe("listSeries", () => {
   it("requests a production-credible first page", async () => {
     const { client, GET } = fakeClient({ benchmarks: [], next_page_cursor: null });
     await listSeries(client, DEFAULT_BROWSE_QUERY);
-    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 25 } });
+    expect(GET).toHaveBeenCalledWith("/api/benchmarks", { params: { page_size: 200 } });
   });
 
   it("treats a null series as an empty page", async () => {

@@ -1,5 +1,6 @@
 import type { BenchmarkListItem } from "../api/benchdb";
 import { formatMeasurement, formatNumber } from "../format";
+import { repositoryLabel } from "../repository";
 import type { BrowseWindow } from "../router";
 
 /** SeriesStatus is the wire enum (closed union in the generated schema). */
@@ -8,6 +9,7 @@ export type SeriesStatus = BenchmarkListItem["status"];
 export interface BrowseRow {
   benchmarkId: string;
   name: string;
+  repository: string;
   paramsText: string;
   machineNames: string[];
   latestSVS: number | null;
@@ -62,6 +64,7 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
     return {
       benchmarkId: item.benchmark_id,
       name: item.name,
+      repository: item.repository,
       paramsText: tagsText(item.tags, ["name"]),
       machineNames: item.machine_names ?? [],
       latestSVS: svs,
@@ -98,12 +101,22 @@ const SORT_ACCESSORS: Record<SortKey, (r: BrowseRow) => string | number | null> 
   commit: (r) => r.commitTimestampMs,
 };
 
-/** sortRows orders the LOADED rows client-side; null keeps the server's
- * canonical order (latest activity DESC), which is also the pagination order.
+const STATUS_ATTENTION: Record<SeriesStatus, number> = {
+  regressed: 0,
+  improved: 1,
+  stable: 2,
+  insufficient: 3,
+};
+
+/** sortRows orders the LOADED rows client-side. The default (null) puts
+ * regressions first, then improvements, then the rest, each by name, so
+ * related benchmarks such as `*-wall-time` and `*-cpu-time` stay together.
  * A null SVS sorts last in both directions. Pure: returns a copy. */
 export function sortRows(rows: BrowseRow[], sort: SortSpec | null): BrowseRow[] {
   if (sort === null) {
-    return rows;
+    return [...rows].sort((a, b) =>
+      STATUS_ATTENTION[a.status] - STATUS_ATTENTION[b.status] || a.name.localeCompare(b.name),
+    );
   }
   const get = SORT_ACCESSORS[sort.key];
   const dir = sort.dir === "asc" ? 1 : -1;
@@ -158,4 +171,37 @@ export function sparklinePoints(values: number[], width: number, height: number,
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+export interface BrowseGroup {
+  repository: string;
+  label: string;
+  rows: BrowseRow[];
+}
+
+/** groupByRepository splits ordered rows into one group per repository,
+ * groups sorted by label, keeping each group's row order. */
+export function groupByRepository(rows: BrowseRow[]): BrowseGroup[] {
+  const groups = new Map<string, BrowseGroup>();
+  for (const row of rows) {
+    let group = groups.get(row.repository);
+    if (group === undefined) {
+      group = { repository: row.repository, label: repositoryLabel(row.repository), rows: [] };
+      groups.set(row.repository, group);
+    }
+    group.rows.push(row);
+  }
+  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export interface StatusCounts {
+  regressed: number;
+  improved: number;
+}
+
+export function statusCounts(rows: BrowseRow[]): StatusCounts {
+  return {
+    regressed: rows.filter((row) => row.status === "regressed").length,
+    improved: rows.filter((row) => row.status === "improved").length,
+  };
 }

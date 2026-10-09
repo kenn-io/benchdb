@@ -4,8 +4,10 @@ import type { BenchmarkListItem } from "../api/benchdb";
 import {
   formatDate,
   formatSVS,
+  groupByRepository,
   sortRows,
   sparklinePoints,
+  statusCounts,
   tagsText,
   toBrowseRows,
   windowStartIso,
@@ -103,8 +105,15 @@ describe("sortRows", () => {
     item({ benchmark_id: "f2", name: "a", latest_single_value_summary: null, point_count: 3 }),
     item({ benchmark_id: "f3", name: "c", latest_single_value_summary: 1, point_count: 2 }),
   ]);
-  it("returns server order untouched for null sort", () => {
-    expect(sortRows(rows, null).map((r) => r.benchmarkId)).toEqual(["f1", "f2", "f3"]);
+  it("puts regressions, then improvements, first and orders each status by name", () => {
+    const mixed = toBrowseRows([
+      item({ benchmark_id: "s-b", name: "b-wall-time", status: "stable" }),
+      item({ benchmark_id: "i", name: "z-time", status: "improved" }),
+      item({ benchmark_id: "x", name: "a-time", status: "insufficient" }),
+      item({ benchmark_id: "r", name: "y-time", status: "regressed" }),
+      item({ benchmark_id: "s-a", name: "b-cpu-time", status: "stable" }),
+    ]);
+    expect(sortRows(mixed, null).map((r) => r.benchmarkId)).toEqual(["r", "i", "s-a", "s-b", "x"]);
   });
   it("sorts by name asc and desc", () => {
     expect(sortRows(rows, { key: "name", dir: "asc" }).map((r) => r.name)).toEqual(["a", "b", "c"]);
@@ -118,6 +127,33 @@ describe("sortRows", () => {
     const before = rows.map((r) => r.benchmarkId);
     sortRows(rows, { key: "points", dir: "desc" });
     expect(rows.map((r) => r.benchmarkId)).toEqual(before);
+  });
+});
+
+describe("groupByRepository", () => {
+  it("groups rows by repository label and keeps each group's order", () => {
+    const rows = toBrowseRows([
+      item({ benchmark_id: "w2", name: "b", repository: "https://github.com/acme/widgets" }),
+      item({ benchmark_id: "g1", name: "a", repository: "https://github.com/acme/gizmo" }),
+      item({ benchmark_id: "w1", name: "a", repository: "https://github.com/acme/widgets" }),
+    ]);
+    expect(groupByRepository(rows).map((g) => [g.label, g.rows.map((r) => r.benchmarkId)])).toEqual([
+      ["acme/gizmo", ["g1"]],
+      ["acme/widgets", ["w2", "w1"]],
+    ]);
+    expect(groupByRepository([])).toEqual([]);
+  });
+});
+
+describe("statusCounts", () => {
+  it("counts regressed and improved rows", () => {
+    const rows = toBrowseRows([
+      item({ status: "regressed" }),
+      item({ status: "regressed" }),
+      item({ status: "improved" }),
+      item({ status: "stable" }),
+    ]);
+    expect(statusCounts(rows)).toEqual({ regressed: 2, improved: 1 });
   });
 });
 

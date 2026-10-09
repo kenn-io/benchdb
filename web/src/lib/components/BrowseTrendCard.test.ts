@@ -14,6 +14,7 @@ beforeEach(() => { GET.mockReset(); });
 const row: BrowseRow = {
   benchmarkId: "bench-1",
   name: "daily-usage",
+  repository: "https://github.com/benchdb/demo",
   paramsText: "scale=large",
   machineNames: ["m5"],
   latestSVS: 12,
