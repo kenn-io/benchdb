@@ -55,7 +55,9 @@
       ...urls.map((url) => ({ value: url, label: repositoryLabel(url) })),
     ];
   });
-  const showProjects = $derived(repositoriesError !== null || projectOptions.length > 2 || repository !== "");
+  // Keep the switcher even for one project: All projects also includes runs
+  // submitted without a repository.
+  const showProjects = $derived(repositoriesError !== null || projectOptions.length > 1);
 
   const runsHref = $derived(`/${formatHomeQuery({ repository })}`);
   const benchmarksHref = $derived(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository })}`);
@@ -76,9 +78,12 @@
   ];
 
   // Machines differ between projects, so a project change clears the machine
-  // filter and keeps the rest of the Benchmarks view.
+  // filter and keeps the rest of the Benchmarks view. On Runs it keeps the
+  // commit search and starts from the first page.
   function selectRepository(next: string) {
-    if (route.name === "browse") {
+    if (route.name === "home") {
+      navigate(`/${formatHomeQuery({ repository: next, q: route.query.q })}`);
+    } else if (route.name === "browse") {
       navigate(`/series${formatBrowseQuery({ ...route.query, repository: next, hardware: "" })}`);
     } else if (BENCHMARK_ROUTES.includes(route.name)) {
       navigate(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository: next })}`);

@@ -142,11 +142,27 @@ describe("TopBar", () => {
     expect(within(nav).getByRole("link", { name: "Runs", current: "location" })).toBeInTheDocument();
   });
 
-  it("hides the project switcher when only one project exists", async () => {
-    GET.mockResolvedValue(repositoriesResponse([ARROW]));
+  it("hides the project switcher when no project exists", async () => {
     render(TopBar, { props: { route: home() } });
     await waitFor(() => expect(GET).toHaveBeenCalledWith("/api/repositories", undefined));
     expect(screen.queryByRole("combobox", { name: /project/i })).not.toBeInTheDocument();
+  });
+
+  it("offers the switcher for a single project", async () => {
+    GET.mockResolvedValue(repositoriesResponse([ARROW]));
+    render(TopBar, { props: { route: home() } });
+    await fireEvent.click(await screen.findByRole("combobox", { name: "Project: All projects" }));
+    expect(screen.getByRole("option", { name: "apache/arrow" })).toBeInTheDocument();
+  });
+
+  it("keeps the commit search and resets paging when switching projects on Runs", async () => {
+    GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
+    render(TopBar, {
+      props: { route: { name: "home", query: { repository: ARROW, q: "abcdef", offset: 25 } } },
+    });
+    await fireEvent.click(await screen.findByRole("combobox", { name: "Project: apache/arrow" }));
+    await fireEvent.click(screen.getByRole("option", { name: "All projects" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/?q=abcdef");
   });
 
   it("scopes nav links and global search to the route's project", async () => {
