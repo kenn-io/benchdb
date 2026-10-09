@@ -3,6 +3,7 @@
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import type { BrowsePreviewPoint, BrowsePreviewTrack, BrowseRow } from "../browse/transform";
+  import { machineColor } from "../machine-colors";
   import { loadTrend } from "../series/loader";
   import { observedValueRange, zeroBasedValueRange, type ValueRange } from "../series/chart-geometry";
   import MeasurementValue from "./MeasurementValue.svelte";
@@ -28,7 +29,6 @@
   const PLOT_TOP = 8;
   const PLOT_BOTTOM = 126;
   const AXIS_LABEL_Y = 145;
-  const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"];
 
   let hovered = $state<{ machineName: string; point: BrowsePreviewPoint } | null>(null);
   let historyTracks = $state<BrowsePreviewTrack[] | null>(null);
@@ -147,7 +147,7 @@
           <text class="axis-label" x={WIDTH - PAD_X} y={AXIS_LABEL_Y} text-anchor="end">{axisDate(maxX)}</text>
         {/if}
         {#each visibleTracks as track, trackIndex (track.machineName)}
-          <path d={path(track.points)} stroke={palette[trackIndex % palette.length]} />
+          <path d={path(track.points)} stroke={machineColor(trackIndex)} />
           {#each track.points as point, pointIndex (`${point.chartMs}-${pointIndex}`)}
             <circle
               class="point-hit"
@@ -160,7 +160,7 @@
             >
               <title>{pointTitle(track.machineName, point)}</title>
             </circle>
-            <circle class="point-mark" cx={x(point)} cy={y(point)} r="2.75" fill={palette[trackIndex % palette.length]} />
+            <circle class="point-mark" cx={x(point)} cy={y(point)} r="2.75" fill={machineColor(trackIndex)} />
           {/each}
         {/each}
       </svg>
@@ -175,7 +175,7 @@
   <footer>
     <div class="machines">
       {#each tracks as track, index (track.machineName)}
-        <span><i style={`background:${palette[index % palette.length]}`}></i>{track.machineName}</span>
+        <span><i style={`background:${machineColor(index)}`}></i>{track.machineName}</span>
       {/each}
     </div>
     <strong><MeasurementValue value={row.latestSVS} unit={row.unit} /></strong>
