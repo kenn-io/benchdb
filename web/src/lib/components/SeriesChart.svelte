@@ -23,7 +23,7 @@
     type SeriesPoint,
     type TrendTooltip,
   } from "../series/transform";
-  import { compactAxisValue } from "../series/chart-format";
+  import { axisTickLabels } from "../series/chart-format";
   import { formatMeasurement } from "../format";
   import { resolvedTheme } from "../theme.svelte";
 
@@ -402,11 +402,7 @@
           size: 76,
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
-          values: (_u, ticks) => ticks.map((t) =>
-            (points[0]?.unit ?? comparisonMarkers[0]?.unit) === "B"
-              ? formatMeasurement(Number(t), "B")
-              : compactAxisValue(Number(t)),
-          ),
+          values: (_u, ticks) => axisTickLabels(ticks, points[0]?.unit ?? comparisonMarkers[0]?.unit ?? null),
         },
       ],
       hooks: {

@@ -4,7 +4,7 @@
   import { onDestroy, tick, untrack } from "svelte";
 
   import { formatMeasurement } from "../format";
-  import { compactAxisValue } from "../series/chart-format";
+  import { axisTickLabels } from "../series/chart-format";
   import {
     clampRangeToDomain,
     tooltipLeftForCursor,
@@ -256,9 +256,7 @@
           size: unit === "B" ? 92 : 76,
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
-          values: (_u, ticks) => ticks.map((tick) =>
-            unit === "B" ? formatMeasurement(Number(tick), "B") : compactAxisValue(Number(tick)),
-          ),
+          values: (_u, ticks) => axisTickLabels(ticks, unit),
         },
       ],
       hooks: {
