@@ -36,6 +36,11 @@ all outside that window. A known logical benchmark ID at
 fingerprint at `/series/<fingerprint>` loads that directly comparable segment.
 Run pages and CI reports also provide exact links into those histories.
 
+A benchmark row's status is the worst status among each machine's current
+segments. A context or hardware change starts a new segment on that machine.
+Once the new segment begins, the earlier segment no longer affects the row's
+status. Segments that overlap in time all count.
+
 Benchmark-name search shows a loaded family drilldown: case variants,
 hardware/context coverage, loaded history-point counts, and
 regressed/improved triage links. It is intentionally scoped to the loaded rows
