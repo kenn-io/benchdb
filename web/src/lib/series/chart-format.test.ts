@@ -29,6 +29,13 @@ describe("axisTickLabels", () => {
       .toEqual(["1.0000001 GB", "1.0000002 GB", "1.0000003 GB"]);
   });
 
+  it("keeps narrow ranges distinct at large magnitudes", () => {
+    expect(axisTickLabels([600_000_000_100, 600_000_000_200, 600_000_000_300], "B"))
+      .toEqual(["600.0000001 GB", "600.0000002 GB", "600.0000003 GB"]);
+    expect(axisTickLabels([987_654_321_001, 987_654_321_002], "B/s"))
+      .toEqual(["987.654321001B", "987.654321002B"]);
+  });
+
   it("uses byte units for byte ticks and compact numbers otherwise", () => {
     expect(axisTickLabels([1_000_000, 1_500_000, 2_000_000], "B")).toEqual(["1 MB", "1.5 MB", "2 MB"]);
     expect(axisTickLabels([600_000_000, 605_000_000], "B/s")).toEqual(["600M", "605M"]);
@@ -44,5 +51,20 @@ describe("axisSize", () => {
     const short = axisSize(["1 GB", "2 GB"]);
     const long = axisSize(["1.0000001 GB", "1.0000002 GB"]);
     expect(long).toBeGreaterThan(short);
+  });
+});
+
+describe("axisTickLabels across magnitudes", () => {
+  it("gives distinct ticks distinct labels for steps down to a billionth of the value", () => {
+    let seed = 7;
+    const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    for (let i = 0; i < 2000; i++) {
+      const base = 10 ** (random() * 18 - 9) * (1 + random());
+      const step = base * 10 ** -(1 + Math.floor(random() * 9));
+      const ticks = [0, 1, 2, 3].map((k) => base + k * step);
+      for (const unit of ["s", "B", "B/s", null]) {
+        expect(new Set(axisTickLabels(ticks, unit)).size, `${unit}: ${ticks.join(", ")}`).toBe(4);
+      }
+    }
   });
 });
