@@ -121,8 +121,8 @@ func TestResultDetailAnnotationFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 
 	d := getResultDetail(t, tapi, out.ID)
-	assert.Equal(t, map[string]any{"trace_id": "abc"}, d.OptionalBenchmarkInfo)
-	assert.Equal(t, map[string]any{"type": "pandas.testing", "success": true}, d.Validation)
+	assert.Equal(t, service.NullableObject{"trace_id": "abc"}, d.OptionalBenchmarkInfo)
+	assert.Equal(t, service.NullableObject{"type": "pandas.testing", "success": true}, d.Validation)
 	assert.Equal(t, map[string]any{"begins_distribution_change": true}, d.ChangeAnnotations)
 	// The null data element reaches the wire as a JSON null.
 	require.Len(t, d.Data, 2)

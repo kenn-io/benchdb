@@ -672,6 +672,18 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
+	for _, row := range got {
+		assert.Equal(t, day(0), row.SegmentFirstCommitTimestamp, "segment start precedes the returned tail")
+	}
+
+	since := day(100)
+	windowed, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-long"},
+		ActiveSince:  &since,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, windowed)
+	assert.Equal(t, day(100), windowed[0].SegmentFirstCommitTimestamp, "segment start honors active_since")
 }
 
 func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {

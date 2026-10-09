@@ -36,7 +36,7 @@
 </script>
 
 <div class="app-shell">
-  <TopBar initialQ={route.name === "browse" ? route.query.q : ""} routeName={route.name} />
+  <TopBar {route} />
 
   <div class="app-content">
     {#if route.name === "home"}

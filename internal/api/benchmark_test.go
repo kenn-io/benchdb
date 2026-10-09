@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 
 	"go.kenn.io/benchdb/internal/api"
 	"go.kenn.io/benchdb/internal/service"
+	"go.kenn.io/benchdb/internal/stats"
 )
 
 func TestBenchmarkBrowseAndHistoryGroupFleetMachines(t *testing.T) {
@@ -92,4 +95,54 @@ func TestBenchmarkHistoryOrdersMachineSegmentsByNewestSample(t *testing.T) {
 	require.Len(t, history.Tracks, 1)
 	require.Len(t, history.Tracks[0].Segments, 2)
 	assert.Equal(t, newerEpoch, history.Tracks[0].Segments[1].Context["epoch"])
+}
+
+func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	// The benchmark got about 2x faster when its context changed. The old
+	// context ends on a slow spike that is a regression within its own history.
+	preDrop := []float64{0.000269, 0.000274, 0.000271, 0.000275, 0.000276, 0.000266, 0.000265,
+		0.0003077}
+	postDrop := []float64{0.000141, 0.000118, 0.000133, 0.000126, 0.000138, 0.000121,
+		0.000125096, 0.000123903, 0.000131488, 0.000119475, 0.00012778, 0.000130395}
+	var firstID string
+	for i, v := range preDrop {
+		id := seedResult(t, tapi, seedOpts{
+			sha: fmt.Sprintf("old-%d", i), ts: day(i), data: []float64{v},
+			context: map[string]any{"build": "old"},
+		})
+		if firstID == "" {
+			firstID = id
+		}
+	}
+	for i, v := range postDrop {
+		seedResult(t, tapi, seedOpts{
+			sha: fmt.Sprintf("new-%d", i), ts: day(len(preDrop) + i), data: []float64{v},
+			context: map[string]any{"build": "new"},
+		})
+	}
+
+	resp := tapi.Get("/api/benchmarks")
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	var page api.BenchmarkPage
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+	require.Len(t, page.Benchmarks, 1)
+	assert.Equal(t, "stable", page.Benchmarks[0].Status,
+		"the superseded context's last point is not the benchmark's current state")
+
+	detail := getResultDetail(t, tapi, firstID)
+	resp = tapi.Get("/api/benchmarks/" + detail.BenchmarkID)
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	var history service.BenchmarkHistory
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &history))
+	require.Len(t, history.Tracks, 1)
+	require.Len(t, history.Tracks[0].Segments, 2)
+	samples := history.Tracks[0].Segments[1].Samples
+	require.Len(t, samples, len(postDrop))
+	latest := samples[len(samples)-1].ZScoreStats
+	require.NotNil(t, latest)
+	require.NotNil(t, latest.Residual)
+	require.NotNil(t, latest.RollingStddev)
+	assert.Less(t, math.Abs(*latest.Residual / *latest.RollingStddev), stats.ZScoreThresholdDefault,
+		"the trend page scores the latest point inside the threshold band")
 }

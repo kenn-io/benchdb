@@ -820,16 +820,16 @@ func (s *Store) SelectRecentRuns(ctx context.Context, p storage.RecentRunsParams
 	return recentRunRowsFromRows(rows), nil
 }
 
-// SelectRecentRunRepositories returns repositories available for the landing
-// page project selector.
-func (s *Store) SelectRecentRunRepositories(ctx context.Context) ([]storage.RecentRunRepositoryRow, error) {
-	rows, err := s.q.SelectRecentRunRepositories(ctx)
+// SelectRepositories returns every repository with benchmark commits, most
+// recently active first.
+func (s *Store) SelectRepositories(ctx context.Context) ([]storage.RepositoryRow, error) {
+	rows, err := s.q.SelectRepositories(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]storage.RecentRunRepositoryRow, 0, len(rows))
+	out := make([]storage.RepositoryRow, 0, len(rows))
 	for _, repository := range rows {
-		out = append(out, storage.RecentRunRepositoryRow{Repository: repository})
+		out = append(out, storage.RepositoryRow{Repository: repository})
 	}
 	return out, nil
 }

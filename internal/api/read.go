@@ -69,6 +69,13 @@ func (h *ReadHandler) Register(api huma.API) {
 	}, h.getRecentRuns)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "list-repositories",
+		Summary:     "List repositories with benchmark results",
+		Method:      http.MethodGet,
+		Path:        "/api/repositories",
+	}, h.getRepositories)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "list-series",
 		Summary:     "List and search benchmark series",
 		Method:      http.MethodGet,

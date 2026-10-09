@@ -9,7 +9,7 @@ export interface BrowsePage {
   nextCursor: string | null;
 }
 
-export const BROWSE_PAGE_SIZE = 25;
+export const BROWSE_PAGE_SIZE = 200;
 
 function listBenchmarksError(res: { data?: unknown }): Error {
   return new Error((res.data as { detail?: string })?.detail ?? "failed to list benchmarks");

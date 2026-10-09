@@ -426,6 +426,8 @@ func seriesMembersRowsFromRows(rows []SelectSeriesMembersRow) []storage.HistoryR
 			CommitRepository:   r.CommitRepository,
 			CommitMessage:      r.CommitMessage,
 			CommitTimestamp:    r.CommitTimestamp,
+
+			SegmentFirstCommitTimestamp: r.SegmentFirstCommitTimestamp,
 		}
 	}
 	return out

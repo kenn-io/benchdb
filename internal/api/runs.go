@@ -34,3 +34,16 @@ func (h *ReadHandler) getRecentRuns(ctx context.Context, in *ListRecentRunsInput
 	}
 	return &ListRecentRunsOutput{Body: *page}, nil
 }
+
+// ListRepositoriesOutput carries the repository list.
+type ListRepositoriesOutput struct {
+	Body service.RepositoryList
+}
+
+func (h *ReadHandler) getRepositories(ctx context.Context, _ *struct{}) (*ListRepositoriesOutput, error) {
+	list, err := h.reader.ListRepositories(ctx)
+	if err != nil {
+		return nil, mapReadError(err)
+	}
+	return &ListRepositoriesOutput{Body: *list}, nil
+}
