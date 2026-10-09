@@ -5,7 +5,7 @@
 
   import { formatMeasurement } from "../format";
   import { machineColor } from "../machine-colors";
-  import { axisTickLabels } from "../series/chart-format";
+  import { axisSize, axisTickLabels } from "../series/chart-format";
   import {
     clampRangeToDomain,
     tooltipLeftForCursor,
@@ -253,7 +253,7 @@
       axes: [
         { stroke: axisColor, grid: { stroke: gridColor, width: 1 } },
         {
-          size: unit === "B" ? 92 : 76,
+          size: (_u, values) => axisSize(values),
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
           values: (_u, ticks) => axisTickLabels(ticks, unit),

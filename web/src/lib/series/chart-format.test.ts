@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { axisTickLabels } from "./chart-format";
+import { axisSize, axisTickLabels } from "./chart-format";
 
 describe("axisTickLabels", () => {
   it("labels sub-millisecond second ticks in microseconds", () => {
@@ -24,10 +24,25 @@ describe("axisTickLabels", () => {
     expect(axisTickLabels([0, 0.25, 0.5, 0.75], null)).toEqual(["0", "0.25", "0.5", "0.75"]);
   });
 
+  it("keeps ticks distinct when they differ beyond six decimals of the shared scale", () => {
+    expect(axisTickLabels([1_000_000_100, 1_000_000_200, 1_000_000_300], "B"))
+      .toEqual(["1.0000001 GB", "1.0000002 GB", "1.0000003 GB"]);
+  });
+
   it("uses byte units for byte ticks and compact numbers otherwise", () => {
     expect(axisTickLabels([1_000_000, 1_500_000, 2_000_000], "B")).toEqual(["1 MB", "1.5 MB", "2 MB"]);
     expect(axisTickLabels([600_000_000, 605_000_000], "B/s")).toEqual(["600M", "605M"]);
     expect(axisTickLabels([0, 400, 800], null)).toEqual(["0", "400", "800"]);
     expect(axisTickLabels([-40, -20, 0], null)).toEqual(["-40", "-20", "0"]);
+  });
+});
+
+describe("axisSize", () => {
+  it("widens the axis for longer labels and keeps a minimum", () => {
+    expect(axisSize(null)).toBe(56);
+    expect(axisSize(["0", "1"])).toBe(56);
+    const short = axisSize(["1 GB", "2 GB"]);
+    const long = axisSize(["1.0000001 GB", "1.0000002 GB"]);
+    expect(long).toBeGreaterThan(short);
   });
 });

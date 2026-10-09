@@ -26,7 +26,9 @@ const COMPACT_SCALES: readonly AxisScale[] = [
   { min: 0, factor: 1, suffix: "" },
 ];
 
-const MAX_FRACTION_DIGITS = 6;
+// Scaled ticks stay below 1,000, so 12 decimals still fit in the 15 to 16
+// significant digits a double carries.
+const MAX_FRACTION_DIGITS = 12;
 
 /** axisTickLabels labels one axis's ticks with one shared scale chosen from
  * the largest tick: seconds become s, ms, µs, or ns, bytes become B through TB,
@@ -55,4 +57,16 @@ function isWhole(value: number): boolean {
 
 function trimZeros(text: string): string {
   return text.includes(".") ? text.replace(/\.?0+$/, "") : text;
+}
+
+const MIN_AXIS_SIZE = 56;
+const AXIS_CHAR_WIDTH = 7;
+const AXIS_PADDING = 22;
+
+/** axisSize returns a y-axis width in CSS pixels that fits its longest label,
+ * so long precise labels are not clipped. values is null before uPlot formats
+ * the first ticks. */
+export function axisSize(values: string[] | null): number {
+  const longest = Math.max(0, ...(values ?? []).map((value) => value.length));
+  return Math.max(MIN_AXIS_SIZE, longest * AXIS_CHAR_WIDTH + AXIS_PADDING);
 }
