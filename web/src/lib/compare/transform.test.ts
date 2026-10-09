@@ -120,6 +120,6 @@ describe("markedIndices", () => {
 it("explains a suppressed change without discarding the statistical score", () => {
   const tolerance = {metric_kind: "duration", absolute: 0.03, relative_percent: 0, reference: 0.1, delta: 0.02, minimum_change: 0.03, within_tolerance: true};
   expect(lookbackText(lookback({z_score: -12, tolerance}))).toBe("z -12.00 vs threshold 5 — within configured tolerance");
-  expect(toleranceText(tolerance, "s")).toBe("Change 0.02 s from reference 0.1 s; must exceed 0.03 s.");
+  expect(toleranceText(tolerance, "s")).toBe("Change 20 ms from reference 100 ms; must exceed 30 ms.");
   expect(verdictStatus(lookback({z_score: -12, tolerance}))).toBe("stable");
 });

@@ -42,12 +42,37 @@ export function formatBytes(value: number): string {
   return `${BYTE_FORMAT.format(value / scale.divisor)} ${scale.unit}`;
 }
 
+const DURATION_UNITS = [
+  { threshold: 1, perSecond: 1, unit: "s" },
+  { threshold: 1e-3, perSecond: 1e3, unit: "ms" },
+  { threshold: 1e-6, perSecond: 1e6, unit: "µs" },
+] as const;
+
+/** formatDuration renders a time measurement in the largest of s, ms, µs, or
+ * ns that keeps its magnitude at or above one. Zero and non-finite values keep
+ * the submitted unit. */
+function formatDuration(value: number, unit: "s" | "ns"): string {
+  if (value === 0 || !Number.isFinite(value)) {
+    return `${formatNumber(value)} ${unit}`;
+  }
+  const seconds = unit === "s" ? value : value / 1e9;
+  const magnitude = Math.abs(Number(seconds.toPrecision(4)));
+  const scale = DURATION_UNITS.find((candidate) => magnitude >= candidate.threshold);
+  if (scale === undefined) {
+    return `${formatNumber(unit === "ns" ? value : seconds * 1e9)} ns`;
+  }
+  return `${formatNumber(scale.unit === unit ? value : seconds * scale.perSecond)} ${scale.unit}`;
+}
+
 export function formatMeasurement(value: number | null, unit: string | null, missing = "—"): string {
   if (value === null) {
     return missing;
   }
   if (unit === "B") {
     return formatBytes(value);
+  }
+  if (unit === "s" || unit === "ns") {
+    return formatDuration(value, unit);
   }
   const text = formatNumber(value);
   return unit === null ? text : `${text} ${unit}`;

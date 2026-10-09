@@ -444,6 +444,25 @@ it("keeps a suppressed change visible with its tolerance explanation", async () 
   GET.mockResolvedValue({data: {...report, status: "success", status_reason: "no regressions", summary: {...report.summary, regressions: 0}, runs: [{...report.runs[0], comparisons: [row]}]}});
   render(CIReportPage, {props: {query: QUERY}});
   expect(await screen.findByText("within tolerance")).toBeInTheDocument();
-  expect(screen.getByText("0.02 s")).toBeInTheDocument();
-  expect(screen.getByText("Change 0.02 s from reference 0.1 s; must exceed 0.03 s.")).toBeInTheDocument();
+  expect(screen.getByText("20 ms")).toBeInTheDocument();
+  expect(screen.getByText("Change 20 ms from reference 100 ms; must exceed 30 ms.")).toBeInTheDocument();
+});
+
+it("shows contender, baseline, and delta in the same scaled unit", async () => {
+  const base = comparison();
+  const tolerance = {metric_kind: "duration", absolute: 0, relative_percent: 0, reference: 0.00007772, delta: 0.00005268, minimum_change: 0, within_tolerance: false};
+  const row = comparison({
+    contender: {...base.contender, single_value_summary: 0.0001304},
+    baseline: {...base.baseline, single_value_summary: 0.00007772},
+    analysis: {pairwise: {percent_change: -67.8, percent_threshold: 5, regression_indicated: true, improvement_indicated: false, tolerance}},
+  });
+  GET.mockResolvedValue({data: {...report, runs: [{...report.runs[0], comparisons: [row]}]}});
+  render(CIReportPage, {props: {query: QUERY}});
+
+  const table = await screen.findByRole("table");
+  const cells = within(table).getAllByRole("cell");
+  const cell = (label: string) => cells.find((c) => c.dataset["label"] === label);
+  expect(cell("Contender")).toHaveTextContent("130.4 µs");
+  expect(cell("Baseline")).toHaveTextContent("77.72 µs");
+  expect(cell("Delta")).toHaveTextContent("52.68 µs");
 });
