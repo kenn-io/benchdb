@@ -527,11 +527,20 @@ members AS MATERIALIZED (
       OFFSET 0
     ) br
     JOIN hardware hw ON hw.id = br.hardware_id
-    JOIN commit c ON c.id = br.commit_id
-    WHERE c.sha = c.fork_point_sha
-      AND c."timestamp" IS NOT NULL
-      AND (sqlc.narg('active_since')::timestamp IS NULL OR c."timestamp" >= sqlc.narg('active_since')::timestamp)
-      AND (sqlc.narg('active_until')::timestamp IS NULL OR c."timestamp" <= sqlc.narg('active_until')::timestamp)
+    -- Look up each member's commit by primary key. Postgres cannot estimate
+    -- sha = fork_point_sha and guesses that almost no commit matches, so a plain
+    -- join scans every default-branch commit once per member instead. OFFSET 0
+    -- keeps the planner from flattening this lookup back into that join.
+    CROSS JOIN LATERAL (
+      SELECT sha, repository, message, "timestamp"
+      FROM commit
+      WHERE id = br.commit_id
+        AND sha = fork_point_sha
+        AND "timestamp" IS NOT NULL
+        AND (sqlc.narg('active_since')::timestamp IS NULL OR "timestamp" >= sqlc.narg('active_since')::timestamp)
+        AND (sqlc.narg('active_until')::timestamp IS NULL OR "timestamp" <= sqlc.narg('active_until')::timestamp)
+      OFFSET 0
+    ) c
     ORDER BY c."timestamp" DESC, br.id DESC
     LIMIT sqlc.arg('per_fingerprint_limit')::integer
   ) m
