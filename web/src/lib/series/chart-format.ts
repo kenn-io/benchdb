@@ -55,7 +55,8 @@ function fractionDigits(values: number[]): number {
   const limit = Math.min(MAX_FRACTION_DIGITS, Math.max(0, MAX_SIGNIFICANT_DIGITS - integerDigits + leadingZeros));
   let digits = 0;
   while (digits < limit && !values.every((value) => exactAt(value, digits, gap))) digits++;
-  while (digits < limit && !labelsDistinct(values, digits)) digits++;
+  // Distinct ticks always get distinct labels, even past the precision limit.
+  while (digits < MAX_FRACTION_DIGITS && !labelsDistinct(values, digits)) digits++;
   return digits;
 }
 

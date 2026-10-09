@@ -29,6 +29,11 @@ describe("axisTickLabels", () => {
       .toEqual(["1.0000001 GB", "1.0000002 GB", "1.0000003 GB"]);
   });
 
+  it("keeps ticks distinct beyond fifteen significant digits", () => {
+    const labels = axisTickLabels([1.000000000000001, 1.000000000000002, 1.000000000000003], "s");
+    expect(new Set(labels).size).toBe(3);
+  });
+
   it("keeps narrow ranges distinct at large magnitudes", () => {
     expect(axisTickLabels([600_000_000_100, 600_000_000_200, 600_000_000_300], "B"))
       .toEqual(["600.0000001 GB", "600.0000002 GB", "600.0000003 GB"]);
