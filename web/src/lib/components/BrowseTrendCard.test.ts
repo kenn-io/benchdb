@@ -14,6 +14,7 @@ beforeEach(() => { GET.mockReset(); });
 const row: BrowseRow = {
   benchmarkId: "bench-1",
   name: "daily-usage",
+  repository: "https://github.com/benchdb/demo",
   paramsText: "scale=large",
   machineNames: ["m5"],
   latestSVS: 12,
@@ -69,6 +70,35 @@ describe("BrowseTrendCard", () => {
     expect(titles[0]).toMatch(/m5.*2 s/);
     expect(titles.at(-1)).toMatch(/m5.*25 s/);
     expect(screen.queryByText("other-machine")).toBeNull();
+  });
+
+  it("waits to load omitted history until the card nears the viewport", async () => {
+    let reveal: () => void = () => {};
+    let observedMargin = "";
+    class OffscreenObserver {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        observedMargin = options?.rootMargin ?? "";
+        reveal = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as never);
+      }
+      observe(): void {}
+      disconnect(): void {}
+    }
+    const original = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = OffscreenObserver as unknown as typeof IntersectionObserver;
+    try {
+      GET.mockResolvedValue({ status: 500, data: { detail: "history unavailable" } });
+      render(BrowseTrendCard, { props: { row: { ...row, pointCount: 24 } } });
+      expect(screen.getByText("Loading history…")).toBeInTheDocument();
+      expect(observedMargin).toBe("600px 0px");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(GET).not.toHaveBeenCalled();
+
+      reveal();
+      await waitFor(() => expect(GET).toHaveBeenCalledTimes(1));
+      expect(GET.mock.calls[0]![0]).toBe("/api/benchmarks/bench-1");
+    } finally {
+      globalThis.IntersectionObserver = original;
+    }
   });
 
   it("shows a history failure instead of presenting the truncated preview as complete", async () => {

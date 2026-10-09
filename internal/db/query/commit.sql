@@ -20,12 +20,28 @@ WHERE repository = $1 AND branch = $2
 ORDER BY timestamp DESC
 LIMIT 1;
 
--- name: SelectRecentRunRepositories :many
+-- name: SelectRepositories :many
+-- Repositories that still have benchmark results, most recently active first.
+-- Commit rows outlive deleted results, so a commit counts only while a result
+-- references it. Results submitted without a commit carry the repository only
+-- in commit_repo_url. Both branches use benchmark_result_commit_id_index, so
+-- the query never scans the whole results table.
 SELECT repository
-FROM commit
-WHERE repository <> ''
+FROM (
+  SELECT c.repository, max(c."timestamp") AS last_activity
+  FROM commit c
+  WHERE c.repository <> ''
+    AND EXISTS (SELECT 1 FROM benchmark_result br WHERE br.commit_id = c.id)
+  GROUP BY c.repository
+  UNION ALL
+  SELECT br.commit_repo_url, max(br."timestamp")
+  FROM benchmark_result br
+  WHERE br.commit_id IS NULL
+    AND br.commit_repo_url <> ''
+  GROUP BY br.commit_repo_url
+) active
 GROUP BY repository
-ORDER BY max(timestamp) DESC NULLS LAST, repository ASC;
+ORDER BY max(last_activity) DESC NULLS LAST, repository ASC;
 
 -- name: SelectUnknownCommitRepairCandidates :many
 SELECT id, sha, repository

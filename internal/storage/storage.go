@@ -68,7 +68,7 @@ type Store interface {
 	GetResultForCompare(ctx context.Context, id string) (CompareResultRow, error)
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)
-	SelectRecentRunRepositories(ctx context.Context) ([]RecentRunRepositoryRow, error)
+	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
 	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
@@ -568,6 +568,11 @@ type HistoryRow struct {
 	CommitRepository   string
 	CommitMessage      string
 	CommitTimestamp    *time.Time
+
+	// SegmentFirstCommitTimestamp is the earliest member commit of the row's
+	// fingerprint. Only SelectSeriesMembers sets it, because that query returns
+	// a bounded tail whose first row is not the segment's start.
+	SegmentFirstCommitTimestamp time.Time
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,
@@ -632,9 +637,8 @@ type RecentRunsParams struct {
 	Repository *string
 }
 
-// RecentRunRepositoryRow is one repository with benchmark results for the home
-// page project selector.
-type RecentRunRepositoryRow struct {
+// RepositoryRow is one repository with benchmark commits.
+type RepositoryRow struct {
 	Repository string
 }
 

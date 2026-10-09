@@ -106,13 +106,9 @@ describe("RecentRunsHome", () => {
     );
   });
 
-  it("renders a project selector for the active repository", async () => {
+  it("loads runs for the URL's project and names the project", async () => {
     GET.mockResolvedValueOnce({ status: 200,
       data: {
-        repositories: [
-          { repository: "https://github.com/apache/arrow" },
-          { repository: "https://github.com/apache/arrow-go" },
-        ],
         runs: [
           run({
             run_id: "run-arrow-go",
@@ -131,11 +127,7 @@ describe("RecentRunsHome", () => {
     });
 
     await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
-    const selector = screen.getByLabelText("Project");
-    expect(selector).toHaveValue("https://github.com/apache/arrow-go");
-    expect(screen.getByRole("option", { name: "All projects" })).toHaveValue("");
-    expect(screen.getByRole("option", { name: "apache/arrow" })).toHaveValue("https://github.com/apache/arrow");
-    expect(screen.getByRole("option", { name: "apache/arrow-go" })).toHaveValue("https://github.com/apache/arrow-go");
+    expect(screen.getByText("apache/arrow-go", { selector: ".eyebrow" })).toBeInTheDocument();
     expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
           include_attention: true,

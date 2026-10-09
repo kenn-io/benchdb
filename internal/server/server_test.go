@@ -237,6 +237,28 @@ func TestEnsureSchemaApplies(t *testing.T) {
 	require.NoError(t, server.EnsureSchema(ctx, pool), "EnsureSchema (no-op)")
 }
 
+// TestServerEmitsNullForAbsentResultObjects checks the production JSON encoder,
+// which renders nil maps as {} unless a field opts into null. The dashboard
+// treats any non-null error object as a failed result.
+func TestServerEmitsNullForAbsentResultObjects(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	store := db.NewStore(pool)
+	s, err := seed.Run(ctx, store)
+	require.NoError(t, err)
+	handler := server.New(store, auth.New("", true, store, nil), commit.LocalProvider{}, noAuthHandler(), nil)
+
+	ok := getAPI[map[string]json.RawMessage](t, handler,
+		"/api/benchmark-results/"+url.PathEscape(s.ProductSmoke.LatestResultID))
+	assert.JSONEq(t, `null`, string(ok["error"]))
+	assert.JSONEq(t, `null`, string(ok["optional_benchmark_info"]))
+	assert.JSONEq(t, `null`, string(ok["validation"]))
+	assert.JSONEq(t, `{}`, string(ok["change_annotations"]))
+
+	errored := getAPI[map[string]json.RawMessage](t, handler,
+		"/api/benchmark-results/"+url.PathEscape(s.ProductSmoke.ErroredResultID))
+	assert.NotEqual(t, "null", string(errored["error"]))
+}
+
 func getAPI[T any](t *testing.T, handler http.Handler, target string) T {
 	t.Helper()
 	rec := httptest.NewRecorder()

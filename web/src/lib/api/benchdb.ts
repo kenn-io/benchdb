@@ -766,18 +766,24 @@ export interface RecentRunListItem {
   series_count: number;
 }
 
-export interface RecentRunRepositoryItem {
-  repository: string;
-}
-
 export interface RecentRunsPage {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
   has_more: boolean;
   /** @nullable */
-  repositories: RecentRunRepositoryItem[] | null;
-  /** @nullable */
   runs: RecentRunListItem[] | null;
+}
+
+export interface RepositoryItem {
+  /** Repository URL, as submitted in github.repository. */
+  repository: string;
+}
+
+export interface RepositoryList {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  /** @nullable */
+  repositories: RepositoryItem[] | null;
 }
 
 export type ResultDetailChangeAnnotations = { [key: string]: unknown };
@@ -1645,6 +1651,17 @@ const ping = (
   }
 
 /**
+ * @summary List repositories with benchmark results
+ */
+const listRepositories = (
+     options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RepositoryList>> => {
+    return axiosInstance.get(
+      `/api/repositories`,options
+    );
+  }
+
+/**
  * @summary Submit a benchmark result
  */
 const submitResult = (
@@ -1727,7 +1744,7 @@ const usersMe = (
     );
   }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,ping,listRepositories,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -1757,6 +1774,7 @@ export type CompareBenchmarkResultsResult = AxiosResponse<CompareResult>
 export type GetHistoryResult = AxiosResponse<HistorySeries>
 export type GetHistoryForResultResult = AxiosResponse<HistorySeries>
 export type PingResult = AxiosResponse<HealthOutputBody>
+export type ListRepositoriesResult = AxiosResponse<RepositoryList>
 export type SubmitResultResult = AxiosResponse<SubmitOutputBody>
 export type ListRecentRunsResult = AxiosResponse<RecentRunsPage>
 export type ListSeriesResult = AxiosResponse<SeriesPage>

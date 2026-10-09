@@ -27,5 +27,5 @@ test("browse lists the seeded series, searches, and opens its trend", async ({ p
 
   // A search with no matches shows the empty state, not an error.
   await page.goto(`${baseURL}/series?q=definitely-not-a-benchmark`);
-  await expect(page.getByText(/no series match/i)).toBeVisible();
+  await expect(page.getByText("No benchmarks match these filters")).toBeVisible();
 });

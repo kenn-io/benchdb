@@ -8,9 +8,17 @@ The home page summarizes recent benchmark activity. Use it to answer: what just
 ran, how much data did it publish, did any results error, and where is the CI
 report or a sample result?
 
+A project is a repository, identified by the `github.repository` URL that
+results submit. The project switcher in the top bar scopes Runs, Benchmarks,
+and the series search to one project. The home page and `/series` carry the
+choice as `?repository=<url>`, so shared links stay scoped. Other pages keep the
+last project you chose. `GET /api/repositories` lists the projects.
+
 The series explorer lives at `/series`. Use it to find benchmark families,
-filter by search text, and navigate to trend pages. Series rows show recent
-state, latest result metadata, and a compact history summary.
+filter by search text, and navigate to trend pages. Benchmark rows show recent
+state, latest result metadata, and a compact history summary. Regressed
+benchmarks come first, then improved ones, then the rest, each sorted by name.
+With all projects shown, each project gets its own section.
 
 The home dashboard groups activity by submitted `run_id` values, with direct
 links to run detail, batch detail, CI reports, and sample results. Batch pages
@@ -35,6 +43,11 @@ all outside that window. A known logical benchmark ID at
 `/benchmarks/<benchmark_id>` loads its complete fleet history. A known history
 fingerprint at `/series/<fingerprint>` loads that directly comparable segment.
 Run pages and CI reports also provide exact links into those histories.
+
+A benchmark row's status is the worst status among each machine's current
+segments. A context or hardware change starts a new segment on that machine.
+Once the new segment begins, the earlier segment no longer affects the row's
+status. Segments that overlap in time all count.
 
 Benchmark-name search shows a loaded family drilldown: case variants,
 hardware/context coverage, loaded history-point counts, and

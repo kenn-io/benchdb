@@ -49,12 +49,12 @@ describe("SeriesBrowse", () => {
   it("renders rows after loading", async () => {
     GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
-    expect(screen.getByRole("heading", { name: /loading benchmark series/i })).toBeInTheDocument();
+    expect(screen.getByText(/loading benchmarks/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: /benchmark series/i })).toBeInTheDocument();
-    expect(screen.getByText(/showing 1 loaded series/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Benchmarks" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Benchmark summary")).toHaveTextContent("1 benchmark");
     expect(screen.getByRole("link", { name: /result explorer/i })).toHaveAttribute("href", "/results");
-    expect(screen.getByRole("group", { name: /series time window/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Time window" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
   });
 
@@ -69,14 +69,14 @@ describe("SeriesBrowse", () => {
   it("shows the empty state when nothing matches", async () => {
     GET.mockResolvedValueOnce({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
     render(SeriesBrowse, { props: { query: { ...DEFAULT_BROWSE_QUERY, q: "nope" } } });
-    await waitFor(() => expect(screen.getByText(/no series match/i)).toBeInTheDocument());
-    expect(screen.getByRole("region", { name: /no matching benchmark series/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("No benchmarks match these filters")).toBeInTheDocument());
+    expect(screen.getByRole("region", { name: "No matching benchmarks" })).toBeInTheDocument();
   });
 
   it("shows the error state when the load fails", async () => {
     GET.mockResolvedValueOnce({ data: { detail: "boom" }, status: 400 });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
-    await waitFor(() => expect(screen.getByText(/failed to load series/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/failed to load benchmarks/i)).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });
 
@@ -136,8 +136,8 @@ describe("SeriesBrowse", () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
     render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
-    await waitFor(() => screen.getByText(/no series match/i));
-    await fireEvent.click(screen.getByRole("button", { name: /last 3 months/i }));
+    await waitFor(() => screen.getByText("No benchmarks yet"));
+    await fireEvent.click(screen.getByRole("button", { name: "3 months" }));
     expect(window.location.pathname).toBe("/series");
     expect(window.location.search).toBe("?window=3mo&view=charts");
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
@@ -162,7 +162,7 @@ describe("SeriesBrowse", () => {
       await screen.findByRole("img", { name: /demo fleet trend preview/i });
       expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
 
-      await fireEvent.click(screen.getByRole("button", { name: /last 30 days/i }));
+      await fireEvent.click(screen.getByRole("button", { name: "30 days" }));
       await rerender({ query: parseBrowseQuery(window.location.search) });
       await screen.findByRole("img", { name: /demo fleet trend preview/i });
 
@@ -182,7 +182,7 @@ describe("SeriesBrowse", () => {
     }
   });
 
-  it("preserves charts while changing search, machine, and repository filters", async () => {
+  it("preserves charts while changing search and machine filters", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
     const { rerender } = render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
@@ -195,7 +195,7 @@ describe("SeriesBrowse", () => {
     expect(window.location.search).toBe("?hardware=m5&view=charts");
     await rerender({ query: parseBrowseQuery(window.location.search) });
     await waitFor(() => expect(GET).toHaveBeenLastCalledWith("/api/benchmarks", {
-      params: { page_size: 25, hardware: "m5" },
+      params: { page_size: 200, hardware: "m5" },
     }));
 
     await fireEvent.input(screen.getByRole("searchbox", { name: /search benchmarks/i }), {
@@ -204,32 +204,18 @@ describe("SeriesBrowse", () => {
     await waitFor(() => expect(window.location.search).toBe("?q=demo&hardware=m5&view=charts"));
     await rerender({ query: parseBrowseQuery(window.location.search) });
 
-    expect(screen.queryByLabelText(/^repository url$/i)).toBeNull();
-    await fireEvent.click(screen.getByRole("button", { name: /advanced filters/i }));
-    await fireEvent.input(screen.getByLabelText(/^repository url$/i), {
-      target: { value: "https://github.com/apache/arrow " },
-    });
-    await fireEvent.submit(screen.getByRole("button", { name: /apply advanced filters/i }).closest("form")!);
-
-    expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?q=demo&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&view=charts");
-    await rerender({ query: parseBrowseQuery(window.location.search) });
     await waitFor(() => expect(GET).toHaveBeenLastCalledWith("/api/benchmarks", {
-      params: { page_size: 25, q: "demo", hardware: "m5", repository: "https://github.com/apache/arrow" },
+      params: { page_size: 200, q: "demo", hardware: "m5" },
     }));
-    expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
-
-    const clear = screen.getByRole("link", { name: "Clear" });
-    expect(clear).toHaveAttribute("href", "/series?view=charts");
-    await fireEvent.click(clear);
-    expect(window.location.search).toBe("?view=charts");
+    expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
   });
 
   it("loads charts directly from the URL with benchmark detail links", async () => {
     GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f1", "demo", { status: "regressed" })], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
     render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
-    const cards = await screen.findByRole("region", { name: /benchmark trend cards/i });
+    const cards = await screen.findByRole("region", { name: "benchdb/demo" });
     expect(within(cards).getByText("regressed")).toBeInTheDocument();
     expect(within(cards).getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
@@ -249,7 +235,6 @@ describe("SeriesBrowse", () => {
     expect(window.location.search).toBe("?view=charts");
     await rerender({ query: parseBrowseQuery(window.location.search) });
 
-    expect(screen.getByRole("region", { name: /benchmark trend cards/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
     const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
@@ -271,7 +256,7 @@ describe("SeriesBrowse", () => {
     expect(GET).toHaveBeenCalledTimes(2);
   });
 
-  it("shows active filters and can clear them", async () => {
+  it("clears filters but keeps the project and view", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, {
       props: {
@@ -285,39 +270,57 @@ describe("SeriesBrowse", () => {
       },
     });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
-    expect(screen.getByRole("group", { name: /active filters/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /remove query filter demo/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /remove machine filter m5/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /remove window filter last 30 days/i })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?view=charts");
+    expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fdemo&view=charts");
   });
 
-  it("removes individual active filters without dropping the others", async () => {
+  it("offers no clear button when only the project is set", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, {
-      props: {
-        query: {
-          q: "demo",
-          hardware: "m5",
-          repository: "https://github.com/benchdb/demo",
-          window: "30d",
-          view: "charts",
-        },
-      },
+      props: { query: { ...DEFAULT_BROWSE_QUERY, repository: "https://github.com/benchdb/demo" } },
     });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
+    expect(screen.queryByRole("button", { name: /clear filters/i })).toBeNull();
+    expect(screen.getByText("benchdb/demo", { selector: ".eyebrow" })).toBeInTheDocument();
+  });
 
-    await fireEvent.click(screen.getByRole("button", { name: /remove machine filter m5/i }));
+  it("lists regressions first and counts regressed and improved benchmarks", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [
+      item("f1", "aaa"),
+      item("f2", "zzz", { status: "regressed" }),
+      item("f3", "mmm", { status: "improved" }),
+    ], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => screen.getByRole("link", { name: "aaa" }));
+    const links = within(screen.getByRole("table"))
+      .getAllByRole("link")
+      .filter((el) => el.tagName === "A")
+      .map((a) => a.textContent);
+    expect(links).toEqual(["zzz", "mmm", "aaa"]);
+    expect(screen.getByLabelText("Benchmark summary")).toHaveTextContent("3 benchmarks 1 regressed 1 improved");
+  });
 
-    expect(window.location.pathname).toBe("/series");
-    const params = new URLSearchParams(window.location.search);
-    expect(params.get("q")).toBe("demo");
-    expect(params.get("hardware")).toBeNull();
-    expect(params.get("repository")).toBe("https://github.com/benchdb/demo");
-    expect(params.get("window")).toBe("30d");
-    expect(params.get("view")).toBe("charts");
+  it("groups benchmarks by project when every project is shown", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [
+      item("w1", "widget-time", { repository: "https://github.com/acme/widgets" }),
+      item("g1", "gizmo-time", { repository: "https://github.com/acme/gizmo" }),
+    ], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => screen.getByRole("link", { name: "widget-time" }));
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["acme/gizmo 1 benchmark", "acme/widgets 1 benchmark"]);
+    expect(within(screen.getByRole("region", { name: "acme/gizmo" })).getByRole("link", { name: "gizmo-time" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "acme/widgets" }))
+      .toHaveAttribute("href", "/series?repository=https%3A%2F%2Fgithub.com%2Facme%2Fwidgets");
+  });
+
+  it("shows one project without a group heading", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("w1", "widget-time")], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => screen.getByRole("link", { name: "widget-time" }));
+    expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
   });
 
   it("sorts the visible rows when a header is clicked", async () => {
@@ -327,7 +330,7 @@ describe("SeriesBrowse", () => {
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await waitFor(() => screen.getByRole("link", { name: "bbb" }));
     await fireEvent.click(screen.getByRole("button", { name: "Sort by benchmark" }));
-    expect(screen.getByText(/sorting applies to loaded rows/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sorting covers loaded benchmarks only/i)).toBeNull();
     // BrowseTable marks each whole row as role="link" too; scope to the name
     // anchors so the assertion reads the sorted benchmark labels alone.
     const links = within(screen.getByRole("table"))

@@ -4,7 +4,8 @@
   import { onDestroy, tick, untrack } from "svelte";
 
   import { formatMeasurement } from "../format";
-  import { compactAxisValue } from "../series/chart-format";
+  import { machineColor } from "../machine-colors";
+  import { axisSize, axisTickLabels } from "../series/chart-format";
   import {
     clampRangeToDomain,
     tooltipLeftForCursor,
@@ -52,7 +53,6 @@
     vm: TrendTooltip;
   } | null>(null);
 
-  const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#4f46e5"];
 
   interface FleetData {
     aligned: uPlot.AlignedData;
@@ -223,7 +223,7 @@
     const bands: uPlot.Band[] = [];
     data.plotTracks.forEach((track, i) => {
       const machineIndex = Math.max(0, tracks.findIndex((candidate) => candidate.machineName === track.machineName));
-      const color = palette[machineIndex % palette.length]!;
+      const color = machineColor(machineIndex);
       const valueIndex = 1 + i * 4;
       series.push(
         { label: track.machineName, stroke: color, width: 2, spanGaps: true, points: { show: true, size: 6 } },
@@ -253,12 +253,10 @@
       axes: [
         { stroke: axisColor, grid: { stroke: gridColor, width: 1 } },
         {
-          size: unit === "B" ? 92 : 76,
+          size: (_u, values) => axisSize(values),
           stroke: axisColor,
           grid: { stroke: gridColor, width: 1 },
-          values: (_u, ticks) => ticks.map((tick) =>
-            unit === "B" ? formatMeasurement(Number(tick), "B") : compactAxisValue(Number(tick)),
-          ),
+          values: (_u, ticks) => axisTickLabels(ticks, unit),
         },
       ],
       hooks: {
@@ -353,7 +351,7 @@
   <div class="chart-heading">
     <div class="legend" aria-hidden="true">
       {#each tracks as track, i (track.machineName)}
-        <span><i class="machine" style={`background:${palette[i % palette.length]}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
+        <span><i class="machine" style={`background:${machineColor(i)}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
       {/each}
       <span><i class="mean"></i>rolling mean</span>
       <span><i class="band"></i>{sigma}σ range</span>

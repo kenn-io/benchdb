@@ -6,7 +6,16 @@
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";
-  import { sortRows, windowStartIso, type BrowseRow, type SortKey, type SortSpec } from "../browse/transform";
+  import {
+    groupByRepository,
+    sortRows,
+    statusCounts,
+    windowStartIso,
+    type BrowseRow,
+    type SortKey,
+    type SortSpec,
+  } from "../browse/transform";
+  import { repositoryLabel } from "../repository";
   import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, parseBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
   import BrowseTrendCard from "./BrowseTrendCard.svelte";
@@ -33,10 +42,12 @@
   let moreErrorMsg = $state<string | null>(null);
   let sort = $state<SortSpec | null>(null);
   let searchFilter = $state("");
-  let repositoryFilter = $state("");
-  let exactFiltersOpen = $state(false);
   const chartView = $derived(query.view === "charts");
-  const clearedURL = $derived(`/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, view: query.view })}`);
+  // Clearing filters keeps the project and the view.
+  const clearedURL = $derived(
+    `/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository: query.repository, view: query.view })}`,
+  );
+  const hasFilters = $derived(query.q !== "" || query.hardware !== "" || query.window !== "all");
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table" }));
   let zeroBased = $state(false);
@@ -53,7 +64,6 @@
   $effect(() => {
     const filters = parseBrowseQuery(filterQuery);
     searchFilter = filters.q;
-    repositoryFilter = filters.repository;
     void load(filters);
   });
 
@@ -103,17 +113,6 @@
     navigate(`/series${formatBrowseQuery({ ...query, ...patch })}`);
   }
 
-  function clearFilter(patch: Partial<BrowseQuery>) {
-    setFilter(patch);
-  }
-
-  function submitExactFilters(e: SubmitEvent) {
-    e.preventDefault();
-    setFilter({
-      repository: repositoryFilter.trim(),
-    });
-  }
-
   function updateSearch(value: string) {
     searchFilter = value;
     if (searchTimer !== undefined) clearTimeout(searchTimer);
@@ -152,7 +151,15 @@
     navigate(href);
   }
 
-  let visible = $derived(sortRows(rows, sort));
+  const visible = $derived(sortRows(rows, sort));
+  // With every project in view, each project gets its own section.
+  const groups = $derived(
+    query.repository === ""
+      ? groupByRepository(visible)
+      : [{ repository: query.repository, label: repositoryLabel(query.repository), rows: visible }],
+  );
+  const showGroupHeadings = $derived(groups.length > 1);
+  const counts = $derived(statusCounts(rows));
   let machineOptions = $derived.by((): SelectDropdownOption[] => {
     const names = new Set(rows.flatMap((row) => row.machineNames));
     if (query.hardware !== "") names.add(query.hardware);
@@ -161,201 +168,131 @@
       ...[...names].sort().map((name) => ({ value: name, label: name })),
     ];
   });
-  const windowLabel: Record<BrowseWindow, string> = {
-    all: "all time",
-    "30d": "last 30 days",
-    "3mo": "last 3 months",
-    "1y": "last year",
-  };
   const windowOptions: { value: BrowseWindow; label: string }[] = [
     { value: "all", label: "All time" },
-    { value: "30d", label: "Last 30 days" },
-    { value: "3mo", label: "Last 3 months" },
-    { value: "1y", label: "Last year" },
+    { value: "30d", label: "30 days" },
+    { value: "3mo", label: "3 months" },
+    { value: "1y", label: "1 year" },
   ];
   const yAxisOptions: SelectDropdownOption[] = [
     { value: "zero", label: "Zero baseline" },
     { value: "observed", label: "Observed range" },
   ];
-  let activeFilters = $derived([
-    ...(query.q !== ""
-      ? [{ label: "query", value: query.q, clear: { q: "" }, aria: `Remove query filter ${query.q}` }]
-      : []),
-    ...(query.hardware !== ""
-      ? [{ label: "machine", value: query.hardware, clear: { hardware: "" }, aria: `Remove machine filter ${query.hardware}` }]
-      : []),
-    ...(query.repository !== ""
-      ? [{
-          label: "repository",
-          value: query.repository,
-          clear: { repository: "" },
-          aria: `Remove repository filter ${query.repository}`,
-        }]
-      : []),
-    ...(query.window !== "all"
-      ? [{
-          label: "window",
-          value: windowLabel[query.window],
-          clear: { window: "all" as const },
-          aria: `Remove window filter ${windowLabel[query.window]}`,
-        }]
-      : []),
-  ]);
-  let loadedSummary = $derived(
-    `Showing ${visible.length} loaded ${visible.length === 1 ? "series" : "series"}`,
-  );
+
+  function plural(n: number, word: string): string {
+    return `${n.toLocaleString()} ${n === 1 ? word : `${word}s`}`;
+  }
 </script>
 
 <main class="page series-page">
   <header class="page-header">
     <div>
-      <p class="eyebrow">Benchmark Explorer</p>
-      <h1>Benchmark series</h1>
-      <p class="page-subtitle">
-        Scan benchmark families, current status, recent history, and default-branch coverage.
-      </p>
+      <p class="eyebrow">{query.repository === "" ? "All projects" : repositoryLabel(query.repository)}</p>
+      <h1>Benchmarks</h1>
     </div>
     <div class="header-actions">
-      <div class="page-meta">
-        <span>{loadedSummary}</span>
-        {#if nextCursor !== null}<span>More available</span>{/if}
-      </div>
+      {#if !loading && errorMsg === null}
+        <div class="page-meta" aria-label="Benchmark summary">
+          <span>{plural(rows.length, "benchmark")}{nextCursor !== null ? " loaded" : ""}</span>
+          {#if counts.regressed > 0}<span class="meta-regressed">{counts.regressed} regressed</span>{/if}
+          {#if counts.improved > 0}<span class="meta-improved">{counts.improved} improved</span>{/if}
+        </div>
+      {/if}
       <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Result explorer</a>
     </div>
   </header>
 
   <div class="panel browse-filters">
-    <div class="primary-filters">
-      <div class="filter-row" role="group" aria-label="Series view">
-        <span class="filter-row-label">View</span>
-        <div class="segmented-control">
-          <button type="button" class:active={!chartView} aria-pressed={!chartView}
-            onclick={() => setFilter({ view: "table" })}>Table</button>
-          <button type="button" class:active={chartView} aria-pressed={chartView}
-            onclick={() => setFilter({ view: "charts" })}>Charts</button>
-        </div>
-      </div>
-      <div class="benchmark-search">
-        <SearchInput
-          bind:value={searchFilter}
-          placeholder="Search benchmarks…"
-          ariaLabel="Search benchmarks"
-          oninput={updateSearch}
-          onclear={clearSearch}
-          block
-        />
-      </div>
-      <label class="filter-label machine-select">
-        Machine
-        <SelectDropdown
-          value={query.hardware}
-          options={machineOptions}
-          title="Machine"
-          onchange={(hardware) => setFilter({ hardware })}
-        />
-      </label>
-      <div class="filter-row" role="group" aria-label="Series time window">
-        <span class="filter-row-label">Window</span>
-        <div class="segmented-control">
-          {#each windowOptions as option}
-            <button
-              type="button"
-              class:active={query.window === option.value}
-              aria-pressed={query.window === option.value}
-              onclick={() => setFilter({ window: option.value })}
-            >
-              {option.label}
-            </button>
-          {/each}
-        </div>
-      </div>
+    <div class="benchmark-search">
+      <SearchInput
+        bind:value={searchFilter}
+        placeholder="Search benchmarks…"
+        ariaLabel="Search benchmarks"
+        oninput={updateSearch}
+        onclear={clearSearch}
+        block
+      />
+    </div>
+    <div class="machine-select">
+      <SelectDropdown
+        value={query.hardware}
+        options={machineOptions}
+        title="Machine"
+        onchange={(hardware) => setFilter({ hardware })}
+      />
+    </div>
+    <div class="segmented-control" role="group" aria-label="Time window">
+      {#each windowOptions as option}
+        <button
+          type="button"
+          class:active={query.window === option.value}
+          aria-pressed={query.window === option.value}
+          onclick={() => setFilter({ window: option.value })}
+        >
+          {option.label}
+        </button>
+      {/each}
+    </div>
+    {#if hasFilters}
+      <button type="button" class="button-pill secondary" onclick={() => navigate(clearedURL)}>Clear filters</button>
+    {/if}
+    <div class="view-controls">
       {#if chartView}
-        <label class="filter-label machine-select">
-          Y-axis
+        <div class="y-axis-select">
           <SelectDropdown
             value={zeroBased ? "zero" : "observed"}
             options={yAxisOptions}
             title="Y-axis"
             onchange={(value) => (zeroBased = value === "zero")}
           />
-        </label>
-      {/if}
-    </div>
-    {#if activeFilters.length > 0}
-      <button type="button" class="button-pill secondary" onclick={() => navigate(clearedURL)}>Clear filters</button>
-    {/if}
-  </div>
-
-  <div class="filter-toolbar">
-    <button
-      type="button"
-      class="button-pill secondary"
-      aria-expanded={exactFiltersOpen}
-      onclick={() => (exactFiltersOpen = !exactFiltersOpen)}
-    >
-      Advanced filters
-    </button>
-  </div>
-
-  {#if exactFiltersOpen}
-    <section class="panel filter-disclosure" aria-label="Advanced series filters">
-      <form class="exact-filter-form" onsubmit={submitExactFilters}>
-        <label class="filter-label">
-          Repository URL
-          <input
-            type="url"
-            bind:value={repositoryFilter}
-            placeholder="https://github.com/apache/arrow"
-            autocomplete="off"
-          />
-        </label>
-        <div class="filter-actions">
-          <button type="submit" class="button-pill">Apply advanced filters</button>
-          <a class="button-pill secondary" href={appURL(clearedURL)} onclick={(e) => go(e, clearedURL)}>Clear</a>
         </div>
-      </form>
-    </section>
-  {/if}
-
-  {#if activeFilters.length > 0}
-    <div class="active-filters" role="group" aria-label="Active filters">
-      {#each activeFilters as filter (filter)}
-        <button type="button" class="filter-chip" aria-label={filter.aria} onclick={() => clearFilter(filter.clear)}>
-          <span class="chip-label">{filter.label}</span>
-          <span class="chip-value">{filter.value}</span>
-          <span class="chip-x" aria-hidden="true">&times;</span>
-        </button>
-      {/each}
+      {/if}
+      <div class="segmented-control" role="group" aria-label="View">
+        <button type="button" class:active={!chartView} aria-pressed={!chartView}
+          onclick={() => setFilter({ view: "table" })}>Table</button>
+        <button type="button" class:active={chartView} aria-pressed={chartView}
+          onclick={() => setFilter({ view: "charts" })}>Charts</button>
+      </div>
     </div>
-  {/if}
+  </div>
 
   {#if errorMsg}
     <section class="panel state-panel error-panel" role="alert">
-      <h2>Failed to load series</h2>
+      <h2>Failed to load benchmarks</h2>
       <p>{errorMsg}</p>
     </section>
   {:else if loading}
     <section class="panel state-panel loading-panel" aria-live="polite">
-      <h2>Loading benchmark series</h2>
-      <p>Loading...</p>
+      <p>Loading benchmarks…</p>
     </section>
   {:else if visible.length === 0}
-    <section class="panel state-panel empty-panel" aria-label="No matching benchmark series">
-      <h2>No series match the current filters</h2>
-      <p>Clear active filters or use the global search to open a benchmark family.</p>
+    <section class="panel state-panel empty-panel" aria-label="No matching benchmarks">
+      <h2>{hasFilters ? "No benchmarks match these filters" : "No benchmarks yet"}</h2>
     </section>
   {:else}
-    {#if chartView}
-      <section class="trend-grid" aria-label="Benchmark trend cards">
-        {#each visible as row (row.benchmarkId)}
-          <BrowseTrendCard {row} {baseUrl} {zeroBased} {timeRange} onopen={open} />
-        {/each}
+    {#each groups as group (group.repository)}
+      <section class="benchmark-group" aria-label={group.label}>
+        {#if showGroupHeadings}
+          <h2 class="group-heading">
+            <a class="wrap-anywhere" href={appURL(`/series${formatBrowseQuery({ ...query, repository: group.repository, hardware: "" })}`)}
+              onclick={(e) => go(e, `/series${formatBrowseQuery({ ...query, repository: group.repository, hardware: "" })}`)}
+            >{group.label}</a>
+            <span>{plural(group.rows.length, "benchmark")}</span>
+          </h2>
+        {/if}
+        {#if chartView}
+          <div class="trend-grid">
+            {#each group.rows as row (row.benchmarkId)}
+              <BrowseTrendCard {row} {baseUrl} {zeroBased} {timeRange} onopen={open} />
+            {/each}
+          </div>
+        {:else}
+          <BrowseTable rows={group.rows} {sort} onsort={toggleSort} onopen={open} />
+        {/if}
       </section>
-    {:else}
-      <BrowseTable rows={visible} {sort} onsort={toggleSort} onopen={open} />
-    {/if}
-    {#if sort !== null}
-      <p class="scope-note">Sorting applies to loaded rows. Load more for a broader local sort.</p>
+    {/each}
+    {#if nextCursor !== null}
+      <p class="scope-note">Sorting covers loaded benchmarks only.</p>
     {/if}
     {#if moreErrorMsg}
       <section class="panel state-panel error-panel" role="alert">
@@ -380,47 +317,58 @@
     justify-items: end;
     gap: 8px;
   }
+  .meta-regressed { color: var(--c-error); }
+  .meta-improved { color: var(--c-success); }
   @media (max-width: 760px) {
     .header-actions { justify-items: start; }
   }
   .browse-filters {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     padding: 10px 12px;
   }
 
-  .primary-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: end;
-    gap: 10px;
-  }
-
   .benchmark-search { width: min(320px, 100%); }
   .machine-select { min-width: 180px; }
-  .machine-select :global(.kit-select-dropdown__trigger) { width: 100%; }
+  .y-axis-select { min-width: 150px; }
+  .machine-select :global(.kit-select-dropdown__trigger),
+  .y-axis-select :global(.kit-select-dropdown__trigger) { width: 100%; }
+  .view-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .benchmark-group {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .group-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin: 6px 0 0;
+    font-size: 0.95rem;
+  }
+  .group-heading a {
+    min-width: 0;
+    color: var(--c-text);
+    text-decoration: none;
+  }
+  .group-heading a:hover { text-decoration: underline; }
+  .group-heading span {
+    color: var(--c-text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
   .trend-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
     gap: 10px;
-  }
-
-  .filter-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .filter-row-label {
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
   }
 
   .segmented-control {
@@ -453,24 +401,6 @@
     color: var(--c-on-accent);
   }
 
-  .filter-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .filter-disclosure {
-    padding: 0;
-  }
-
-  .exact-filter-form {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
-    gap: 10px;
-    align-items: end;
-    padding: 0 12px 12px;
-  }
-
   .error-panel h2 {
     color: var(--c-error);
   }
@@ -489,9 +419,6 @@
       align-items: stretch;
       flex-direction: column;
     }
-
-    .exact-filter-form {
-      grid-template-columns: 1fr;
-    }
+    .view-controls { margin-left: 0; }
   }
 </style>

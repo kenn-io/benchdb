@@ -88,7 +88,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectNoDocumentOverflow(page);
     await screenshot(page, "home", suffix, captured);
 
-    await gotoReady(page, "/series?q=ingest-events-10m", /benchmark series/i);
+    await gotoReady(page, "/series?q=ingest-events-10m", /^benchmarks$/i);
     await expect(page.locator("table.browse-table tbody tr").first()).toBeVisible();
     await expectNoDocumentOverflow(page);
     await screenshot(page, "series", suffix, captured);
@@ -129,7 +129,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await expectStackedTableBadgesIntrinsic(page.locator(".runs-table [data-label=\"Errors\"] .status-badge"));
     await screenshot(page, "home", suffix, captured);
 
-    await gotoReady(page, "/series?q=ingest-events-10m", /benchmark series/i);
+    await gotoReady(page, "/series?q=ingest-events-10m", /^benchmarks$/i);
     await expect(page.locator("table.browse-table tbody tr").first()).toBeVisible();
     await expectPrimaryNavLinksInViewport(page);
     await expectNoDocumentOverflow(page);
