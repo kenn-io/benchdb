@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     SelectDropdown,
     type SelectDropdownOption,
@@ -46,8 +46,9 @@
   let errorMsg = $state<string | null>(null);
   let notComparableMsg = $state<string | null>(null);
 
-  // Benchmark-first picker: search a benchmark, then pick two of its commits.
-  // Shown until a baseline+contender pair is in the URL (ready).
+  // Benchmark-first picker: choose a benchmark from the most recently active
+  // ones (filtered by the search box), then pick two of its commits. Shown
+  // until a baseline+contender pair is in the URL (ready).
   let benchmarkQuery = $state("");
   let seriesResults = $state<BrowseRow[]>([]);
   let seriesLoading = $state(false);
@@ -139,17 +140,13 @@
   function onSearchInput(value: string) {
     benchmarkQuery = value;
     clearTimeout(searchTimer);
-    const q = value.trim();
-    if (q === "") {
-      // Cancel any in-flight search and clear the list.
-      searchToken++;
-      seriesResults = [];
-      seriesLoading = false;
-      seriesError = null;
-      return;
-    }
-    searchTimer = setTimeout(() => runSearch(q), 250);
+    searchTimer = setTimeout(() => runSearch(value.trim()), 250);
   }
+
+  onMount(() => {
+    if (!ready) runSearch("");
+    return () => clearTimeout(searchTimer);
+  });
 
   function selectSeries(row: BrowseRow) {
     selectedSeries = row;
@@ -249,6 +246,10 @@
     return Number.isFinite(n) && n > 0 ? n : null;
   }
 
+  function countText(n: number, noun: string): string {
+    return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
+  }
+
   function go(e: MouseEvent, href: string) {
     if (!interceptNavClick(e)) return;
     e.preventDefault();
@@ -281,22 +282,24 @@
           value={benchmarkQuery}
           oninput={(e) => onSearchInput(e.currentTarget.value)}
         />
-        {#if seriesLoading}
-          <p class="hint">Searching…</p>
-        {:else if seriesError}
+        {#if seriesError}
           <p class="error">{seriesError}</p>
-        {:else if benchmarkQuery.trim() === ""}
-          <p class="hint">Start typing to find a benchmark to compare.</p>
         {:else if seriesResults.length === 0}
-          <p class="hint">No benchmarks match “{benchmarkQuery.trim()}”.</p>
+          {#if seriesLoading}
+            <p class="hint">Loading benchmarks…</p>
+          {:else if benchmarkQuery.trim() !== ""}
+            <p class="hint">No benchmarks match “{benchmarkQuery.trim()}”.</p>
+          {:else}
+            <p class="hint">No benchmarks yet.</p>
+          {/if}
         {:else}
-          <ul class="series-results">
+          <ul class="series-results" aria-label="Benchmarks" aria-busy={seriesLoading}>
             {#each seriesResults as row (row.benchmarkId)}
               <li>
                 <button type="button" class="series-option" onclick={() => selectSeries(row)}>
                   <span class="series-name">{row.name}</span>
                   <span class="series-meta">
-                    {[row.paramsText, `${row.machineNames.length} machines`, `${row.pointCount} points`, `latest ${row.svsText}`]
+                    {[row.paramsText, countText(row.machineNames.length, "machine"), countText(row.pointCount, "point"), `latest ${row.svsText}`, row.commitDateText]
                       .filter((part) => part !== "")
                       .join(" · ")}
                   </span>
@@ -313,7 +316,7 @@
           <div>
             <h2>{selectedSeries.name}</h2>
             <p class="series-meta">
-              {[selectedSeries.paramsText, `${selectedSeries.machineNames.length} machines`]
+              {[selectedSeries.paramsText, countText(selectedSeries.machineNames.length, "machine")]
                 .filter((part) => part !== "")
                 .join(" · ")}
             </p>
@@ -695,12 +698,16 @@
   }
 
   .series-results {
+    max-height: min(60vh, 34rem);
     list-style: none;
     margin: 12px 0 0;
     padding: 0;
     border: 1px solid var(--c-border-muted);
     border-radius: var(--radius-md);
-    overflow: hidden;
+    overflow-y: auto;
+  }
+  .series-results[aria-busy="true"] {
+    opacity: 0.6;
   }
   .series-option {
     width: 100%;
