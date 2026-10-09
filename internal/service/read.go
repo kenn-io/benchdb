@@ -95,10 +95,10 @@ type ResultDetail struct {
 	Data               []*float64                 `json:"data"`
 	Times              []*float64                 `json:"times"`
 	Stats              Aggregates                 `json:"stats"`
-	Error              map[string]any             `json:"error" nullable:"true"`
+	Error              NullableObject             `json:"error" nullable:"true"`
 
-	OptionalBenchmarkInfo map[string]any `json:"optional_benchmark_info" nullable:"true"`
-	Validation            map[string]any `json:"validation" nullable:"true"`
+	OptionalBenchmarkInfo NullableObject `json:"optional_benchmark_info" nullable:"true"`
+	Validation            NullableObject `json:"validation" nullable:"true"`
 	ChangeAnnotations     map[string]any `json:"change_annotations"`
 
 	SVS     *float64 `json:"single_value_summary"`

@@ -131,7 +131,7 @@ type CIReportComparison struct {
 	Contender          CIReportSide          `json:"contender"`
 	Baseline           *CIReportBaselineSide `json:"baseline"`
 	Analysis           *CIReportAnalysis     `json:"analysis"`
-	Error              map[string]any        `json:"error" nullable:"true"`
+	Error              NullableObject        `json:"error" nullable:"true"`
 	Reason             *string               `json:"reason,omitempty"`
 	Links              CIReportRowLinks      `json:"links"`
 }
@@ -151,7 +151,7 @@ type CIReportSide struct {
 	ResultTimestamp          time.Time      `json:"result_timestamp"`
 	CommitSHA                *string        `json:"commit_sha"`
 	CommitTimestamp          *time.Time     `json:"commit_timestamp"`
-	Error                    map[string]any `json:"error" nullable:"true"`
+	Error                    NullableObject `json:"error" nullable:"true"`
 	SVS                      *float64       `json:"single_value_summary"`
 	SVSType                  string         `json:"single_value_summary_type"`
 	BeginsDistributionChange bool           `json:"begins_distribution_change"`
