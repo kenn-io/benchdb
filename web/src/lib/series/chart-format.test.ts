@@ -1,24 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { axisTickLabels, compactAxisValue } from "./chart-format";
-
-describe("compactAxisValue", () => {
-  it("formats large throughput values without long clipped labels", () => {
-    expect(compactAxisValue(607_822_601.56)).toBe("608M");
-    expect(compactAxisValue(1_397_000_000)).toBe("1.4B");
-  });
-
-  it("keeps small values readable", () => {
-    expect(compactAxisValue(0)).toBe("0");
-    expect(compactAxisValue(0.01234)).toBe("0.0123");
-    expect(compactAxisValue(-42.4)).toBe("-42.4");
-  });
-
-  it("keeps distinct sub-thousandth ticks distinct", () => {
-    expect(compactAxisValue(0.00012)).toBe("0.00012");
-    expect(compactAxisValue(0.00014)).toBe("0.00014");
-  });
-});
+import { axisTickLabels } from "./chart-format";
 
 describe("axisTickLabels", () => {
   it("labels sub-millisecond second ticks in microseconds", () => {
@@ -34,8 +16,18 @@ describe("axisTickLabels", () => {
     expect(axisTickLabels([0, 0.5, 1, 1.5], "s")).toEqual(["0 s", "0.5 s", "1 s", "1.5 s"]);
   });
 
+  it("keeps narrow observed ranges distinct", () => {
+    expect(axisTickLabels([0.00000101, 0.00000102, 0.00000103, 0.00000104], "s"))
+      .toEqual(["1.01 µs", "1.02 µs", "1.03 µs", "1.04 µs"]);
+    expect(axisTickLabels([1_011_500_000, 1_012_000_000, 1_012_500_000], "B/s"))
+      .toEqual(["1.0115B", "1.012B", "1.0125B"]);
+    expect(axisTickLabels([0, 0.25, 0.5, 0.75], null)).toEqual(["0", "0.25", "0.5", "0.75"]);
+  });
+
   it("uses byte units for byte ticks and compact numbers otherwise", () => {
-    expect(axisTickLabels([1_500_000], "B")).toEqual(["1.5 MB"]);
-    expect(axisTickLabels([1_200_000_000], "B/s")).toEqual(["1.2B"]);
+    expect(axisTickLabels([1_000_000, 1_500_000, 2_000_000], "B")).toEqual(["1 MB", "1.5 MB", "2 MB"]);
+    expect(axisTickLabels([600_000_000, 605_000_000], "B/s")).toEqual(["600M", "605M"]);
+    expect(axisTickLabels([0, 400, 800], null)).toEqual(["0", "400", "800"]);
+    expect(axisTickLabels([-40, -20, 0], null)).toEqual(["-40", "-20", "0"]);
   });
 });
