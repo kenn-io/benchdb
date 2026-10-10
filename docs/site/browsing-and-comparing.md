@@ -8,8 +8,13 @@ The home page summarizes recent benchmark activity. Use it to answer: what just
 ran, how much data did it publish, did any results error, and where is the CI
 report or a sample result?
 
+Navigation lives in a left sidebar: the project switcher, benchmark search,
+Runs, Benchmarks, and Compare, with Account, the API docs, and the theme at the
+bottom. The sidebar collapses to an icon rail, and the browser remembers that
+choice. On narrow screens it opens as a drawer from the menu button.
+
 A project is a repository, identified by the `github.repository` URL that
-results submit. The project switcher in the top bar scopes Runs, Benchmarks,
+results submit. The project switcher in the sidebar scopes Runs, Benchmarks,
 and the series search to one project. The home page and `/series` carry the
 choice as `?repository=<url>`, so shared links stay scoped. Other pages keep the
 last project you chose. `GET /api/repositories` lists the projects.

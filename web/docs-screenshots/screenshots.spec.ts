@@ -124,51 +124,51 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
   } else {
     await gotoReady(page, "/", /benchmark runs/i);
     await expect(page.locator(".runs-table tbody tr").first()).toBeVisible();
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await expectNoDocumentOverflow(page);
     await expectStackedTableBadgesIntrinsic(page.locator(".runs-table [data-label=\"Errors\"] .status-badge"));
     await screenshot(page, "home", suffix, captured);
 
     await gotoReady(page, "/series?q=ingest-events-10m", /^benchmarks$/i);
     await expect(page.locator("table.browse-table tbody tr").first()).toBeVisible();
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await expectNoDocumentOverflow(page);
     await screenshot(page, "series", suffix, captured);
 
     await gotoTrend(page, targets.benchmarkID);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "trend", suffix, captured);
 
     await gotoReady(page, `/results/${encodeURIComponent(targets.latestResultID)}`, /ingest-events-10m/i);
     await expect(page.getByRole("link", { name: /explore full series/i })).toBeVisible();
     await expectPaintedCanvas(page.locator(".trend-hero canvas").first());
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await expectNoDocumentOverflow(page);
     await expectDefinitionListRows(page.locator('[aria-label="Result measurement"] .compact-dl'));
     await screenshot(page, "result", suffix, captured);
 
     await gotoResults(page, targets.runID);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "results", suffix, captured);
 
     await gotoRun(page, targets.runID);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "run", suffix, captured);
 
     await gotoBatch(page, targets.batchID);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "batch", suffix, captured);
 
     await gotoCompare(page, targets.baselineResultID, targets.contenderResultID);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "compare", suffix, captured);
 
     await gotoCIReport(page, targets);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "ci-report", suffix, captured);
 
     await gotoAccount(page);
-    await expectPrimaryNavLinksInViewport(page);
+    await expectNavigationReachable(page);
     await screenshot(page, "account", suffix, captured);
   }
 
@@ -318,6 +318,21 @@ async function expectPaintedCanvas(canvas: Locator) {
 async function expectNoDocumentOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+// On phones the sidebar is a drawer: its links must fit on screen once the
+// menu button opens it, and the screenshot itself shows the closed drawer.
+async function expectNavigationReachable(page: Page) {
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  await expect(menu).toBeVisible();
+  await menu.click();
+  const drawer = page.locator(".sidebar.drawer-open");
+  await expect(drawer).toBeVisible();
+  // Let the slide-in finish before measuring the links.
+  await expect.poll(async () => (await drawer.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+  await expectPrimaryNavLinksInViewport(page);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".sidebar.drawer-open")).toHaveCount(0);
 }
 
 async function expectPrimaryNavLinksInViewport(page: Page) {
