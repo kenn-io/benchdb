@@ -19,6 +19,9 @@
   const client = $derived(createBenchDBClient(baseUrl));
 
   let vm = $state<RunPageViewModel | null>(null);
+  // Set once from the first results page. Loading more results must not
+  // refetch the report and reset the rows the reader expanded.
+  let comparisonQuery = $state<CIReportQuery | null>(null);
   let loading = $state(true);
   let loadingMore = $state(false);
   let errorMsg = $state<string | null>(null);
@@ -33,6 +36,7 @@
     errorMsg = null;
     try {
       vm = await loadRunPage(client, runId);
+      comparisonQuery = reportQuery(vm);
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
     } finally {
@@ -189,7 +193,9 @@
       </div>
     </header>
 
-    <CIReportView query={reportQuery(vm)} {baseUrl} />
+    {#if comparisonQuery}
+      <CIReportView query={comparisonQuery} {baseUrl} />
+    {/if}
 
     <details class="panel results-panel">
       <summary>

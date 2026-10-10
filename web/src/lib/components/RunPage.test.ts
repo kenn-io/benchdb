@@ -196,6 +196,31 @@ describe("RunPage", () => {
     expect(GET).toHaveBeenCalledWith("/api/benchmark-results", { params: { run_id: "run-a", page_size: 100, cursor: "cur2" } });
   });
 
+  it("keeps the loaded report and expanded rows when more results load", async () => {
+    const stableRow = {
+      ...report().runs[0]!.comparisons[0]!,
+      status: "stable",
+      name: "StableBench",
+      history_fingerprint: "fp-stable",
+    };
+    const withStable = report({ runs: [{ ...report().runs[0]!, comparisons: [...report().runs[0]!.comparisons, stableRow] }] });
+    routeGET(
+      [
+        { status: 200, data: { results: [result("r1")], next_page_cursor: "cur2" } },
+        { status: 200, data: { results: [result("r2")], next_page_cursor: null } },
+      ],
+      { status: 200, data: withStable },
+    );
+    render(RunPage, { props: { runId: "run-a" } });
+    await fireEvent.click(await screen.findByRole("button", { name: "Show 1 stable comparison" }));
+    expect(screen.getByText("StableBench")).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByRole("link", { name: "Open result r2 for AceroAggregate" });
+    expect(screen.getByText("StableBench")).toBeInTheDocument();
+    expect(GET.mock.calls.filter(([url]) => url === "/api/ci/report")).toHaveLength(1);
+  });
+
   it("shows empty and error states", async () => {
     GET.mockResolvedValueOnce({ status: 200,  data: { results: [], next_page_cursor: null } });
     const { unmount } = render(RunPage, { props: { runId: "run-a" } });
