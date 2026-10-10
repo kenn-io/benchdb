@@ -44,7 +44,7 @@
       "id": "run",
       "title": "Run detail",
       "path": "/runs/:run_id",
-      "purpose": "Inspect one run_id, its result rows, CI report link, batches, and series links."
+      "purpose": "Compare one run with its baseline, then open its result rows, batches, and series links."
     },
     {
       "id": "batch",

@@ -5,7 +5,8 @@
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import { loadRunPage, type RunPageViewModel, type RunResultRow } from "../run/loader";
-  import { interceptNavClick, navigate } from "../router";
+  import { interceptNavClick, navigate, type CIReportQuery } from "../router";
+  import CIReportView from "./CIReportView.svelte";
 
   let {
     runId,
@@ -46,16 +47,12 @@
     try {
       const page = await loadRunPage(client, runId, vm.nextCursor);
       const rows = [...vm.rows, ...page.rows];
-      const loaded = loadedWindow(rows);
       vm = {
         ...vm,
         rows,
         loadedResults: vm.loadedResults + page.loadedResults,
         loadedErrors: vm.loadedErrors + page.loadedErrors,
-        loadedSeries: unionCount(vm.rows, page.rows, (row) => row.historyFingerprint),
-        loadedBatches: unionCount(vm.rows, page.rows, (row) => row.batchId ?? ""),
-        firstLoadedAt: loaded.firstLoadedAt,
-        lastLoadedAt: loaded.lastLoadedAt,
+        firstLoadedAt: rows.map((row) => row.timestamp).sort()[0] ?? null,
         nextCursor: page.nextCursor,
       };
     } catch (err) {
@@ -65,18 +62,7 @@
     }
   }
 
-  function unionCount<T>(left: T[], right: T[], key: (row: T) => string): number {
-    const keys = new Set([...left, ...right].map(key).filter(Boolean));
-    return keys.size;
-  }
 
-  function loadedWindow(rows: RunResultRow[]): Pick<RunPageViewModel, "firstLoadedAt" | "lastLoadedAt"> {
-    const timestamps = rows.map((row) => row.timestamp).sort();
-    return {
-      firstLoadedAt: timestamps[0] ?? null,
-      lastLoadedAt: timestamps[timestamps.length - 1] ?? null,
-    };
-  }
 
   function go(e: MouseEvent, href: string) {
     if (!interceptNavClick(e)) return;
@@ -88,6 +74,23 @@
     if (vm?.ciReportHref) {
       go(e, vm.ciReportHref);
     }
+  }
+
+  // The same comparison the Runs page links to: this run against the
+  // default-branch run at its fork point. Without commit metadata the server
+  // infers the baseline from the run alone.
+  function reportQuery(model: RunPageViewModel): CIReportQuery {
+    const byCommit = model.repository !== "" && model.commitSha !== null;
+    return {
+      saved: false,
+      repository: byCommit ? model.repository : "",
+      commit: byCommit ? model.commitSha! : "",
+      runIDs: model.runId,
+      baselineRunIDs: "",
+      baseline: byCommit ? "fork_point" : "",
+      threshold: "",
+      thresholdZ: "",
+    };
   }
 
   function formatTime(value: string | null): string {
@@ -145,20 +148,26 @@
     </section>
   </main>
 {:else}
+  {@const showBatch = vm.rows.some((row) => row.batchId !== null)}
+  {@const showErrors = vm.loadedErrors > 0}
   <main class="page run-page">
     <header class="page-header">
       <div>
         <p class="eyebrow">{vm.repositoryLabel}</p>
         <h1>{vm.primaryLabel}</h1>
         <p class="page-subtitle run-subtitle">
-          <span>{vm.secondaryLabel}</span>
+          {#if vm.authorAvatar}
+            <img class="author-avatar" src={vm.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
+          {/if}
           {#if vm.authorLabel !== "unknown author"}
             <span>{vm.authorLabel}{vm.authorLogin ? ` @${vm.authorLogin}` : ""}</span>
           {/if}
+          <span class="mono" title={vm.runId}>{vm.secondaryLabel}</span>
+          <span>{formatTime(vm.firstLoadedAt)}</span>
         </p>
       </div>
       <div class="page-meta">
-        <span class="wrap-anywhere">{vm.runReason ?? "reason not set"}</span>
+        {#if vm.runReason}<span class="wrap-anywhere">{vm.runReason}</span>{/if}
         {#if vm.commitHref && vm.shortCommit}
           <a
             class="mono wrap-anywhere"
@@ -167,97 +176,34 @@
             target="_blank"
             rel="noreferrer"
           >{vm.shortCommit}</a>
-        {:else}
-          <span class="mono wrap-anywhere">{vm.shortCommit ?? "commit not set"}</span>
+        {:else if vm.shortCommit}
+          <span class="mono wrap-anywhere">{vm.shortCommit}</span>
         {/if}
-      </div>
-    </header>
-
-    <p class="summary-line" aria-label="Run summary">
-      <span class="summary-item">
-        {plural(vm.loadedResults, "result")}{vm.nextCursor === null ? "" : "+"}
-      </span>
-      <span class="summary-item" class:alert={vm.loadedErrors > 0}>{plural(vm.loadedErrors, "error")}</span>
-      <span class="summary-item">{plural(vm.loadedSeries, "series", "series")}</span>
-      <span class="summary-item">{plural(vm.loadedBatches, "batch", "batches")}</span>
-    </p>
-
-    <section class="panel context-panel" aria-label="Run context">
-      <div class="key-value-grid">
-        <dl class="key-value">
-          <dt>repository</dt>
-          <dd>{vm.repositoryLabel}</dd>
-        </dl>
-        <dl class="key-value">
-          <dt>author</dt>
-          <dd>
-            <span class="author-inline">
-              {#if vm.authorAvatar}
-                <img src={vm.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
-              {/if}
-              <span>{vm.authorLabel}</span>
-            </span>
-          </dd>
-        </dl>
-        <dl class="key-value">
-          <dt>commit</dt>
-          <dd>
-            {#if vm.commitHref && vm.shortCommit}
-              <a
-                class="mono"
-                href={vm.commitHref}
-                aria-label={`Open commit ${vm.shortCommit} on GitHub`}
-                target="_blank"
-                rel="noreferrer"
-              >{vm.shortCommit}</a>
-            {:else}
-              <span class="mono">{vm.shortCommit ?? "not set"}</span>
-            {/if}
-          </dd>
-        </dl>
-        <dl class="key-value">
-          <dt>run</dt>
-          <dd class="mono wrap-anywhere" title={vm.runId}>{vm.displayRunId}</dd>
-        </dl>
-        <dl class="key-value">
-          <dt>loaded window</dt>
-          <dd class="window-range">
-            <span>{formatTime(vm.firstLoadedAt)}</span>
-            <span>to</span>
-            <span>{formatTime(vm.lastLoadedAt)}</span>
-          </dd>
-        </dl>
-      </div>
-      <div class="context-actions action-row">
         {#if vm.ciReportHref}
           <a
-            class="button-pill"
             href={appURL(vm.ciReportHref)}
             aria-label={`Open CI report for run ${vm.runId}`}
             onclick={goCIReport}
           >CI report</a>
         {/if}
-        <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
       </div>
-    </section>
+    </header>
 
-    <section class="panel table-panel" aria-label="Run results">
+    <CIReportView query={reportQuery(vm)} {baseUrl} />
+
+    <details class="panel results-panel">
+      <summary>
+        <strong>Results</strong>
+        <span>{plural(vm.loadedResults, "result")}{vm.nextCursor === null ? "" : "+"}</span>
+        {#if showErrors}<span class="alert">{plural(vm.loadedErrors, "error")}</span>{/if}
+      </summary>
       <table class="data-table stacked-table run-results-table">
-        <colgroup>
-          <col class="benchmark-col" />
-          <col class="measure-col" />
-          <col class="status-col" />
-          <col class="batch-col" />
-          <col class="time-col" />
-          <col class="actions-col" />
-        </colgroup>
         <thead>
           <tr>
             <th>Benchmark</th>
             <th>Measurement</th>
-            <th>Status</th>
-            <th>Batch</th>
-            <th>Time</th>
+            {#if showErrors}<th>Status</th>{/if}
+            {#if showBatch}<th>Batch</th>{/if}
             <th>Open</th>
           </tr>
         </thead>
@@ -271,63 +217,54 @@
                   aria-label={`Open result ${row.id} for ${row.benchmarkName}`}
                   onclick={(e) => go(e, row.resultHref)}
                 >{row.benchmarkName}</a>
-                <div class="row-metadata">
-                  <span class="muted-detail mono" title={row.id}>result {row.displayResultId}</span>
-                  {#each tagSummary(row.benchmarkTags) as tag}
-                    <span class="tag-chip">{tag}</span>
-                  {/each}
-                </div>
-              </td>
-              <td data-label="Measurement" class="numeric">
-                <strong>{formatSVS(row)}</strong>
-                <span class="subtle-inline">{row.singleValueSummaryType}</span>
-              </td>
-              <td data-label="Status">
-                <span class={`status-badge ${row.hasError ? "warning" : "success"}`}>
-                  {row.hasError ? "error" : "ok"}
-                </span>
-              </td>
-              <td data-label="Batch">
-                {#if row.batchId && row.batchHref}
-                  <a
-                    class="mono"
-                    href={appURL(row.batchHref)}
-                    aria-label={`Open batch ${row.batchId}`}
-                    title={row.batchId}
-                    onclick={(e) => go(e, row.batchHref!)}
-                  >
-                    {row.displayBatchId}
-                  </a>
-                {:else}
-                  not set
+                {#if tagSummary(row.benchmarkTags).length > 0}
+                  <div class="row-metadata">
+                    {#each tagSummary(row.benchmarkTags) as tag}
+                      <span class="tag-chip">{tag}</span>
+                    {/each}
+                  </div>
                 {/if}
               </td>
-              <td data-label="Time">{formatTime(row.timestamp)}</td>
-              <td data-label="Open">
-                <div class="inline-actions table-actions">
-                  {#if row.trendHref !== null}
-                    {@const trendHref = row.trendHref}
+              <td data-label="Measurement" class="numeric" title={row.singleValueSummaryType}>
+                {formatSVS(row)}
+              </td>
+              {#if showErrors}
+                <td data-label="Status">
+                  <span class={`status-badge ${row.hasError ? "warning" : "success"}`}>
+                    {row.hasError ? "error" : "ok"}
+                  </span>
+                </td>
+              {/if}
+              {#if showBatch}
+                <td data-label="Batch">
+                  {#if row.batchId && row.batchHref}
                     <a
-                      class="inline-action-link"
-                      href={appURL(trendHref)}
-                      aria-label={`Open series trend for ${row.benchmarkName} result ${row.id}`}
-                      onclick={(e) => go(e, trendHref)}
-                    >Trend</a>
+                      class="mono"
+                      href={appURL(row.batchHref)}
+                      aria-label={`Open batch ${row.batchId}`}
+                      title={row.batchId}
+                      onclick={(e) => go(e, row.batchHref!)}
+                    >
+                      {row.displayBatchId}
+                    </a>
                   {/if}
+                </td>
+              {/if}
+              <td data-label="Open">
+                {#if row.trendHref !== null}
+                  {@const trendHref = row.trendHref}
                   <a
                     class="inline-action-link"
-                    href={appURL(row.resultHref)}
-                    aria-label={`Open result ${row.id}`}
-                    onclick={(e) => go(e, row.resultHref)}
-                  >Result</a>
-                </div>
+                    href={appURL(trendHref)}
+                    aria-label={`Open series trend for ${row.benchmarkName} result ${row.id}`}
+                    onclick={(e) => go(e, trendHref)}
+                  >Trend</a>
+                {/if}
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </section>
-
     {#if moreErrorMsg}
       <p class="error">Failed to load more: {moreErrorMsg}</p>
     {/if}
@@ -336,6 +273,7 @@
         {loadingMore ? "Loading…" : "Load more"}
       </button>
     {/if}
+    </details>
   </main>
 {/if}
 
@@ -349,35 +287,42 @@
   .run-subtitle {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px 12px;
   }
-  .run-results-table .benchmark-col {
-    width: 38%;
+  .author-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--c-surface-subtle);
   }
-  .run-results-table .measure-col {
-    width: 15%;
+  .results-panel {
+    padding: 0;
+    overflow: hidden;
   }
-  .run-results-table .status-col {
-    width: 8%;
+  .results-panel summary {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
   }
-  .run-results-table .batch-col {
-    width: 18%;
+  .results-panel summary span {
+    color: var(--c-text-muted);
+    font-size: 0.8rem;
   }
-  .run-results-table .time-col {
-    width: 11%;
+  .results-panel summary .alert {
+    color: var(--c-error);
   }
-  .run-results-table .actions-col {
-    width: 10%;
+  .results-panel .more {
+    margin: 10px 12px 12px;
   }
-  .row-metadata,
-  .table-actions {
+  .row-metadata {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 8px;
     min-width: 0;
-  }
-  .row-metadata {
     margin-top: 4px;
   }
   .tag-chip {
@@ -388,45 +333,5 @@
     padding: 1px 6px;
     font-size: 0.68rem;
     line-height: 1.35;
-  }
-  .subtle-inline {
-    color: var(--c-text-muted);
-    font-size: 0.76rem;
-    margin-left: 4px;
-  }
-  .author-inline {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-  .author-inline img {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--c-surface-subtle);
-  }
-  .context-panel {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 12px;
-  }
-  .context-panel .key-value-grid {
-    flex: 1;
-    min-width: 0;
-  }
-  .context-actions {
-    align-content: flex-start;
-  }
-  .window-range {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 6px;
-  }
-  @media (max-width: 1120px) {
-    .context-panel {
-      flex-direction: column;
-    }
   }
 </style>

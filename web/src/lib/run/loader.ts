@@ -41,8 +41,6 @@ export interface RunPageViewModel {
   runTags: Record<string, unknown>;
   loadedResults: number;
   loadedErrors: number;
-  loadedSeries: number;
-  loadedBatches: number;
   repository: string;
   repositoryLabel: string;
   commitSha: string | null;
@@ -53,7 +51,6 @@ export interface RunPageViewModel {
   authorLogin: string | null;
   authorAvatar: string | null;
   firstLoadedAt: string | null;
-  lastLoadedAt: string | null;
   ciReportHref: string | null;
   rows: RunResultRow[];
   nextCursor: string | null;
@@ -102,8 +99,6 @@ function toRunPage(runId: string, results: ResultItem[], nextCursor: string | nu
     runTags: newest?.run_tags ?? {},
     loadedResults: results.length,
     loadedErrors: results.filter((row) => row.has_error).length,
-    loadedSeries: new Set(results.map((row) => row.history_fingerprint)).size,
-    loadedBatches: new Set(results.map((row) => row.batch_id).filter(Boolean)).size,
     repository,
     repositoryLabel: formatRepositoryLabel(repository),
     commitSha,
@@ -114,7 +109,6 @@ function toRunPage(runId: string, results: ResultItem[], nextCursor: string | nu
     authorLogin,
     authorAvatar: usableHTTPURL(newest?.commit?.author_avatar ?? null),
     firstLoadedAt: timestamps[0] ?? null,
-    lastLoadedAt: timestamps[timestamps.length - 1] ?? null,
     ciReportHref: ciReportHref(repository, commitSha, runId),
     rows,
     nextCursor,

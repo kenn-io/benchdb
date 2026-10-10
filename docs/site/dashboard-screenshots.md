@@ -73,7 +73,7 @@ UI instead of hand-picked local captures.
 | Trend detail | `/benchmarks/:benchmark_id?range=all` | Inspect fleet history, charted trends, and sample rows for one benchmark. |
 | Result detail | `/results/:id` | Inspect one benchmark result, measurement, metadata, and read-only actions. |
 | Results list | `/results?run_id=...` | Browse submitted benchmark results, filter by run or batch, and jump into detail or trends. |
-| Run detail | `/runs/:run_id` | Inspect one run_id, its result rows, CI report link, batches, and series links. |
+| Run detail | `/runs/:run_id` | Compare one run with its baseline, then open its result rows, batches, and series links. |
 | Batch detail | `/batches/:batch_id` | Inspect one batch_id across runs, CI reports, result rows, and series links. |
 | Compare | `/compare?baseline=:id&contender=:id` | Compare two results with pairwise and lookback diagnostics. |
 | CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review PR/CI regression status, filters, investigation queue, and row verdicts. |

@@ -46,16 +46,76 @@ const formatTime = (value: string) =>
     hour12: false,
   }).format(new Date(value));
 
+function report(overrides: Record<string, unknown> = {}) {
+  return {
+    repository: "https://github.com/apache/arrow",
+    commit_sha: "abcdef123456",
+    selected_run_ids: ["run-a"],
+    missing_run_ids: [],
+    baseline: "fork_point",
+    status: "failure",
+    status_reason: "lookback regression detected",
+    threshold: 5,
+    threshold_z: 5,
+    report_url: "",
+    summary: {
+      runs: 1, missing_runs: 0, contender_results: 1, compared: 1, analyzed: 1, regressions: 1,
+      improvements: 0, benchmark_errors: 0, missing_baseline: 0, not_comparable: 0,
+    },
+    runs: [{
+      run_id: "run-a",
+      run_reason: "nightly",
+      run_tags: {},
+      commit: { id: "c", sha: "abcdef123456", repository: "https://github.com/apache/arrow", message: "", timestamp: null },
+      baseline_run_id: "main-run",
+      baseline_commit: null,
+      commits_skipped: [],
+      baseline_error: null,
+      comparisons: [{
+        status: "regressed",
+        name: "AceroAggregate",
+        tags: {}, context: {}, info: {},
+        hardware: { id: "hw", type: "machine", name: "m5", hash: "h" },
+        history_fingerprint: "fp-r1",
+        unit: "s",
+        less_is_better: true,
+        contender: {
+          result_id: "r1", run_id: "run-a", result_timestamp: "2026-01-02T00:00:00Z", commit_sha: "abcdef123456",
+          commit_timestamp: null, error: null, single_value_summary: 1.5, single_value_summary_type: "min",
+          begins_distribution_change: false,
+        },
+        baseline: {
+          result_id: "b1", run_id: "main-run", result_timestamp: "2026-01-01T00:00:00Z", commit_sha: "base",
+          commit_timestamp: null, error: null, single_value_summary: 1.0, single_value_summary_type: "min",
+          begins_distribution_change: false,
+        },
+        analysis: {
+          pairwise: { percent_change: -50, percent_threshold: 5, regression_indicated: true, improvement_indicated: false },
+          lookback_z_score: { z_score: -9, z_threshold: 2, regression_indicated: true, improvement_indicated: false },
+        },
+        error: null,
+        links: { result: "/results/r1", compare: "/compare?baseline=b1&contender=r1", series: "/series/fp-r1" },
+      }],
+    }],
+    ...overrides,
+  };
+}
+
+function routeGET(pages: unknown[], reportResponse: unknown = { status: 200, data: report() }) {
+  const queue = [...pages];
+  GET.mockImplementation(async (url: string) => (url === "/api/ci/report" ? reportResponse : queue.shift()));
+}
+
 beforeEach(() => {
   GET.mockReset();
   window.history.replaceState(null, "", "/runs/run-a");
 });
 
 describe("RunPage", () => {
-  it("renders run metadata, result rows, and investigation links", async () => {
-    GET.mockResolvedValueOnce({ status: 200,
+  it("shows the run's comparison with its baseline above the collapsed results", async () => {
+    routeGET([{ status: 200,
       data: { results: [result("r2", { has_error: true }), result("r1")], next_page_cursor: null },
-    });
+    }]);
 
     render(RunPage, { props: { runId: "run-a" } });
 
@@ -63,51 +123,77 @@ describe("RunPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /improve vector kernel dispatch/i })).toBeInTheDocument(),
     );
-    expect(screen.getByText(/^2 results\+?$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^1 error$/i)).toBeInTheDocument();
-    for (const link of screen.getAllByRole("link", { name: "Open commit abcdef12 on GitHub" })) {
-      expect(link).toHaveAttribute("href", "https://github.com/apache/arrow/commit/abcdef123456");
-    }
+    expect(screen.getByText(formatTime("2026-01-02T00:00:00Z"))).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open commit abcdef12 on GitHub" }))
+      .toHaveAttribute("href", "https://github.com/apache/arrow/commit/abcdef123456");
     expect(screen.getByRole("link", { name: "Open CI report for run run-a" })).toHaveAttribute(
       "href",
       "/ci/report?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&commit_sha=abcdef123456&run_ids=run-a&baseline=fork_point",
     );
-    expect(screen.getAllByRole("link", { name: "Open batch batch-a" })[0]).toHaveAttribute(
-      "href",
-      "/batches/batch-a",
-    );
-    expect(screen.getByRole("link", { name: "Open result r2 for AceroAggregate" })).toHaveAttribute(
-      "href",
-      "/results/r2",
-    );
-    expect(screen.queryByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Open series trend for AceroAggregate result r1" })).toHaveAttribute(
-      "href",
-      "/benchmarks/history/r1",
-    );
+
+    const summary = await screen.findByLabelText("CI report summary");
+    expect(summary).toHaveTextContent("lookback regression detected");
+    expect(GET).toHaveBeenCalledWith("/api/ci/report", { params: {
+      repository: "https://github.com/apache/arrow", commit_sha: "abcdef123456", run_ids: "run-a", baseline: "fork_point",
+    } });
+    const comparisons = screen.getByRole("region", { name: "Run run-a" });
+    expect(within(comparisons).getByText("+50.0% worse")).toBeInTheDocument();
+
+    const results = screen.getByText("Results").closest("details")!;
+    expect(results).not.toHaveAttribute("open");
+    expect(within(results).getByText("2 results")).toBeInTheDocument();
+    expect(within(results).getByText("1 error")).toBeInTheDocument();
+    expect(within(results).getByRole("link", { name: "Open result r2 for AceroAggregate" }))
+      .toHaveAttribute("href", "/results/r2");
+    expect(within(results).getAllByRole("link", { name: "Open batch batch-a" })[0])
+      .toHaveAttribute("href", "/batches/batch-a");
+    expect(within(results).queryByRole("link", { name: "Open series trend for AceroAggregate result r2" })).toBeNull();
+    expect(within(results).getByRole("link", { name: "Open series trend for AceroAggregate result r1" }))
+      .toHaveAttribute("href", "/benchmarks/history/r1");
   });
 
-  it("loads more results, appends them, and expands the loaded window", async () => {
-    GET.mockResolvedValueOnce({ status: 200,  data: { results: [result("r1")], next_page_cursor: "cur2" } });
-    GET.mockResolvedValueOnce({ status: 200,
-      data: {
-        results: [result("r2", { timestamp: "2026-01-03T00:00:00Z" })],
-        next_page_cursor: null,
-      },
-    });
+  it("omits batch and status columns that would be empty", async () => {
+    routeGET([{ status: 200, data: { results: [result("r1", { batch_id: null })], next_page_cursor: null } }]);
+    render(RunPage, { props: { runId: "run-a" } });
+    const results = (await screen.findByText("Results")).closest("details")!;
+    const headers = within(results).getAllByRole("columnheader").map((th) => th.textContent);
+    expect(headers).toEqual(["Benchmark", "Measurement", "Open"]);
+  });
+
+  it("asks the server to infer the baseline when the run has no commit", async () => {
+    routeGET([{ status: 200, data: { results: [result("r1", { commit: null })], next_page_cursor: null } }]);
+    render(RunPage, { props: { runId: "run-a" } });
+    await screen.findByLabelText("CI report summary");
+    expect(GET).toHaveBeenCalledWith("/api/ci/report", { params: { run_ids: "run-a" } });
+  });
+
+  it("keeps the results when the comparison fails to load", async () => {
+    routeGET(
+      [{ status: 200, data: { results: [result("r1")], next_page_cursor: null } }],
+      { status: 422, data: { detail: "no baseline run" } },
+    );
+    render(RunPage, { props: { runId: "run-a" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("no baseline run");
+    expect(screen.getByRole("link", { name: "Open result r1 for AceroAggregate" })).toBeInTheDocument();
+  });
+
+  it("loads more results and appends them", async () => {
+    routeGET([
+      { status: 200, data: { results: [result("r1")], next_page_cursor: "cur2" } },
+      { status: 200, data: { results: [result("r2", { timestamp: "2026-01-03T00:00:00Z" })], next_page_cursor: null } },
+    ]);
 
     render(RunPage, { props: { runId: "run-a" } });
     await waitFor(() => screen.getByRole("link", { name: "Open result r1 for AceroAggregate" }));
-    const runContext = screen.getByRole("region", { name: /run context/i });
-    expect(within(runContext).getAllByText(formatTime("2026-01-02T00:00:00Z"))).toHaveLength(2);
+    expect(screen.getByText("1 result+")).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Open result r2 for AceroAggregate" })).toBeInTheDocument(),
     );
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
-    expect(within(runContext).getByText(formatTime("2026-01-03T00:00:00Z"))).toBeInTheDocument();
-    expect(GET).toHaveBeenLastCalledWith("/api/benchmark-results", { params: { run_id: "run-a", page_size: 100, cursor: "cur2" } });
+    expect(screen.getByText("2 results")).toBeInTheDocument();
+    expect(GET).toHaveBeenCalledWith("/api/benchmark-results", { params: { run_id: "run-a", page_size: 100, cursor: "cur2" } });
   });
 
   it("shows empty and error states", async () => {

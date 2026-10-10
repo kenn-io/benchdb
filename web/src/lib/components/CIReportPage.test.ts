@@ -299,7 +299,7 @@ describe("CIReportPage", () => {
     GET.mockResolvedValue({ status: 200,  data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
 
-    await waitFor(() => screen.getByRole("button", { name: /overview 4/i }));
+    await waitFor(() => screen.getByRole("button", { name: /^all 4$/i }));
 
     expect(screen.getByLabelText(/search comparisons/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/machine/i)).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("CIReportPage", () => {
     expect(within(queue).getByText("regress-bench")).toBeInTheDocument();
     expect(within(queue).getByText("errored-bench")).toBeInTheDocument();
     expect(within(queue).queryByText("missing-bench")).toBeNull();
-    expect(within(queue).getAllByText(/delta -233\.3% · z -10\.47/i).length).toBeGreaterThan(0);
+    expect(within(queue).getAllByText(/delta \+233\.3% worse · z -10\.47/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /jump to regressed/i })).toHaveAttribute(
       "href",
       "/#ci-row-regressed-ci-run-fp-regressed",
@@ -349,7 +349,7 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("regress-bench")).toBeNull();
     expect(screen.queryByText("stable-bench")).toBeNull();
 
-    await fireEvent.click(screen.getByRole("button", { name: /overview 4/i }));
+    await fireEvent.click(screen.getByRole("button", { name: /^all 4$/i }));
     await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "m6" } });
     expect(screen.getByRole("region", { name: /missing baseline coverage for ci-run/i })).toBeInTheDocument();
     expect(screen.queryByText("missing-bench")).toBeNull();
@@ -359,7 +359,7 @@ describe("CIReportPage", () => {
     expect(screen.getAllByText("missing-bench").length).toBeGreaterThan(0);
 
     await fireEvent.change(screen.getByLabelText(/machine/i), { target: { value: "all" } });
-    await fireEvent.click(screen.getByRole("button", { name: /overview 4/i }));
+    await fireEvent.click(screen.getByRole("button", { name: /^all 4$/i }));
     await fireEvent.input(screen.getByLabelText(/search comparisons/i), { target: { value: "stable" } });
     expect(screen.getAllByText("stable-bench").length).toBeGreaterThan(0);
     expect(screen.queryByText("missing-bench")).toBeNull();
@@ -395,7 +395,7 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("bench-200")).not.toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /show more/i }));
-    expect(screen.getByText(/showing 250 of 250 comparisons/i)).toBeInTheDocument();
+    expect(screen.queryByText(/showing \d+ of/i)).toBeNull();
     expect(screen.getAllByText("bench-249").length).toBeGreaterThan(0);
   });
 
@@ -413,17 +413,29 @@ describe("CIReportPage", () => {
     expect(screen.queryByText("bench-199")).not.toBeInTheDocument();
   });
 
-  it("expands a run before jumping to an issue past the rendered row cap", async () => {
+  it("lists a regression first and collapses stable rows behind a toggle", async () => {
     GET.mockResolvedValue({ status: 200,  data: withLateRegression(250, 240) });
     render(CIReportPage, { props: { query: QUERY } });
 
-    await waitFor(() => screen.getByText(/showing 200 of 250 comparisons/i));
-    expect(document.getElementById("ci-row-regressed-ci-run-fp-240")).toBeNull();
+    const run = await screen.findByRole("region", { name: "Run ci-run" });
+    const names = within(run).getAllByRole("row").slice(1).map((row) => row.querySelector(".bench-name")?.textContent);
+    expect(names).toEqual(["bench-240"]);
 
-    await fireEvent.click(screen.getByRole("link", { name: /jump to regressed/i }));
+    await fireEvent.click(within(run).getByRole("button", { name: "Show 249 stable comparisons" }));
+    expect(screen.getByText(/showing 200 of 250 comparisons/i)).toBeInTheDocument();
+    const shown = within(run).getAllByRole("row").slice(1, 4).map((row) => row.querySelector(".bench-name")?.textContent);
+    expect(shown).toEqual(["bench-240", "bench-0", "bench-1"]);
+    expect(within(run).queryByRole("button", { name: /stable comparisons/i })).toBeNull();
+  });
 
-    await waitFor(() => expect(document.getElementById("ci-row-regressed-ci-run-fp-240")).not.toBeNull());
-    expect(window.location.hash).toBe("#ci-row-regressed-ci-run-fp-240");
+  it("shows the raw change with its direction", async () => {
+    GET.mockResolvedValue({ status: 200, data: report });
+    render(CIReportPage, { props: { query: QUERY } });
+    const run = await screen.findByRole("region", { name: "Run ci-run" });
+    // percent_change -233.3 is oriented (negative = worse); the time went up.
+    expect(within(run).getByText("+233.3% worse")).toBeInTheDocument();
+    expect(within(run).getByText("100 s")).toBeInTheDocument();
+    expect(within(run).getByText("30 s")).toBeInTheDocument();
   });
 
   it("uses the default row limit for run IDs that match object prototype keys", async () => {
@@ -444,8 +456,9 @@ it("keeps a suppressed change visible with its tolerance explanation", async () 
   }});
   GET.mockResolvedValue({data: {...report, status: "success", status_reason: "no regressions", summary: {...report.summary, regressions: 0}, runs: [{...report.runs[0], comparisons: [row]}]}});
   render(CIReportPage, {props: {query: QUERY}});
-  expect(await screen.findByText("within tolerance")).toBeInTheDocument();
-  expect(screen.getByText("20 ms")).toBeInTheDocument();
+  await fireEvent.click(await screen.findByRole("button", { name: "Show 1 stable comparison" }));
+  expect(screen.getByText("within tolerance")).toBeInTheDocument();
+  expect(screen.getByText("+20 ms")).toBeInTheDocument();
   expect(screen.getByText("Change 20 ms from reference 100 ms; must exceed 30 ms.")).toBeInTheDocument();
 });
 
@@ -465,7 +478,7 @@ it("shows contender, baseline, and delta in the same scaled unit", async () => {
   const cell = (label: string) => cells.find((c) => c.dataset["label"] === label);
   expect(cell("Contender")).toHaveTextContent("130.4 µs");
   expect(cell("Baseline")).toHaveTextContent("77.72 µs");
-  expect(cell("Delta")).toHaveTextContent("52.68 µs");
+  expect(cell("Change")).toHaveTextContent("+52.68 µs");
 });
 
 it("shows each side in its own unit when the units differ", async () => {

@@ -125,9 +125,11 @@ related runs that a benchmark suite grouped together. Runs and batches are
 submitted metadata, not separate storage objects, but the dashboard exposes
 first-class inspection pages over those result-list filters.
 
-The run detail dashboard at `/runs/<run_id>` lists bounded result pages for one
-submitted run, summarizes loaded results/errors/series/batches, and links to the
-run's CI report, result details, and series trends.
+The run detail dashboard at `/runs/<run_id>` shows the run's CI report: the run
+compared with the default-branch run at its fork point, or with the baseline the
+server infers when the run has no commit metadata. The run's result rows, with
+links to result details, batches, and series trends, are listed below the
+report in a collapsed section.
 
 The batch detail dashboard at `/batches/<batch_id>` lists bounded result pages
 for one submitted batch, groups loaded rows by `run_id`, and links to run
@@ -169,6 +171,13 @@ Use CI reports for run-to-run and commit-wide comparisons.
 The CI report page groups comparisons for a commit or run selector. It is the
 web counterpart to `benchdb ci report` and should be the first dashboard link
 people open from pull request logs.
+
+Rows are ordered by status (regressions, benchmark errors, not-comparable,
+improvements, insufficient history, then stable), and by name within a status.
+Stable rows stay collapsed until you reveal them, filter by status, or search.
+The change column shows the raw relative change, whose sign matches the
+contender and baseline values, followed by whether the change is better or
+worse.
 
 Use the status buttons, hardware selector, and search box to narrow a large
 report to the rows that need attention. The issue shortcuts jump directly to
