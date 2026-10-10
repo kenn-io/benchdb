@@ -228,9 +228,9 @@
       <div>
         <p class="eyebrow">Benchmark result</p>
         <h1>{vm.name}</h1>
-        <p class="page-subtitle result-subtitle">
-          {#if vm.paramsText}<span>{vm.paramsText}</span>{:else}<span>No benchmark parameters</span>{/if}
-        </p>
+        {#if vm.paramsText}
+          <p class="page-subtitle">{vm.paramsText}</p>
+        {/if}
       </div>
       <div class="header-actions">
         <div class="page-meta">
@@ -331,10 +331,12 @@
       <div class="measurement-primary">
         <span class="eyebrow">{vm.svsType}</span>
         <strong class="numeric-text">{vm.svsText}</strong>
-        <span>{vm.lessIsBetter === null ? "Direction not set" : vm.lessIsBetter ? "Lower is better" : "Higher is better"}</span>
+        {#if vm.lessIsBetter !== null}
+          <span>{vm.lessIsBetter ? "Lower is better" : "Higher is better"}</span>
+        {/if}
       </div>
       <dl class="compact-dl measurement-details">
-        {#if vm.iterations !== null}
+        {#if vm.iterations !== null && vm.iterations > 1}
           <dt>iterations</dt>
           <dd class="numeric-text">{vm.iterations}</dd>
         {/if}
@@ -342,12 +344,18 @@
           <dt>{agg.label}</dt>
           <dd class="numeric-text">{agg.value}</dd>
         {/each}
-        <dt>time unit</dt>
-        <dd>{vm.timeUnitText}</dd>
-        <dt>raw data</dt>
-        <dd>{vm.dataCountText}</dd>
-        <dt>raw times</dt>
-        <dd>{vm.timesCountText}</dd>
+        {#if vm.timeUnit !== null}
+          <dt>time unit</dt>
+          <dd>{vm.timeUnit}</dd>
+        {/if}
+        {#if vm.dataCountText !== null}
+          <dt>raw data</dt>
+          <dd>{vm.dataCountText}</dd>
+        {/if}
+        {#if vm.timesCountText !== null}
+          <dt>raw times</dt>
+          <dd>{vm.timesCountText}</dd>
+        {/if}
       </dl>
       {#if vm.error !== null}
         <div class="errbox" role="alert">
@@ -357,31 +365,37 @@
       {/if}
     </section>
 
-    <section class="panel result-section" aria-label="Diagnostics">
-      <h2>Diagnostics</h2>
-      <DiagnosticArtifacts result={vm} {baseUrl} {canWrite} />
-    </section>
+    {#if vm.artifacts.length > 0 || vm.diagnostics !== null}
+      <section class="panel result-section" aria-label="Diagnostics">
+        <h2>Diagnostics</h2>
+        <DiagnosticArtifacts result={vm} {baseUrl} {canWrite} />
+      </section>
+    {/if}
 
     <section class="result-facts" aria-label="Result facts">
-      <div class="panel result-section">
-        <h2>Commit</h2>
-        <dl class="compact-dl">
-          {#if vm.commitSha !== null}
-            <dt>sha</dt>
-            <dd class="mono" title={vm.commitSha}>{vm.shortCommit}</dd>
-          {/if}
-          {#if vm.commitMessage !== null && vm.commitMessage !== ""}
-            <dt>message</dt>
-            <dd>{vm.commitMessage}</dd>
-          {/if}
-          {#if vm.commitDateText !== null}
-            <dt>date</dt>
-            <dd>{vm.commitDateText}</dd>
-          {/if}
-          <dt>repository</dt>
-          <dd title={vm.repository}>{vm.repositoryLabel}</dd>
-        </dl>
-      </div>
+      {#if vm.commitSha !== null || vm.repositoryLabel !== null}
+        <div class="panel result-section">
+          <h2>Commit</h2>
+          <dl class="compact-dl">
+            {#if vm.commitSha !== null}
+              <dt>sha</dt>
+              <dd class="mono" title={vm.commitSha}>{vm.shortCommit}</dd>
+            {/if}
+            {#if vm.commitMessage !== null && vm.commitMessage !== ""}
+              <dt>message</dt>
+              <dd>{vm.commitMessage}</dd>
+            {/if}
+            {#if vm.commitDateText !== null}
+              <dt>date</dt>
+              <dd>{vm.commitDateText}</dd>
+            {/if}
+            {#if vm.repositoryLabel !== null}
+              <dt>repository</dt>
+              <dd title={vm.repository}>{vm.repositoryLabel}</dd>
+            {/if}
+          </dl>
+        </div>
+      {/if}
 
       <div class="panel result-section">
         <h2>Run</h2>
@@ -462,10 +476,8 @@
     gap: 8px;
     min-width: min(100%, 420px);
   }
-  .result-subtitle {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+  .page-meta .numeric-text {
+    margin-left: 0.35em;
   }
   .trend-hero {
     padding: 12px;

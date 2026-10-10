@@ -156,10 +156,12 @@ lookback z-score analysis where enough history exists.
 
 Single-result compare expects the two results to belong to the same history
 fingerprint, which keeps the pairwise value and lookback history tied to the
-same benchmark series. Open `/compare` directly when you already know result
-IDs, or load bounded candidate rows by `run_id` and select the baseline and
-contender from the picker. The picker validates known fingerprints before
-navigation; the compare API remains the source of truth for manually typed IDs.
+same benchmark series. Opening `/compare` lists benchmarks with the most
+recent activity first; type in the search box to filter the list. After you
+choose a benchmark, pick a machine history and two of its commits. The picker
+offers only results from one history fingerprint and unit. When you already
+know result IDs, open **Advanced: compare by result ID**; the compare API
+remains the source of truth for manually typed IDs.
 Use CI reports for run-to-run and commit-wide comparisons.
 
 ## CI Report

@@ -109,6 +109,19 @@ const PICKER_SAMPLES = [
 
 const EMPTY_QUERY = { baseline: "", contender: "", threshold: null, thresholdZ: null };
 
+function mockBenchmarkList(rowsFor: (q: string | undefined) => ReturnType<typeof seriesListItem>[]) {
+  GET.mockImplementation(async (url: string, opts?: { params?: { q?: string } }) => {
+    if (url === "/api/benchmarks") {
+      return { status: 200, data: { benchmarks: rowsFor(opts?.params?.q), next_page_cursor: null } };
+    }
+    throw new Error(`unexpected ${url}`);
+  });
+}
+
+function compareCalls(): unknown[][] {
+  return GET.mock.calls.filter(([url]) => url !== "/api/benchmarks");
+}
+
 function mockHappy(lookback: unknown, pairwise: unknown) {
   GET.mockImplementation(async (url: string, opts?: { params?: { path?: { id?: string } } }) => {
     if (url === "/api/compare/benchmark-results") {
@@ -200,11 +213,40 @@ describe("ComparePage", () => {
     expect(within(row).getByRole("link", { name: "worker-1-cpu.pprof" })).toHaveAttribute("href", "/api/benchmark-results/c1/artifacts/artifact-1");
   });
 
-  it("renders the benchmark picker when ids are missing, without calling the API", () => {
+  it("lists recently active benchmarks before anything is typed", async () => {
+    mockBenchmarkList((q) => q === undefined
+      ? [
+          seriesListItem({ benchmark_id: "recent", name: "recent-benchmark", machine_names: ["m1", "m2"] }),
+          seriesListItem({ benchmark_id: "older", name: "older-benchmark", point_count: 1 }),
+        ]
+      : []);
     render(ComparePage, { props: { query: EMPTY_QUERY } });
-    expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toBeInTheDocument();
-    expect(screen.getByText(/start typing to find a benchmark/i)).toBeInTheDocument();
-    expect(GET).not.toHaveBeenCalled();
+
+    const list = await screen.findByRole("list", { name: "Benchmarks" });
+    const names = within(list).getAllByRole("button").map((button) => button.textContent ?? "");
+    expect(names).toHaveLength(2);
+    expect(names[0]).toMatch(/^recent-benchmark.*2 machines/);
+    expect(names[1]).toMatch(/^older-benchmark.*1 machine · 1 point ·/);
+    expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toHaveValue("");
+  });
+
+  it("filters the benchmark list as the user types", async () => {
+    mockBenchmarkList((q) => q === undefined
+      ? [seriesListItem({ benchmark_id: "a", name: "alpha" }), seriesListItem({ benchmark_id: "b", name: "beta" })]
+      : [seriesListItem({ benchmark_id: "b", name: "beta" })].filter((item) => item.name.includes(q)));
+    render(ComparePage, { props: { query: EMPTY_QUERY } });
+    await screen.findByRole("button", { name: /alpha/ });
+
+    const search = screen.getByRole("searchbox", { name: /search benchmarks/i });
+    await fireEvent.input(search, { target: { value: "bet" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /alpha/ })).toBeNull());
+    expect(screen.getByRole("button", { name: /beta/ })).toBeInTheDocument();
+
+    await fireEvent.input(search, { target: { value: "zzz" } });
+    expect(await screen.findByText("No benchmarks match “zzz”.")).toBeInTheDocument();
+
+    await fireEvent.input(search, { target: { value: "" } });
+    expect(await screen.findByRole("button", { name: /alpha/ })).toBeInTheDocument();
   });
 
   it("searches a benchmark and compares its latest two commits in one click", async () => {
@@ -253,6 +295,7 @@ describe("ComparePage", () => {
   });
 
   it("compares by pasted result IDs via the advanced option, without searching", async () => {
+    mockBenchmarkList(() => []);
     render(ComparePage, { props: { query: EMPTY_QUERY } });
 
     await fireEvent.click(screen.getByRole("button", { name: /advanced: compare by result id/i }));
@@ -262,10 +305,11 @@ describe("ComparePage", () => {
 
     expect(window.location.pathname).toBe("/compare");
     expect(window.location.search).toBe("?baseline=b1&contender=c1");
-    expect(GET).not.toHaveBeenCalled();
+    expect(compareCalls()).toEqual([]);
   });
 
   it("preserves a one-sided compare URL in the advanced result-ID picker", async () => {
+    mockBenchmarkList(() => []);
     render(ComparePage, {
       props: { query: { baseline: "b1", contender: "", threshold: null, thresholdZ: null } },
     });
@@ -273,7 +317,7 @@ describe("ComparePage", () => {
     await fireEvent.click(screen.getByRole("button", { name: /advanced: compare by result id/i }));
     expect(screen.getByLabelText(/baseline result id/i)).toHaveValue("b1");
     expect(screen.getByLabelText(/contender result id/i)).toHaveValue("");
-    expect(GET).not.toHaveBeenCalled();
+    expect(compareCalls()).toEqual([]);
   });
 
   it("renders the badge, verdict rows, side table, and marked mini-trend", async () => {
