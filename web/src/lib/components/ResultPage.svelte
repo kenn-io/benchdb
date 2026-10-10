@@ -14,6 +14,7 @@
   import { flagsText, type SeriesPoint } from "../series/transform";
   import DiagnosticArtifacts from "./DiagnosticArtifacts.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
+  import MeasurementValue from "./MeasurementValue.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -253,7 +254,7 @@
     <section class="panel result-section measurement-section" aria-label="Result measurement">
       <div class="measurement-primary">
         <span class="eyebrow">{vm.svsType}</span>
-        <strong class="numeric-text">{vm.svsText}</strong>
+        <strong class="numeric-text"><MeasurementValue value={vm.svs} unit={vm.unit} /></strong>
         {#if vm.lessIsBetter !== null}
           <span>{vm.lessIsBetter ? "Lower is better" : "Higher is better"}</span>
         {/if}
@@ -547,6 +548,10 @@
   .measurement-primary > strong {
     font-size: clamp(1.65rem, 4vw, 2.5rem);
     line-height: 1.08;
+  }
+  .measurement-primary > strong :global(.measurement-value) {
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.12em;
   }
   .measurement-primary > span:last-of-type {
     color: var(--c-text-muted);

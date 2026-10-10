@@ -1,6 +1,6 @@
 import { getBenchDB } from "../api/benchdb";
 import type { AxiosInstance } from "axios";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ResultDetail, HistorySample } from "../api/benchdb";
@@ -145,6 +145,8 @@ describe("ResultPage", () => {
     const measurement = screen.getByRole("region", { name: /result measurement/i });
     expect(measurement).toHaveTextContent("1.5 s");
     expect(measurement).toHaveTextContent("Lower is better");
+    expect(within(measurement).getByRole("button", { name: /exact value 1\.5 s; click to copy/i }))
+      .toHaveAttribute("title", "1.5 s — click to copy the exact number");
     expect(screen.getByRole("region", { name: /result facts/i })).toBeInTheDocument();
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     expect(screen.getByText("sha").nextElementSibling).toHaveTextContent("abc1234d");
