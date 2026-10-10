@@ -43,11 +43,7 @@ in the Docker image is checked against the exact `@playwright/test` pin in
 `web/package.json`. The deterministic harness does not connect to production
 data.
 
-CI runs the same capture path and checks the generated artifact directory before
-upload. The publishing workflow checks out the release-ready orphan branch,
-verifies its inventory against the current documentation manifest, renders the
-images into `site/docs/assets`, and then deploys the complete prebuilt site to
-Vercel.
+The website workflow captures screenshots from its own checkout and verifies them before building `site/docs/assets`. Local builds can use the release-ready orphan branch or captures from `make docs-screenshots`.
 
 The Playwright capture test also checks the page state before it writes an
 image:
