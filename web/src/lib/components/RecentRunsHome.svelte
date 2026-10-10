@@ -55,6 +55,20 @@
   const repositoryLabels = $derived(uniqueRepositoryLabels(runs));
   const showRepositoryColumn = $derived(repositoryLabels.length > 1);
   const attentionRuns = $derived(runs.filter((run) => run.attention !== null));
+  // The server checks only the newest runs on each page for regressions
+  // (recentRunsAttentionLimit), so the page says which runs were checked.
+  const ATTENTION_WINDOW = 5;
+  const checkedRuns = $derived(Math.min(runs.length, ATTENTION_WINDOW));
+  const checkedText = $derived(
+    checkedRuns === 1 ? "the newest run on this page" : `the newest ${checkedRuns} runs on this page`,
+  );
+
+  // Relative times advance while the page stays open.
+  let now = $state(new Date());
+  onMount(() => {
+    const timer = setInterval(() => (now = new Date()), 60_000);
+    return () => clearInterval(timer);
+  });
   const selectedRepositoryLabel = $derived(
     query.repository === "" ? "All projects" : repositoryLabel(query.repository),
   );
@@ -141,9 +155,11 @@
       {/if}
     </p>
 
-    {#if attentionRuns.length > 0}
+    {#if attentionRuns.length === 0}
+      <p class="attention-clear">Nothing needs attention in {checkedText}.</p>
+    {:else}
       <section class="attention-panel" aria-labelledby="home-attention-heading">
-        <h2 id="home-attention-heading">Needs attention</h2>
+        <h2 id="home-attention-heading">Needs attention <span>· {checkedText}</span></h2>
         <ul class="attention-list">
           {#each attentionRuns as run (run.runId)}
             {@const attention = run.attention!}
@@ -245,7 +261,7 @@
                 </div>
               </td>
               <td data-label="When">
-                <time datetime={run.lastResultAt} title={formatTime(run.lastResultAt)}>{relativeTime(run.lastResultAt)}</time>
+                <time datetime={run.lastResultAt} title={formatTime(run.lastResultAt)}>{relativeTime(run.lastResultAt, now)}</time>
               </td>
             </tr>
           {/each}
@@ -325,6 +341,15 @@
     margin: 0;
     font-size: 0.82rem;
     font-weight: 700;
+  }
+  .attention-panel h2 span {
+    color: var(--c-text-muted);
+    font-weight: 500;
+  }
+  .attention-clear {
+    margin: 0;
+    color: var(--c-text-muted);
+    font-size: 0.8rem;
   }
   .attention-list {
     display: grid;

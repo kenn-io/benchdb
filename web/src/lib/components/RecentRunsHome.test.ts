@@ -76,12 +76,13 @@ describe("RecentRunsHome", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
 
-    expect(screen.getByText(/2 runs/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recent run summary")).toHaveTextContent("2 runs");
     expect(screen.getByText(/360 results/i)).toBeInTheDocument();
     expect(screen.getAllByText(/1 error/i)).not.toHaveLength(0);
     expect(screen.getByText(/1 machine/i)).toBeInTheDocument();
     expect(screen.queryByText(/attention checked/i)).toBeNull();
-    const attention = screen.getByRole("region", { name: "Needs attention" });
+    const attention = screen.getByRole("region", { name: /^Needs attention/ });
+    expect(attention).toHaveTextContent("the newest 2 runs on this page");
     const review = within(attention).getByRole("link", { name: "Review run run-a" });
     expect(review).toHaveAttribute("href", "/runs/run-a");
     expect(review).toHaveTextContent("2 regressions");
@@ -179,6 +180,28 @@ describe("RecentRunsHome", () => {
     expect(screen.getByText("apache/arrow-go")).toBeInTheDocument();
     expect(screen.queryByText("0 errors")).not.toBeInTheDocument();
     expect(screen.queryByText("nightly")).toBeNull();
+  });
+
+  it("says which runs were checked when none need attention", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { runs: Array.from({ length: 7 }, (_, i) => run({ run_id: `run-${i}` })) } });
+    render(RecentRunsHome, { props: {} });
+    expect(await screen.findByText("Nothing needs attention in the newest 5 runs on this page.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /needs attention/i })).toBeNull();
+  });
+
+  it("advances relative times while the page stays open", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date("2026-01-02T00:00:20Z"));
+      GET.mockResolvedValueOnce({ status: 200, data: { runs: [run()] } });
+      render(RecentRunsHome, { props: {} });
+      const when = await screen.findByRole("time");
+      expect(when).toHaveTextContent("just now");
+      await vi.advanceTimersByTimeAsync(2 * 3600 * 1000);
+      expect(when).toHaveTextContent("2 hours ago");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows an empty state", async () => {
