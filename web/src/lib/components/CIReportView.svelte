@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { tick, type Snippet } from "svelte";
+  import type { Snippet } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { toleranceText } from "../compare/transform";
@@ -12,26 +12,10 @@
   type ReportComparison = NonNullable<ReportRun["comparisons"]>[number];
   type RowStatus = ReportComparison["status"];
   type StatusFilter = "all" | RowStatus;
-  type IssueStatus = (typeof ISSUE_STATUSES)[number];
 
   interface FilteredRun {
     run: ReportRun;
     comparisons: ReportComparison[];
-  }
-
-  interface IssueTarget {
-    status: IssueStatus;
-    label: string;
-    count: number;
-    anchor: string;
-    href: string;
-    runID: string;
-    rowIndex: number;
-    benchmark: string;
-    hardware: string;
-    delta: string;
-    z: string;
-    reason: string;
   }
 
   interface MachineCoverage {
@@ -56,7 +40,6 @@
     "stable",
     "insufficient",
   ];
-  const ISSUE_STATUSES = ["regressed", "errored", "not_comparable"] as const;
   // Rows that need a decision come first; stable rows collapse by default.
   const STATUS_ORDER: Record<RowStatus, number> = {
     regressed: 0,
@@ -112,7 +95,6 @@
     filteredRuns.reduce((sum, entry) => sum + detailedComparisons(entry.comparisons).length, 0),
   );
   let filteredStatusCounts = $derived(countStatuses(filteredComparisons));
-  let issueTargets = $derived(issueLinks(filteredRuns));
   let machineCoverage = $derived(coverageByMachine(allComparisons));
 
   $effect(() => {
@@ -271,52 +253,6 @@
     ].some((value) => value.toLowerCase().includes(q));
   }
 
-  function issueLinks(sourceRuns: FilteredRun[]): IssueTarget[] {
-    const counts = emptyStatusCounts();
-    const first = new Map<IssueStatus, { anchor: string; runID: string; rowIndex: number; row: ReportComparison }>();
-    for (const entry of sourceRuns) {
-      for (const [rowIndex, row] of entry.comparisons.entries()) {
-        if (!isIssueStatus(row.status)) {
-          continue;
-        }
-        counts[row.status] += 1;
-        if (!first.has(row.status)) {
-          first.set(row.status, {
-            anchor: anchorID(entry.run.run_id, row),
-            runID: entry.run.run_id,
-            rowIndex,
-            row,
-          });
-        }
-      }
-    }
-    return ISSUE_STATUSES.flatMap((status) => {
-      const target = first.get(status);
-      return target === undefined
-        ? []
-        : [
-            {
-              status,
-              label: statusLabel(status),
-              count: counts[status],
-              anchor: target.anchor,
-              href: `#${target.anchor}`,
-              runID: target.runID,
-              rowIndex: target.rowIndex,
-              benchmark: target.row.name,
-              hardware: target.row.hardware.name || "-",
-              delta: percentText(target.row),
-              z: zText(target.row),
-              reason: target.row.reason ?? "",
-            },
-          ];
-    });
-  }
-
-  function isIssueStatus(status: RowStatus): status is IssueStatus {
-    return (ISSUE_STATUSES as readonly string[]).includes(status);
-  }
-
   function setStatusFilter(status: StatusFilter) {
     statusFilter = status;
     rowLimits = {};
@@ -388,15 +324,6 @@
     rowLimits = { ...rowLimits, [runID]: rowLimit(runID) + CI_REPORT_ROW_CHUNK };
   }
 
-  async function jumpToIssue(e: MouseEvent, target: IssueTarget) {
-    if (!interceptNavClick(e)) return;
-    e.preventDefault();
-    rowLimits = { ...rowLimits, [target.runID]: Math.max(rowLimit(target.runID), target.rowIndex + 1) };
-    await tick();
-    history.replaceState(null, "", `${location.pathname}${location.search}${target.href}`);
-    document.getElementById(target.anchor)?.scrollIntoView?.({ block: "center" });
-  }
-
   function filtersActive(): boolean {
     return statusFilter !== "all" || hardwareFilter !== "all" || searchText.trim() !== "";
   }
@@ -412,13 +339,6 @@
     return `${n.toLocaleString()} ${n === 1 ? word : pluralWord}`;
   }
 
-  function anchorID(runID: string, row: ReportComparison): string {
-    return `ci-row-${token(row.status)}-${token(runID)}-${token(row.history_fingerprint)}`;
-  }
-
-  function token(value: string): string {
-    return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
-  }
 </script>
 
 {#if errorMsg}
@@ -440,21 +360,14 @@
       <span class="summary-item" class:alert={r.summary.regressions > 0}>{plural(r.summary.regressions, "regression")}</span>
     </p>
 
-    <section class="panel coverage-panel" aria-label="Comparison coverage">
-      <details open={r.summary.compared < r.summary.contender_results}>
-        <summary>
-          <span class="coverage-summary-main">
-            <strong>Coverage</strong>
-            <span>{r.summary.compared.toLocaleString()} / {r.summary.contender_results.toLocaleString()} compared</span>
+    {#if r.summary.compared < r.summary.contender_results}
+      <section class="panel coverage-panel" aria-label="Comparison coverage">
+        <header class="coverage-head">
+          <h2>Coverage</h2>
+          <span class="coverage-warning">
+            {plural(r.summary.contender_results - r.summary.compared, "result")} not compared
           </span>
-          {#if r.summary.compared < r.summary.contender_results}
-            <span class="coverage-warning">
-              {plural(r.summary.contender_results - r.summary.compared, "result")} not compared
-            </span>
-          {:else}
-            <span class="coverage-complete">{plural(machineCoverage.length, "machine")}</span>
-          {/if}
-        </summary>
+        </header>
         <div class="coverage-grid">
           {#each machineCoverage as coverage (coverage.key)}
             <article class="coverage-card">
@@ -476,8 +389,8 @@
             </article>
           {/each}
         </div>
-      </details>
-    </section>
+      </section>
+    {/if}
 
     <section class="panel controls-panel" aria-label="CI report controls">
       <div class="status-tabs" aria-label="Filter comparisons by status">
@@ -497,18 +410,14 @@
         {/each}
       </div>
       <div class="field-row">
-        <label>
-          Search comparisons
-          <input
-            aria-label="Search comparisons"
-            type="search"
-            value={searchText}
-            placeholder="benchmark, fingerprint, run, machine"
-            oninput={(e) => setSearchText(e.currentTarget.value)}
-          />
-        </label>
-        <label>
-          Machine
+        <input
+          aria-label="Search comparisons"
+          type="search"
+          value={searchText}
+          placeholder="Search benchmark, run, machine"
+          oninput={(e) => setSearchText(e.currentTarget.value)}
+        />
+        {#if hardwareOptions.length > 1}
           <select
             aria-label="Machine"
             value={hardwareFilter}
@@ -519,30 +428,9 @@
               <option value={hardware}>{hardware}</option>
             {/each}
           </select>
-        </label>
+        {/if}
       </div>
     </section>
-
-    {#if issueTargets.length > 0}
-      <section class="issue-queue" aria-label="Investigation queue">
-        <header>
-          <span class="eyebrow">Investigation queue</span>
-          <strong>{plural(issueTargets.reduce((sum, target) => sum + target.count, 0), "actionable comparison")}</strong>
-        </header>
-        <div class="issue-grid">
-          {#each issueTargets as target}
-            <a class={`issue-card ${target.status}`} href={appURL(target.href)} onclick={(e) => jumpToIssue(e, target)}>
-              <span class={`row-status ${target.status}`}>{target.label}</span>
-              <strong>{target.benchmark}</strong>
-              <span>{target.hardware}</span>
-              <span>delta {target.delta} · z {target.z}</span>
-              {#if target.reason}<span class="reason">{target.reason}</span>{/if}
-              <span class="jump">Jump to {target.label} ({target.count.toLocaleString()})</span>
-            </a>
-          {/each}
-        </div>
-      </section>
-    {/if}
 
     {#if r.missing_run_ids && r.missing_run_ids.length > 0}
       <section class="panel notice">
@@ -579,10 +467,13 @@
               </div>
             </div>
             <div class="run-summary" aria-label={`Summary for ${run.run_id}`}>
-              <span>{plural(comparisons.length, "matching comparison")}</span>
-              <span>{runCounts.regressed.toLocaleString()} regressed</span>
-              <span>{runCounts.errored.toLocaleString()} benchmark {runCounts.errored === 1 ? "error" : "errors"}</span>
-              <span>{runCounts.missing_baseline.toLocaleString()} missing baseline</span>
+              {#if filtersActive()}<span>{plural(comparisons.length, "matching comparison")}</span>{/if}
+              {#if runCounts.errored > 0}
+                <span>{runCounts.errored.toLocaleString()} benchmark {runCounts.errored === 1 ? "error" : "errors"}</span>
+              {/if}
+              {#if runCounts.missing_baseline > 0}
+                <span>{runCounts.missing_baseline.toLocaleString()} missing baseline</span>
+              {/if}
             </div>
           </header>
 
@@ -623,7 +514,7 @@
                 <tbody>
                   {#each visibleComparisons as row}
                     {@const tolerance = row.analysis?.lookback_z_score?.tolerance ?? null}
-                    <tr id={anchorID(run.run_id, row)} class={`row-${row.status}`}>
+                    <tr class={`row-${row.status}`}>
                       <td data-label="Status">
                         <div>
                           <span class={`row-status ${row.status}`}>{row.status === "stable" && tolerance?.within_tolerance ? "within tolerance" : statusLabel(row.status)}</span>
@@ -720,7 +611,9 @@
   }
   .controls-panel {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
     gap: 10px;
     padding: 10px;
   }
@@ -728,23 +621,16 @@
     padding: 0;
     overflow: hidden;
   }
-  .coverage-panel summary {
+  .coverage-head {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
     gap: 12px;
     padding: 9px 12px;
-    cursor: pointer;
   }
-  .coverage-summary-main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .coverage-summary-main span, .coverage-complete {
-    color: var(--c-text-muted);
-    font-size: 0.8rem;
-    font-variant-numeric: tabular-nums;
+  .coverage-head h2 {
+    margin: 0;
+    font-size: 0.95rem;
   }
   .coverage-warning {
     color: var(--c-warn-text);
@@ -846,19 +732,14 @@
     font-variant-numeric: tabular-nums;
   }
   .field-row {
-    display: grid;
-    grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
-    gap: 10px;
-  }
-  .field-row label {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-    font-weight: 750;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    flex: 1 1 320px;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .field-row input {
+    flex: 0 1 300px;
+    min-width: 0;
   }
   .field-row input, .field-row select {
     min-height: 32px;
@@ -868,70 +749,6 @@
     background: var(--c-surface);
     color: var(--c-text);
     font-size: 0.82rem;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .issue-queue {
-    display: grid;
-    gap: 8px;
-  }
-  .issue-queue header {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: end;
-  }
-  .issue-queue header strong {
-    color: var(--c-text-muted);
-    font-size: 0.8rem;
-    font-weight: 700;
-  }
-  .eyebrow {
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-    font-weight: 750;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .issue-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-  }
-  .issue-card {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-    padding: 10px;
-    border: 1px solid var(--c-border-muted);
-    border-left: 4px solid var(--c-warning);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    color: var(--c-text-muted);
-    text-decoration: none;
-    font-size: 0.78rem;
-  }
-  .issue-card.regressed, .issue-card.errored {
-    border-left-color: var(--c-error);
-  }
-  .issue-card:hover {
-    border-color: var(--c-accent);
-  }
-  .issue-card strong {
-    min-width: 0;
-    color: var(--c-text);
-    overflow-wrap: anywhere;
-  }
-  .issue-card .row-status {
-    justify-self: start;
-  }
-  .issue-card .reason {
-    overflow-wrap: anywhere;
-  }
-  .issue-card .jump {
-    color: var(--c-accent);
-    font-weight: 700;
   }
   .notice {
     padding: 12px;
@@ -1046,9 +863,6 @@
     color: var(--c-error);
   }
   @media (max-width: 1080px) {
-    .issue-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
     .run-head {
       flex-direction: column;
     }
@@ -1057,12 +871,15 @@
     }
   }
   @media (max-width: 820px) {
-    .coverage-panel summary, .baseline-gap {
+    .coverage-head, .baseline-gap {
       align-items: flex-start;
       flex-direction: column;
     }
     .field-row {
-      grid-template-columns: 1fr;
+      flex-direction: column;
+    }
+    .field-row input {
+      flex: none;
     }
     .comparisons {
       min-width: 0;
@@ -1091,11 +908,6 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       font-weight: 750;
-    }
-  }
-  @media (max-width: 560px) {
-    .issue-grid {
-      grid-template-columns: 1fr;
     }
   }
 </style>

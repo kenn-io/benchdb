@@ -308,10 +308,27 @@
   }
   .results-panel summary {
     display: flex;
+    list-style: none;
     align-items: baseline;
     gap: 10px;
     padding: 10px 12px;
     cursor: pointer;
+  }
+  .results-panel summary::-webkit-details-marker {
+    display: none;
+  }
+  .results-panel summary::before {
+    content: "";
+    align-self: center;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--c-text-muted);
+    border-bottom: 1.5px solid var(--c-text-muted);
+    transform: rotate(-45deg);
+    transition: transform 120ms ease;
+  }
+  .results-panel[open] summary::before {
+    transform: rotate(45deg);
   }
   .results-panel summary span {
     color: var(--c-text-muted);
