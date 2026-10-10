@@ -7,7 +7,7 @@ test("ci report renders seeded regression and action-required reports", async ({
   const targets = await resolveCIReportTargets(request, baseURL);
 
   await page.goto(`${baseURL}/ci/report?${reportQuery(targets.regression)}`);
-  await expect(page.getByRole("heading", { name: targets.regression.repository })).toBeVisible();
+  await expect(page.getByRole("heading", { name: repositoryLabel(targets.regression.repository) })).toBeVisible();
   await expect(page.locator(".report-status.failure")).toHaveText("failure");
   await expect(page.getByText(/lookback regression detected/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: targets.regression.runID })).toBeVisible();
@@ -15,7 +15,7 @@ test("ci report renders seeded regression and action-required reports", async ({
   await expect(page.locator("table.comparisons tbody tr").first()).toContainText("ingest-events-10m");
 
   await page.goto(`${baseURL}/ci/report?${reportQuery(targets.actionRequired)}`);
-  await expect(page.getByRole("heading", { name: targets.actionRequired.repository })).toBeVisible();
+  await expect(page.getByRole("heading", { name: repositoryLabel(targets.actionRequired.repository) })).toBeVisible();
   await expect(page.locator(".report-status.action_required")).toHaveText("action required");
   await expect(page.getByText(/baseline commit metadata is incomplete/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: targets.actionRequired.runID })).toBeVisible();
@@ -29,4 +29,9 @@ function reportQuery(target: { repository: string; commitSHA: string; runID: str
     run_ids: target.runID,
     baseline: "fork_point",
   }).toString();
+}
+
+function repositoryLabel(repository: string): string {
+  const parts = new URL(repository).pathname.split("/").filter(Boolean);
+  return `${parts[0]}/${parts[1]}`;
 }

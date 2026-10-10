@@ -61,8 +61,6 @@ describe("loadRunPage", () => {
       runReason: "nightly",
       loadedResults: 2,
       loadedErrors: 1,
-      loadedSeries: 2,
-      loadedBatches: 2,
       repository: "https://github.com/apache/arrow",
       repositoryLabel: "apache/arrow",
       commitSha: "abcdef123456",

@@ -260,7 +260,7 @@ async function gotoResults(page: Page, runID: string) {
 
 async function gotoRun(page: Page, runID: string) {
   await page.goto(`/runs/${encodeURIComponent(runID)}`);
-  await expect(page.locator(".run-results-table tbody tr").first()).toBeVisible();
+  await expect(page.getByLabel("CI report summary")).toBeVisible();
   await expect(page.getByRole("link", { name: `Open CI report for run ${runID}` })).toBeVisible();
   await expectNoDocumentOverflow(page);
 }
@@ -280,7 +280,8 @@ async function gotoCIReport(page: Page, targets: DemoTargets) {
     baseline: "fork_point",
   });
   await page.goto(`/ci/report?${params.toString()}`);
-  await expect(page.getByRole("heading", { name: targets.repository })).toBeVisible();
+  const repositoryPath = new URL(targets.repository).pathname.split("/").filter(Boolean).slice(0, 2).join("/");
+  await expect(page.getByRole("heading", { name: repositoryPath })).toBeVisible();
   await expect(page.getByText(targets.runID)).toBeVisible();
   await expectNoDocumentOverflow(page);
 }
