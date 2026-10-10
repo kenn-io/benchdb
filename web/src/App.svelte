@@ -11,7 +11,7 @@
   import ResultsPage from "./lib/components/ResultsPage.svelte";
   import RunPage from "./lib/components/RunPage.svelte";
   import SeriesBrowse from "./lib/components/SeriesBrowse.svelte";
-  import TopBar from "./lib/components/TopBar.svelte";
+  import AppSidebar from "./lib/components/AppSidebar.svelte";
   import TrendPage from "./lib/components/TrendPage.svelte";
   import { matchRoute, NAVIGATE_EVENT, type Route } from "./lib/router";
 
@@ -36,7 +36,7 @@
 </script>
 
 <div class="app-shell">
-  <TopBar {route} />
+  <AppSidebar {route} />
 
   <div class="app-content">
     {#if route.name === "home"}
@@ -91,11 +91,4 @@
     {/if}
   </div>
 
-  <footer class="status-bar">
-    <span>BenchDB</span>
-    <span class="status-sep">·</span>
-    <span>public reads</span>
-    <span class="status-sep">·</span>
-    <a href={appURL("/openapi.yaml")}>OpenAPI</a>
-  </footer>
 </div>

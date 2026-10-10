@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BROWSE_QUERY, DEFAULT_HOME_QUERY, type Route } from "../router";
-import TopBar from "./TopBar.svelte";
+import AppSidebar from "./AppSidebar.svelte";
 
 const GET = vi.fn();
 vi.mock("../api/client", () => ({
@@ -53,6 +53,7 @@ const swallowAnchorNavigation = (e: Event) => {
   }
 };
 beforeEach(() => {
+  localStorage.clear();
   document.addEventListener("click", swallowAnchorNavigation);
   window.history.replaceState(null, "", "/");
   GET.mockReset();
@@ -60,34 +61,92 @@ beforeEach(() => {
 });
 afterEach(() => document.removeEventListener("click", swallowAnchorNavigation));
 
-describe("TopBar", () => {
+describe("AppSidebar", () => {
   it("renders the brand as a home link", () => {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     expect(screen.getByRole("link", { name: "BenchDB" })).toHaveAttribute("href", "/");
   });
 
   it("exposes primary product navigation", () => {
-    render(TopBar, { props: { route: page("compare") } });
+    render(AppSidebar, { props: { route: page("compare") } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(within(nav).getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/");
     expect(within(nav).getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/series");
     expect(within(nav).queryByRole("link", { name: "Results" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("href", "/compare");
     expect(within(nav).queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
-    expect(within(nav).getByRole("link", { name: "API Docs" })).toHaveAttribute("href", "/docs");
     expect(within(nav).getByRole("link", { name: "Compare" })).toHaveAttribute("aria-current", "page");
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+    expect(within(sidebar).getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
+    expect(within(sidebar).getByRole("link", { name: "API Docs" })).toHaveAttribute("href", "/docs");
+  });
+
+  it("collapses to an icon rail and remembers the choice", async () => {
+    GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
+    const first = render(AppSidebar, { props: { route: home(ARROW) } });
+    await screen.findByRole("combobox", { name: "Project: apache/arrow" });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.queryByRole("combobox", { name: /project/i })).toBeNull();
+    expect(screen.queryByRole("searchbox", { name: "Series search query" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Project: apache/arrow (expand sidebar)" })).toBeInTheDocument();
+    // Links keep their names for assistive technology and keyboard users.
+    expect(screen.getByRole("link", { name: "Benchmarks" })).toHaveAttribute("title", "Benchmarks");
+    first.unmount();
+
+    render(AppSidebar, { props: { route: home(ARROW) } });
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Search benchmarks (expand sidebar)" }));
+    expect(screen.getByRole("searchbox", { name: "Series search query" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+  });
+
+  it("opens as a drawer behind a menu button on narrow screens", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) => ({ ...original(query), matches: true });
+    try {
+      GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
+      const { rerender } = render(AppSidebar, { props: { route: home(ARROW) } });
+      const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+      const content = sidebar.parentElement!.appendChild(document.createElement("main"));
+      // The collapse preference does not apply to the drawer.
+      expect(screen.queryByRole("button", { name: /collapse sidebar|expand sidebar/i })).toBeNull();
+      expect(screen.getByText("apache/arrow", { selector: ".mobile-project" })).toBeInTheDocument();
+
+      const menu = screen.getByRole("button", { name: "Open navigation" });
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+      await fireEvent.click(menu);
+      expect(menu).toHaveAttribute("aria-expanded", "true");
+      expect(sidebar).toHaveClass("drawer-open");
+      await waitFor(() => expect(within(sidebar).getByRole("button", { name: "Close navigation" })).toHaveFocus());
+
+      // The page behind the open drawer is inert; the backdrop stays live.
+      expect(content).toHaveAttribute("inert");
+      expect(menu.closest("header")).toHaveAttribute("inert");
+      expect(document.querySelector(".drawer-backdrop")).not.toHaveAttribute("inert");
+
+      await fireEvent.keyDown(window, { key: "Escape" });
+      expect(sidebar).not.toHaveClass("drawer-open");
+      expect(content).not.toHaveAttribute("inert");
+      await waitFor(() => expect(menu).toHaveFocus());
+
+      await fireEvent.click(menu);
+      await rerender({ route: page("compare") });
+      expect(sidebar).not.toHaveClass("drawer-open");
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it("exposes global series search with stable role and label", () => {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     const search = screen.getByRole("search", { name: "Global series search" });
     expect(within(search).getByRole("searchbox", { name: "Series search query" })).toBeInTheDocument();
     expect(within(search).getByRole("button", { name: "Search series" })).toBeInTheDocument();
   });
 
   it("navigates to series with q and default filters on search submit", async () => {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     const box = screen.getByRole("searchbox", { name: "Series search query" });
     await fireEvent.input(box, { target: { value: "tpch " } });
     await fireEvent.submit(box.closest("form")!);
@@ -96,7 +155,7 @@ describe("TopBar", () => {
   });
 
   it("navigates to series when the explicit search control is clicked", async () => {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     const box = screen.getByRole("searchbox", { name: "Series search query" });
     await fireEvent.input(box, { target: { value: "arrow " } });
     await fireEvent.click(screen.getByRole("button", { name: "Search series" }));
@@ -105,12 +164,12 @@ describe("TopBar", () => {
   });
 
   it("seeds the box from the route's q", () => {
-    render(TopBar, { props: { route: browse({ q: "demo" }) } });
+    render(AppSidebar, { props: { route: browse({ q: "demo" }) } });
     expect(screen.getByRole("searchbox", { name: "Series search query" })).toHaveValue("demo");
   });
 
   it("marks active deep-route navigation as a current location, not the current page", () => {
-    render(TopBar, { props: { route: page("series-leaf") } });
+    render(AppSidebar, { props: { route: page("series-leaf") } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     const activeLink = within(nav).getByRole("link", { name: "Benchmarks", current: "location" });
     expect(activeLink).toHaveAttribute("href", "/series");
@@ -119,7 +178,7 @@ describe("TopBar", () => {
   });
 
   it("keeps individual results inside the Benchmarks navigation hierarchy", () => {
-    render(TopBar, { props: { route: page("result") } });
+    render(AppSidebar, { props: { route: page("result") } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(within(nav).getByRole("link", { name: "Benchmarks", current: "location" })).toHaveAttribute(
       "href",
@@ -128,7 +187,7 @@ describe("TopBar", () => {
   });
 
   it("keeps run records inside the Runs navigation hierarchy", () => {
-    render(TopBar, { props: { route: page("run") } });
+    render(AppSidebar, { props: { route: page("run") } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(within(nav).getByRole("link", { name: "Runs", current: "location" })).toHaveAttribute(
       "href",
@@ -137,27 +196,27 @@ describe("TopBar", () => {
   });
 
   it("keeps CI reports inside the Runs navigation hierarchy", () => {
-    render(TopBar, { props: { route: page("ci-report") } });
+    render(AppSidebar, { props: { route: page("ci-report") } });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(within(nav).getByRole("link", { name: "Runs", current: "location" })).toBeInTheDocument();
   });
 
   it("hides the project switcher when no project exists", async () => {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     await waitFor(() => expect(GET).toHaveBeenCalledWith("/api/repositories", undefined));
     expect(screen.queryByRole("combobox", { name: /project/i })).not.toBeInTheDocument();
   });
 
   it("offers the switcher for a single project", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW]));
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: All projects" }));
     expect(screen.getByRole("option", { name: "apache/arrow" })).toBeInTheDocument();
   });
 
   it("keeps the commit search and resets paging when switching projects on Runs", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
-    render(TopBar, {
+    render(AppSidebar, {
       props: { route: { name: "home", query: { repository: ARROW, q: "abcdef", offset: 25 } } },
     });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: apache/arrow" }));
@@ -167,7 +226,7 @@ describe("TopBar", () => {
 
   it("scopes nav links and global search to the route's project", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
-    render(TopBar, { props: { route: browse({ repository: ARROW_GO, q: "sort" }) } });
+    render(AppSidebar, { props: { route: browse({ repository: ARROW_GO, q: "sort" }) } });
     await screen.findByRole("combobox", { name: "Project: apache/arrow-go" });
     const nav = screen.getByRole("navigation", { name: "Primary navigation" });
     const scoped = `repository=${encodeURIComponent(ARROW_GO)}`;
@@ -182,7 +241,7 @@ describe("TopBar", () => {
 
   it("remembers the project on pages without a project in the URL", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
-    const { rerender } = render(TopBar, { props: { route: home(ARROW) } });
+    const { rerender } = render(AppSidebar, { props: { route: home(ARROW) } });
     await screen.findByRole("combobox", { name: "Project: apache/arrow" });
     await rerender({ route: page("run") });
     expect(screen.getByRole("combobox", { name: "Project: apache/arrow" })).toBeInTheDocument();
@@ -195,7 +254,7 @@ describe("TopBar", () => {
 
   it("switches projects in place on Benchmarks and clears the machine filter", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
-    render(TopBar, { props: { route: browse({ repository: ARROW, hardware: "m5", q: "sort", view: "charts" }) } });
+    render(AppSidebar, { props: { route: browse({ repository: ARROW, hardware: "m5", q: "sort", view: "charts" }) } });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: apache/arrow" }));
     await fireEvent.click(screen.getByRole("option", { name: "apache/arrow-go" }));
     expect(window.location.pathname).toBe("/series");
@@ -204,14 +263,14 @@ describe("TopBar", () => {
 
   it("opens Benchmarks from benchmark detail pages and Runs from everything else", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
-    const { unmount } = render(TopBar, { props: { route: page("result") } });
+    const { unmount } = render(AppSidebar, { props: { route: page("result") } });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: All projects" }));
     await fireEvent.click(screen.getByRole("option", { name: "apache/arrow" }));
     expect(`${window.location.pathname}${window.location.search}`)
       .toBe(`/series?repository=${encodeURIComponent(ARROW)}`);
     unmount();
 
-    render(TopBar, { props: { route: page("compare") } });
+    render(AppSidebar, { props: { route: page("compare") } });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: All projects" }));
     await fireEvent.click(screen.getByRole("option", { name: "All projects" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/");
@@ -219,7 +278,7 @@ describe("TopBar", () => {
 
   it("shows an unknown project from the URL and disables the switcher when projects fail to load", async () => {
     GET.mockResolvedValue({ status: 500, data: { detail: "database unavailable" } });
-    render(TopBar, { props: { route: home(ARROW) } });
+    render(AppSidebar, { props: { route: home(ARROW) } });
     const switcher = await screen.findByRole("combobox", { name: "Project: apache/arrow" });
     await waitFor(() => expect(switcher).toBeDisabled());
     expect(switcher.closest(".project-switcher")).toHaveAttribute("title", "database unavailable");
@@ -227,7 +286,7 @@ describe("TopBar", () => {
 
   it("leaves modified brand clicks to the browser", async () => {
     window.history.replaceState(null, "", "/?q=x");
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     await fireEvent.click(screen.getByRole("link", { name: "BenchDB" }), { metaKey: true });
     // navigate() was not called: the URL still carries the original search.
     expect(window.location.search).toBe("?q=x");
@@ -239,7 +298,7 @@ it("keeps native links and SPA navigation under the deployed base path", async (
   base.href = "/tools/bench/";
   document.head.append(base);
   try {
-    render(TopBar, { props: { route: home() } });
+    render(AppSidebar, { props: { route: home() } });
     expect(screen.getByRole("link", { name: "Benchmarks" })).toHaveAttribute("href", "/tools/bench/series");
     expect(screen.getByRole("link", { name: "API Docs" })).toHaveAttribute("href", "/tools/bench/docs");
     await fireEvent.click(screen.getByRole("link", { name: "Benchmarks" }));
