@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,21 +13,20 @@ import (
 const (
 	recentRunsPageSizeDefault = 25
 	recentRunsPageSizeMax     = 100
-	recentRunsAttentionLimit  = 5
 )
 
 // RecentRunsQuery is the parsed recent-runs input.
 type RecentRunsQuery struct {
-	Search           string
-	Offset           int32
-	PageSize         int
-	IncludeAttention bool
-	Repository       *string
+	Search         string
+	Offset         int32
+	PageSize       int
+	NeedsAttention bool
+	Repository     *string
 }
 
-// RecentRunAttention is an opt-in, bounded CI triage summary for a recent run.
-// It is present only when the run needs attention; successful/skipped reports
-// and default-branch-only action-required reports are omitted.
+// RecentRunAttention is a run's stored CI triage summary. It is present only
+// when the run needs attention; successful/skipped reports and
+// default-branch-only action-required reports are omitted.
 type RecentRunAttention struct {
 	Status       CIReportStatus            `json:"status" enum:"success,failure,action_required,skipped"`
 	StatusReason string                    `json:"status_reason"`
@@ -47,28 +46,34 @@ type RecentRunAttentionSummary struct {
 
 // RecentRunListItem is one grouped run on the dashboard landing page.
 type RecentRunListItem struct {
-	RunID         string              `json:"run_id"`
-	RunReason     *string             `json:"run_reason"`
-	RunTags       map[string]any      `json:"run_tags"`
-	BatchCount    int64               `json:"batch_count"`
-	LatestBatchID *string             `json:"latest_batch_id"`
-	ResultCount   int64               `json:"result_count"`
-	ErrorCount    int64               `json:"error_count"`
-	SeriesCount   int64               `json:"series_count"`
-	MachineNames  []string            `json:"machine_names"`
-	LatestResult  string              `json:"latest_result_id"`
-	Repository    string              `json:"repository"`
-	CommitSHA     *string             `json:"commit_sha"`
-	FirstResultAt time.Time           `json:"first_result_at"`
-	LastResultAt  time.Time           `json:"last_result_at"`
-	Commit        *ListCommit         `json:"commit"`
-	Attention     *RecentRunAttention `json:"attention,omitempty"`
+	RunID         string         `json:"run_id"`
+	RunReason     *string        `json:"run_reason"`
+	RunTags       map[string]any `json:"run_tags"`
+	BatchCount    int64          `json:"batch_count"`
+	LatestBatchID *string        `json:"latest_batch_id"`
+	ResultCount   int64          `json:"result_count"`
+	ErrorCount    int64          `json:"error_count"`
+	SeriesCount   int64          `json:"series_count"`
+	MachineNames  []string       `json:"machine_names"`
+	LatestResult  string         `json:"latest_result_id"`
+	Repository    string         `json:"repository"`
+	CommitSHA     *string        `json:"commit_sha"`
+	FirstResultAt time.Time      `json:"first_result_at"`
+	LastResultAt  time.Time      `json:"last_result_at"`
+	Commit        *ListCommit    `json:"commit"`
+	// AttentionChecked is false while the run's verdict is still being
+	// computed; Attention is then absent even if the run needs attention.
+	AttentionChecked bool                `json:"attention_checked"`
+	Attention        *RecentRunAttention `json:"attention,omitempty"`
 }
 
 // RecentRunsPage is the GET /api/runs/recent response.
 type RecentRunsPage struct {
-	HasMore bool                `json:"has_more"`
-	Runs    []RecentRunListItem `json:"runs"`
+	HasMore bool `json:"has_more"`
+	// AttentionRuns counts every checked run that needs attention, within the
+	// repository filter when one is set.
+	AttentionRuns int64               `json:"attention_runs"`
+	Runs          []RecentRunListItem `json:"runs"`
 }
 
 // ListRecentRuns returns grouped summaries for the newest runs.
@@ -82,10 +87,11 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	}
 
 	rows, err := r.store.SelectRecentRuns(ctx, storage.RecentRunsParams{
-		Search:     strings.TrimSpace(q.Search),
-		Offset:     max(q.Offset, 0),
-		PageSize:   int32(pageSize + 1),
-		Repository: q.Repository,
+		Search:         strings.TrimSpace(q.Search),
+		Offset:         max(q.Offset, 0),
+		PageSize:       int32(pageSize + 1),
+		Repository:     q.Repository,
+		NeedsAttention: q.NeedsAttention,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list recent runs: %w", err)
@@ -102,42 +108,58 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 		}
 		items = append(items, item)
 	}
-	if q.IncludeAttention {
-		r.attachRecentRunAttention(ctx, items)
+	if err := r.attachRunVerdicts(ctx, items); err != nil {
+		return nil, err
 	}
-	return &RecentRunsPage{HasMore: hasMore, Runs: items}, nil
-}
-
-func (r *Reader) attachRecentRunAttention(ctx context.Context, items []RecentRunListItem) {
-	reporter := NewCIReporter(r.store)
-	limit := min(len(items), recentRunsAttentionLimit)
-	for i := range limit {
-		items[i].Attention = r.recentRunAttention(ctx, reporter, items[i])
-	}
-}
-
-func (r *Reader) recentRunAttention(ctx context.Context, reporter *CIReporter, item RecentRunListItem) *RecentRunAttention {
-	q := CIReportQuery{
-		RunIDs:   []string{item.RunID},
-		Baseline: CIReportBaselineForkPoint,
-	}
-	if item.Repository != "" && item.CommitSHA != nil && *item.CommitSHA != "" {
-		q.Repository = item.Repository
-		q.CommitSHA = *item.CommitSHA
-	}
-	report, err := reporter.Report(ctx, q)
+	attentionRuns, err := r.store.CountAttentionRuns(ctx, q.Repository)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil
-		}
-		return &RecentRunAttention{
-			Status:       CIReportStatusActionRequired,
-			StatusReason: "CI report could not be evaluated",
-			ReportURL:    reporter.ciReportURL(q, item.Repository, item.CommitSHA, CIReportBaselineForkPoint, 0, 0),
-			Summary:      RecentRunAttentionSummary{},
-		}
+		return nil, fmt.Errorf("count attention runs: %w", err)
 	}
-	return recentRunAttentionFromReport(report)
+	return &RecentRunsPage{HasMore: hasMore, AttentionRuns: attentionRuns, Runs: items}, nil
+}
+
+// attachRunVerdicts copies stored verdicts onto the page and queues the runs
+// that have none, so the next load of the page can show them.
+func (r *Reader) attachRunVerdicts(ctx context.Context, items []RecentRunListItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	runIDs := make([]string, len(items))
+	for i, item := range items {
+		runIDs[i] = item.RunID
+	}
+	verdicts, err := r.store.SelectRunVerdicts(ctx, runIDs)
+	if err != nil {
+		return fmt.Errorf("select run verdicts: %w", err)
+	}
+	byRun := make(map[string]storage.RunVerdict, len(verdicts))
+	for _, verdict := range verdicts {
+		byRun[verdict.RunID] = verdict
+	}
+	var missing []string
+	for i := range items {
+		verdict, ok := byRun[items[i].RunID]
+		if !ok {
+			missing = append(missing, items[i].RunID)
+			continue
+		}
+		items[i].AttentionChecked = true
+		if !verdict.NeedsAttention {
+			continue
+		}
+		var attention RecentRunAttention
+		if err := json.Unmarshal(verdict.Attention, &attention); err != nil {
+			return fmt.Errorf("decode attention for run %q: %w", verdict.RunID, err)
+		}
+		items[i].Attention = &attention
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if err := r.store.EnqueueMissingRunVerdicts(ctx, missing); err != nil {
+		return fmt.Errorf("queue run verdicts: %w", err)
+	}
+	return nil
 }
 
 func recentRunAttentionFromReport(report *CIReport) *RecentRunAttention {

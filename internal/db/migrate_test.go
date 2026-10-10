@@ -15,7 +15,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 4
+const latestMigrationVersion = 5
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -194,6 +194,33 @@ func TestMigrateRejectsBenchmarkIndexDrift(t *testing.T) {
 
 	err = db.Migrate(ctx, pool)
 	require.ErrorContains(t, err, "BenchDB schema is incomplete")
+}
+
+func TestMigrateQueuesRecentRunsForVerdicts(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for _, file := range []string{
+		"000002_result_artifacts.up.sql",
+		"000003_saved_run_reports.up.sql",
+		"000004_saved_report_baseline_units.up.sql",
+	} {
+		migration, err := os.ReadFile("migrations/" + file)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 4, false)
+	assertCurrentBaseline(t, ctx, pool)
+	_, err := pool.Exec(ctx, `UPDATE benchmark_result SET run_id = 'recent-run',
+		"timestamp" = (now() AT TIME ZONE 'UTC') - interval '1 day' WHERE submission_key = 'submission-1'`)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	var kind, key string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT kind, key FROM verdict_queue`).Scan(&kind, &key))
+	assert.Equal(t, "run", kind)
+	assert.Equal(t, "recent-run", key, "recent runs get verdicts without waiting for a page view")
 }
 
 func applyBaselineSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

@@ -41,7 +41,10 @@ Use a staged combination, not a single large storage rewrite.
 3. Do not rebuild the legacy Flask/BMRT cache model as the long-term answer.
    Also do not start by adding broad materialized cache tables for every
    dashboard view. Those approaches improve individual screens but keep the
-   100M-row analytical fact table inside the transactional database.
+   100M-row analytical fact table inside the transactional database. Stored
+   verdicts (`run_verdict`) are not such a cache: they hold one small row per
+   run, computed from the facts, and are a candidate to move to the analytical
+   replica with other rollups.
 4. Prove a read-only columnar analytical replica before any primary fact-store
    switch. The first candidate is DuckDB reading Parquet, with DuckLake as the
    catalog layer to test after plain Parquet establishes a lower-bound baseline.

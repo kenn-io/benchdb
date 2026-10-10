@@ -40,6 +40,7 @@ type RunReport struct {
 // ingestion and read services need. Implementations own primary-key generation,
 // so the insert-params types below carry no ID.
 type Store interface {
+	VerdictStore
 	FinalizeRunReport(context.Context, string, []string, func(Store) (RunReport, error)) (RunReport, error)
 	GetRunReport(context.Context, string) (RunReport, error)
 	RunReportSummaries(context.Context, []string) (map[string][]byte, error)
@@ -631,10 +632,11 @@ type ResultListRow struct {
 
 // RecentRunsParams selects a page of matching runs, newest first.
 type RecentRunsParams struct {
-	Search     string
-	Offset     int32
-	PageSize   int32
-	Repository *string
+	Search         string
+	Offset         int32
+	PageSize       int32
+	Repository     *string
+	NeedsAttention bool
 }
 
 // RepositoryRow is one repository with benchmark commits.

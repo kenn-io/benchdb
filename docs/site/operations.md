@@ -343,6 +343,29 @@ The repository does not ship a kube-prometheus or Grafana stack generator.
 Cluster monitoring stacks are deployment-owned; BenchDB owns only the
 application `ServiceMonitor` that advertises how to scrape `/metrics`.
 
+## Run Verdicts
+
+Every server process runs a background worker that stores each run's CI
+attention verdict in `run_verdict`, so the home page can show and filter by
+attention without evaluating CI reports on page load. Database triggers queue
+work in `verdict_queue` when results are inserted, deleted, or re-annotated and
+when commits are inserted or repaired, including writes from admin commands.
+Workers claim queued keys with a lease, so several replicas can share the queue.
+
+- A run is evaluated once its results have stopped changing for 15 seconds.
+- New default-branch results or commits in a repository re-queue that
+  repository's pull-request runs with results from the last 14 days.
+- Upgrading to the release that adds verdicts queues runs from the last 14
+  days; older runs are queued when a page first lists them.
+
+Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
+and default thresholds. After an upgrade that changes CI report rules, re-queue
+existing verdicts so they are recomputed:
+
+```sql
+SELECT enqueue_verdict('run', run_id) FROM run_verdict;
+```
+
 ## Unknown Commit Repair
 
 When GitHub enrichment fails during ingestion, BenchDB still stores the

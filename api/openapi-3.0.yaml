@@ -1461,6 +1461,8 @@ components:
       properties:
         attention:
           $ref: "#/components/schemas/RecentRunAttention"
+        attention_checked:
+          type: boolean
         batch_count:
           format: int64
           type: integer
@@ -1520,6 +1522,7 @@ components:
         - first_result_at
         - last_result_at
         - commit
+        - attention_checked
       type: object
     RecentRunsPage:
       additionalProperties: false
@@ -1530,6 +1533,9 @@ components:
           format: uri
           readOnly: true
           type: string
+        attention_runs:
+          format: int64
+          type: integer
         has_more:
           type: boolean
         runs:
@@ -1539,6 +1545,7 @@ components:
           type: array
       required:
         - has_more
+        - attention_runs
         - runs
       type: object
     RepositoryItem:
@@ -3283,12 +3290,12 @@ paths:
             description: Page size (max 100).
             format: int64
             type: integer
-        - description: Include bounded CI attention summaries for the newest runs.
+        - description: Return only runs whose CI report needs attention.
           explode: false
           in: query
-          name: include_attention
+          name: needs_attention
           schema:
-            description: Include bounded CI attention summaries for the newest runs.
+            description: Return only runs whose CI report needs attention.
             type: boolean
         - description: Filter by repository URL.
           explode: false

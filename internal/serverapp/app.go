@@ -109,6 +109,11 @@ func Run(ctx context.Context) error {
 	go func() { defer close(collectorDone); artifacts.RunCollector(collectorCtx) }()
 	defer func() { stopCollector(); <-collectorDone }()
 
+	verdictCtx, stopVerdicts := context.WithCancel(ctx)
+	verdictsDone := make(chan struct{})
+	go func() { defer close(verdictsDone); service.NewVerdicts(store, service.VerdictSettle).Run(verdictCtx) }()
+	defer func() { stopVerdicts(); <-verdictsDone }()
+
 	var sessionSigner *auth.SessionSigner
 	if cfg.sessionSecret != "" {
 		sessionSigner = auth.NewSessionSigner(cfg.sessionSecret)
