@@ -69,29 +69,20 @@ describe("listRecentRuns", () => {
       runReason: "nightly",
       resultCount: 180,
       errorCount: 1,
-      seriesCount: 90,
       runHref: "/runs/run-a",
       latestBatchHref: "/batches/batch-a",
-      latestResultHref: "/results/result-a",
       shortCommit: "abcdef12",
       primaryLabel: "Improve vector kernel dispatch",
-      commitMessage: "Improve vector kernel dispatch",
       authorLabel: "Contributor A",
-      authorLogin: "contributor-a",
       authorAvatar: "https://avatars.githubusercontent.com/u/12345?v=4",
       commitHref: "https://github.com/apache/arrow/commit/abcdef123456",
     });
-    expect(page.runs[0]!.secondaryLabel).toContain("run");
     expect(page.runs[0]!.errorCount).toBe(1);
     expect(page.runs[0]!.attention).toMatchObject({
       status: "failure",
       statusReason: "lookback regression detected",
-      reportHref: "/ci/report?run_ids=run-a&baseline=fork_point",
       summaryText: "2 regressions",
     });
-    expect(page.runs[0]!.ciReportHref).toBe(
-      "/ci/report?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&commit_sha=abcdef123456&run_ids=run-a&baseline=fork_point",
-    );
   });
 
   it("passes the selected repository to the recent-runs endpoint", async () => {
@@ -153,7 +144,7 @@ describe("listRecentRuns", () => {
 
     expect(page.runs[0]).toMatchObject({
       primaryLabel: "abcdef12",
-      secondaryLabel: "run fff41571debd…7d99440a",
+      displayRunId: "fff41571debd…7d99440a",
       authorLabel: "benchmark-bot",
       authorAvatar: null,
       commitHref: null,

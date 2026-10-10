@@ -15,7 +15,6 @@ export interface RecentRunViewModel {
   runId: string;
   displayRunId: string;
   primaryLabel: string;
-  secondaryLabel: string;
   runHref: string;
   runReason: string | null;
   machineNames: string[];
@@ -26,33 +25,20 @@ export interface RecentRunViewModel {
   latestBatchHref: string | null;
   resultCount: number;
   errorCount: number;
-  seriesCount: number;
-  latestResultId: string;
-  latestResultHref: string;
   repository: string;
   repositoryLabel: string;
-  commitSha: string | null;
   shortCommit: string | null;
-  commitMessage: string | null;
   commitHref: string | null;
   authorLabel: string;
-  authorLogin: string | null;
   authorAvatar: string | null;
-  firstResultAt: string;
   lastResultAt: string;
-  ciReportHref: string | null;
   attention: RecentRunAttentionViewModel | null;
 }
 
 export interface RecentRunAttentionViewModel {
   status: "failure" | "action_required";
   statusReason: string;
-  reportHref: string;
   summaryText: string;
-  regressions: number;
-  benchmarkErrors: number;
-  missingBaseline: number;
-  notComparable: number;
 }
 
 export interface RecentRunsViewModel {
@@ -110,7 +96,6 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     runId: run.run_id,
     displayRunId,
     primaryLabel: commitMessage ?? shortCommit ?? displayRunId,
-    secondaryLabel: `run ${displayRunId}`,
     runHref: `/runs/${encodeURIComponent(run.run_id)}`,
     runReason: run.run_reason ?? null,
     machineNames: run.machine_names ?? [],
@@ -123,21 +108,13 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     latestBatchHref: run.latest_batch_id === null ? null : `/batches/${encodeURIComponent(run.latest_batch_id)}`,
     resultCount: run.result_count,
     errorCount: run.error_count,
-    seriesCount: run.series_count,
-    latestResultId: run.latest_result_id,
-    latestResultHref: `/results/${encodeURIComponent(run.latest_result_id)}`,
     repository: run.repository,
     repositoryLabel: repositoryLabel(run.repository),
-    commitSha,
     shortCommit,
-    commitMessage,
     commitHref: commitHref(run.repository, commitSha),
     authorLabel: authorName ?? authorLogin ?? "unknown author",
-    authorLogin,
     authorAvatar: usableHTTPURL(commit?.author_avatar ?? null),
-    firstResultAt: run.first_result_at,
     lastResultAt: run.last_result_at,
-    ciReportHref: ciReportHref(run.repository, commitSha, run.run_id),
     attention: toRecentRunAttentionViewModel(run.attention ?? null),
   };
 }
@@ -157,12 +134,7 @@ function toRecentRunAttentionViewModel(
   return {
     status: attention.status,
     statusReason: attention.status_reason,
-    reportHref: attention.report_url,
     summaryText: attentionSummaryText(attention.summary),
-    regressions: attention.summary.regressions,
-    benchmarkErrors: attention.summary.benchmark_errors,
-    missingBaseline: attention.summary.missing_baseline,
-    notComparable: attention.summary.not_comparable,
   };
 }
 
@@ -193,7 +165,6 @@ function compactIdentifier(value: string, head: number, tail: number): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
-
 function commitHref(repository: string, commitSha: string | null): string | null {
   if (commitSha === null || commitSha === "") {
     return null;
@@ -212,19 +183,6 @@ function commitHref(repository: string, commitSha: string | null): string | null
     return null;
   }
   return `https://github.com/${parts[0]}/${parts[1]}/commit/${encodeURIComponent(commitSha)}`;
-}
-
-function ciReportHref(repository: string, commitSha: string | null, runId: string): string | null {
-  if (repository === "" || commitSha === null || commitSha === "") {
-    return null;
-  }
-  const params = new URLSearchParams({
-    repository,
-    commit_sha: commitSha,
-    run_ids: runId,
-    baseline: "fork_point",
-  });
-  return `/ci/report?${params.toString()}`;
 }
 
 function cleanString(value: string | null): string | null {
