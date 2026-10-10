@@ -137,7 +137,7 @@ describe("ResultPage", () => {
     expect(screen.getByRole("region", { name: "Diagnostics" })).toHaveTextContent("Worker profiles unavailable for this revision.");
   });
 
-  it("presents the selected result inside its series trend before record details", async () => {
+  it("leads with the measurement and its change, then the series trend and record details", async () => {
     mockPage();
     render(ResultPage, { props: { resultId: "r1" } });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
@@ -151,9 +151,10 @@ describe("ResultPage", () => {
     expect(screen.getByText("sha").nextElementSibling).toHaveAttribute("title", "abc1234def");
     expect(screen.getByText("run1")).toBeInTheDocument();
     const trend = screen.getByRole("region", { name: /result in series trend/i });
-    expect(trend.compareDocumentPosition(screen.getByRole("region", { name: /result measurement/i })))
+    expect(measurement.compareDocumentPosition(trend)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(trend.compareDocumentPosition(screen.getByRole("region", { name: /result facts/i })))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(trend).toHaveTextContent(/25\.0% better than previous/i);
+    expect(measurement).toHaveTextContent(/25\.0% better than previous/i);
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
     expect(screen.getByRole("link", { name: /explore full series/i })).toHaveAttribute(
       "href",
