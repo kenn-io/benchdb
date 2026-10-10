@@ -83,8 +83,8 @@ describe("RecentRunsHome", () => {
     expect(screen.queryByText(/attention checked/i)).toBeNull();
     const attention = screen.getByRole("region", { name: /^Needs attention/ });
     expect(attention).toHaveTextContent("the newest 2 runs on this page");
-    const review = within(attention).getByRole("link", { name: "Review run run-a" });
-    expect(review).toHaveAttribute("href", "/runs/run-a");
+    const review = within(attention).getByRole("link", { name: "Review CI report for run run-a" });
+    expect(review).toHaveAttribute("href", "/ci/report?run_ids=run-a&baseline=fork_point");
     expect(review).toHaveTextContent("2 regressions");
     expect(screen.getByRole("link", { name: "Open run run-a" })).toHaveAttribute("href", "/runs/run-a");
     expect(screen.getAllByRole("link", { name: "Open batch batch-a" })[0]).toHaveAttribute(

@@ -81,6 +81,7 @@ describe("listRecentRuns", () => {
     expect(page.runs[0]!.attention).toMatchObject({
       status: "failure",
       statusReason: "lookback regression detected",
+      reportHref: "/ci/report?run_ids=run-a&baseline=fork_point",
       summaryText: "2 regressions",
     });
   });

@@ -38,6 +38,9 @@ export interface RecentRunViewModel {
 export interface RecentRunAttentionViewModel {
   status: "failure" | "action_required";
   statusReason: string;
+  // The server's report link names the exact repository and commit the
+  // attention summary was computed for.
+  reportHref: string;
   summaryText: string;
 }
 
@@ -134,6 +137,7 @@ function toRecentRunAttentionViewModel(
   return {
     status: attention.status,
     statusReason: attention.status_reason,
+    reportHref: attention.report_url,
     summaryText: attentionSummaryText(attention.summary),
   };
 }

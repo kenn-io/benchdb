@@ -166,9 +166,9 @@
             <li>
               <a
                 class="attention-link"
-                href={appURL(run.runHref)}
-                aria-label={`Review run ${run.runId}`}
-                onclick={(e) => go(e, run.runHref)}
+                href={appURL(attention.reportHref)}
+                aria-label={`Review CI report for run ${run.runId}`}
+                onclick={(e) => go(e, attention.reportHref)}
               >
                 <span class={`attention-status ${attention.status}`}>{attentionStatusLabel(attention)}</span>
                 <strong>{run.primaryLabel}</strong>
