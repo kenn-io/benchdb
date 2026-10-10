@@ -91,7 +91,6 @@
       loadedRuns: new Set(rows.map((row) => row.runId)).size,
       loadedBatches: new Set(rows.map((row) => row.batchId).filter(Boolean)).size,
       loadedErrors: rows.filter((row) => row.hasError).length,
-      loadedSeries: new Set(rows.map((row) => row.historyFingerprint)).size,
     };
   }
 
@@ -161,6 +160,10 @@
     return `${n.toLocaleString()} ${n === 1 ? word : pluralWord}`;
   }
 
+  let showRun = $derived(query.runID === "");
+  let showBatch = $derived(vm !== null && vm.rows.some((row) => row.batchHref !== null));
+  let showTrend = $derived(vm !== null && vm.rows.some((row) => row.trendHref !== null));
+
   let activeFilters = $derived([
     ...(query.runID !== ""
       ? [{ label: "run id", value: query.runID, clear: { runID: "" }, aria: `Remove run id filter ${query.runID}` }]
@@ -198,20 +201,8 @@
 <main class="page results-page">
   <header class="page-header">
     <div>
-      <p class="eyebrow">Result Explorer</p>
+      <p class="eyebrow">Result explorer</p>
       <h1>Benchmark results</h1>
-      <p class="page-subtitle">
-        Browse submitted benchmark measurements by case, commit, run, or exact IDs when needed.
-      </p>
-    </div>
-    <div class="header-actions">
-      {#if vm !== null}
-        <div class="page-meta">
-          <span>{plural(vm.loadedResults, "loaded result")}</span>
-          {#if vm.nextCursor !== null}<span>More available</span>{/if}
-        </div>
-      {/if}
-      <a class="button-pill secondary" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Series explorer</a>
     </div>
   </header>
 
@@ -285,7 +276,6 @@
   {:else if vm.rows.length === 0}
     <section class="panel state-panel empty-panel" aria-label="No matching benchmark results">
       <h2>No benchmark results match the current filters</h2>
-      <p>Clear the filters or open the series explorer to find a result from a benchmark family.</p>
       <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
     </section>
   {:else}
@@ -293,10 +283,13 @@
       <span class="summary-item">
         {plural(vm.loadedResults, "result")}{vm.nextCursor === null ? "" : "+"}
       </span>
-      <span class="summary-item">{plural(vm.loadedRuns, "run")}</span>
-      <span class="summary-item">{plural(vm.loadedBatches, "batch", "batches")}</span>
-      <span class="summary-item" class:alert={vm.loadedErrors > 0}>{plural(vm.loadedErrors, "error")}</span>
-      <span class="summary-item">{plural(vm.loadedSeries, "series", "series")}</span>
+      {#if showRun}<span class="summary-item">{plural(vm.loadedRuns, "run")}</span>{/if}
+      {#if vm.loadedBatches > 0}
+        <span class="summary-item">{plural(vm.loadedBatches, "batch", "batches")}</span>
+      {/if}
+      {#if vm.loadedErrors > 0}
+        <span class="summary-item alert">{plural(vm.loadedErrors, "error")}</span>
+      {/if}
     </p>
 
     <section class="panel table-panel" aria-label="Benchmark results">
@@ -304,23 +297,21 @@
         <colgroup>
           <col class="benchmark-col" />
           <col class="svs-col" />
-          <col class="status-col" />
-          <col class="run-col" />
-          <col class="batch-col" />
+          {#if showRun}<col class="run-col" />{/if}
+          {#if showBatch}<col class="batch-col" />{/if}
           <col class="commit-col" />
           <col class="time-col" />
-          <col class="series-col" />
+          {#if showTrend}<col class="series-col" />{/if}
         </colgroup>
         <thead>
           <tr>
             <th>Benchmark</th>
             <th>Measurement</th>
-            <th>Status</th>
-            <th>Run</th>
-            <th>Batch</th>
+            {#if showRun}<th>Run</th>{/if}
+            {#if showBatch}<th>Batch</th>{/if}
             <th>Commit</th>
             <th>Time</th>
-            <th>Open</th>
+            {#if showTrend}<th>Trend</th>{/if}
           </tr>
         </thead>
         <tbody>
@@ -341,67 +332,66 @@
                 </div>
               </td>
               <td class="numeric" data-label="Measurement">
-                <strong>{formatSVS(row)}</strong>
-                <span class="subtle-inline">{row.singleValueSummaryType}</span>
-              </td>
-              <td class="status-cell" data-label="Status">
-                <span class={`status-badge ${row.hasError ? "warning" : "success"}`}>
-                  {row.hasError ? "error" : "ok"}
-                </span>
-              </td>
-              <td data-label="Run">
-                <a
-                  class="mono"
-                  href={appURL(row.runHref)}
-                  aria-label={`Open run ${row.runId}`}
-                  title={row.runId}
-                  onclick={(e) => go(e, row.runHref)}
-                >run {row.displayRunId}</a>
-                {#if row.runReason}
-                  <div class="metadata-line">{row.runReason}</div>
+                {#if row.hasError}
+                  <span class="status-badge warning">error</span>
+                {:else}
+                  <strong>{formatSVS(row)}</strong>
+                  <span class="subtle-inline">{row.singleValueSummaryType}</span>
                 {/if}
               </td>
-              <td data-label="Batch">
-                {#if row.batchId && row.batchHref}
+              {#if showRun}
+                <td data-label="Run">
                   <a
                     class="mono"
-                    href={appURL(row.batchHref)}
-                    aria-label={`Open batch ${row.batchId}`}
-                    title={row.batchId}
-                    onclick={(e) => go(e, row.batchHref!)}
-                  >batch {row.displayBatchId}</a>
-                {:else}
-                  not set
-                {/if}
-              </td>
+                    href={appURL(row.runHref)}
+                    aria-label={`Open run ${row.runId}`}
+                    title={row.runId}
+                    onclick={(e) => go(e, row.runHref)}
+                  >{row.displayRunId}</a>
+                  {#if row.runReason}
+                    <div class="metadata-line">{row.runReason}</div>
+                  {/if}
+                </td>
+              {/if}
+              {#if showBatch}
+                <td data-label="Batch">
+                  {#if row.batchId && row.batchHref}
+                    <a
+                      class="mono"
+                      href={appURL(row.batchHref)}
+                      aria-label={`Open batch ${row.batchId}`}
+                      title={row.batchId}
+                      onclick={(e) => go(e, row.batchHref!)}
+                    >{row.displayBatchId}</a>
+                  {/if}
+                </td>
+              {/if}
               <td class="commit-cell" data-label="Commit">
                 <span class="identity-stack">
                   {#if row.commitSha !== null}
                     <span class="mono" title={row.commitSha}>{row.shortCommit}</span>
-                  {:else}
-                    <span>not set</span>
-                  {/if}
+                    {/if}
                   {#if row.repository !== ""}
                     <span class="metadata-line" title={row.repository}>{row.repositoryLabel}</span>
                   {/if}
                 </span>
               </td>
               <td class="time-cell" data-label="Time">{formatTime(row.timestamp)}</td>
-              <td data-label="Series">
-                {#if row.trendHref !== null}
-                  {@const trendHref = row.trendHref}
-                  <a
-                    class="button-pill secondary"
-                    href={appURL(trendHref)}
-                    aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
-                    onclick={(e) => go(e, trendHref)}
-                  >
-                    Trend
-                  </a>
-                {:else}
-                  <span class="faint">No history</span>
-                {/if}
-              </td>
+              {#if showTrend}
+                <td data-label="Trend">
+                  {#if row.trendHref !== null}
+                    {@const trendHref = row.trendHref}
+                    <a
+                      class="button-pill secondary"
+                      href={appURL(trendHref)}
+                      aria-label={`trend for ${row.benchmarkName} result ${row.id}`}
+                      onclick={(e) => go(e, trendHref)}
+                    >
+                      Trend
+                    </a>
+                  {/if}
+                </td>
+              {/if}
             </tr>
           {/each}
         </tbody>
@@ -423,14 +413,6 @@
 </main>
 
 <style>
-  .header-actions {
-    display: grid;
-    justify-items: end;
-    gap: 8px;
-  }
-  @media (max-width: 760px) {
-    .header-actions { justify-items: start; }
-  }
   .results-page {
     gap: 12px;
   }
@@ -475,10 +457,6 @@
 
   .batch-col {
     width: 13%;
-  }
-
-  .status-col {
-    width: 8%;
   }
 
   .svs-col {
@@ -538,8 +516,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .time-cell,
-  .status-cell {
+  .time-cell {
     white-space: nowrap;
   }
 
@@ -556,8 +533,7 @@
     .results-filters {
       grid-template-columns: 1fr;
     }
-    .time-cell,
-    .status-cell {
+    .time-cell {
       white-space: normal;
     }
   }
