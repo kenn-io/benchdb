@@ -228,111 +228,41 @@
       <div>
         <p class="eyebrow">Benchmark result</p>
         <h1>{vm.name}</h1>
+        <p class="page-subtitle result-ident">
+          <span>{vm.hardwareName}</span>
+          {#if vm.commitSha !== null}<span class="mono" title={vm.commitSha}>{vm.shortCommit}</span>{/if}
+          <span>{vm.resultDateText}</span>
+        </p>
         {#if vm.paramsText}
           <p class="page-subtitle">{vm.paramsText}</p>
         {/if}
       </div>
-      <div class="header-actions">
-        <div class="page-meta">
-          <span>result value <span class="numeric-text"><MeasurementValue value={vm.svs} unit={vm.unit} /></span></span>
-          <span>machine {vm.hardwareName}</span>
-          {#if vm.commitSha !== null}<span title={vm.commitSha}>commit {vm.shortCommit}</span>{/if}
-        </div>
-        <div class="action-row">
-          {#if historyAvailable}
-            <a
-              class="button-pill"
-              href={appURL(seriesHref)}
-              onclick={(e) => go(e, seriesHref)}
-            >Explore full series</a>
-          {/if}
-          <a class="button-pill" href={appURL(vm.historyExportHref)} download={`benchdb-history-${vm.id}.json`}>
-            Export history JSON
-          </a>
-        </div>
+      <div class="action-row">
+        {#if historyAvailable}
+          <a
+            class="button-pill"
+            href={appURL(seriesHref)}
+            onclick={(e) => go(e, seriesHref)}
+          >Explore full series</a>
+        {/if}
+        <a class="button-pill" href={appURL(vm.historyExportHref)} download={`benchdb-history-${vm.id}.json`}>
+          Export history JSON
+        </a>
       </div>
     </header>
-
-    <section class="panel trend-hero" aria-label="Result in series trend">
-      <div class="trend-heading">
-        <div>
-          <p class="eyebrow">Series trend</p>
-          <h2>This result in context</h2>
-        </div>
-        {#if historyUnitConsistent}
-          <div class={`comparison ${comparison.tone}`}>
-            <strong>{comparison.headline}</strong>
-            <span>{comparison.detail}</span>
-          </div>
-        {/if}
-      </div>
-      {#if historyError !== null}
-        <p class="error">Trend unavailable: {historyError}</p>
-      {:else if !historyLoaded}
-        <p class="empty-history">Loading series history…</p>
-      {:else if historyPoints.length === 0}
-        <p class="empty-history">No comparable default-branch history is available for this result.</p>
-      {:else if !historyUnitConsistent}
-        <div class="integrity" role="alert">
-          This history mixes units ({historyUnits.join(", ")}). Its values cannot be
-          compared or plotted together.
-        </div>
-      {:else}
-        <SeriesChart
-          points={historyPoints}
-          sigma={2}
-          height={320}
-          currentResultId={resultId}
-          onopen={openHistoryResult}
-        />
-        <div class="trend-foot">
-          <span>{historyPoints.length} {historyPoints.length === 1 ? "result" : "results"} in this series</span>
-          {#if currentPoint !== null}
-            <span>{currentPoint.commitHash.slice(0, 8)} · <MeasurementValue value={currentPoint.svs} unit={currentPoint.unit} /></span>
-            {#if flagsText(currentPoint.stats) !== ""}<span class="flag">{flagsText(currentPoint.stats)}</span>{/if}
-          {/if}
-        </div>
-      {/if}
-    </section>
-
-    {#if canWrite}
-      <section class="panel action-panel" aria-label="Result actions">
-        <h2>Actions</h2>
-        <div class="action-row">
-          {#if vm.beginsDistributionChange}
-            <button
-              type="button"
-              class="button-pill"
-              onclick={() => setDistributionChange(false)}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "annotation" ? "Saving..." : "Unmark distribution change"}
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="button-pill"
-              onclick={() => setDistributionChange(true)}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "annotation" ? "Saving..." : "Mark distribution change"}
-            </button>
-          {/if}
-          <button type="button" class="button-pill danger" onclick={deleteResult} disabled={busyAction !== null}>
-            {busyAction === "delete" ? "Deleting..." : "Delete result"}
-          </button>
-        </div>
-        {#if actionMsg}<p class="ok">{actionMsg}</p>{/if}
-        {#if actionError}<p class="error">{actionError}</p>{/if}
-      </section>
-    {/if}
 
     <section class="panel result-section measurement-section" aria-label="Result measurement">
       <div class="measurement-primary">
         <span class="eyebrow">{vm.svsType}</span>
-        <strong class="numeric-text">{vm.svsText}</strong>
+        <strong class="numeric-text"><MeasurementValue value={vm.svs} unit={vm.unit} /></strong>
         {#if vm.lessIsBetter !== null}
           <span>{vm.lessIsBetter ? "Lower is better" : "Higher is better"}</span>
+        {/if}
+        {#if historyLoaded && historyError === null && historyUnitConsistent}
+          <p class={`comparison ${comparison.tone}`}>
+            <strong>{comparison.headline}</strong>
+            <span>{comparison.detail}</span>
+          </p>
         {/if}
       </div>
       <dl class="compact-dl measurement-details">
@@ -364,6 +294,37 @@
         </div>
       {/if}
     </section>
+
+    <section class="panel trend-hero" aria-label="Result in series trend">
+      <h2>Series trend</h2>
+      {#if historyError !== null}
+        <p class="error">Trend unavailable: {historyError}</p>
+      {:else if !historyLoaded}
+        <p class="empty-history">Loading series history…</p>
+      {:else if historyPoints.length === 0}
+        <p class="empty-history">No comparable default-branch history is available for this result.</p>
+      {:else if !historyUnitConsistent}
+        <div class="integrity" role="alert">
+          This history mixes units ({historyUnits.join(", ")}). Its values cannot be
+          compared or plotted together.
+        </div>
+      {:else}
+        <SeriesChart
+          points={historyPoints}
+          sigma={2}
+          height={320}
+          currentResultId={resultId}
+          onopen={openHistoryResult}
+        />
+        <div class="trend-foot">
+          <span>{historyPoints.length} {historyPoints.length === 1 ? "result" : "results"}</span>
+          {#if currentPoint !== null && flagsText(currentPoint.stats) !== ""}
+            <span class="flag">{flagsText(currentPoint.stats)}</span>
+          {/if}
+        </div>
+      {/if}
+    </section>
+
 
     {#if vm.artifacts.length > 0 || vm.diagnostics !== null}
       <section class="panel result-section" aria-label="Diagnostics">
@@ -432,6 +393,38 @@
       </div>
     </section>
 
+    {#if canWrite}
+      <section class="panel action-panel" aria-label="Result actions">
+        <h2>Manage</h2>
+        <div class="action-row">
+          {#if vm.beginsDistributionChange}
+            <button
+              type="button"
+              class="button-pill"
+              onclick={() => setDistributionChange(false)}
+              disabled={busyAction !== null}
+            >
+              {busyAction === "annotation" ? "Saving..." : "Unmark distribution change"}
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="button-pill"
+              onclick={() => setDistributionChange(true)}
+              disabled={busyAction !== null}
+            >
+              {busyAction === "annotation" ? "Saving..." : "Mark distribution change"}
+            </button>
+          {/if}
+          <button type="button" class="button-pill danger" onclick={deleteResult} disabled={busyAction !== null}>
+            {busyAction === "delete" ? "Deleting..." : "Delete result"}
+          </button>
+        </div>
+        {#if actionMsg}<p class="ok">{actionMsg}</p>{/if}
+        {#if actionError}<p class="error">{actionError}</p>{/if}
+      </section>
+    {/if}
+
     <details class="panel technical-disclosure" aria-label="Technical details">
       <summary>
         <span>
@@ -470,35 +463,27 @@
   .result-page {
     max-width: 1400px;
   }
-  .header-actions {
-    display: grid;
-    justify-items: end;
-    gap: 8px;
-    min-width: min(100%, 420px);
+  .result-ident {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
   }
-  .page-meta .numeric-text {
-    margin-left: 0.35em;
+  .result-ident span + span::before {
+    content: "·";
+    margin-right: 6px;
+    color: var(--c-text-faint);
   }
   .trend-hero {
     padding: 12px;
   }
-  .trend-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 18px;
-    margin-bottom: 10px;
-  }
-  .trend-heading h2 {
-    margin: 0;
-    font-size: 1rem;
+  .trend-hero h2 {
+    margin: 0 0 10px;
+    font-size: 0.95rem;
   }
   .comparison {
     display: grid;
-    justify-items: end;
     gap: 1px;
-    max-width: 520px;
-    text-align: right;
+    margin: 8px 0 0;
     color: var(--c-text-muted);
     font-size: 0.76rem;
   }
@@ -560,11 +545,15 @@
     align-content: start;
     gap: 3px;
   }
-  .measurement-primary strong {
+  .measurement-primary > strong {
     font-size: clamp(1.65rem, 4vw, 2.5rem);
     line-height: 1.08;
   }
-  .measurement-primary > span:last-child {
+  .measurement-primary > strong :global(.measurement-value) {
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.12em;
+  }
+  .measurement-primary > span:last-of-type {
     color: var(--c-text-muted);
     font-size: 0.76rem;
   }
@@ -658,16 +647,6 @@
     margin-bottom: 6px;
   }
   @media (max-width: 760px) {
-    .header-actions {
-      justify-items: stretch;
-    }
-    .trend-heading {
-      display: grid;
-    }
-    .comparison {
-      justify-items: start;
-      text-align: left;
-    }
     .measurement-section,
     .result-facts,
     .json-grid { grid-template-columns: 1fr; }

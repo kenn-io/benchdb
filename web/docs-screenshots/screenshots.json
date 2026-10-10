@@ -62,7 +62,7 @@
       "id": "ci-report",
       "title": "CI report",
       "path": "/ci/report?repository=...&commit_sha=...&run_ids=...",
-      "purpose": "Review PR/CI regression status, filters, investigation queue, and row verdicts."
+      "purpose": "Review PR/CI regression status, coverage gaps, filters, and row verdicts."
     },
     {
       "id": "account",

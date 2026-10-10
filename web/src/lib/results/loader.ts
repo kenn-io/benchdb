@@ -47,7 +47,6 @@ export interface ResultsPageViewModel {
   loadedRuns: number;
   loadedBatches: number;
   loadedErrors: number;
-  loadedSeries: number;
   rows: ResultListRow[];
   nextCursor: string | null;
 }
@@ -90,7 +89,6 @@ function toResultsPage(results: ResultItem[], nextCursor: string | null): Result
     loadedRuns: new Set(rows.map((row) => row.runId)).size,
     loadedBatches: new Set(rows.map((row) => row.batchId).filter(Boolean)).size,
     loadedErrors: rows.filter((row) => row.hasError).length,
-    loadedSeries: new Set(rows.map((row) => row.historyFingerprint)).size,
     rows,
     nextCursor,
   };

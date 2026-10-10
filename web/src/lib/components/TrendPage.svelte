@@ -9,7 +9,7 @@
     SelectDropdown,
     type SelectDropdownOption,
   } from "@kenn-io/kit-ui/select-dropdown";
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
@@ -49,17 +49,15 @@
 
   const TREND_TABLE_INITIAL_ROWS = 200;
   const TREND_TABLE_ROW_CHUNK = 200;
+  const sigmaOptions: SelectDropdownOption[] = [1, 2, 3, 5].map((sigma) => ({
+    value: String(sigma),
+    label: `±${sigma}σ`,
+  }));
   const yAxisOptions: SelectDropdownOption[] = [
     { value: "zero", label: "Zero baseline" },
     { value: "observed", label: "Observed range" },
   ];
   type TrendFilter = "all" | "outliers" | "steps";
-  type FlagTarget = {
-    filter: Exclude<TrendFilter, "all">;
-    label: string;
-    count: number;
-    point: SeriesPoint;
-  };
   type ComparePick = {
     id: string;
     sha: string;
@@ -198,7 +196,6 @@
   let currentResultId = $derived(source.kind === "result" ? source.resultId : null);
   let outlierCount = $derived(visible.filter((p) => p.stats.isOutlier).length);
   let stepCount = $derived(visible.filter((p) => p.stats.isStep || p.stats.beginsChange).length);
-  let flagTargets = $derived(flaggedPointTargets(visible));
   let rows = $derived(filteredTableRows(visibleTracks, trendFilter));
   let displayedRows = $derived(rows.slice(0, rowLimit));
   let hiddenRowCount = $derived(Math.max(0, rows.length - displayedRows.length));
@@ -345,31 +342,13 @@
       .sort((a, b) => b.chartMs - a.chartMs || b.resultId.localeCompare(a.resultId));
   }
 
-  function flaggedPointTargets(points: SeriesPoint[]): FlagTarget[] {
-    const outliers = points.filter((point) => point.stats.isOutlier);
-    const steps = points.filter((point) => point.stats.isStep || point.stats.beginsChange);
-    return [
-      targetFor("outliers", "outlier", outliers),
-      targetFor("steps", "step", steps),
-    ].filter((target): target is FlagTarget => target !== null);
-  }
-
-  function targetFor(
-    filter: Exclude<TrendFilter, "all">,
-    label: string,
-    entries: SeriesPoint[],
-  ): FlagTarget | null {
-    const first = entries[0];
-    if (first === undefined) return null;
-    return { filter, label, count: entries.length, point: first };
-  }
-
   function zText(value: number | null): string {
     return value === null ? "z —" : `z ${value.toFixed(2)}`;
   }
 
   function rowCountText(): string {
     if (trendFilter === "all") {
+      if (displayedRows.length === visible.length) return "";
       return `showing ${displayedRows.length} of ${rows.length} points`;
     }
     return `showing ${displayedRows.length} of ${rows.length} filtered points`;
@@ -401,13 +380,6 @@
         exportCopied = false;
       }
     }
-  }
-
-  async function jumpToFlag(target: FlagTarget) {
-    trendFilter = target.filter;
-    rowLimit = TREND_TABLE_INITIAL_ROWS;
-    await tick();
-    selectedResultId = target.point.resultId;
   }
 
   function orientation(lessIsBetter: boolean | null): string | null {
@@ -452,12 +424,8 @@
             {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
             <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
             <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
-            {#if vm.identity.unit !== null}
-              <span>
-                unit: {vm.identity.unit}{orientation(vm.identity.lessIsBetter) !== null
-                  ? ` (${orientation(vm.identity.lessIsBetter)})`
-                  : ""}
-              </span>
+            {#if orientation(vm.identity.lessIsBetter) !== null}
+              <span>{orientation(vm.identity.lessIsBetter)}</span>
             {/if}
           </div>
         </div>
@@ -486,7 +454,7 @@
     <div class="context-toolbar">
       <div class="toolbar controls">
         <label class="filter-label machine-select">
-          machine
+          Machine
           <SelectDropdown
             value={machineFilter}
             options={machineOptions}
@@ -495,7 +463,7 @@
           />
         </label>
         <div class="filter-label range-control">
-          <span>range</span>
+          <span>Range</span>
           <DateRangePicker
             selection={query.range}
             onSelect={setRange}
@@ -504,16 +472,13 @@
           />
         </div>
         <label class="filter-label">
-          band
-          <select
+          Band
+          <SelectDropdown
             value={String(query.sigma)}
-            onchange={(e) => setControl({ sigma: Number(e.currentTarget.value) as TrendSigma })}
-          >
-            <option value="1">±1σ</option>
-            <option value="2">±2σ</option>
-            <option value="3">±3σ</option>
-            <option value="5">±5σ</option>
-          </select>
+            options={sigmaOptions}
+            title="Band"
+            onchange={(value) => setControl({ sigma: Number(value) as TrendSigma })}
+          />
         </label>
         <label class="filter-label machine-select">
           Y-axis
@@ -533,28 +498,14 @@
           class="summary-item"
           title="The x-axis uses commit time. Backfilled results appear at the commit's date."
         >{fleetCoverageText}</span>
-        <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
-        <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+        {#if outlierCount > 0}
+          <span class="summary-item">{outlierCount} {outlierCount === 1 ? "outlier" : "outliers"}</span>
+        {/if}
+        {#if stepCount > 0}
+          <span class="summary-item">{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+        {/if}
       </p>
     </div>
-
-    {#if flagTargets.length > 0}
-      <section class="flag-queue" aria-label="Flagged point shortcuts">
-        {#each flagTargets as target}
-          <button
-            type="button"
-            class="flag-card"
-            aria-label={`Jump to first ${target.label}: ${target.point.commitHash}`}
-            onclick={() => jumpToFlag(target)}
-          >
-            <span class="flag-count">{target.count} {target.count === 1 ? target.label : `${target.label}s`}</span>
-            <strong title={target.point.commitHash}>{target.point.commitHash.slice(0, 12)}</strong>
-            <span class="numeric-text">{formatMeasurement(target.point.svs, target.point.unit)} · {zText(target.point.stats.z)}</span>
-            <span class="jump">View →</span>
-          </button>
-        {/each}
-      </section>
-    {/if}
 
     <!-- The bar lives outside the windowed branch: picks are id-based and
          survive range changes, so switching to an empty window must not
@@ -672,7 +623,7 @@
         <header class="history-heading">
           <div>
             <h2>Results</h2>
-            <p class="row-count">{rowCountText()} · newest first</p>
+            {#if rowCountText() !== ""}<p class="row-count">{rowCountText()}</p>{/if}
           </div>
           <div class="filter-bar" aria-label="Trend point filters">
             <button
@@ -797,49 +748,6 @@
     cursor: pointer;
   }
   .refresh-button:disabled { cursor: wait; opacity: 0.65; }
-  .flag-queue {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 0;
-  }
-  .flag-card {
-    display: flex;
-    align-items: center;
-    flex: 1 1 360px;
-    gap: 8px;
-    min-width: 0;
-    min-height: 34px;
-    padding: 0.3rem 0.55rem;
-    border: 1px solid var(--c-border-muted);
-    border-left: 3px solid var(--c-warning);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    color: var(--c-text-muted);
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.78rem;
-    text-align: left;
-  }
-  .flag-card:hover {
-    border-color: var(--c-accent);
-  }
-  .flag-card strong {
-    color: var(--c-text);
-    font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
-  }
-  .flag-count {
-    color: var(--c-warning);
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  .flag-card .jump {
-    margin-left: auto;
-    color: var(--c-accent);
-    font-weight: 700;
-    white-space: nowrap;
-  }
   .filter-bar { display: flex; gap: 0.45rem; flex-wrap: wrap; }
   .selected-panel {
     margin: 0.65rem 0;
@@ -917,8 +825,6 @@
     .live-status { flex-wrap: wrap; white-space: normal; }
     .history-heading { align-items: flex-start; flex-direction: column; }
     .context-summary { justify-content: flex-start; padding-bottom: 0; }
-    .flag-card { align-items: flex-start; flex-wrap: wrap; }
-    .flag-card .jump { margin-left: 0; }
     .selected-panel { grid-template-columns: 1fr; align-items: start; }
     .point-meta { grid-template-columns: 1fr; }
     .actions { justify-content: flex-start; }

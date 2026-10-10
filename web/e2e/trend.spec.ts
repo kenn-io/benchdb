@@ -73,7 +73,8 @@ test("trend deep link renders overlays and controls and opens a result", async (
   expect(panelBox!.y - (triggerBox!.y + triggerBox!.height)).toBeLessThanOrEqual(8);
   await page.getByRole("button", { name: "30d" }).click();
   await expect(page).toHaveURL(/range=30d/);
-  await page.getByLabel(/band/i).selectOption("5");
+  await page.getByRole("combobox", { name: /^Band:/ }).click();
+  await page.getByRole("option", { name: "±5σ" }).click();
   await expect(page).toHaveURL(/sigma=5/);
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
   // A commit link in the table opens the light result detail.
@@ -85,5 +86,5 @@ test("trend deep link renders overlays and controls and opens a result", async (
   // Deep-link reload survives (SPA fallback) with controls intact.
   await page.goto(`${baseURL}/benchmarks/${series.benchmark_id}?range=all&sigma=3`);
   await expect(page.locator('.fleet-chart canvas, .chart-wrap canvas').first()).toBeVisible();
-  await expect(page.getByLabel(/band/i)).toHaveValue("3");
+  await expect(page.getByRole("combobox", { name: "Band: ±3σ" })).toBeVisible();
 });

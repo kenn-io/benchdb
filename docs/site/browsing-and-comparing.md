@@ -60,7 +60,7 @@ regressed/improved triage links. It is intentionally scoped to the loaded rows
 so it remains usable on large installations; load more or narrow the filters
 when you need broader coverage.
 
-Use loaded triage links, CI reports, and per-series outlier/step shortcuts to
+Use loaded triage links, CI reports, and per-series outlier and step filters to
 investigate current signals. Whole-family analytics should be treated as a
 scale-aware product workflow rather than as an unbounded table.
 
@@ -100,7 +100,9 @@ currently include errored benchmark attempts as history points.
 Use `/results` when you need a bounded, human-readable list of submitted
 benchmark results. The page filters by `run_id`, `batch_id`, `run_reason`, and
 timestamp bounds, then links each loaded row to result detail, run detail, batch
-detail, and the series trend.
+detail, and the series trend. The run, batch, and trend columns appear only when
+they hold information: the run column hides when the list is filtered to one
+run, and the trend column hides when no loaded result is on the default branch.
 
 Result detail pages show the raw result payload interpreted by the API:
 case tags, context, info, hardware, run metadata, GitHub metadata, unit, data,
@@ -185,11 +187,11 @@ contender and baseline values, followed by whether the change is better or
 worse.
 
 Use the status buttons, hardware selector, and search box to narrow a large
-report to the rows that need attention. The issue shortcuts jump directly to
-the first visible regression, benchmark error, or not-comparable row. A
-coverage summary groups compared and missing results by machine. Missing
-baseline rows stay collapsed by default and can be revealed with the existing
-status filter.
+report to the rows that need attention. The status buttons filter every run in
+the report, and the hardware selector appears when the report covers more than
+one machine. When some results were not compared, a coverage summary groups
+compared and missing results by machine. Missing baseline rows stay collapsed
+by default and can be revealed with the existing status filter.
 
 Large CI reports filter first, then render a bounded row set and reveal
 additional matching rows on demand. The report summary always describes the

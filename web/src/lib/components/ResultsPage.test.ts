@@ -60,7 +60,6 @@ describe("ResultsPage", () => {
 
     await waitFor(() => screen.getByRole("heading", { name: /benchmark results/i }));
     expect(screen.getAllByText(/2 results\+?/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /series explorer/i })).toHaveAttribute("href", "/series");
     expect(screen.getByText(/^2 runs$/i)).toBeInTheDocument();
     expect(screen.getByText(/^1 error$/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /tpch/i })[0]).toHaveAttribute("href", "/results/r2");
@@ -73,9 +72,29 @@ describe("ResultsPage", () => {
       "href",
       "/benchmarks/history/r1",
     );
-    expect(screen.getByText("No history")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Trend" })).toBeInTheDocument();
+    expect(screen.getByText("error")).toBeInTheDocument();
+    expect(screen.queryByText("ok")).toBeNull();
     expect(screen.getAllByText("apache/arrow").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+  });
+
+  it("drops columns that carry no information for the loaded rows", async () => {
+    GET.mockResolvedValueOnce({ status: 200,
+      data: {
+        results: [
+          result("r1", { batch_id: null, commit: { ...result("r1").commit, is_default_branch: false } }),
+        ],
+        next_page_cursor: null,
+      },
+    });
+
+    render(ResultsPage, { props: { query: { ...DEFAULT_RESULT_LIST_QUERY, runID: "run-a" } } });
+
+    await waitFor(() => screen.getByRole("link", { name: /tpch/i }));
+    const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
+    expect(headers).toEqual(["Benchmark", "Measurement", "Commit", "Time"]);
+    expect(screen.getByLabelText("Result list summary")).toHaveTextContent(/^1 result$/);
   });
 
   it("loads and appends the next page", async () => {

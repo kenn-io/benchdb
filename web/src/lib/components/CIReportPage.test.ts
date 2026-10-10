@@ -281,10 +281,9 @@ describe("CIReportPage", () => {
     await waitFor(() => screen.getByText("failure"));
 
     expect(screen.getByText("lookback regression detected")).toBeInTheDocument();
-    const coverage = screen.getByRole("region", { name: /comparison coverage/i });
-    expect(coverage).toHaveTextContent("1 / 1 compared");
-    expect(within(coverage).getByText("Coverage").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByRole("progressbar", { name: /m5: 1 of 1 results compared/i })).toHaveValue(1);
+    expect(screen.getByLabelText("CI report summary")).toHaveTextContent("1 of 1 compared");
+    expect(screen.queryByRole("region", { name: /comparison coverage/i })).toBeNull();
+    expect(screen.queryByLabelText("Machine")).toBeNull();
     expect(screen.getAllByText("demo-bench").length).toBeGreaterThan(0);
     expect(screen.getByText("ci-run")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "result" })).toHaveAttribute("href", "/results/contender-id");
@@ -295,7 +294,7 @@ describe("CIReportPage", () => {
     expect(GET).toHaveBeenCalledWith("/api/ci/report", { params: { repository: QUERY.repository, commit_sha: "c4", run_ids: "ci-run", baseline: "fork_point" } });
   });
 
-  it("renders investigation controls, issue jumps, and grouped summaries", async () => {
+  it("renders filters, coverage gaps, and regressions first", async () => {
     GET.mockResolvedValue({ status: 200,  data: withMixedComparisons() });
     render(CIReportPage, { props: { query: QUERY } });
 
@@ -307,31 +306,18 @@ describe("CIReportPage", () => {
     expect(screen.getByRole("button", { name: /errored 1/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /missing baseline 1/i })).toBeInTheDocument();
     const coverage = screen.getByRole("region", { name: /comparison coverage/i });
-    expect(within(coverage).getByText("2 / 4 compared")).toBeInTheDocument();
-    expect(within(coverage).getByText("Coverage").closest("details")).toHaveAttribute("open");
+    expect(within(coverage).getByText("2 results not compared")).toBeInTheDocument();
     expect(within(coverage).getByRole("progressbar", { name: /m6: 0 of 1 results compared/i })).toBeInTheDocument();
     expect(within(coverage).getByText("1 missing baseline")).toBeInTheDocument();
-    const queue = screen.getByRole("region", { name: /investigation queue/i });
-    expect(within(queue).getByText(/2 actionable comparisons/i)).toBeInTheDocument();
-    expect(within(queue).getByText("regress-bench")).toBeInTheDocument();
-    expect(within(queue).getByText("errored-bench")).toBeInTheDocument();
-    expect(within(queue).queryByText("missing-bench")).toBeNull();
-    expect(within(queue).getAllByText(/delta \+233\.3% worse · z -10\.47/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /jump to regressed/i })).toHaveAttribute(
-      "href",
-      "/#ci-row-regressed-ci-run-fp-regressed",
-    );
-    expect(screen.getByRole("link", { name: /jump to errored/i })).toHaveAttribute(
-      "href",
-      "/#ci-row-errored-ci-run-fp-errored",
-    );
+    const benchmarks = screen.getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[1]?.textContent);
+    expect(benchmarks[0]).toContain("regress-bench");
+    expect(benchmarks[1]).toContain("errored-bench");
     const baselineGap = screen.getByRole("region", { name: /missing baseline coverage for ci-run/i });
     expect(within(baselineGap).getByText(/1 benchmark has no matching baseline result/i)).toBeInTheDocument();
     expect(within(baselineGap).getByText("no matching baseline result")).toBeInTheDocument();
     expect(within(baselineGap).getByRole("button", { name: /show affected benchmarks/i })).toBeInTheDocument();
     expect(screen.queryByText("missing-bench")).toBeNull();
-    expect(screen.getAllByText(/4 matching comparisons/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/1 regressed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/matching comparisons/i)).toBeNull();
     expect(screen.getAllByText(/1 benchmark error/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/1 missing baseline/i).length).toBeGreaterThan(0);
 

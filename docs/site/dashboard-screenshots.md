@@ -72,7 +72,7 @@ UI instead of hand-picked local captures.
 | Run detail | `/runs/:run_id` | Compare one run with its baseline, then open its result rows, batches, and series links. |
 | Batch detail | `/batches/:batch_id` | Inspect one batch_id across runs, CI reports, result rows, and series links. |
 | Compare | `/compare?baseline=:id&contender=:id` | Compare two results with pairwise and lookback diagnostics. |
-| CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review PR/CI regression status, filters, investigation queue, and row verdicts. |
+| CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review PR/CI regression status, coverage gaps, filters, and row verdicts. |
 | Account | `/account` | Reach session identity, login, API token management, and alert-rule management surfaces. |
 
 ## Benchmark Runs

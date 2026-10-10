@@ -1,6 +1,6 @@
 import { getBenchDB } from "../api/benchdb";
 import type { AxiosInstance } from "axios";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ResultDetail, HistorySample } from "../api/benchdb";
@@ -137,7 +137,7 @@ describe("ResultPage", () => {
     expect(screen.getByRole("region", { name: "Diagnostics" })).toHaveTextContent("Worker profiles unavailable for this revision.");
   });
 
-  it("presents the selected result inside its series trend before record details", async () => {
+  it("leads with the measurement and its change, then the series trend and record details", async () => {
     mockPage();
     render(ResultPage, { props: { resultId: "r1" } });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
@@ -145,15 +145,18 @@ describe("ResultPage", () => {
     const measurement = screen.getByRole("region", { name: /result measurement/i });
     expect(measurement).toHaveTextContent("1.5 s");
     expect(measurement).toHaveTextContent("Lower is better");
+    expect(within(measurement).getByRole("button", { name: /exact value 1\.5 s; click to copy/i }))
+      .toHaveAttribute("title", "1.5 s — click to copy the exact number");
     expect(screen.getByRole("region", { name: /result facts/i })).toBeInTheDocument();
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     expect(screen.getByText("sha").nextElementSibling).toHaveTextContent("abc1234d");
     expect(screen.getByText("sha").nextElementSibling).toHaveAttribute("title", "abc1234def");
     expect(screen.getByText("run1")).toBeInTheDocument();
     const trend = screen.getByRole("region", { name: /result in series trend/i });
-    expect(trend.compareDocumentPosition(screen.getByRole("region", { name: /result measurement/i })))
+    expect(measurement.compareDocumentPosition(trend)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(trend.compareDocumentPosition(screen.getByRole("region", { name: /result facts/i })))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(trend).toHaveTextContent(/25\.0% better than previous/i);
+    expect(measurement).toHaveTextContent(/25\.0% better than previous/i);
     expect(document.querySelector(".chart-stub")).toHaveAttribute("data-current-index", "1");
     expect(screen.getByRole("link", { name: /explore full series/i })).toHaveAttribute(
       "href",
