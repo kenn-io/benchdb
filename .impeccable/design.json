@@ -1,0 +1,780 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-10T20:48:49+00:00",
+  "title": "Design System: BenchDB",
+  "extensions": {
+    "colorMeta": {
+      "instrument-blue": {
+        "role": "primary",
+        "displayName": "Instrument Blue",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "oklch(15% 0.215 262.9)",
+          "oklch(26% 0.215 262.9)",
+          "oklch(38% 0.215 262.9)",
+          "oklch(49% 0.215 262.9)",
+          "oklch(61% 0.215 262.9)",
+          "oklch(72% 0.215 262.9)",
+          "oklch(84% 0.215 262.9)",
+          "oklch(95% 0.215 262.9)"
+        ],
+        "cssVar": "--c-accent",
+        "dark": "#5b94ff"
+      },
+      "instrument-blue-deep": {
+        "role": "primary",
+        "displayName": "Instrument Blue Deep",
+        "canonical": "#1d4ed8",
+        "tonalRamp": [
+          "oklch(15% 0.217 264.4)",
+          "oklch(26% 0.217 264.4)",
+          "oklch(38% 0.217 264.4)",
+          "oklch(49% 0.217 264.4)",
+          "oklch(61% 0.217 264.4)",
+          "oklch(72% 0.217 264.4)",
+          "oklch(84% 0.217 264.4)",
+          "oklch(95% 0.217 264.4)"
+        ],
+        "cssVar": "--c-accent-strong",
+        "dark": "#7eaaff"
+      },
+      "instrument-blue-wash": {
+        "role": "primary",
+        "displayName": "Instrument Blue Wash",
+        "canonical": "#eaf1ff",
+        "tonalRamp": [
+          "oklch(15% 0.020 264.5)",
+          "oklch(26% 0.020 264.5)",
+          "oklch(38% 0.020 264.5)",
+          "oklch(49% 0.020 264.5)",
+          "oklch(61% 0.020 264.5)",
+          "oklch(72% 0.020 264.5)",
+          "oklch(84% 0.020 264.5)",
+          "oklch(95% 0.020 264.5)"
+        ],
+        "cssVar": "--c-accent-soft",
+        "dark": "rgba(91, 148, 255, 0.16)"
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "On Accent",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(26% 0.000 89.9)",
+          "oklch(38% 0.000 89.9)",
+          "oklch(49% 0.000 89.9)",
+          "oklch(61% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ],
+        "cssVar": "--c-on-accent",
+        "dark": "#0e131a"
+      },
+      "bench-grey": {
+        "role": "neutral",
+        "displayName": "Bench Grey",
+        "canonical": "#eef1f5",
+        "tonalRamp": [
+          "oklch(15% 0.006 255.5)",
+          "oklch(26% 0.006 255.5)",
+          "oklch(38% 0.006 255.5)",
+          "oklch(49% 0.006 255.5)",
+          "oklch(61% 0.006 255.5)",
+          "oklch(72% 0.006 255.5)",
+          "oklch(84% 0.006 255.5)",
+          "oklch(95% 0.006 255.5)"
+        ],
+        "cssVar": "--c-bg",
+        "dark": "#0e131a"
+      },
+      "inset-grey": {
+        "role": "neutral",
+        "displayName": "Inset Grey",
+        "canonical": "#f7f9fc",
+        "tonalRamp": [
+          "oklch(15% 0.005 258.3)",
+          "oklch(26% 0.005 258.3)",
+          "oklch(38% 0.005 258.3)",
+          "oklch(49% 0.005 258.3)",
+          "oklch(61% 0.005 258.3)",
+          "oklch(72% 0.005 258.3)",
+          "oklch(84% 0.005 258.3)",
+          "oklch(95% 0.005 258.3)"
+        ],
+        "cssVar": "--c-bg-inset",
+        "dark": "#151c25"
+      },
+      "shell-white": {
+        "role": "neutral",
+        "displayName": "Shell White",
+        "canonical": "#fbfcfe",
+        "tonalRamp": [
+          "oklch(15% 0.003 264.5)",
+          "oklch(26% 0.003 264.5)",
+          "oklch(38% 0.003 264.5)",
+          "oklch(49% 0.003 264.5)",
+          "oklch(61% 0.003 264.5)",
+          "oklch(72% 0.003 264.5)",
+          "oklch(84% 0.003 264.5)",
+          "oklch(95% 0.003 264.5)"
+        ],
+        "cssVar": "--c-shell",
+        "dark": "#111822"
+      },
+      "surface-white": {
+        "role": "neutral",
+        "displayName": "Surface White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(26% 0.000 89.9)",
+          "oklch(38% 0.000 89.9)",
+          "oklch(49% 0.000 89.9)",
+          "oklch(61% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ],
+        "cssVar": "--c-surface",
+        "dark": "#1a222d"
+      },
+      "surface-subtle": {
+        "role": "neutral",
+        "displayName": "Surface Subtle",
+        "canonical": "#f9fafc",
+        "tonalRamp": [
+          "oklch(15% 0.003 264.5)",
+          "oklch(26% 0.003 264.5)",
+          "oklch(38% 0.003 264.5)",
+          "oklch(49% 0.003 264.5)",
+          "oklch(61% 0.003 264.5)",
+          "oklch(72% 0.003 264.5)",
+          "oklch(84% 0.003 264.5)",
+          "oklch(95% 0.003 264.5)"
+        ],
+        "cssVar": "--c-surface-subtle",
+        "dark": "#161d27"
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "Surface Hover",
+        "canonical": "#f0f3f7",
+        "tonalRamp": [
+          "oklch(15% 0.006 255.5)",
+          "oklch(26% 0.006 255.5)",
+          "oklch(38% 0.006 255.5)",
+          "oklch(49% 0.006 255.5)",
+          "oklch(61% 0.006 255.5)",
+          "oklch(72% 0.006 255.5)",
+          "oklch(84% 0.006 255.5)",
+          "oklch(95% 0.006 255.5)"
+        ],
+        "cssVar": "--c-surface-hover",
+        "dark": "#232e3b"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#181b24",
+        "tonalRamp": [
+          "oklch(15% 0.018 270.5)",
+          "oklch(26% 0.018 270.5)",
+          "oklch(38% 0.018 270.5)",
+          "oklch(49% 0.018 270.5)",
+          "oklch(61% 0.018 270.5)",
+          "oklch(72% 0.018 270.5)",
+          "oklch(84% 0.018 270.5)",
+          "oklch(95% 0.018 270.5)"
+        ],
+        "cssVar": "--c-text",
+        "dark": "#e7ebf2"
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "canonical": "#555b6e",
+        "tonalRamp": [
+          "oklch(15% 0.032 271.4)",
+          "oklch(26% 0.032 271.4)",
+          "oklch(38% 0.032 271.4)",
+          "oklch(49% 0.032 271.4)",
+          "oklch(61% 0.032 271.4)",
+          "oklch(72% 0.032 271.4)",
+          "oklch(84% 0.032 271.4)",
+          "oklch(95% 0.032 271.4)"
+        ],
+        "cssVar": "--c-text-muted",
+        "dark": "#9fa9b9"
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "#858c9d",
+        "tonalRamp": [
+          "oklch(15% 0.027 267.8)",
+          "oklch(26% 0.027 267.8)",
+          "oklch(38% 0.027 267.8)",
+          "oklch(49% 0.027 267.8)",
+          "oklch(61% 0.027 267.8)",
+          "oklch(72% 0.027 267.8)",
+          "oklch(84% 0.027 267.8)",
+          "oklch(95% 0.027 267.8)"
+        ],
+        "cssVar": "--c-text-faint",
+        "dark": "#707b8c"
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#d8dae2",
+        "tonalRamp": [
+          "oklch(15% 0.011 274.9)",
+          "oklch(26% 0.011 274.9)",
+          "oklch(38% 0.011 274.9)",
+          "oklch(49% 0.011 274.9)",
+          "oklch(61% 0.011 274.9)",
+          "oklch(72% 0.011 274.9)",
+          "oklch(84% 0.011 274.9)",
+          "oklch(95% 0.011 274.9)"
+        ],
+        "cssVar": "--c-border",
+        "dark": "#2d3947"
+      },
+      "rule-muted": {
+        "role": "neutral",
+        "displayName": "Rule Muted",
+        "canonical": "#e6e8ee",
+        "tonalRamp": [
+          "oklch(15% 0.008 271.3)",
+          "oklch(26% 0.008 271.3)",
+          "oklch(38% 0.008 271.3)",
+          "oklch(49% 0.008 271.3)",
+          "oklch(61% 0.008 271.3)",
+          "oklch(72% 0.008 271.3)",
+          "oklch(84% 0.008 271.3)",
+          "oklch(95% 0.008 271.3)"
+        ],
+        "cssVar": "--c-border-muted",
+        "dark": "#232e3b"
+      },
+      "regressed-red": {
+        "role": "status",
+        "displayName": "Regressed Red",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "oklch(15% 0.215 27.3)",
+          "oklch(26% 0.215 27.3)",
+          "oklch(38% 0.215 27.3)",
+          "oklch(49% 0.215 27.3)",
+          "oklch(61% 0.215 27.3)",
+          "oklch(72% 0.215 27.3)",
+          "oklch(84% 0.215 27.3)",
+          "oklch(95% 0.215 27.3)"
+        ],
+        "cssVar": "--c-error",
+        "dark": "#f87171"
+      },
+      "regressed-red-wash": {
+        "role": "status",
+        "displayName": "Regressed Red Wash",
+        "canonical": "#fff1f2",
+        "tonalRamp": [
+          "oklch(15% 0.015 12.4)",
+          "oklch(26% 0.015 12.4)",
+          "oklch(38% 0.015 12.4)",
+          "oklch(49% 0.015 12.4)",
+          "oklch(61% 0.015 12.4)",
+          "oklch(72% 0.015 12.4)",
+          "oklch(84% 0.015 12.4)",
+          "oklch(95% 0.015 12.4)"
+        ],
+        "cssVar": "--c-error-soft",
+        "dark": "rgba(220, 38, 38, 0.18)"
+      },
+      "improved-green": {
+        "role": "status",
+        "displayName": "Improved Green",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "oklch(15% 0.127 163.2)",
+          "oklch(26% 0.127 163.2)",
+          "oklch(38% 0.127 163.2)",
+          "oklch(49% 0.127 163.2)",
+          "oklch(61% 0.127 163.2)",
+          "oklch(72% 0.127 163.2)",
+          "oklch(84% 0.127 163.2)",
+          "oklch(95% 0.127 163.2)"
+        ],
+        "cssVar": "--c-success",
+        "dark": "#34d399"
+      },
+      "improved-green-wash": {
+        "role": "status",
+        "displayName": "Improved Green Wash",
+        "canonical": "#ecfdf5",
+        "tonalRamp": [
+          "oklch(15% 0.021 166.1)",
+          "oklch(26% 0.021 166.1)",
+          "oklch(38% 0.021 166.1)",
+          "oklch(49% 0.021 166.1)",
+          "oklch(61% 0.021 166.1)",
+          "oklch(72% 0.021 166.1)",
+          "oklch(84% 0.021 166.1)",
+          "oklch(95% 0.021 166.1)"
+        ],
+        "cssVar": "--c-success-soft",
+        "dark": "rgba(5, 150, 105, 0.18)"
+      },
+      "caution-amber": {
+        "role": "status",
+        "displayName": "Caution Amber",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "oklch(15% 0.157 58.3)",
+          "oklch(26% 0.157 58.3)",
+          "oklch(38% 0.157 58.3)",
+          "oklch(49% 0.157 58.3)",
+          "oklch(61% 0.157 58.3)",
+          "oklch(72% 0.157 58.3)",
+          "oklch(84% 0.157 58.3)",
+          "oklch(95% 0.157 58.3)"
+        ],
+        "cssVar": "--c-warning",
+        "dark": "#fbbf24"
+      },
+      "caution-amber-wash": {
+        "role": "status",
+        "displayName": "Caution Amber Wash",
+        "canonical": "#fffbeb",
+        "tonalRamp": [
+          "oklch(15% 0.021 95.3)",
+          "oklch(26% 0.021 95.3)",
+          "oklch(38% 0.021 95.3)",
+          "oklch(49% 0.021 95.3)",
+          "oklch(61% 0.021 95.3)",
+          "oklch(72% 0.021 95.3)",
+          "oklch(84% 0.021 95.3)",
+          "oklch(95% 0.021 95.3)"
+        ],
+        "cssVar": "--c-warning-soft",
+        "dark": "rgba(217, 119, 6, 0.2)"
+      },
+      "caution-amber-ink": {
+        "role": "status",
+        "displayName": "Caution Amber Ink",
+        "canonical": "#92400e",
+        "tonalRamp": [
+          "oklch(15% 0.125 46.2)",
+          "oklch(26% 0.125 46.2)",
+          "oklch(38% 0.125 46.2)",
+          "oklch(49% 0.125 46.2)",
+          "oklch(61% 0.125 46.2)",
+          "oklch(72% 0.125 46.2)",
+          "oklch(84% 0.125 46.2)",
+          "oklch(95% 0.125 46.2)"
+        ],
+        "cssVar": "--c-warn-text",
+        "dark": "#fbbf24"
+      },
+      "stable-slate": {
+        "role": "status",
+        "displayName": "Stable Slate",
+        "canonical": "#64748b",
+        "tonalRamp": [
+          "oklch(15% 0.041 257.4)",
+          "oklch(26% 0.041 257.4)",
+          "oklch(38% 0.041 257.4)",
+          "oklch(49% 0.041 257.4)",
+          "oklch(61% 0.041 257.4)",
+          "oklch(72% 0.041 257.4)",
+          "oklch(84% 0.041 257.4)",
+          "oklch(95% 0.041 257.4)"
+        ],
+        "cssVar": "--c-stable",
+        "dark": "#94a3b8"
+      },
+      "stable-slate-wash": {
+        "role": "status",
+        "displayName": "Stable Slate Wash",
+        "canonical": "#f1f5f9",
+        "tonalRamp": [
+          "oklch(15% 0.007 247.9)",
+          "oklch(26% 0.007 247.9)",
+          "oklch(38% 0.007 247.9)",
+          "oklch(49% 0.007 247.9)",
+          "oklch(61% 0.007 247.9)",
+          "oklch(72% 0.007 247.9)",
+          "oklch(84% 0.007 247.9)",
+          "oklch(95% 0.007 247.9)"
+        ],
+        "cssVar": "--c-stable-soft",
+        "dark": "rgba(148, 163, 184, 0.16)"
+      },
+      "insufficient-grey": {
+        "role": "status",
+        "displayName": "Insufficient Grey",
+        "canonical": "#a3aab7",
+        "tonalRamp": [
+          "oklch(15% 0.020 263.0)",
+          "oklch(26% 0.020 263.0)",
+          "oklch(38% 0.020 263.0)",
+          "oklch(49% 0.020 263.0)",
+          "oklch(61% 0.020 263.0)",
+          "oklch(72% 0.020 263.0)",
+          "oklch(84% 0.020 263.0)",
+          "oklch(95% 0.020 263.0)"
+        ],
+        "cssVar": "--c-insufficient",
+        "dark": "#6b7585"
+      },
+      "trend-violet": {
+        "role": "data",
+        "displayName": "Trend Violet",
+        "canonical": "#7c3aed",
+        "tonalRamp": [
+          "oklch(15% 0.247 293.0)",
+          "oklch(26% 0.247 293.0)",
+          "oklch(38% 0.247 293.0)",
+          "oklch(49% 0.247 293.0)",
+          "oklch(61% 0.247 293.0)",
+          "oklch(72% 0.247 293.0)",
+          "oklch(84% 0.247 293.0)",
+          "oklch(95% 0.247 293.0)"
+        ],
+        "cssVar": "--c-trend-mean",
+        "dark": "#a78bfa"
+      },
+      "current-magenta": {
+        "role": "data",
+        "displayName": "Current Magenta",
+        "canonical": "#c026d3",
+        "tonalRamp": [
+          "oklch(15% 0.257 322.9)",
+          "oklch(26% 0.257 322.9)",
+          "oklch(38% 0.257 322.9)",
+          "oklch(49% 0.257 322.9)",
+          "oklch(61% 0.257 322.9)",
+          "oklch(72% 0.257 322.9)",
+          "oklch(84% 0.257 322.9)",
+          "oklch(95% 0.257 322.9)"
+        ],
+        "cssVar": "--c-current-result",
+        "dark": "#f0abfc"
+      },
+      "chart-point": {
+        "role": "data",
+        "displayName": "Chart Point",
+        "canonical": "#1f2937",
+        "tonalRamp": [
+          "oklch(15% 0.030 256.8)",
+          "oklch(26% 0.030 256.8)",
+          "oklch(38% 0.030 256.8)",
+          "oklch(49% 0.030 256.8)",
+          "oklch(61% 0.030 256.8)",
+          "oklch(72% 0.030 256.8)",
+          "oklch(84% 0.030 256.8)",
+          "oklch(95% 0.030 256.8)"
+        ],
+        "cssVar": "--c-chart-point",
+        "dark": "#d8dee9"
+      },
+      "machine-1": {
+        "role": "data",
+        "displayName": "Machine 1",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "oklch(15% 0.215 262.9)",
+          "oklch(26% 0.215 262.9)",
+          "oklch(38% 0.215 262.9)",
+          "oklch(49% 0.215 262.9)",
+          "oklch(61% 0.215 262.9)",
+          "oklch(72% 0.215 262.9)",
+          "oklch(84% 0.215 262.9)",
+          "oklch(95% 0.215 262.9)"
+        ]
+      },
+      "machine-2": {
+        "role": "data",
+        "displayName": "Machine 2",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "oklch(15% 0.157 58.3)",
+          "oklch(26% 0.157 58.3)",
+          "oklch(38% 0.157 58.3)",
+          "oklch(49% 0.157 58.3)",
+          "oklch(61% 0.157 58.3)",
+          "oklch(72% 0.157 58.3)",
+          "oklch(84% 0.157 58.3)",
+          "oklch(95% 0.157 58.3)"
+        ]
+      },
+      "machine-3": {
+        "role": "data",
+        "displayName": "Machine 3",
+        "canonical": "#7c3aed",
+        "tonalRamp": [
+          "oklch(15% 0.247 293.0)",
+          "oklch(26% 0.247 293.0)",
+          "oklch(38% 0.247 293.0)",
+          "oklch(49% 0.247 293.0)",
+          "oklch(61% 0.247 293.0)",
+          "oklch(72% 0.247 293.0)",
+          "oklch(84% 0.247 293.0)",
+          "oklch(95% 0.247 293.0)"
+        ]
+      },
+      "machine-4": {
+        "role": "data",
+        "displayName": "Machine 4",
+        "canonical": "#0891b2",
+        "tonalRamp": [
+          "oklch(15% 0.111 221.7)",
+          "oklch(26% 0.111 221.7)",
+          "oklch(38% 0.111 221.7)",
+          "oklch(49% 0.111 221.7)",
+          "oklch(61% 0.111 221.7)",
+          "oklch(72% 0.111 221.7)",
+          "oklch(84% 0.111 221.7)",
+          "oklch(95% 0.111 221.7)"
+        ]
+      },
+      "machine-5": {
+        "role": "data",
+        "displayName": "Machine 5",
+        "canonical": "#db2777",
+        "tonalRamp": [
+          "oklch(15% 0.218 0.6)",
+          "oklch(26% 0.218 0.6)",
+          "oklch(38% 0.218 0.6)",
+          "oklch(49% 0.218 0.6)",
+          "oklch(61% 0.218 0.6)",
+          "oklch(72% 0.218 0.6)",
+          "oklch(84% 0.218 0.6)",
+          "oklch(95% 0.218 0.6)"
+        ]
+      },
+      "machine-6": {
+        "role": "data",
+        "displayName": "Machine 6",
+        "canonical": "#4f46e5",
+        "tonalRamp": [
+          "oklch(15% 0.230 277.0)",
+          "oklch(26% 0.230 277.0)",
+          "oklch(38% 0.230 277.0)",
+          "oklch(49% 0.230 277.0)",
+          "oklch(61% 0.230 277.0)",
+          "oklch(72% 0.230 277.0)",
+          "oklch(84% 0.230 277.0)",
+          "oklch(95% 0.230 277.0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The one hero measurement on the result page."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel and section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text, table cells, and controls."
+      },
+      "numeric": {
+        "displayName": "Numeric",
+        "purpose": "Measured values, deltas, z-scores, SHAs, and IDs."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase table headers and stacked-row labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel",
+        "value": "0 1px 2px rgba(16, 24, 40, 0.05)",
+        "purpose": "Edge of panels on the page plane; never grows on hover."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-state",
+        "value": "120ms ease",
+        "purpose": "Background, border, and color changes on buttons."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "760px"
+      },
+      {
+        "name": "drawer",
+        "value": "899px"
+      },
+      {
+        "name": "stacked-tables",
+        "value": "1120px"
+      },
+      {
+        "name": "content-max",
+        "value": "1600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Default action; compact with a hairline border.",
+      "html": "<button class=\"ds-btn\">Export history JSON</button>",
+      "css": ".ds-btn{min-height:28px;display:inline-flex;align-items:center;padding:0 9px;border:1px solid var(--c-border-muted);border-radius:4px;background:var(--c-surface);color:var(--c-text-muted);font:inherit;font-size:13px;font-weight:650;cursor:pointer;transition:background-color 120ms ease,border-color 120ms ease,color 120ms ease}.ds-btn:hover{border-color:var(--c-accent);color:var(--c-accent);background:var(--c-accent-soft)}.ds-btn:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action on a page.",
+      "html": "<button class=\"ds-btn-primary\">Compare</button>",
+      "css": ".ds-btn-primary{min-height:28px;display:inline-flex;align-items:center;padding:0 9px;border:1px solid var(--c-accent);border-radius:4px;background:var(--c-accent);color:var(--c-on-accent);font:inherit;font-size:13px;font-weight:650;cursor:pointer}.ds-btn-primary:hover{background:var(--c-accent-strong);border-color:var(--c-accent-strong)}.ds-btn-primary:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Toggle Button",
+      "kind": "button",
+      "refersTo": "button-pressed",
+      "description": "Filter toggles such as All / Outliers / Steps.",
+      "html": "<span class=\"ds-toggles\"><button class=\"ds-toggle\" aria-pressed=\"true\">All 56</button><button class=\"ds-toggle\" aria-pressed=\"false\">Steps 3</button></span>",
+      "css": ".ds-toggles{display:inline-flex;gap:6px}.ds-toggle{min-height:28px;padding:0 9px;border:1px solid var(--c-border-muted);border-radius:4px;background:var(--c-surface);color:var(--c-text-muted);font:inherit;font-size:13px;font-weight:650;cursor:pointer}.ds-toggle[aria-pressed=true]{border-color:color-mix(in srgb,var(--c-accent) 30%,var(--c-border));background:var(--c-accent-soft);color:var(--c-accent-strong)}.ds-toggle:hover{border-color:var(--c-accent);color:var(--c-accent)}.ds-toggle:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions only.",
+      "html": "<button class=\"ds-btn-danger\">Delete result</button>",
+      "css": ".ds-btn-danger{min-height:28px;padding:0 9px;border:1px solid color-mix(in srgb,var(--c-error) 30%,var(--c-border));border-radius:4px;background:var(--c-surface);color:var(--c-error);font:inherit;font-size:13px;font-weight:650;cursor:pointer}.ds-btn-danger:hover{background:var(--c-error-soft)}.ds-btn-danger:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text field with focus outline.",
+      "html": "<input class=\"ds-input\" type=\"search\" placeholder=\"Search benchmarks\" aria-label=\"Search benchmarks\">",
+      "css": ".ds-input{min-height:30px;padding:0 9px;border:1px solid var(--c-border);border-radius:4px;background:var(--c-surface);color:var(--c-text);font:inherit;font-size:13px}.ds-input:focus{border-color:var(--c-accent)}.ds-input:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Status Badges",
+      "kind": "chip",
+      "refersTo": "badge-regressed",
+      "description": "Verdict pills; the word always accompanies the color.",
+      "html": "<span class=\"ds-badges\"><span class=\"ds-badge ds-regressed\">regressed</span><span class=\"ds-badge ds-improved\">improved</span><span class=\"ds-badge ds-caution\">missing baseline</span><span class=\"ds-badge ds-stable\">stable</span></span>",
+      "css": ".ds-badges{display:inline-flex;gap:6px;flex-wrap:wrap}.ds-badge{min-height:22px;display:inline-flex;align-items:center;padding:0 7px;border:1px solid var(--c-border-muted);border-radius:999px;font-size:0.7rem;font-weight:750;line-height:1}.ds-regressed{background:var(--c-error-soft);color:var(--c-error);border-color:color-mix(in srgb,var(--c-error) 24%,var(--c-border))}.ds-improved{background:var(--c-success-soft);color:var(--c-success);border-color:color-mix(in srgb,var(--c-success) 22%,var(--c-border))}.ds-caution{background:var(--c-warning-soft);color:var(--c-warn-text);border-color:color-mix(in srgb,var(--c-warning) 24%,var(--c-border))}.ds-stable{background:var(--c-stable-soft);color:var(--c-stable)}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Flat white panel on the grey ground.",
+      "html": "<section class=\"ds-panel\"><h2 class=\"ds-panel-title\">Series trend</h2><p class=\"ds-panel-body\">28 results</p></section>",
+      "css": ".ds-panel{padding:12px;background:var(--c-surface);border:1px solid var(--c-border-muted);border-radius:6px;box-shadow:var(--shadow-panel)}.ds-panel-title{margin:0 0 8px;font-size:0.95rem}.ds-panel-body{margin:0;color:var(--c-text-muted);font-size:13px}"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "table-header",
+      "description": "Inset header band, hairline rows, monospace numbers.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Benchmark</th><th>Change</th></tr></thead><tbody><tr><td>parse-small-cpu-time</td><td class=\"ds-num\">+26.3% worse</td></tr><tr><td>export-large-peak-rss</td><td class=\"ds-num\">-5.4% better</td></tr></tbody></table>",
+      "css": ".ds-table{border-collapse:collapse;width:100%;background:var(--c-surface);font-size:0.8rem}.ds-table th{height:32px;padding:7px 10px;background:var(--c-bg-inset);color:var(--c-text-muted);font-size:0.68rem;font-weight:750;letter-spacing:0.04em;text-transform:uppercase;text-align:left}.ds-table td{padding:7px 10px;border-top:1px solid var(--c-border-muted);color:var(--c-text)}.ds-table tr:hover td{background:var(--c-row-hover)}.ds-num{font-family:SFMono-Regular,Consolas,'Liberation Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sidebar links with an active wash and edge marker.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-active\" href=\"#\">Runs</a><a class=\"ds-nav-link\" href=\"#\">Benchmarks</a><a class=\"ds-nav-link\" href=\"#\">Compare</a></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:2px;width:200px;padding:8px;background:var(--c-shell)}.ds-nav-link{position:relative;height:34px;display:flex;align-items:center;padding:0 10px;border-radius:4px;color:var(--c-text-muted);text-decoration:none;font-size:13px}.ds-nav-link:hover{background:var(--c-surface-hover);color:var(--c-text)}.ds-nav-link:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}.ds-active{background:color-mix(in srgb,var(--c-accent) 11%,transparent);color:var(--c-text)}.ds-active::before{content:'';position:absolute;left:-8px;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;background:var(--c-accent)}"
+    },
+    {
+      "name": "Measurement Value",
+      "kind": "custom",
+      "description": "Monospace value; hover shows the exact number, click copies it.",
+      "html": "<button class=\"ds-measure\" title=\"0.00007772 s — click to copy the exact number\">77.72 µs</button>",
+      "css": ".ds-measure{padding:0;border:0;background:transparent;color:var(--c-text);cursor:pointer;font-family:SFMono-Regular,Consolas,'Liberation Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:0.8rem;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}.ds-measure:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lab Notebook",
+    "overview": "BenchDB reads like a careful record of measurements. Every page is a dense, annotated sheet: the verdict first, then the numbers that justify it, each traceable to the run, commit, and machine that produced it. Nothing is there for decoration. A quiet page means nothing needs attention.\n\nThe mood is calm, dense, and exact. Cool grey paper carries white panels with hairline rules. Body text is small (13px) so tables and charts fit on one screen, and every number is set in a monospace face with tabular figures so columns line up and values can be compared at a glance. One blue accent marks what can be clicked or is selected; the remaining color belongs to status and to the data itself.\n\nControls are compact and tactile: small, but clearly clickable, with visible borders and a firm hover response. Surfaces stay flat at rest; only things that float above the page, such as menus, popovers, and the mobile drawer, lift with a real shadow.",
+    "keyCharacteristics": [
+      "Dense 13px body with monospace tabular numbers.",
+      "Cool grey ground, white panels, hairline borders, near-flat surfaces.",
+      "One accent (Instrument Blue) for interaction; status colors for verdicts.",
+      "Verdict, then evidence: summaries lead, exact values are one click away.",
+      "Light and dark themes share every token name."
+    ],
+    "rules": [
+      {
+        "name": "The Verdict Color Rule",
+        "body": "Red and green mean regressed and improved, and nothing else. Never use them for a machine series, a decoration, or a brand moment.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Accent Rule",
+        "body": "Instrument Blue is the only non-status hue in the interface chrome. A page has at most one filled blue button.",
+        "section": "colors"
+      },
+      {
+        "name": "The AA Floor Rule",
+        "body": "Text must meet WCAG 2.2 AA contrast (4.5:1 for normal text) in both themes. Known gaps in the current light theme: Ink Faint on white (3.4:1), Improved Green text (3.8:1), white text on filled amber status pills (3.2:1), red on its wash (4.4:1), and slate on its wash (4.3:1). In the dark theme, Ink Faint on a panel is 3.7:1. Do not add new uses of these pairs for text that must be read; fix them when touching the component.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Every measured number uses the numeric face with tabular figures, including inside sentences such as \"77.72 µs vs 77.67 µs\".",
+        "section": "typography"
+      },
+      {
+        "name": "The Small Caps Budget Rule",
+        "body": "Uppercase is for table headers, stacked-row labels, and the eyebrow. Headings and buttons stay in sentence case.",
+        "section": "typography"
+      },
+      {
+        "name": "The Summary Line Rule",
+        "body": "Counts live in one quiet inline line under the header, separated by middle dots, with only signal-bearing counts (errors, regressions) emphasized. No big-number stat cards.",
+        "section": "layout"
+      },
+      {
+        "name": "The Earned Column Rule",
+        "body": "A table column or summary count appears only when it carries information for the rows on screen. Zero counts and columns of repeated values are hidden.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Nothing on the page plane casts a shadow larger than a hairline. Lift is reserved for surfaces that float above it.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do put the verdict first and link it to the measurements behind it.",
+      "Do set every measured number in the numeric face with tabular figures, and render displayed measurements with the copyable measurement value.",
+      "Do keep the page plane flat; use hairline borders and tonal steps for structure.",
+      "Do pair every status color with its status word.",
+      "Do hide columns and counts that carry no information for the rows on screen."
+    ],
+    "donts": [
+      "Don't use red or green for anything but regressed and improved, and don't use them for machine series.",
+      "Don't add big-number stat cards; counts belong in the summary line.",
+      "Don't add helper text that repeats a heading or label.",
+      "Don't introduce a second accent hue or more than one filled primary button on a page."
+    ]
+  }
+}
