@@ -333,6 +333,10 @@ async function expectNavigationReachable(page: Page) {
   await expectPrimaryNavLinksInViewport(page);
   await page.keyboard.press("Escape");
   await expect(page.locator(".sidebar.drawer-open")).toHaveCount(0);
+  await expect(menu).toBeFocused();
+  // Closing returns focus to the menu button; drop it so the screenshot shows
+  // the resting page.
+  await menu.evaluate((element) => (element as HTMLElement).blur());
 }
 
 async function expectPrimaryNavLinksInViewport(page: Page) {

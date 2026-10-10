@@ -377,6 +377,7 @@
   .count-stack {
     min-width: 0;
     display: grid;
+    justify-items: start;
     gap: 3px;
   }
   .commit-cell .row-primary-link { font-weight: 650; }
