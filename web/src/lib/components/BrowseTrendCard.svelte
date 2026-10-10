@@ -37,14 +37,16 @@
   const tracks = $derived(historyTracks ?? row.previewTracks);
 
   // A page can hold hundreds of cards, so each card fetches its full history
-  // only when it comes near the viewport.
+  // only when it comes near the viewport. The page scrolls inside
+  // .app-content, which clips anything outside it, so the preload margin must
+  // apply to that container rather than to the window.
   let card = $state<HTMLElement>();
   let nearViewport = $state(false);
   $effect(() => {
     if (card === undefined || nearViewport) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) nearViewport = true;
-    }, { rootMargin: "600px 0px" });
+    }, { root: card.closest(".app-content"), rootMargin: "600px 0px" });
     observer.observe(card);
     return () => observer.disconnect();
   });

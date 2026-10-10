@@ -572,6 +572,10 @@ components:
             - "null"
         single_value_summary_type:
           type: string
+        unit:
+          type:
+            - string
+            - "null"
       required:
         - result_id
         - run_id
@@ -580,6 +584,7 @@ components:
         - commit_timestamp
         - single_value_summary
         - single_value_summary_type
+        - unit
       type:
         - object
         - "null"

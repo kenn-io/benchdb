@@ -4,7 +4,7 @@
 
   import { createBenchDBClient } from "../api/client";
   import { toleranceText } from "../compare/transform";
-  import { formatNumber, formatMeasurement } from "../format";
+  import { formatMeasurement } from "../format";
   import { hasCIReportSelector, loadCIReport, type CIReport } from "../ci-report/loader";
   import { interceptNavClick, navigate, type CIReportQuery } from "../router";
 
@@ -309,10 +309,6 @@
     return new Date(value).toLocaleString();
   }
 
-  function numberText(value: number | null): string {
-    return value === null ? "-" : formatNumber(value);
-  }
-
   function unitText(value: string | null): string {
     return value ?? "-";
   }
@@ -610,8 +606,8 @@
                         {#if row.analysis?.pairwise?.tolerance}<div>{formatMeasurement(row.analysis.pairwise.tolerance.delta, row.unit)}</div>{/if}
                       </td>
                       <td data-label="Z" class="num">{zText(row)}</td>
-                      <td data-label="Contender" class="num">{numberText(row.contender.single_value_summary)}</td>
-                      <td data-label="Baseline" class="num">{numberText(row.baseline?.single_value_summary ?? null)}</td>
+                      <td data-label="Contender" class="num">{formatMeasurement(row.contender.single_value_summary, row.unit, "-")}</td>
+                      <td data-label="Baseline" class="num">{formatMeasurement(row.baseline?.single_value_summary ?? null, row.baseline?.unit ?? null, "-")}</td>
                       <td data-label="Links" class="links">
                         <a href={appURL(row.links.result)} onclick={(e) => go(e, row.links.result)}>result</a>
                         {#if row.links.compare}

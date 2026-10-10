@@ -15,7 +15,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 3
+const latestMigrationVersion = 4
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -35,6 +35,43 @@ func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ci_run_report (run_id, result_ids, evaluated_at, report, summary)
 		VALUES ('run-1', $1, now(), '{"status":"skipped"}', '{"status":"skipped"}') RETURNING run_id`, []string{resultID}).Scan(&savedRun))
 	assert.Equal(t, "run-1", savedRun)
+}
+
+func TestMigrateAddsBaselineUnitsToSavedReports(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for _, file := range []string{"000002_result_artifacts.up.sql", "000003_saved_run_reports.up.sql"} {
+		migration, err := os.ReadFile("migrations/" + file)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 3, false)
+	assertCurrentBaseline(t, ctx, pool)
+	var baselineID string
+	require.NoError(t, pool.QueryRow(ctx,
+		`UPDATE benchmark_result SET unit = 'ns' WHERE submission_key = 'submission-1' RETURNING id`).Scan(&baselineID))
+
+	// A snapshot saved before baselines carried a unit: one baseline still
+	// exists, one was deleted, one row has no baseline, and one run has no rows.
+	snapshot := `{"status":"failure","runs":[{"run_id":"pr","comparisons":[
+		{"status":"not_comparable","unit":"s","baseline":{"result_id":"` + baselineID + `","single_value_summary":77720}},
+		{"status":"regressed","unit":"s","baseline":{"result_id":"deleted","single_value_summary":0.5}},
+		{"status":"missing_baseline","unit":"s","baseline":null}
+	]},{"run_id":"empty","comparisons":null}]}`
+	_, err := pool.Exec(ctx, `INSERT INTO ci_run_report (run_id, result_ids, evaluated_at, report, summary)
+		VALUES ('pr', '{}', now(), $1, '{}')`, snapshot)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	var migrated string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT report::text FROM ci_run_report WHERE run_id = 'pr'`).Scan(&migrated))
+	assert.JSONEq(t, `{"status":"failure","runs":[{"run_id":"pr","comparisons":[
+		{"status":"not_comparable","unit":"s","baseline":{"result_id":"`+baselineID+`","single_value_summary":77720,"unit":"ns"}},
+		{"status":"regressed","unit":"s","baseline":{"result_id":"deleted","single_value_summary":0.5,"unit":null}},
+		{"status":"missing_baseline","unit":"s","baseline":null}
+	]},{"run_id":"empty","comparisons":null}]}`, migrated)
 }
 
 func TestMigrateAddsArtifactsToExistingBaseline(t *testing.T) {

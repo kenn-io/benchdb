@@ -24,6 +24,23 @@ describe("MeasurementValue", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Copied");
   });
 
+  it("shows seconds in a readable unit and keeps the exact value in seconds", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    render(MeasurementValue, { props: { value: 0.00007772, unit: "s" } });
+
+    const value = screen.getByRole("button", {
+      name: "77.72 µs; exact value 0.00007772 s; click to copy",
+    });
+    expect(value).toHaveTextContent("77.72 µs");
+    expect(value).toHaveAttribute("title", "0.00007772 s — click to copy the exact number");
+    await fireEvent.click(value);
+    expect(writeText).toHaveBeenCalledWith("0.00007772");
+  });
+
   it("copies from the direct HTTP dashboard when the Clipboard API is unavailable", async () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
     const execCommand = vi.fn().mockReturnValue(true);

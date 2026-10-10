@@ -75,9 +75,11 @@ describe("BrowseTrendCard", () => {
   it("waits to load omitted history until the card nears the viewport", async () => {
     let reveal: () => void = () => {};
     let observedMargin = "";
+    let observedRoot: Element | Document | null | undefined;
     class OffscreenObserver {
       constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
         observedMargin = options?.rootMargin ?? "";
+        observedRoot = options?.root;
         reveal = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as never);
       }
       observe(): void {}
@@ -87,9 +89,12 @@ describe("BrowseTrendCard", () => {
     globalThis.IntersectionObserver = OffscreenObserver as unknown as typeof IntersectionObserver;
     try {
       GET.mockResolvedValue({ status: 500, data: { detail: "history unavailable" } });
-      render(BrowseTrendCard, { props: { row: { ...row, pointCount: 24 } } });
+      const scroller = document.body.appendChild(document.createElement("div"));
+      scroller.className = "app-content";
+      render(BrowseTrendCard, { target: scroller, props: { row: { ...row, pointCount: 24 } } });
       expect(screen.getByText("Loading history…")).toBeInTheDocument();
       expect(observedMargin).toBe("600px 0px");
+      expect(observedRoot).toBe(scroller);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(GET).not.toHaveBeenCalled();
 
