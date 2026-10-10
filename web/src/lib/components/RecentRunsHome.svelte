@@ -6,7 +6,6 @@
   import {
     listRecentRuns,
     RECENT_RUNS_PAGE_SIZE,
-    type RecentRunAttentionViewModel,
     type RecentRunViewModel,
   } from "../home/loader";
   import SearchIcon from "@lucide/svelte/icons/search";
@@ -27,21 +26,32 @@
 
   let search = $state(untrack(() => query.q));
   let hasMore = $state(false);
+  let attentionRuns = $state(0);
   let runs = $state<RecentRunViewModel[]>([]);
   let loading = $state(true);
   let errorMsg = $state<string | null>(null);
 
+  // The server computes verdicts in the background; while some runs on the
+  // page are unchecked, reload a few times so their verdicts appear.
+  const PENDING_REFRESH_MS = 4000;
+  const PENDING_REFRESH_LIMIT = 8;
+  let pendingRefreshes = 0;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
   onMount(() => {
     void load();
+    return () => clearTimeout(refreshTimer);
   });
 
-  async function load() {
-    loading = true;
+  async function load(background = false) {
+    if (!background) loading = true;
     errorMsg = null;
     try {
       const page = await listRecentRuns(client, query);
       runs = page.runs;
       hasMore = page.hasMore;
+      attentionRuns = page.attentionRuns;
+      scheduleRefresh();
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
     } finally {
@@ -49,19 +59,20 @@
     }
   }
 
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    if (pendingRefreshes >= PENDING_REFRESH_LIMIT || runs.every((run) => run.attentionChecked)) return;
+    pendingRefreshes += 1;
+    refreshTimer = setTimeout(() => void load(true), PENDING_REFRESH_MS);
+  }
+
   const totalResults = $derived(runs.reduce((sum, run) => sum + run.resultCount, 0));
   const totalErrors = $derived(runs.reduce((sum, run) => sum + run.errorCount, 0));
   const machineNames = $derived(Array.from(new Set(runs.flatMap((run) => run.machineNames))).sort());
   const repositoryLabels = $derived(uniqueRepositoryLabels(runs));
   const showRepositoryColumn = $derived(repositoryLabels.length > 1);
-  const attentionRuns = $derived(runs.filter((run) => run.attention !== null));
-  // The server checks only the newest runs on each page for regressions
-  // (recentRunsAttentionLimit), so the page says which runs were checked.
-  const ATTENTION_WINDOW = 5;
-  const checkedRuns = $derived(Math.min(runs.length, ATTENTION_WINDOW));
-  const checkedText = $derived(
-    checkedRuns === 1 ? "the newest run on this page" : `the newest ${checkedRuns} runs on this page`,
-  );
+  const allRunsHref = $derived(`/${formatHomeQuery({ repository: query.repository, q: query.q })}`);
+  const attentionHref = $derived(`/${formatHomeQuery({ repository: query.repository, q: query.q, attention: true })}`);
 
   // Relative times advance while the page stays open.
   let now = $state(new Date());
@@ -104,15 +115,11 @@
 
   function submitSearch(e: SubmitEvent) {
     e.preventDefault();
-    navigate(`/${formatHomeQuery({ repository: query.repository, q: search.trim() })}`);
+    navigate(`/${formatHomeQuery({ repository: query.repository, q: search.trim(), attention: query.attention })}`);
   }
 
   function pageHref(offset: number): string {
     return `/${formatHomeQuery({ ...query, offset })}`;
-  }
-
-  function attentionStatusLabel(attention: RecentRunAttentionViewModel): string {
-    return attention.status === "failure" ? "Regression" : "Action required";
   }
 
 </script>
@@ -130,11 +137,24 @@
         placeholder="Find a commit SHA or URL" />
       <button type="submit" class="sr-only">Search runs</button>
       {#if query.q}
-        <a class="clear-search" href={appURL(`/${formatHomeQuery({ repository: query.repository })}`)}
-          onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository })}`)}>Clear</a>
+        <a class="clear-search"
+          href={appURL(`/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
+          onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
+        >Clear</a>
       {/if}
     </form>
   </header>
+
+  {#if attentionRuns > 0 || query.attention}
+    <nav class="run-filters" aria-label="Filter runs">
+      <a class="button-pill" class:active={!query.attention} aria-current={query.attention ? undefined : "true"}
+        href={appURL(allRunsHref)} onclick={(e) => go(e, allRunsHref)}>All runs</a>
+      <a class="button-pill" class:active={query.attention} aria-current={query.attention ? "true" : undefined}
+        href={appURL(attentionHref)} onclick={(e) => go(e, attentionHref)}>
+        Needs attention <strong class="filter-count">{attentionRuns.toLocaleString()}</strong>
+      </a>
+    </nav>
+  {/if}
 
   {#if errorMsg}
     <p class="error">Failed to load recent runs: {errorMsg}</p>
@@ -142,8 +162,13 @@
     <p>Loading…</p>
   {:else if runs.length === 0}
     <section class="panel empty-panel">
-      <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No runs yet"}</h2>
-      {#if query.q}<p>Older commits match by full SHA or commit URL.</p>{/if}
+      {#if query.attention}
+        <h2>{query.offset > 0 ? "No runs on this page" : "Nothing needs attention"}</h2>
+        <a href={appURL(allRunsHref)} onclick={(e) => go(e, allRunsHref)}>Show all runs</a>
+      {:else}
+        <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No runs yet"}</h2>
+        {#if query.q}<p>Older commits match by full SHA or commit URL.</p>{/if}
+      {/if}
     </section>
   {:else}
     <p class="summary-line" aria-label="Recent run summary">
@@ -153,33 +178,10 @@
       {#if totalErrors > 0}
         <span class="summary-item alert">{plural(totalErrors, "error")}</span>
       {/if}
+      {#if attentionRuns === 0 && !query.attention}
+        <span class="summary-item">Nothing needs attention</span>
+      {/if}
     </p>
-
-    {#if attentionRuns.length === 0}
-      <p class="attention-clear">Nothing needs attention in {checkedText}.</p>
-    {:else}
-      <section class="attention-panel" aria-labelledby="home-attention-heading">
-        <h2 id="home-attention-heading">Needs attention <span>· {checkedText}</span></h2>
-        <ul class="attention-list">
-          {#each attentionRuns as run (run.runId)}
-            {@const attention = run.attention!}
-            <li>
-              <a
-                class="attention-link"
-                href={appURL(attention.reportHref)}
-                aria-label={`Review CI report for run ${run.runId}`}
-                onclick={(e) => go(e, attention.reportHref)}
-              >
-                <span class={`attention-status ${attention.status}`}>{attentionStatusLabel(attention)}</span>
-                <strong>{run.primaryLabel}</strong>
-                <span class="attention-summary">{attention.summaryText}</span>
-                <span class="attention-reason">{attention.statusReason}</span>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
 
     <section class="panel table-panel" aria-label="Benchmark runs">
       <table class="data-table stacked-table runs-table">
@@ -194,7 +196,7 @@
         </thead>
         <tbody>
           {#each runs as run (run.runId)}
-            <tr class:error-row={run.errorCount > 0} class:attention-row={run.attention !== null}>
+            <tr class:error-row={run.errorCount > 0}>
               <td data-label="Commit">
                 <div class="commit-cell">
                   <a
@@ -253,7 +255,12 @@
                 <div class="count-stack">
                   <span>{plural(run.resultCount, "result")}</span>
                   {#if run.attention}
-                    <span class={`attention-mini ${run.attention.status}`}>{run.attention.summaryText}</span>
+                    {@const attention = run.attention}
+                    <a class={`verdict-link ${attention.status}`} href={appURL(attention.reportHref)}
+                      title={attention.statusReason} onclick={(e) => go(e, attention.reportHref)}
+                    >{attention.summaryText}<span class="sr-only">, CI report</span></a>
+                  {:else if !run.attentionChecked}
+                    <span class="checking">Checking…</span>
                   {/if}
                   {#if run.errorCount > 0}
                     <span class="status-badge warning">{plural(run.errorCount, "error")}</span>
@@ -292,7 +299,7 @@
     max-height: 100%;
   }
   .home-page .table-panel {
-    flex: 1;
+    flex: 0 1 auto;
     min-height: 0;
     overflow: auto;
   }
@@ -333,65 +340,14 @@
   }
   .clear-search { font-size: 0.8rem; white-space: nowrap; }
 
-  .attention-panel {
-    display: grid;
+  .run-filters {
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
-  .attention-panel h2 {
-    margin: 0;
-    font-size: 0.82rem;
-    font-weight: 700;
-  }
-  .attention-panel h2 span {
-    color: var(--c-text-muted);
-    font-weight: 500;
-  }
-  .attention-clear {
-    margin: 0;
-    color: var(--c-text-muted);
-    font-size: 0.8rem;
-  }
-  .attention-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .attention-link {
-    height: 100%;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: baseline;
-    gap: 4px 8px;
-    padding: 9px 12px;
-    border: 1px solid color-mix(in srgb, var(--c-error) 30%, var(--c-border-muted));
-    border-left: 3px solid var(--c-error);
-    border-radius: var(--radius-md);
-    background: var(--c-surface);
-    color: var(--c-text);
-    text-decoration: none;
-  }
-  .attention-link:hover { background: var(--c-row-hover); }
-  .attention-link strong {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .attention-status {
-    color: var(--c-error);
-    font-size: 0.72rem;
-    font-weight: 750;
-    text-transform: uppercase;
-  }
-  .attention-status.action_required { color: var(--c-warning); }
-  .attention-summary { color: var(--c-error); font-size: 0.78rem; font-weight: 650; white-space: nowrap; }
-  .attention-reason {
-    grid-column: 1 / -1;
-    color: var(--c-text-muted);
-    font-size: 0.76rem;
+  .filter-count {
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
   }
 
   .runs-table { --stacked-label-width: 80px; }
@@ -455,8 +411,26 @@
   }
   .batch-link { text-decoration: none; }
   .batch-link:hover { color: var(--c-accent); }
-  .attention-mini { color: var(--c-error); font-size: 0.74rem; font-weight: 700; }
-  .attention-mini.action_required { color: var(--c-warning); }
+  .verdict-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--c-error) 45%, var(--c-border));
+    border-radius: 999px;
+    background: var(--c-error-soft);
+    color: var(--c-text);
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .verdict-link.action_required {
+    border-color: color-mix(in srgb, var(--c-warning) 45%, var(--c-border));
+    background: var(--c-warning-soft);
+    color: var(--c-warn-text);
+  }
+  .verdict-link:hover { border-color: var(--c-accent); }
+  .checking { color: var(--c-text-muted); font-size: 0.74rem; }
   time { color: var(--c-text-muted); white-space: nowrap; }
 
   .run-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-shrink: 0; }
