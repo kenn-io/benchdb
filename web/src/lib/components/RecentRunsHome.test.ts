@@ -1,6 +1,6 @@
 import { getBenchDB } from "../api/benchdb";
 import type { AxiosInstance } from "axios";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HOME_QUERY } from "../router";
@@ -74,36 +74,33 @@ describe("RecentRunsHome", () => {
     render(RecentRunsHome, { props: {} });
 
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
 
-    expect(screen.getByText(/2 runs/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recent run summary")).toHaveTextContent("2 runs");
     expect(screen.getByText(/360 results/i)).toBeInTheDocument();
     expect(screen.getAllByText(/1 error/i)).not.toHaveLength(0);
     expect(screen.getByText(/1 machine/i)).toBeInTheDocument();
-    expect(screen.getByText(/attention checked: newest 5 runs/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /needs attention/i })).toHaveTextContent(/newest 5/i);
-    expect(screen.getByRole("link", { name: /review ci report for run run-a/i })).toHaveAttribute(
-      "href",
-      "/ci/report?run_ids=run-a&baseline=fork_point",
-    );
+    expect(screen.queryByText(/attention checked/i)).toBeNull();
+    const attention = screen.getByRole("region", { name: /^Needs attention/ });
+    expect(attention).toHaveTextContent("the newest 2 runs on this page");
+    const review = within(attention).getByRole("link", { name: "Review CI report for run run-a" });
+    expect(review).toHaveAttribute("href", "/ci/report?run_ids=run-a&baseline=fork_point");
+    expect(review).toHaveTextContent("2 regressions");
     expect(screen.getByRole("link", { name: "Open run run-a" })).toHaveAttribute("href", "/runs/run-a");
     expect(screen.getAllByRole("link", { name: "Open batch batch-a" })[0]).toHaveAttribute(
       "href",
       "/batches/batch-a",
     );
-    expect(screen.getAllByText("nightly")).toHaveLength(2);
+    expect(screen.getAllByText("nightly", { selector: ".reason-chip" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "Open commit abcdef12 on GitHub" })[0]).toHaveAttribute(
       "href",
       "https://github.com/apache/arrow/commit/abcdef123456",
     );
-    expect(screen.getByRole("link", { name: "Open CI report for run run-a" })).toHaveAttribute(
-      "href",
-      "/ci/report?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow&commit_sha=abcdef123456&run_ids=run-a&baseline=fork_point",
-    );
-    expect(screen.getByRole("link", { name: "Open sample result for run run-a" })).toHaveAttribute(
-      "href",
-      "/results/result-a",
-    );
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Commit", "Run", "Results", "When"]);
+    expect(screen.queryByRole("link", { name: /sample result/i })).toBeNull();
+    const when = screen.getAllByRole("time")[0]!;
+    expect(when).toHaveAttribute("datetime", "2026-01-02T00:00:00Z");
+    expect(when.textContent).toMatch(/ago|yesterday|last/);
   });
 
   it("loads runs for the URL's project and names the project", async () => {
@@ -126,7 +123,7 @@ describe("RecentRunsHome", () => {
       props: { query: { ...DEFAULT_HOME_QUERY, repository: "https://github.com/apache/arrow-go" } },
     });
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
     expect(screen.getByText("apache/arrow-go", { selector: ".eyebrow" })).toBeInTheDocument();
     expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
@@ -155,8 +152,8 @@ describe("RecentRunsHome", () => {
 
     render(RecentRunsHome, { props: {} });
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
-    expect(screen.getAllByText("run 66f230370652…ea96d29b")).not.toHaveLength(0);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
+    expect(screen.getByText("66f230370652…ea96d29b")).toHaveAttribute("title", longRunID);
     expect(screen.getByText("batch 66f230370652…29b-1p")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: `Open run ${longRunID}` })).toHaveAttribute(
       "href",
@@ -168,30 +165,49 @@ describe("RecentRunsHome", () => {
     );
   });
 
-  it("suppresses empty row metadata and renders compact inline actions", async () => {
+  it("adds a project column only when runs span several projects", async () => {
     GET.mockResolvedValueOnce({ status: 200,
       data: {
         runs: [
           run({ run_id: "run-a", run_reason: null, error_count: 0 }),
-          run({ run_id: "run-b", run_reason: null, error_count: 0 }),
+          run({ run_id: "run-b", run_reason: null, error_count: 0, repository: "https://github.com/apache/arrow-go" }),
         ],
       },
     });
-
-    const { container } = render(RecentRunsHome, { props: {} });
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: /^benchmark runs$/i })).toBeInTheDocument());
-    expect(screen.queryByRole("columnheader", { name: "Reason" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Repository" })).not.toBeInTheDocument();
+    render(RecentRunsHome, { props: {} });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Commit", "Project", "Run", "Results", "When"]);
+    expect(screen.getByText("apache/arrow-go")).toBeInTheDocument();
     expect(screen.queryByText("0 errors")).not.toBeInTheDocument();
-    expect(container.querySelector(".button-pill")).toBeNull();
-    expect(container.querySelector(".inline-actions")).not.toBeNull();
+    expect(screen.queryByText("nightly")).toBeNull();
+  });
+
+  it("says which runs were checked when none need attention", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { runs: Array.from({ length: 7 }, (_, i) => run({ run_id: `run-${i}` })) } });
+    render(RecentRunsHome, { props: {} });
+    expect(await screen.findByText("Nothing needs attention in the newest 5 runs on this page.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /needs attention/i })).toBeNull();
+  });
+
+  it("advances relative times while the page stays open", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date("2026-01-02T00:00:20Z"));
+      GET.mockResolvedValueOnce({ status: 200, data: { runs: [run()] } });
+      render(RecentRunsHome, { props: {} });
+      const when = await screen.findByRole("time");
+      expect(when).toHaveTextContent("just now");
+      await vi.advanceTimersByTimeAsync(2 * 3600 * 1000);
+      expect(when).toHaveTextContent("2 hours ago");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows an empty state", async () => {
     GET.mockResolvedValueOnce({ status: 200,  data: { runs: [] } });
     render(RecentRunsHome, { props: {} });
-    await waitFor(() => expect(screen.getByText(/no recent runs/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
   });
 
   it("shows an error state", async () => {

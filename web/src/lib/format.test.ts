@@ -4,6 +4,7 @@ import {
   clipboardMeasurementValue,
   exactMeasurement,
   formatMeasurement,
+  relativeTime,
 } from "./format";
 
 describe("measurement formatting", () => {
@@ -75,5 +76,21 @@ describe("measurement formatting", () => {
     expect(formatMeasurement(0.00007772, "i/s")).toBe("0.00007772 i/s");
     expect(formatMeasurement(1_849_000_000, "B/s")).toBe("1,849,000,000 B/s");
     expect(formatMeasurement(0.005213, null)).toBe("0.005213");
+  });
+});
+
+describe("relativeTime", () => {
+  const now = new Date("2026-10-09T12:00:00Z");
+  it("uses the largest whole unit", () => {
+    expect(relativeTime("2026-10-09T11:59:30Z", now, "en-US")).toBe("just now");
+    expect(relativeTime("2026-10-09T11:55:00Z", now, "en-US")).toBe("5 minutes ago");
+    expect(relativeTime("2026-10-09T09:00:00Z", now, "en-US")).toBe("3 hours ago");
+    expect(relativeTime("2026-10-08T10:00:00Z", now, "en-US")).toBe("yesterday");
+    expect(relativeTime("2026-09-25T12:00:00Z", now, "en-US")).toBe("2 weeks ago");
+    expect(relativeTime("2025-09-01T12:00:00Z", now, "en-US")).toBe("last year");
+  });
+
+  it("treats future instants as clock skew", () => {
+    expect(relativeTime("2026-10-10T12:00:00Z", now, "en-US")).toBe("just now");
   });
 });

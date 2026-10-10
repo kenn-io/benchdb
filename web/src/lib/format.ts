@@ -86,3 +86,26 @@ export function exactMeasurement(value: number, unit: string | null): string {
 export function clipboardMeasurementValue(value: number): string {
   return String(value);
 }
+
+const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; seconds: number }> = [
+  { unit: "year", seconds: 365 * 24 * 3600 },
+  { unit: "month", seconds: 30 * 24 * 3600 },
+  { unit: "week", seconds: 7 * 24 * 3600 },
+  { unit: "day", seconds: 24 * 3600 },
+  { unit: "hour", seconds: 3600 },
+  { unit: "minute", seconds: 60 },
+];
+
+/** relativeTime renders how long ago an instant was ("3 hours ago",
+ * "yesterday") in the largest whole unit; anything under a minute is "just
+ * now". A future instant can only come from clock skew between the submitter
+ * and this browser, so it also reads "just now". now and locale are
+ * injectable for tests. */
+export function relativeTime(iso: string, now: Date = new Date(), locale?: string): string {
+  const seconds = Math.min(0, (Date.parse(iso) - now.getTime()) / 1000);
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  for (const { unit, seconds: size } of RELATIVE_UNITS) {
+    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
+  }
+  return "just now";
+}

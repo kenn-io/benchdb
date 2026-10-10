@@ -83,7 +83,7 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
   const captured = new Set<string>();
 
   if (suffix === "desktop") {
-    await gotoReady(page, "/", /benchmark runs/i);
+    await gotoReady(page, "/", /^runs$/i);
     await expect(page.locator(".runs-table tbody tr").first()).toBeVisible();
     await expectNoDocumentOverflow(page);
     await screenshot(page, "home", suffix, captured);
@@ -122,11 +122,11 @@ test("capture documentation screenshots from the seeded dashboard", async ({ pag
     await gotoAccount(page);
     await screenshot(page, "account", suffix, captured);
   } else {
-    await gotoReady(page, "/", /benchmark runs/i);
+    await gotoReady(page, "/", /^runs$/i);
     await expect(page.locator(".runs-table tbody tr").first()).toBeVisible();
     await expectNavigationReachable(page);
     await expectNoDocumentOverflow(page);
-    await expectStackedTableBadgesIntrinsic(page.locator(".runs-table [data-label=\"Errors\"] .status-badge"));
+    await expectStackedTableBadgesIntrinsic(page.locator(".runs-table [data-label=\"Results\"] .status-badge"));
     await screenshot(page, "home", suffix, captured);
 
     await gotoReady(page, "/series?q=ingest-events-10m", /^benchmarks$/i);
@@ -333,6 +333,10 @@ async function expectNavigationReachable(page: Page) {
   await expectPrimaryNavLinksInViewport(page);
   await page.keyboard.press("Escape");
   await expect(page.locator(".sidebar.drawer-open")).toHaveCount(0);
+  await expect(menu).toBeFocused();
+  // Closing returns focus to the menu button; drop it so the screenshot shows
+  // the resting page.
+  await menu.evaluate((element) => (element as HTMLElement).blur());
 }
 
 async function expectPrimaryNavLinksInViewport(page: Page) {
