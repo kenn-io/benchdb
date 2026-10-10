@@ -166,7 +166,7 @@ describe("TrendPage", () => {
       "open",
     );
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
-    expect(screen.getByLabelText(/band/i)).toHaveValue("2");
+    expect(screen.getByRole("combobox", { name: /band: ±2σ/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "sha-r1" })).toBeInTheDocument();
   });
@@ -317,8 +317,9 @@ describe("TrendPage", () => {
     render(TrendPage, {
       props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY },
     });
-    await waitFor(() => screen.getByLabelText(/band/i));
-    await fireEvent.change(screen.getByLabelText(/band/i), { target: { value: "5" } });
+    await waitFor(() => screen.getByRole("combobox", { name: /band: ±2σ/i }));
+    await fireEvent.click(screen.getByRole("combobox", { name: /band: ±2σ/i }));
+    await fireEvent.click(screen.getByRole("option", { name: "±5σ" }));
     expect(window.location.pathname).toBe("/benchmarks/history/r1");
     expect(window.location.search).toBe("?range=all&sigma=5");
   });
@@ -349,7 +350,7 @@ describe("TrendPage", () => {
     expect(screen.getByText("sha-r249")).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /show more/i }));
-    expect(screen.getByText(/showing 250 of 250 points/i)).toBeInTheDocument();
+    expect(screen.queryByText(/showing \d+ of/i)).not.toBeInTheDocument();
     expect(screen.getByText("sha-r0")).toBeInTheDocument();
   });
 
@@ -373,25 +374,14 @@ describe("TrendPage", () => {
     expect(within(summary).getByText(/^1 outlier$/i)).toBeInTheDocument();
     expect(within(summary).getByText(/^1 step$/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "sha-r10" })).not.toBeInTheDocument();
-    const shortcuts = screen.getByRole("region", { name: /flagged point shortcuts/i });
-    expect(
-      within(shortcuts).getByRole("button", { name: /jump to first outlier/i }),
-    ).toBeInTheDocument();
-    expect(
-      within(shortcuts).getByRole("button", { name: /jump to first step/i }),
-    ).toBeInTheDocument();
-
-    await fireEvent.click(
-      within(shortcuts).getByRole("button", { name: /jump to first outlier/i }),
-    );
-    expect(screen.getByText(/showing 1 of 1 filtered points/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "sha-r10" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /selected point/i })).toHaveTextContent("sha-r10");
-
     await fireEvent.click(screen.getByRole("button", { name: /outliers 1/i }));
     expect(screen.getByText(/showing 1 of 1 filtered points/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "sha-r10" })).toBeInTheDocument();
     expect(screen.queryByText("sha-r249")).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: /steps 1/i }));
+    expect(screen.getByRole("link", { name: "sha-r12" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "sha-r10" })).not.toBeInTheDocument();
   });
 
   it("keeps trend identity and compare state in a compact context", async () => {
