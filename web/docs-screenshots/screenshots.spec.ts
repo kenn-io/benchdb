@@ -254,7 +254,7 @@ async function gotoResults(page: Page, runID: string) {
   const params = new URLSearchParams({ run_id: runID });
   await gotoReady(page, `/results?${params.toString()}`, /benchmark results/i);
   await expect(page.locator(".results-table tbody tr").first()).toBeVisible();
-  await expect(page.getByRole("link", { name: runID })).toBeVisible();
+  await expect(page.getByRole("button", { name: `Remove run id filter ${runID}` })).toBeVisible();
   await expectNoDocumentOverflow(page);
 }
 
