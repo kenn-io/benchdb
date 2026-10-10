@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
+  import { trapFocus } from "@kenn-io/kit-ui/utils/focus-trap";
   import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import ChartLineIcon from "@lucide/svelte/icons/chart-line";
   import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";
@@ -138,6 +139,22 @@
   let searchInput = $state<HTMLInputElement>();
   let menuButton = $state<HTMLButtonElement>();
   let drawerCloseButton = $state<HTMLButtonElement>();
+  let sidebarElement = $state<HTMLElement>();
+  const drawerShown = $derived(narrow && drawerOpen);
+
+  // While the drawer is open, the page behind it can take neither focus nor
+  // clicks. The backdrop stays live because tapping it closes the drawer.
+  $effect(() => {
+    if (!drawerShown || sidebarElement?.parentElement == null) return;
+    const background = [...sidebarElement.parentElement.children].filter(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement && element !== sidebarElement && !element.classList.contains("drawer-backdrop"),
+    );
+    for (const element of background) element.toggleAttribute("inert", true);
+    return () => {
+      for (const element of background) element.toggleAttribute("inert", false);
+    };
+  });
 
   async function openDrawer() {
     drawerOpen = true;
@@ -147,8 +164,10 @@
 
   // Dismissing the drawer returns focus to the menu button; navigating away
   // leaves focus with the new page.
-  function closeDrawer() {
+  async function closeDrawer() {
     drawerOpen = false;
+    // The menu button is inert until the drawer's state has settled.
+    await tick();
     menuButton?.focus();
   }
 
@@ -231,12 +250,20 @@
   </header>
 {/if}
 
-{#if narrow && drawerOpen}
+{#if drawerShown}
   <button type="button" class="drawer-backdrop" aria-label="Close navigation" tabindex="-1"
     onclick={closeDrawer}></button>
 {/if}
 
-<aside id="app-sidebar" class="sidebar" class:rail class:drawer-open={drawerOpen} aria-label="Sidebar">
+<aside
+  id="app-sidebar"
+  class="sidebar"
+  class:rail
+  class:drawer-open={drawerOpen}
+  aria-label="Sidebar"
+  bind:this={sidebarElement}
+  {@attach drawerShown ? trapFocus : undefined}
+>
   <div class="sidebar-head">
     <a class="brand" href={appURL("/")} onclick={(e) => go(e, "/")} title={rail ? "BenchDB" : undefined}>
       <span class="brand-mark" aria-hidden="true">B</span>
@@ -462,6 +489,13 @@
     outline: none;
     border-color: var(--c-accent);
     box-shadow: 0 0 0 3px var(--c-focus-ring);
+  }
+
+  @media (forced-colors: active) {
+    .search input:focus-visible {
+      outline: 2px solid Highlight;
+      outline-offset: 2px;
+    }
   }
 
   .primary-nav,

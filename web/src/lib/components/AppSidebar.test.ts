@@ -108,6 +108,7 @@ describe("AppSidebar", () => {
       GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
       const { rerender } = render(AppSidebar, { props: { route: home(ARROW) } });
       const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+      const content = sidebar.parentElement!.appendChild(document.createElement("main"));
       // The collapse preference does not apply to the drawer.
       expect(screen.queryByRole("button", { name: /collapse sidebar|expand sidebar/i })).toBeNull();
       expect(screen.getByText("apache/arrow", { selector: ".mobile-project" })).toBeInTheDocument();
@@ -119,9 +120,15 @@ describe("AppSidebar", () => {
       expect(sidebar).toHaveClass("drawer-open");
       await waitFor(() => expect(within(sidebar).getByRole("button", { name: "Close navigation" })).toHaveFocus());
 
+      // The page behind the open drawer is inert; the backdrop stays live.
+      expect(content).toHaveAttribute("inert");
+      expect(menu.closest("header")).toHaveAttribute("inert");
+      expect(document.querySelector(".drawer-backdrop")).not.toHaveAttribute("inert");
+
       await fireEvent.keyDown(window, { key: "Escape" });
       expect(sidebar).not.toHaveClass("drawer-open");
-      expect(menu).toHaveFocus();
+      expect(content).not.toHaveAttribute("inert");
+      await waitFor(() => expect(menu).toHaveFocus());
 
       await fireEvent.click(menu);
       await rerender({ route: page("compare") });
