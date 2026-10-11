@@ -59,18 +59,20 @@ SELECT DISTINCT ON (br.commit_repo_url)
   br.commit_repo_url,
   c.sha AS commit_sha,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
-  br."timestamp" AS last_result_at
+  br."timestamp" AS last_result_at,
+  br.id AS last_result_id
 FROM benchmark_result br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = sqlc.arg('run_id')
 ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC;
 
 -- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
 VALUES (
   sqlc.arg('run_id'),
   sqlc.arg('repository'),
   sqlc.arg('last_result_at'),
+  sqlc.arg('last_result_id'),
   sqlc.arg('default_branch'),
   sqlc.arg('needs_attention'),
   sqlc.narg('attention'),
@@ -78,6 +80,7 @@ VALUES (
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
   last_result_at = EXCLUDED.last_result_at,
+  last_result_id = EXCLUDED.last_result_id,
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
@@ -123,7 +126,8 @@ SELECT EXISTS (
 
 -- name: CountAttentionRuns :one
 -- Counts runs the way the list shows them: within one repository, or by the
--- repository of the run's latest results when no repository is selected.
+-- repository of the run's latest result when no repository is selected,
+-- breaking timestamp ties by result id as the list does.
 SELECT count(*)
 FROM run_verdict v
 WHERE v.needs_attention
@@ -131,5 +135,5 @@ WHERE v.needs_attention
   AND (sqlc.narg('repository')::text IS NOT NULL OR NOT EXISTS (
     SELECT 1 FROM run_verdict newer
     WHERE newer.run_id = v.run_id
-      AND (newer.last_result_at, newer.repository) > (v.last_result_at, v.repository)
+      AND (newer.last_result_at, newer.last_result_id) > (v.last_result_at, v.last_result_id)
   ));

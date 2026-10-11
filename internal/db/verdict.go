@@ -48,6 +48,7 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 				RunID:          verdict.RunID,
 				Repository:     verdict.Repository,
 				LastResultAt:   verdict.LastResultAt,
+				LastResultID:   verdict.LastResultID,
 				DefaultBranch:  verdict.DefaultBranch,
 				NeedsAttention: verdict.NeedsAttention,
 				Attention:      verdict.Attention,
@@ -140,6 +141,7 @@ func (s *Store) SelectRunVerdictSubjects(ctx context.Context, runID string) ([]s
 			CommitSHA:     row.CommitSha,
 			DefaultBranch: row.DefaultBranch,
 			LastResultAt:  row.LastResultAt,
+			LastResultID:  row.LastResultID,
 		})
 	}
 	return subjects, nil

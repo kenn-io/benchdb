@@ -116,6 +116,7 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 			RunID:          runID,
 			Repository:     subject.Repository,
 			LastResultAt:   subject.LastResultAt,
+			LastResultID:   subject.LastResultID,
 			DefaultBranch:  subject.DefaultBranch,
 			NeedsAttention: attention != nil,
 			Attention:      encoded,

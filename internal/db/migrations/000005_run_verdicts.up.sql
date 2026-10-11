@@ -2,11 +2,13 @@
 -- for every run instead of evaluating a CI report per row on each page load.
 -- A run_id can hold results for several repositories; the runs list
 -- identifies a run by its latest result within the selected repository, so
--- each repository gets its own verdict.
+-- each repository gets its own verdict. last_result_id breaks timestamp ties
+-- the same way the list does.
 CREATE TABLE run_verdict (
     run_id text NOT NULL,
     repository text NOT NULL,
     last_result_at timestamp without time zone NOT NULL,
+    last_result_id text NOT NULL,
     default_branch boolean NOT NULL,
     needs_attention boolean NOT NULL,
     attention jsonb,

@@ -192,6 +192,7 @@ type RunVerdict struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	LastResultID   string
 	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte

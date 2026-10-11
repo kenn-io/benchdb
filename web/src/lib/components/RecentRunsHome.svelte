@@ -33,11 +33,15 @@
   let errorMsg = $state<string | null>(null);
   let refreshError = $state<string | null>(null);
 
-  // The server computes verdicts in the background; while any could still
-  // change, reload a few times so new verdicts appear.
-  const PENDING_REFRESH_MS = 4000;
-  const PENDING_REFRESH_LIMIT = 8;
-  let pendingRefreshes = 0;
+  // The server computes verdicts in the background. A repository-wide
+  // recheck waits through two 15-second settle windows plus worker ticks, so
+  // while any verdict could still change the page reloads with a growing
+  // delay for up to two minutes.
+  const REFRESH_FIRST_MS = 4000;
+  const REFRESH_MAX_MS = 15_000;
+  const REFRESH_BUDGET_MS = 120_000;
+  let refreshDelay = REFRESH_FIRST_MS;
+  let refreshWaited = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(() => {
@@ -71,9 +75,11 @@
   function scheduleRefresh() {
     clearTimeout(refreshTimer);
     const settled = refreshError === null && !verdictsPending && runs.every((run) => run.attentionChecked);
-    if (settled || pendingRefreshes >= PENDING_REFRESH_LIMIT) return;
-    pendingRefreshes += 1;
-    refreshTimer = setTimeout(() => void load(true), PENDING_REFRESH_MS);
+    if (settled || refreshWaited >= REFRESH_BUDGET_MS) return;
+    const delay = refreshDelay;
+    refreshWaited += delay;
+    refreshDelay = Math.min(Math.round(delay * 1.5), REFRESH_MAX_MS);
+    refreshTimer = setTimeout(() => void load(true), delay);
   }
 
   const totalResults = $derived(runs.reduce((sum, run) => sum + run.resultCount, 0));

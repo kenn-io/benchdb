@@ -220,3 +220,36 @@ func TestQueuedRecomputesMarkVerdictsUnchecked(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, page.VerdictsPending, "another repository's queue does not affect this one")
 }
+
+func TestAttentionFilterBreaksTimestampTiesLikeTheList(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	at := time.Now().UTC().Truncate(time.Second)
+	const otherRepo = "https://github.com/org/other"
+	unknownFork := "unknown"
+	ing := service.NewIngester(store, ciCommitProvider{
+		"main": ciCommitInfo("main", nil, "main", at),
+		"pr":   {Sha: "pr", Repository: otherRepo, Message: "commit pr", Timestamp: &at, ForkPointSha: &unknownFork},
+	})
+	// Equal timestamps: the list shows the result with the larger id, which is
+	// the later submission, from otherRepo.
+	submitAt(t, ctx, ing, "tied-run", "main", 10, at)
+	req := machineReq(samples(10, 11, 12), "s")
+	req.RunID = "tied-run"
+	req.GitHub = service.GitHubInfo{Commit: "pr", Repository: otherRepo}
+	req.Timestamp = at
+	_, err := ing.Submit(ctx, req)
+	require.NoError(t, err)
+	drainVerdicts(t, ctx, store)
+	reader := service.NewReader(store)
+
+	listed, err := reader.ListRecentRuns(ctx, service.RecentRunsQuery{})
+	require.NoError(t, err)
+	require.Len(t, listed.Runs, 1)
+	require.Equal(t, otherRepo, listed.Runs[0].Repository)
+	require.NotNil(t, listed.Runs[0].Attention)
+
+	filtered, err := reader.ListRecentRuns(ctx, service.RecentRunsQuery{NeedsAttention: true})
+	require.NoError(t, err)
+	assert.Len(t, filtered.Runs, 1, "the filter judges the run by the repository the list shows")
+	assert.Equal(t, int64(1), filtered.AttentionRuns)
+}

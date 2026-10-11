@@ -40,6 +40,7 @@ type RunVerdictSubject struct {
 	CommitSHA     *string
 	DefaultBranch bool
 	LastResultAt  time.Time
+	LastResultID  string
 }
 
 // RunVerdict is a run's stored CI attention verdict within one repository.
@@ -49,6 +50,7 @@ type RunVerdict struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	LastResultID   string
 	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte

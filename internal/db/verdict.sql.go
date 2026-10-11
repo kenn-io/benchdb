@@ -79,12 +79,13 @@ WHERE v.needs_attention
   AND ($1::text IS NOT NULL OR NOT EXISTS (
     SELECT 1 FROM run_verdict newer
     WHERE newer.run_id = v.run_id
-      AND (newer.last_result_at, newer.repository) > (v.last_result_at, v.repository)
+      AND (newer.last_result_at, newer.last_result_id) > (v.last_result_at, v.last_result_id)
   ))
 `
 
 // Counts runs the way the list shows them: within one repository, or by the
-// repository of the run's latest results when no repository is selected.
+// repository of the run's latest result when no repository is selected,
+// breaking timestamp ties by result id as the list does.
 func (q *Queries) CountAttentionRuns(ctx context.Context, repository *string) (int64, error) {
 	row := q.db.QueryRow(ctx, countAttentionRuns, repository)
 	var count int64
@@ -238,7 +239,8 @@ SELECT DISTINCT ON (br.commit_repo_url)
   br.commit_repo_url,
   c.sha AS commit_sha,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
-  br."timestamp" AS last_result_at
+  br."timestamp" AS last_result_at,
+  br.id AS last_result_id
 FROM benchmark_result br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = $1
@@ -250,6 +252,7 @@ type SelectRunVerdictSubjectsRow struct {
 	CommitSha     *string
 	DefaultBranch bool
 	LastResultAt  time.Time
+	LastResultID  string
 }
 
 // One subject per repository the run has results in, identified the way the
@@ -268,6 +271,7 @@ func (q *Queries) SelectRunVerdictSubjects(ctx context.Context, runID string) ([
 			&i.CommitSha,
 			&i.DefaultBranch,
 			&i.LastResultAt,
+			&i.LastResultID,
 		); err != nil {
 			return nil, err
 		}
@@ -338,7 +342,7 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 }
 
 const upsertRunVerdict = `-- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
 VALUES (
   $1,
   $2,
@@ -346,10 +350,12 @@ VALUES (
   $4,
   $5,
   $6,
+  $7,
   clock_timestamp()
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
   last_result_at = EXCLUDED.last_result_at,
+  last_result_id = EXCLUDED.last_result_id,
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
@@ -360,6 +366,7 @@ type UpsertRunVerdictParams struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	LastResultID   string
 	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte
@@ -370,6 +377,7 @@ func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictPara
 		arg.RunID,
 		arg.Repository,
 		arg.LastResultAt,
+		arg.LastResultID,
 		arg.DefaultBranch,
 		arg.NeedsAttention,
 		arg.Attention,

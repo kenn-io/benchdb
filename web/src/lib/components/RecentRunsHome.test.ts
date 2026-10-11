@@ -237,6 +237,49 @@ describe("RecentRunsHome", () => {
     }
   });
 
+  it("keeps refreshing long enough for a repository-wide recheck", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = { status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [run({ attention_checked: false })] } };
+      const checked = { status: 200, data: { attention_runs: 1, verdicts_pending: false, runs: [run({
+        attention: {
+          status: "failure",
+          status_reason: "lookback regression detected",
+          report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+          summary: { compared: 3, regressions: 1, benchmark_errors: 0, missing_baseline: 0, not_comparable: 0 },
+        },
+      })] } };
+      let calls = 0;
+      GET.mockImplementation(async () => (++calls <= 5 ? pending : checked));
+      render(RecentRunsHome, { props: {} });
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(screen.getByText("Checking…")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(screen.getByRole("link", { name: "1 regression, CI report" })).toBeInTheDocument();
+
+      const settledCalls = GET.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(GET).toHaveBeenCalledTimes(settledCalls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops refreshing after its time budget even if verdicts stay pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValue({ status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [run({ attention_checked: false })] } });
+      render(RecentRunsHome, { props: {} });
+      await vi.advanceTimersByTimeAsync(130_000);
+      const calls = GET.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(GET).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the runs shown when a background refresh fails", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
@@ -251,7 +294,7 @@ describe("RecentRunsHome", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Couldn't refresh run verdicts: statement timeout");
       expect(screen.getByRole("table")).toBeInTheDocument();
 
-      await vi.advanceTimersByTimeAsync(4000);
+      await vi.advanceTimersByTimeAsync(6000);
       expect(screen.queryByRole("status")).toBeNull();
       expect(screen.queryByText("Checking…")).toBeNull();
     } finally {
