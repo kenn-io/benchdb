@@ -27,6 +27,8 @@ var requiredSchemaTables = []string{
 	"hardware",
 	"commit",
 	"user",
+	"run_verdict",
+	"verdict_queue",
 }
 
 var writableTableSpecs = []writableTableSpec{
@@ -38,6 +40,8 @@ var writableTableSpecs = []writableTableSpec{
 	{name: "public.commit", schemaName: "commit", regclass: "public.commit", countSQL: "SELECT count(*) FROM public.commit", required: true},
 	{name: "public.api_token", schemaName: "api_token", regclass: "public.api_token", countSQL: "SELECT count(*) FROM public.api_token"},
 	{name: `public."user"`, schemaName: "user", regclass: `public."user"`, countSQL: `SELECT count(*) FROM public."user"`, required: true},
+	{name: "public.run_verdict", schemaName: "run_verdict", regclass: "public.run_verdict", countSQL: "SELECT count(*) FROM public.run_verdict", required: true},
+	{name: "public.verdict_queue", schemaName: "verdict_queue", regclass: "public.verdict_queue", countSQL: "SELECT count(*) FROM public.verdict_queue", required: true},
 }
 
 var writablePrivileges = []string{"INSERT", "UPDATE", "DELETE", "TRUNCATE"}

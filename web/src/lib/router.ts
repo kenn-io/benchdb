@@ -55,6 +55,7 @@ export interface HomeQuery {
   repository: string;
   q: string;
   offset: number;
+  attention: boolean;
 }
 
 export interface HomeRoute {
@@ -280,7 +281,7 @@ export function formatCompareQuery(query: CompareQuery): string {
 }
 
 export const DEFAULT_BROWSE_QUERY: BrowseQuery = { q: "", hardware: "", repository: "", window: "all", view: "table" };
-export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0 };
+export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0, attention: false };
 export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
   runID: "",
   batchID: "",
@@ -298,6 +299,7 @@ export function parseHomeQuery(search: string): HomeQuery {
     repository: params.get("repository") ?? "",
     q: (params.get("q") ?? "").trim(),
     offset: Number.isSafeInteger(offset) && offset > 0 && offset <= 2147483647 ? offset : 0,
+    attention: params.get("attention") === "1",
   };
 }
 
@@ -306,6 +308,7 @@ export function formatHomeQuery(query: Partial<HomeQuery>): string {
   if (query.repository) params.set("repository", query.repository);
   if (query.q) params.set("q", query.q);
   if (query.offset) params.set("offset", String(query.offset));
+  if (query.attention) params.set("attention", "1");
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
 }

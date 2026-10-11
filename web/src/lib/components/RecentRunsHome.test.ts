@@ -26,6 +26,7 @@ const run = (overrides: Record<string, unknown> = {}) => ({
   commit_sha: "abcdef123456",
   first_result_at: "2026-01-01T00:00:00Z",
   last_result_at: "2026-01-02T00:00:00Z",
+  attention_checked: true,
   commit: {
     hash: "abcdef123456",
     repository: "https://github.com/apache/arrow",
@@ -47,10 +48,7 @@ describe("RecentRunsHome", () => {
   it("renders benchmark run triage around commit, author, and machine identity", async () => {
     GET.mockResolvedValueOnce({ status: 200,
       data: {
-        repositories: [
-          { repository: "https://github.com/apache/arrow" },
-          { repository: "https://github.com/apache/arrow-go" },
-        ],
+        attention_runs: 1,
         runs: [
           run({
             attention: {
@@ -80,12 +78,13 @@ describe("RecentRunsHome", () => {
     expect(screen.getByText(/360 results/i)).toBeInTheDocument();
     expect(screen.getAllByText(/1 error/i)).not.toHaveLength(0);
     expect(screen.getByText(/1 machine/i)).toBeInTheDocument();
-    expect(screen.queryByText(/attention checked/i)).toBeNull();
-    const attention = screen.getByRole("region", { name: /^Needs attention/ });
-    expect(attention).toHaveTextContent("the newest 2 runs on this page");
-    const review = within(attention).getByRole("link", { name: "Review CI report for run run-a" });
-    expect(review).toHaveAttribute("href", "/ci/report?run_ids=run-a&baseline=fork_point");
-    expect(review).toHaveTextContent("2 regressions");
+    const filters = screen.getByRole("navigation", { name: "Filter runs" });
+    expect(within(filters).getByRole("link", { name: "All runs" })).toHaveAttribute("aria-current", "true");
+    expect(within(filters).getByRole("link", { name: "Needs attention 1" })).toHaveAttribute("href", "/?attention=1");
+    expect(screen.getByRole("link", { name: "2 regressions, CI report" })).toHaveAttribute(
+      "href",
+      "/ci/report?run_ids=run-a&baseline=fork_point",
+    );
     expect(screen.getByRole("link", { name: "Open run run-a" })).toHaveAttribute("href", "/runs/run-a");
     expect(screen.getAllByRole("link", { name: "Open batch batch-a" })[0]).toHaveAttribute(
       "href",
@@ -127,7 +126,6 @@ describe("RecentRunsHome", () => {
     expect(screen.getByText("apache/arrow-go", { selector: ".eyebrow" })).toBeInTheDocument();
     expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
-          include_attention: true,
           repository: "https://github.com/apache/arrow-go",
         } });
   });
@@ -182,11 +180,136 @@ describe("RecentRunsHome", () => {
     expect(screen.queryByText("nightly")).toBeNull();
   });
 
-  it("says which runs were checked when none need attention", async () => {
-    GET.mockResolvedValueOnce({ status: 200, data: { runs: Array.from({ length: 7 }, (_, i) => run({ run_id: `run-${i}` })) } });
+  it("says nothing needs attention when the server counts no such runs", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: Array.from({ length: 7 }, (_, i) => run({ run_id: `run-${i}` })) } });
     render(RecentRunsHome, { props: {} });
-    expect(await screen.findByText("Nothing needs attention in the newest 5 runs on this page.")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /needs attention/i })).toBeNull();
+    expect(await screen.findByLabelText("Recent run summary")).toHaveTextContent("Nothing needs attention");
+    expect(screen.queryByRole("navigation", { name: "Filter runs" })).toBeNull();
+  });
+
+  it("shows unchecked runs as checking and reloads until their verdicts arrive", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [run({ attention_checked: false })] } });
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 1, runs: [run({
+        attention: {
+          status: "action_required",
+          status_reason: "missing baseline",
+          report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+          summary: { compared: 0, regressions: 0, benchmark_errors: 0, missing_baseline: 4, not_comparable: 0 },
+        },
+      })] } });
+      render(RecentRunsHome, { props: {} });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Checking…")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.getByRole("link", { name: "4 missing baselines, CI report" })).toBeInTheDocument();
+      expect(screen.queryByText("Checking…")).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(GET).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an empty attention filter refreshing while verdicts are pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [] } });
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 1, verdicts_pending: false, runs: [run({
+        attention: {
+          status: "failure",
+          status_reason: "lookback regression detected",
+          report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+          summary: { compared: 3, regressions: 1, benchmark_errors: 0, missing_baseline: 0, not_comparable: 0 },
+        },
+      })] } });
+      render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, attention: true } } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Some runs are still being checked.")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.getByRole("link", { name: "1 regression, CI report" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps refreshing long enough for a repository-wide recheck", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = { status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [run({ attention_checked: false })] } };
+      const checked = { status: 200, data: { attention_runs: 1, verdicts_pending: false, runs: [run({
+        attention: {
+          status: "failure",
+          status_reason: "lookback regression detected",
+          report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+          summary: { compared: 3, regressions: 1, benchmark_errors: 0, missing_baseline: 0, not_comparable: 0 },
+        },
+      })] } };
+      let calls = 0;
+      GET.mockImplementation(async () => (++calls <= 5 ? pending : checked));
+      render(RecentRunsHome, { props: {} });
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(screen.getByText("Checking…")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(screen.getByRole("link", { name: "1 regression, CI report" })).toBeInTheDocument();
+
+      const settledCalls = GET.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(GET).toHaveBeenCalledTimes(settledCalls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops refreshing after its time budget even if verdicts stay pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValue({ status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [run({ attention_checked: false })] } });
+      render(RecentRunsHome, { props: {} });
+      await vi.advanceTimersByTimeAsync(130_000);
+      const calls = GET.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(GET).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the runs shown when a background refresh fails", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [run({ attention_checked: false })] } });
+      GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 503 });
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [run()] } });
+      render(RecentRunsHome, { props: {} });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Checking…")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.getByRole("status")).toHaveTextContent("Couldn't refresh run verdicts: statement timeout");
+      expect(screen.getByRole("table")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("filters to runs that need attention", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [] } });
+    render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, attention: true } } });
+    expect(await screen.findByRole("heading", { name: "Nothing needs attention" })).toBeInTheDocument();
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25, needs_attention: true } });
+    const filters = screen.getByRole("navigation", { name: "Filter runs" });
+    expect(within(filters).getByRole("link", { name: "Needs attention 0" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("link", { name: "Show all runs" })).toHaveAttribute("href", "/");
   });
 
   it("advances relative times while the page stays open", async () => {
@@ -229,10 +352,12 @@ it("submits a commit URL search and resets pagination", async () => {
 
 it("keeps the search and project when paging to older runs", async () => {
   GET.mockResolvedValueOnce({ status: 200,  data: { runs: [run()], repositories: [], has_more: true } });
-  render(RecentRunsHome, { props: { query: { repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25 } } });
+  render(RecentRunsHome, {
+    props: { query: { repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25, attention: false } },
+  });
   await waitFor(() => expect(screen.getByRole("link", { name: "Next" })).toBeInTheDocument());
   expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
-    page_size: 25, include_attention: true, repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25,
+    page_size: 25, repository: "https://github.com/apache/arrow", q: "abcdef", offset: 25,
   } });
   await fireEvent.click(screen.getByRole("link", { name: "Next" }));
   const params = new URLSearchParams(location.search);

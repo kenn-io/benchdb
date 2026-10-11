@@ -91,10 +91,10 @@
 
   // Machines differ between projects, so a project change clears the machine
   // filter and keeps the rest of the Benchmarks view. On Runs it keeps the
-  // commit search and starts from the first page.
+  // commit search and the attention filter and starts from the first page.
   function selectRepository(next: string) {
     if (route.name === "home") {
-      navigate(`/${formatHomeQuery({ repository: next, q: route.query.q })}`);
+      navigate(`/${formatHomeQuery({ repository: next, q: route.query.q, attention: route.query.attention })}`);
     } else if (route.name === "browse") {
       navigate(`/series${formatBrowseQuery({ ...route.query, repository: next, hardware: "" })}`);
     } else if (BENCHMARK_ROUTES.includes(route.name)) {

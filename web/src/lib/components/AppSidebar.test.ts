@@ -214,14 +214,14 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("option", { name: "apache/arrow" })).toBeInTheDocument();
   });
 
-  it("keeps the commit search and resets paging when switching projects on Runs", async () => {
+  it("keeps the commit search and attention filter and resets paging when switching projects on Runs", async () => {
     GET.mockResolvedValue(repositoriesResponse([ARROW, ARROW_GO]));
     render(AppSidebar, {
-      props: { route: { name: "home", query: { repository: ARROW, q: "abcdef", offset: 25 } } },
+      props: { route: { name: "home", query: { repository: ARROW, q: "abcdef", offset: 25, attention: true } } },
     });
     await fireEvent.click(await screen.findByRole("combobox", { name: "Project: apache/arrow" }));
     await fireEvent.click(screen.getByRole("option", { name: "All projects" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/?q=abcdef");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/?q=abcdef&attention=1");
   });
 
   it("scopes nav links and global search to the route's project", async () => {

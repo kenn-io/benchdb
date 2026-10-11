@@ -62,7 +62,7 @@ describe("listRecentRuns", () => {
 
     const page = await listRecentRuns(client);
 
-    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25, include_attention: true } });
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25 } });
     expect(page.runs).toHaveLength(1);
     expect(page.runs[0]).toMatchObject({
       runId: "run-a",
@@ -86,6 +86,16 @@ describe("listRecentRuns", () => {
     });
   });
 
+  it("asks for runs that need attention and reports the server's count", async () => {
+    const { client, GET } = fakeClient({ attention_runs: 3, runs: [{ ...runPayload(), attention_checked: false }] });
+
+    const page = await listRecentRuns(client, { repository: "", attention: true });
+
+    expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: { page_size: 25, needs_attention: true } });
+    expect(page.attentionRuns).toBe(3);
+    expect(page.runs[0]!.attentionChecked).toBe(false);
+  });
+
   it("passes the selected repository to the recent-runs endpoint", async () => {
     const { client, GET } = fakeClient({
       runs: [
@@ -105,7 +115,6 @@ describe("listRecentRuns", () => {
 
     expect(GET).toHaveBeenCalledWith("/api/runs/recent", { params: {
           page_size: 25,
-          include_attention: true,
           repository: "https://github.com/apache/arrow-go",
         } });
     expect(page.runs.map((run) => run.repository)).toEqual(["https://github.com/apache/arrow-go"]);

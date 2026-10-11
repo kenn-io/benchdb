@@ -3908,8 +3908,8 @@ type ListRecentRunsQuery struct {
 	// PageSize Page size (max 100).
 	PageSize *int64 `json:"page_size,omitempty"`
 
-	// IncludeAttention Include bounded CI attention summaries for the newest runs.
-	IncludeAttention *bool `json:"include_attention,omitempty"`
+	// NeedsAttention Return only runs whose CI report needs attention.
+	NeedsAttention *bool `json:"needs_attention,omitempty"`
 
 	// Repository Filter by repository URL.
 	Repository *string `json:"repository,omitempty"`
@@ -5591,22 +5591,23 @@ type RecentRunAttentionSummary struct {
 }
 
 type RecentRunListItem struct {
-	Attention      *RecentRunAttention `json:"attention,omitempty"`
-	BatchCount     int64               `json:"batch_count"`
-	Commit         *ListCommit         `json:"commit,omitempty"`
-	CommitSha      *string             `json:"commit_sha,omitempty" validate:"required"`
-	ErrorCount     int64               `json:"error_count"`
-	FirstResultAt  time.Time           `json:"first_result_at" validate:"required"`
-	LastResultAt   time.Time           `json:"last_result_at" validate:"required"`
-	LatestBatchID  *string             `json:"latest_batch_id,omitempty" validate:"required"`
-	LatestResultID string              `json:"latest_result_id" validate:"required"`
-	MachineNames   []string            `json:"machine_names,omitempty" validate:"required"`
-	Repository     string              `json:"repository" validate:"required"`
-	ResultCount    int64               `json:"result_count"`
-	RunID          string              `json:"run_id" validate:"required"`
-	RunReason      *string             `json:"run_reason,omitempty" validate:"required"`
-	RunTags        map[string]any      `json:"run_tags"`
-	SeriesCount    int64               `json:"series_count"`
+	Attention        *RecentRunAttention `json:"attention,omitempty"`
+	AttentionChecked bool                `json:"attention_checked"`
+	BatchCount       int64               `json:"batch_count"`
+	Commit           *ListCommit         `json:"commit,omitempty"`
+	CommitSha        *string             `json:"commit_sha,omitempty" validate:"required"`
+	ErrorCount       int64               `json:"error_count"`
+	FirstResultAt    time.Time           `json:"first_result_at" validate:"required"`
+	LastResultAt     time.Time           `json:"last_result_at" validate:"required"`
+	LatestBatchID    *string             `json:"latest_batch_id,omitempty" validate:"required"`
+	LatestResultID   string              `json:"latest_result_id" validate:"required"`
+	MachineNames     []string            `json:"machine_names,omitempty" validate:"required"`
+	Repository       string              `json:"repository" validate:"required"`
+	ResultCount      int64               `json:"result_count"`
+	RunID            string              `json:"run_id" validate:"required"`
+	RunReason        *string             `json:"run_reason,omitempty" validate:"required"`
+	RunTags          map[string]any      `json:"run_tags"`
+	SeriesCount      int64               `json:"series_count"`
 }
 
 func (r RecentRunListItem) Validate() error {
@@ -5666,9 +5667,11 @@ func (r RecentRunListItem) Validate() error {
 
 type RecentRunsPage struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema  *string             `json:"$schema,omitempty"`
-	HasMore bool                `json:"has_more"`
-	Runs    []RecentRunListItem `json:"runs,omitempty" validate:"required"`
+	Schema          *string             `json:"$schema,omitempty"`
+	AttentionRuns   int64               `json:"attention_runs"`
+	HasMore         bool                `json:"has_more"`
+	Runs            []RecentRunListItem `json:"runs,omitempty" validate:"required"`
+	VerdictsPending bool                `json:"verdicts_pending"`
 }
 
 func (r RecentRunsPage) Validate() error {

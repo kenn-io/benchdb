@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/service"
 )
 
@@ -350,7 +351,7 @@ func TestListRepositoriesFollowsExistingResults(t *testing.T) {
 	assert.Equal(t, []string{"https://github.com/apache/commitless"}, listed())
 }
 
-func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
+func TestListRecentRunsShowsStoredAttentionVerdicts(t *testing.T) {
 	tapi, pool, ctx := seedAPI(t)
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c2", ts: day(2), data: []float64{20}})
@@ -361,20 +362,12 @@ func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
 		"c3", "c3", defaultRepo, "c4")
 	require.NoError(t, err)
 
-	resp := tapi.Get("/api/runs/recent?page_size=10")
-	require.Equal(t, http.StatusOK, resp.Code, "recent runs: %s", resp.Body.String())
-	var raw struct {
-		Runs []map[string]any `json:"runs"`
-	}
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &raw))
-	require.NotContains(t, raw.Runs[0], "attention", "attention is opt-in for the home dashboard")
-
-	resp = tapi.Get("/api/runs/recent?page_size=10&include_attention=true")
-	require.Equal(t, http.StatusOK, resp.Code, "recent runs with attention: %s", resp.Body.String())
-	var page struct {
-		Runs []struct {
-			RunID     string `json:"run_id"`
-			Attention *struct {
+	type attentionPage struct {
+		AttentionRuns int64 `json:"attention_runs"`
+		Runs          []struct {
+			RunID            string `json:"run_id"`
+			AttentionChecked bool   `json:"attention_checked"`
+			Attention        *struct {
 				Status       string `json:"status"`
 				StatusReason string `json:"status_reason"`
 				ReportURL    string `json:"report_url"`
@@ -386,9 +379,37 @@ func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
 			} `json:"attention"`
 		} `json:"runs"`
 	}
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+	get := func(path string) attentionPage {
+		t.Helper()
+		resp := tapi.Get(path)
+		require.Equal(t, http.StatusOK, resp.Code, "%s: %s", path, resp.Body.String())
+		var page attentionPage
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+		return page
+	}
+
+	page := get("/api/runs/recent?page_size=10")
 	require.Len(t, page.Runs, 2)
+	for _, run := range page.Runs {
+		assert.False(t, run.AttentionChecked, "%s has no verdict before the worker runs", run.RunID)
+		assert.Nil(t, run.Attention)
+	}
+	assert.Zero(t, page.AttentionRuns)
+
+	verdicts := service.NewVerdicts(db.NewStore(pool), 0)
+	for {
+		claimed, err := verdicts.Process(ctx)
+		require.NoError(t, err)
+		if claimed == 0 {
+			break
+		}
+	}
+
+	page = get("/api/runs/recent?page_size=10")
+	require.Len(t, page.Runs, 2)
+	assert.Equal(t, int64(1), page.AttentionRuns)
 	assert.Equal(t, "ci-run", page.Runs[0].RunID)
+	assert.True(t, page.Runs[0].AttentionChecked)
 	if assert.NotNil(t, page.Runs[0].Attention) {
 		assert.Equal(t, "failure", page.Runs[0].Attention.Status)
 		assert.Equal(t, "lookback regression detected", page.Runs[0].Attention.StatusReason)
@@ -402,7 +423,17 @@ func TestListRecentRunsCanIncludeActionableAttention(t *testing.T) {
 		assert.Equal(t, "fork_point", u.Query().Get("baseline"))
 	}
 	assert.Equal(t, "main-run", page.Runs[1].RunID)
+	assert.True(t, page.Runs[1].AttentionChecked)
 	assert.Nil(t, page.Runs[1].Attention, "default-branch runs are not actionable CI attention")
+
+	filtered := get("/api/runs/recent?page_size=10&needs_attention=true")
+	require.Len(t, filtered.Runs, 1)
+	assert.Equal(t, "ci-run", filtered.Runs[0].RunID)
+	assert.Equal(t, int64(1), filtered.AttentionRuns)
+
+	other := get("/api/runs/recent?page_size=10&needs_attention=true&repository=" + url.QueryEscape("https://github.com/other/repo"))
+	assert.Empty(t, other.Runs)
+	assert.Zero(t, other.AttentionRuns)
 }
 
 func TestListRecentRunsSearchAndPagination(t *testing.T) {

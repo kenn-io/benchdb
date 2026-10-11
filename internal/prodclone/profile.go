@@ -488,21 +488,21 @@ func profileSQLQueries(samples profileSamples) []profileSQLQuery {
 			name:      "RecentRunsPage25",
 			operation: "recent runs page 25",
 			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", int32(0), int32(profileRecentPageSize + 1)},
+			args:      []any{nil, "", false, int32(0), int32(profileRecentPageSize + 1)},
 			explain:   true,
 		},
 		{
 			name:      "RecentRunsPage100",
 			operation: "recent runs page 100",
 			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", int32(0), int32(profileRecentMaxPageSize + 1)},
+			args:      []any{nil, "", false, int32(0), int32(profileRecentMaxPageSize + 1)},
 			explain:   true,
 		},
 		{
 			name:      "RecentRunsPage2",
 			operation: "recent runs second page",
 			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", int32(profileRecentPageSize), int32(profileRecentPageSize + 1)},
+			args:      []any{nil, "", false, int32(profileRecentPageSize), int32(profileRecentPageSize + 1)},
 			explain:   true,
 		},
 		{
@@ -622,7 +622,7 @@ func profileSQLQueries(samples profileSamples) []profileSQLQuery {
 				name:      fmt.Sprintf("RecentRunsSearchOffset%d", offset),
 				operation: "recent runs by partial commit ref",
 				sql:       db.RecentRunsSQL,
-				args:      []any{nil, ref, offset, int32(profileRecentPageSize + 1)},
+				args:      []any{nil, ref, false, offset, int32(profileRecentPageSize + 1)},
 				explain:   true,
 			})
 		}

@@ -109,6 +109,22 @@ func Run(ctx context.Context) error {
 	go func() { defer close(collectorDone); artifacts.RunCollector(collectorCtx) }()
 	defer func() { stopCollector(); <-collectorDone }()
 
+	// A read-only connection, such as the production-clone harness uses,
+	// treats every write as an error, so it serves stored verdicts without
+	// computing new ones.
+	var readOnly bool
+	if err := pool.QueryRow(ctx, `SELECT current_setting('transaction_read_only') = 'on'`).Scan(&readOnly); err != nil {
+		return fmt.Errorf("check database read-only mode: %w", err)
+	}
+	if readOnly {
+		log.Printf("read-only database: run verdicts are not computed")
+	} else {
+		verdictCtx, stopVerdicts := context.WithCancel(ctx)
+		verdictsDone := make(chan struct{})
+		go func() { defer close(verdictsDone); service.NewVerdicts(store, service.VerdictSettle).Run(verdictCtx) }()
+		defer func() { stopVerdicts(); <-verdictsDone }()
+	}
+
 	var sessionSigner *auth.SessionSigner
 	if cfg.sessionSecret != "" {
 		sessionSigner = auth.NewSessionSigner(cfg.sessionSecret)
