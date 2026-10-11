@@ -16,7 +16,7 @@ func validTargetInfo() TargetInfo {
 		Port:                       5432,
 		Superuser:                  false,
 		DefaultTransactionReadOnly: true,
-		SchemaTables:               []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user"},
+		SchemaTables:               []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue"},
 		WritableTablePrivileges:    map[string][]string{},
 	}
 }
@@ -45,7 +45,7 @@ func TestValidateTargetAcceptsDedicatedReadOnlyRole(t *testing.T) {
 
 func TestValidateTargetAcceptsMissingOptionalAPITokenTable(t *testing.T) {
 	info := validTargetInfo()
-	info.SchemaTables = []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "user"}
+	info.SchemaTables = []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "user", "run_verdict", "verdict_queue"}
 
 	require.NoError(t, ValidateTarget(info, validTargetPolicy()))
 }
@@ -127,6 +127,16 @@ func TestValidateTargetRejectsSuperuser(t *testing.T) {
 	err := ValidateTarget(info, validTargetPolicy())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "superuser")
+}
+
+func TestValidateTargetRejectsUnmigratedClone(t *testing.T) {
+	info := validTargetInfo()
+	info.SchemaTables = []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user"}
+
+	err := ValidateTarget(info, validTargetPolicy())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `required schema table "run_verdict" is missing`)
+	assert.Contains(t, err.Error(), `required schema table "verdict_queue" is missing`)
 }
 
 func TestValidateTargetRejectsMissingRequiredTable(t *testing.T) {
@@ -291,13 +301,15 @@ func TestCompareCountSnapshotsReportsMissingAfterKey(t *testing.T) {
 func completePreflightCountSnapshot() CountSnapshot {
 	return CountSnapshot{
 		WritableTableCounts: map[string]int64{
-			`public."case"`:    1,
-			"public.context":   2,
-			"public.info":      3,
-			"public.hardware":  4,
-			"public.commit":    5,
-			"public.api_token": 6,
-			`public."user"`:    7,
+			`public."case"`:        1,
+			"public.context":       2,
+			"public.info":          3,
+			"public.hardware":      4,
+			"public.commit":        5,
+			"public.api_token":     6,
+			`public."user"`:        7,
+			"public.run_verdict":   8,
+			"public.verdict_queue": 9,
 		},
 	}
 }
@@ -310,7 +322,7 @@ func TestProbeTargetCollectsSchemaCountsAndPrivileges(t *testing.T) {
 
 	assert.Equal(t, "benchdb", info.Database)
 	assert.NotEmpty(t, info.User)
-	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user"}, info.SchemaTables)
+	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue"}, info.SchemaTables)
 	assert.NotContains(t, info.WritableTableCounts, "public.benchmark_result")
 	assert.Contains(t, info.WritableTableCounts, `public."case"`)
 	require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
@@ -340,7 +352,7 @@ func TestProbeTargetSafetySkipsCounts(t *testing.T) {
 
 	assert.Equal(t, "benchdb", info.Database)
 	assert.NotEmpty(t, info.User)
-	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user"}, info.SchemaTables)
+	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue"}, info.SchemaTables)
 	assert.Empty(t, info.WritableTableCounts)
 	require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
 	assert.Contains(t, info.WritableTablePrivileges["public.benchmark_result"], "INSERT")

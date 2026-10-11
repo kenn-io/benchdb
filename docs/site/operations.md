@@ -366,7 +366,7 @@ and default thresholds. After an upgrade that changes CI report rules, re-queue
 existing verdicts so they are recomputed:
 
 ```sql
-SELECT enqueue_verdict('run', run_id) FROM run_verdict;
+SELECT enqueue_verdict('run', run_id) FROM (SELECT DISTINCT run_id FROM run_verdict ORDER BY run_id) runs;
 ```
 
 ## Unknown Commit Repair

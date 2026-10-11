@@ -41,16 +41,19 @@ $$;
 
 -- Pages queue the runs they list that have no verdict yet. Read-only
 -- connections, such as the production-clone harness, list runs without
--- queuing, because any write there is an error.
+-- queuing, because any write there is an error. Run keys are inserted in
+-- run_id order, the order every multi-key writer uses, so concurrent writers
+-- cannot deadlock on queue rows.
 CREATE FUNCTION enqueue_missing_run_verdicts(run_ids text[]) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
     IF current_setting('transaction_read_only') = 'on' THEN
         RETURN;
     END IF;
     INSERT INTO verdict_queue (kind, key)
-    SELECT 'run', ids.run_id
+    SELECT DISTINCT 'run', ids.run_id
     FROM unnest(run_ids) AS ids(run_id)
     WHERE NOT EXISTS (SELECT 1 FROM run_verdict v WHERE v.run_id = ids.run_id)
+    ORDER BY 2
     ON CONFLICT DO NOTHING;
 END;
 $$;
@@ -109,4 +112,5 @@ INSERT INTO verdict_queue (kind, key)
 SELECT DISTINCT 'run', br.run_id
 FROM benchmark_result br
 WHERE br."timestamp" >= (now() AT TIME ZONE 'UTC') - interval '14 days'
+ORDER BY 2
 ON CONFLICT DO NOTHING;

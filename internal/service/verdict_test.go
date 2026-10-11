@@ -310,3 +310,30 @@ func TestCommitRepairAndResultWritesQueueVerdictsWithoutDeadlock(t *testing.T) {
 	require.NoError(t, writer.Commit(ctx))
 	require.NoError(t, <-repaired)
 }
+
+func TestListingAndCommitRepairQueueVerdictsWithoutDeadlock(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC()
+	submitAt(t, ctx, ing, "run-a", "c1", 10, now)
+	submitAt(t, ctx, ing, "run-b", "c1", 10, now)
+	drainVerdicts(t, ctx, store)
+	_, err := pool.Exec(ctx, `DELETE FROM run_verdict`)
+	require.NoError(t, err)
+
+	// A commit repair queues the commit's runs in run_id order.
+	repair, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = repair.Rollback(ctx) })
+	_, err = repair.Exec(ctx, `SELECT enqueue_verdict('run', 'run-a')`)
+	require.NoError(t, err)
+
+	// A page lists the same runs newest first and queues the missing ones.
+	listed := make(chan error, 1)
+	go func() { listed <- store.EnqueueMissingRunVerdicts(ctx, []string{"run-b", "run-a"}) }()
+	time.Sleep(500 * time.Millisecond)
+
+	_, err = repair.Exec(ctx, `SELECT enqueue_verdict('run', 'run-b')`)
+	require.NoError(t, err, "the repair must not deadlock with the listing")
+	require.NoError(t, repair.Commit(ctx))
+	require.NoError(t, <-listed)
+}

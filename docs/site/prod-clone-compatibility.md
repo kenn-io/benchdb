@@ -78,6 +78,20 @@ not listed in general CLI help and is not documented as a supported user
 workflow. The repository does not build or ship a separate production-clone
 executable.
 
+## Preparing The Clone
+
+The gate checks the restored database through the current server, which reads
+tables that the numbered migrations add, such as `run_verdict`. Apply the
+migrations to the clone with a writable role before the read-only run:
+
+```bash
+BENCHDB_DB_URL='postgresql://<writable-role>@<clone-host>:<port>/<clone-database>' \
+  ./bin/benchdb migrate
+```
+
+Preflight refuses a clone that lacks the `run_verdict` and `verdict_queue`
+tables, and includes them in its privilege and row-count checks.
+
 ## Running The Gate
 
 From the repository root:
