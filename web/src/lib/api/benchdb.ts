@@ -632,6 +632,8 @@ export interface GitHubInfo {
 export interface HealthOutputBody {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
+  /** Git commit the server was built from; empty when the build did not record one. */
+  revision: string;
   status: string;
 }
 

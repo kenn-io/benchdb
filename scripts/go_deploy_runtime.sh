@@ -388,7 +388,7 @@ apply_service_monitor_if_supported() {
 
 build_and_push() {
   set -x
-  docker build -f Dockerfile.server -t "${BENCHDB_SERVER_IMAGE_NAME}" .
+  docker build -f Dockerfile.server --build-arg BENCHDB_REVISION="$(git rev-parse HEAD)" -t "${BENCHDB_SERVER_IMAGE_NAME}" .
   docker images | grep benchdb
 
   docker tag "${BENCHDB_SERVER_IMAGE_NAME}:latest" "${BENCHDB_SERVER_IMAGE_SPEC}"

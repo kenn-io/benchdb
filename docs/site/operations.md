@@ -129,6 +129,13 @@ The runtime image is `Dockerfile.server`. It builds the Svelte app, embeds it
 in the single `benchdb` binary, and runs `benchdb serve` on container port
 8080.
 
+Pass the commit being built as `--build-arg BENCHDB_REVISION=$(git rev-parse HEAD)`.
+The build context excludes `.git`, so without it the image does not know its
+revision. `GET /api/ping` reports the revision, and the dashboard shows its
+first seven characters at the bottom of the sidebar. The release workflow, the
+`make build-benchdb-container-image` target, and `scripts/go_deploy_runtime.sh`
+pass it already.
+
 For local manual testing:
 
 ```bash

@@ -84,6 +84,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}
+          build-args: |
+            BENCHDB_REVISION=${{ steps.release.outputs.revision }}
           labels: |
             org.opencontainers.image.source=https://github.com/kenn-io/benchdb
             org.opencontainers.image.version=${{ steps.release.outputs.version }}

@@ -5292,7 +5292,10 @@ func (h Hardware) Validate() error {
 type HealthOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string `json:"$schema,omitempty"`
-	Status string  `json:"status" validate:"required"`
+
+	// Revision Git commit the server was built from; empty when the build did not record one.
+	Revision string `json:"revision" validate:"required"`
+	Status   string `json:"status" validate:"required"`
 }
 
 func (h HealthOutputBody) Validate() error {

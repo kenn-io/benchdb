@@ -62,6 +62,24 @@ beforeEach(() => {
 afterEach(() => document.removeEventListener("click", swallowAnchorNavigation));
 
 describe("AppSidebar", () => {
+  it("shows the server's build revision", async () => {
+    const revision = "0123456789abcdef0123456789abcdef01234567";
+    GET.mockImplementation(async (url: string) =>
+      url === "/api/ping" ? { status: 200, data: { status: "ok", revision } } : repositoriesResponse([]),
+    );
+    render(AppSidebar, { props: { route: home() } });
+    expect(await screen.findByText("build 0123456")).toHaveAttribute("title", revision);
+  });
+
+  it("leaves the build label out when the server records no revision", async () => {
+    GET.mockImplementation(async (url: string) =>
+      url === "/api/ping" ? { status: 200, data: { status: "ok", revision: "" } } : repositoriesResponse([]),
+    );
+    render(AppSidebar, { props: { route: home() } });
+    await waitFor(() => expect(GET).toHaveBeenCalledWith("/api/ping", undefined));
+    expect(screen.queryByText(/^build /)).toBeNull();
+  });
+
   it("renders the brand as a home link", () => {
     render(AppSidebar, { props: { route: home() } });
     expect(screen.getByRole("link", { name: "BenchDB" })).toHaveAttribute("href", "/");
