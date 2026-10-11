@@ -80,15 +80,22 @@ CREATE TRIGGER benchmark_result_annotation_verdicts AFTER UPDATE OF change_annot
 FOR EACH ROW EXECUTE FUNCTION queue_result_verdicts();
 
 -- A new default-branch commit can extend a pull request's ancestry, and a
--- repaired commit can gain the fork point its runs needed.
+-- repaired commit can gain the fork point its runs needed. Queue rows are
+-- locked in one order everywhere, run keys sorted and then the repository
+-- key, so concurrent result writes and commit repairs cannot deadlock.
 CREATE FUNCTION queue_commit_verdicts() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    affected record;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        FOR affected IN
+            SELECT DISTINCT br.run_id FROM benchmark_result br WHERE br.commit_id = NEW.id ORDER BY br.run_id
+        LOOP
+            PERFORM enqueue_verdict('run', affected.run_id);
+        END LOOP;
+    END IF;
     IF NEW.sha = NEW.fork_point_sha THEN
         PERFORM enqueue_verdict('repository', NEW.repository);
-    END IF;
-    IF TG_OP = 'UPDATE' THEN
-        PERFORM enqueue_verdict('run', runs.run_id)
-        FROM (SELECT DISTINCT br.run_id FROM benchmark_result br WHERE br.commit_id = NEW.id) runs;
     END IF;
     RETURN NULL;
 END;

@@ -102,9 +102,13 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 	}
 	verdicts := make([]storage.RunVerdict, 0, len(subjects))
 	for _, subject := range subjects {
-		attention, err := runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA)
-		if err != nil {
-			return nil, err
+		// A default-branch run is its own baseline and never needs attention;
+		// evaluating it would also fail on runs too large to report on.
+		var attention *RecentRunAttention
+		if !subject.DefaultBranch {
+			if attention, err = runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA); err != nil {
+				return nil, err
+			}
 		}
 		var encoded []byte
 		if attention != nil {

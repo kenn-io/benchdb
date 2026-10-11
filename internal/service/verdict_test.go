@@ -2,8 +2,11 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,4 +255,58 @@ func TestAttentionFilterBreaksTimestampTiesLikeTheList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, filtered.Runs, 1, "the filter judges the run by the repository the list shows")
 	assert.Equal(t, int64(1), filtered.AttentionRuns)
+}
+
+func TestDefaultBranchRunsTooLargeToReportNeedNoAttention(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	res := submitAt(t, ctx, ing, "big-main-run", "c1", 10, time.Now().UTC())
+	rows, err := pool.Query(ctx, `SELECT column_name FROM information_schema.columns
+		WHERE table_name = 'benchmark_result' AND is_generated = 'NEVER'
+		  AND column_name NOT IN ('id', 'submission_key', 'submission_payload_sha256')`)
+	require.NoError(t, err)
+	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	quoted := make([]string, len(columns))
+	for i, column := range columns {
+		quoted[i] = `"` + column + `"`
+	}
+	list := strings.Join(quoted, ", ")
+	_, err = pool.Exec(ctx, `INSERT INTO benchmark_result (id, `+list+`)
+		SELECT gen_random_uuid()::text, `+list+` FROM benchmark_result, generate_series(1, $2) WHERE id = $1`,
+		res.ID, service.CIReportMaxComparisonRows)
+	require.NoError(t, err)
+	drainVerdicts(t, ctx, store)
+
+	page, err := service.NewReader(store).ListRecentRuns(ctx, service.RecentRunsQuery{})
+	require.NoError(t, err)
+	require.Len(t, page.Runs, 1)
+	assert.Equal(t, int64(service.CIReportMaxComparisonRows+1), page.Runs[0].ResultCount)
+	assert.True(t, page.Runs[0].AttentionChecked)
+	assert.Nil(t, page.Runs[0].Attention, "a default-branch run never needs attention, however large")
+	assert.Zero(t, page.AttentionRuns)
+}
+
+func TestCommitRepairAndResultWritesQueueVerdictsWithoutDeadlock(t *testing.T) {
+	ing, _, pool, ctx := newIngester(t)
+	submitAt(t, ctx, ing, "shared-run", "c1", 10, time.Now().UTC())
+
+	// A result write locks the run's queue key and then the repository's.
+	writer, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = writer.Rollback(ctx) })
+	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('run', 'shared-run')`)
+	require.NoError(t, err)
+
+	// A commit repair on the run's default-branch commit queues both keys too.
+	repaired := make(chan error, 1)
+	go func() {
+		_, err := pool.Exec(ctx, `UPDATE commit SET message = 'repaired' WHERE sha = 'c1'`)
+		repaired <- err
+	}()
+	time.Sleep(500 * time.Millisecond)
+
+	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('repository', $1)`, testRepo)
+	require.NoError(t, err, "the writer must not deadlock with the repair")
+	require.NoError(t, writer.Commit(ctx))
+	require.NoError(t, <-repaired)
 }
