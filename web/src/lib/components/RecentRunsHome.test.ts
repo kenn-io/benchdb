@@ -214,6 +214,51 @@ describe("RecentRunsHome", () => {
     }
   });
 
+  it("keeps an empty attention filter refreshing while verdicts are pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, verdicts_pending: true, runs: [] } });
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 1, verdicts_pending: false, runs: [run({
+        attention: {
+          status: "failure",
+          status_reason: "lookback regression detected",
+          report_url: "/ci/report?run_ids=run-a&baseline=fork_point",
+          summary: { compared: 3, regressions: 1, benchmark_errors: 0, missing_baseline: 0, not_comparable: 0 },
+        },
+      })] } });
+      render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, attention: true } } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Some runs are still being checked.")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.getByRole("link", { name: "1 regression, CI report" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the runs shown when a background refresh fails", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [run({ attention_checked: false })] } });
+      GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 503 });
+      GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [run()] } });
+      render(RecentRunsHome, { props: {} });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Checking…")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.getByRole("status")).toHaveTextContent("Couldn't refresh run verdicts: statement timeout");
+      expect(screen.getByRole("table")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("filters to runs that need attention", async () => {
     GET.mockResolvedValueOnce({ status: 200, data: { attention_runs: 0, runs: [] } });
     render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, attention: true } } });

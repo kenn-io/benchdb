@@ -27,12 +27,14 @@
   let search = $state(untrack(() => query.q));
   let hasMore = $state(false);
   let attentionRuns = $state(0);
+  let verdictsPending = $state(false);
   let runs = $state<RecentRunViewModel[]>([]);
   let loading = $state(true);
   let errorMsg = $state<string | null>(null);
+  let refreshError = $state<string | null>(null);
 
-  // The server computes verdicts in the background; while some runs on the
-  // page are unchecked, reload a few times so their verdicts appear.
+  // The server computes verdicts in the background; while any could still
+  // change, reload a few times so new verdicts appear.
   const PENDING_REFRESH_MS = 4000;
   const PENDING_REFRESH_LIMIT = 8;
   let pendingRefreshes = 0;
@@ -44,24 +46,32 @@
   });
 
   async function load(background = false) {
-    if (!background) loading = true;
-    errorMsg = null;
+    if (!background) {
+      loading = true;
+      errorMsg = null;
+    }
     try {
       const page = await listRecentRuns(client, query);
       runs = page.runs;
       hasMore = page.hasMore;
       attentionRuns = page.attentionRuns;
-      scheduleRefresh();
+      verdictsPending = page.verdictsPending;
+      refreshError = null;
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
+      // A failed refresh keeps the runs already shown.
+      if (background) refreshError = message;
+      else errorMsg = message;
     } finally {
       loading = false;
     }
+    if (errorMsg === null) scheduleRefresh();
   }
 
   function scheduleRefresh() {
     clearTimeout(refreshTimer);
-    if (pendingRefreshes >= PENDING_REFRESH_LIMIT || runs.every((run) => run.attentionChecked)) return;
+    const settled = refreshError === null && !verdictsPending && runs.every((run) => run.attentionChecked);
+    if (settled || pendingRefreshes >= PENDING_REFRESH_LIMIT) return;
     pendingRefreshes += 1;
     refreshTimer = setTimeout(() => void load(true), PENDING_REFRESH_MS);
   }
@@ -164,6 +174,7 @@
     <section class="panel empty-panel">
       {#if query.attention}
         <h2>{query.offset > 0 ? "No runs on this page" : "Nothing needs attention"}</h2>
+        {#if verdictsPending}<p>Some runs are still being checked.</p>{/if}
         <a href={appURL(allRunsHref)} onclick={(e) => go(e, allRunsHref)}>Show all runs</a>
       {:else}
         <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No runs yet"}</h2>
@@ -178,10 +189,13 @@
       {#if totalErrors > 0}
         <span class="summary-item alert">{plural(totalErrors, "error")}</span>
       {/if}
-      {#if attentionRuns === 0 && !query.attention}
+      {#if attentionRuns === 0 && !query.attention && !verdictsPending}
         <span class="summary-item">Nothing needs attention</span>
       {/if}
     </p>
+    {#if refreshError}
+      <p class="refresh-error" role="status">Couldn't refresh run verdicts: {refreshError}</p>
+    {/if}
 
     <section class="panel table-panel" aria-label="Benchmark runs">
       <table class="data-table stacked-table runs-table">
@@ -259,7 +273,8 @@
                     <a class={`verdict-link ${attention.status}`} href={appURL(attention.reportHref)}
                       title={attention.statusReason} onclick={(e) => go(e, attention.reportHref)}
                     >{attention.summaryText}<span class="sr-only">, CI report</span></a>
-                  {:else if !run.attentionChecked}
+                  {/if}
+                  {#if !run.attentionChecked}
                     <span class="checking">Checking…</span>
                   {/if}
                   {#if run.errorCount > 0}
@@ -431,6 +446,7 @@
   }
   .verdict-link:hover { border-color: var(--c-accent); }
   .checking { color: var(--c-text-muted); font-size: 0.74rem; }
+  .refresh-error { margin: 0; color: var(--c-text-muted); font-size: 0.78rem; }
   time { color: var(--c-text-muted); white-space: nowrap; }
 
   .run-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-shrink: 0; }

@@ -140,11 +140,18 @@ candidate_runs AS (
     AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
   GROUP BY br.run_id
   UNION ALL
+  -- Matches CountAttentionRuns: without a repository filter a run is judged by
+  -- the repository of its latest results, which is the one the list shows.
   SELECT v.run_id, v.last_result_at
   FROM run_verdict v
   WHERE sqlc.arg('needs_attention')::boolean
     AND v.needs_attention
     AND (sqlc.narg('repository')::text IS NULL OR v.repository = sqlc.narg('repository')::text)
+    AND (sqlc.narg('repository')::text IS NOT NULL OR NOT EXISTS (
+      SELECT 1 FROM run_verdict newer
+      WHERE newer.run_id = v.run_id
+        AND (newer.last_result_at, newer.repository) > (v.last_result_at, v.repository)
+    ))
     AND (sqlc.arg('search')::text = '' OR v.run_id IN (SELECT run_id FROM matching_runs))
   UNION ALL
   SELECT mr.run_id, latest.last_result_at

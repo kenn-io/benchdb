@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log"
@@ -43,6 +43,8 @@ func NewVerdicts(store storage.Store, settle time.Duration) *Verdicts {
 
 // Process recomputes up to one batch of settled keys and returns how many it
 // claimed. A key that fails stays queued and is retried when its lease ends.
+// A key whose lease expired mid-processing belongs to another worker, so its
+// results are discarded without error.
 func (v *Verdicts) Process(ctx context.Context) (int, error) {
 	now := v.now().UTC()
 	claims, err := v.store.ClaimVerdicts(ctx, now.Add(-v.settle), now.Add(verdictLease), verdictBatch)
@@ -51,12 +53,9 @@ func (v *Verdicts) Process(ctx context.Context) (int, error) {
 	}
 	var errs []error
 	for _, claim := range claims {
-		if err := v.process(ctx, claim); err != nil {
+		err := v.process(ctx, claim)
+		if err != nil && !errors.Is(err, storage.ErrLeaseLost) {
 			errs = append(errs, fmt.Errorf("%s verdict %q: %w", claim.Kind, claim.Key, err))
-			continue
-		}
-		if err := v.store.CompleteVerdict(ctx, claim); err != nil {
-			errs = append(errs, fmt.Errorf("complete %s verdict %q: %w", claim.Kind, claim.Key, err))
 		}
 	}
 	return len(claims), errors.Join(errs...)
@@ -65,9 +64,16 @@ func (v *Verdicts) Process(ctx context.Context) (int, error) {
 func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) error {
 	switch claim.Kind {
 	case storage.VerdictKindRun:
-		return v.recomputeRun(ctx, claim.Key)
+		verdicts, err := v.runVerdicts(ctx, claim.Key)
+		if err != nil {
+			return err
+		}
+		return v.store.FinishRunVerdicts(ctx, claim, verdicts)
 	case storage.VerdictKindRepository:
-		return v.queueRepositoryRuns(ctx, claim.Key)
+		if err := v.queueRepositoryRuns(ctx, claim.Key); err != nil {
+			return err
+		}
+		return v.store.FinishVerdictClaim(ctx, claim)
 	default:
 		return fmt.Errorf("unknown verdict kind %q", claim.Kind)
 	}
@@ -87,31 +93,35 @@ func (v *Verdicts) queueRepositoryRuns(ctx context.Context, repository string) e
 	return nil
 }
 
-func (v *Verdicts) recomputeRun(ctx context.Context, runID string) error {
-	subject, err := v.store.GetRunVerdictSubject(ctx, runID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return v.store.DeleteRunVerdict(ctx, runID)
-	}
+// runVerdicts evaluates the run once per repository it has results in. A run
+// without results gets no verdicts.
+func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.RunVerdict, error) {
+	subjects, err := v.store.SelectRunVerdictSubjects(ctx, runID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	attention, err := runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA)
-	if err != nil {
-		return err
-	}
-	var encoded []byte
-	if attention != nil {
-		if encoded, err = json.Marshal(attention); err != nil {
-			return fmt.Errorf("encode attention: %w", err)
+	verdicts := make([]storage.RunVerdict, 0, len(subjects))
+	for _, subject := range subjects {
+		attention, err := runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA)
+		if err != nil {
+			return nil, err
 		}
+		var encoded []byte
+		if attention != nil {
+			if encoded, err = json.Marshal(attention); err != nil {
+				return nil, fmt.Errorf("encode attention: %w", err)
+			}
+		}
+		verdicts = append(verdicts, storage.RunVerdict{
+			RunID:          runID,
+			Repository:     subject.Repository,
+			LastResultAt:   subject.LastResultAt,
+			DefaultBranch:  subject.DefaultBranch,
+			NeedsAttention: attention != nil,
+			Attention:      encoded,
+		})
 	}
-	return v.store.UpsertRunVerdict(ctx, storage.RunVerdict{
-		RunID:          runID,
-		Repository:     subject.Repository,
-		LastResultAt:   subject.LastResultAt,
-		NeedsAttention: attention != nil,
-		Attention:      encoded,
-	})
+	return verdicts, nil
 }
 
 // Run processes the queue until ctx ends, draining full batches back to back.

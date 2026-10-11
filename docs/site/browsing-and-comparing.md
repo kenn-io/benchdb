@@ -33,7 +33,8 @@ multiple runs.
 Each run shows its CI attention verdict: the regressions, benchmark errors, or
 missing baselines that its CI report finds against the run's fork point, linked
 to that report. The server computes verdicts in the background once a run's
-results stop arriving, so a new run reads "Checking…" for a few seconds. When
+results stop arriving, so a new run reads "Checking…" for a few seconds; a run
+being rechecked keeps its last verdict next to "Checking…". When
 default-branch results or commits arrive in a repository, the server
 re-evaluates that repository's pull-request runs from the last 14 days, so a
 baseline that lands after the pull request still updates its verdict. Older

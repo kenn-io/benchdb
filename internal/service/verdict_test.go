@@ -107,7 +107,7 @@ func TestVerdictsFollowAnnotationsAndDeletes(t *testing.T) {
 		keys := make([]string, 0, len(claims))
 		for _, claim := range claims {
 			keys = append(keys, string(claim.Kind)+":"+claim.Key)
-			require.NoError(t, store.CompleteVerdict(ctx, claim))
+			require.NoError(t, store.FinishVerdictClaim(ctx, claim))
 		}
 		return keys
 	}
@@ -137,4 +137,86 @@ func TestListRecentRunsQueuesRunsWithoutVerdicts(t *testing.T) {
 
 	drainVerdicts(t, ctx, store)
 	storedVerdicts(t, ctx, store, "listed-run")
+}
+
+func TestVerdictsAreKeptPerRepositoryOfARun(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	const otherRepo = "https://github.com/org/other"
+	unknownFork := "unknown"
+	ing := service.NewIngester(store, ciCommitProvider{
+		"main": ciCommitInfo("main", nil, "main", now.Add(-time.Hour)),
+		"pr": {
+			Sha:          "pr",
+			Repository:   otherRepo,
+			Message:      "commit pr",
+			Timestamp:    &now,
+			ForkPointSha: &unknownFork,
+		},
+	})
+	submitAt(t, ctx, ing, "shared-run", "main", 10, now.Add(-time.Hour))
+	req := machineReq(samples(10, 11, 12), "s")
+	req.RunID = "shared-run"
+	req.GitHub = service.GitHubInfo{Commit: "pr", Repository: otherRepo}
+	req.Timestamp = now
+	_, err := ing.Submit(ctx, req)
+	require.NoError(t, err)
+	drainVerdicts(t, ctx, store)
+	reader := service.NewReader(store)
+
+	list := func(q service.RecentRunsQuery) *service.RecentRunsPage {
+		t.Helper()
+		page, err := reader.ListRecentRuns(ctx, q)
+		require.NoError(t, err)
+		return page
+	}
+	repo := testRepo
+	main := list(service.RecentRunsQuery{Repository: &repo})
+	require.Len(t, main.Runs, 1)
+	assert.True(t, main.Runs[0].AttentionChecked)
+	assert.Nil(t, main.Runs[0].Attention, "the default-branch repository's verdict needs no attention")
+	assert.Zero(t, main.AttentionRuns)
+	assert.Empty(t, list(service.RecentRunsQuery{Repository: &repo, NeedsAttention: true}).Runs)
+
+	other := otherRepo
+	pr := list(service.RecentRunsQuery{Repository: &other})
+	require.Len(t, pr.Runs, 1)
+	assert.NotNil(t, pr.Runs[0].Attention, "the pull request's repository has its own verdict")
+	assert.Equal(t, int64(1), pr.AttentionRuns)
+
+	all := list(service.RecentRunsQuery{NeedsAttention: true})
+	require.Len(t, all.Runs, 1, "without a filter the run is judged by its latest repository")
+	assert.Equal(t, otherRepo, all.Runs[0].Repository)
+	assert.Equal(t, int64(1), all.AttentionRuns)
+}
+
+func TestQueuedRecomputesMarkVerdictsUnchecked(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	ing := service.NewIngester(store, ciCommitProvider{
+		"pr": ciCommitInfo("pr", nil, "base", now),
+	})
+	submitAt(t, ctx, ing, "pr-run", "pr", 100, now)
+	drainVerdicts(t, ctx, store)
+	reader := service.NewReader(store)
+
+	page, err := reader.ListRecentRuns(ctx, service.RecentRunsQuery{})
+	require.NoError(t, err)
+	require.Len(t, page.Runs, 1)
+	require.True(t, page.Runs[0].AttentionChecked)
+	require.NotNil(t, page.Runs[0].Attention)
+	assert.False(t, page.VerdictsPending)
+
+	require.NoError(t, store.EnqueueVerdict(ctx, storage.VerdictKindRepository, testRepo))
+	page, err = reader.ListRecentRuns(ctx, service.RecentRunsQuery{NeedsAttention: true})
+	require.NoError(t, err)
+	assert.True(t, page.VerdictsPending, "a queued repository recompute can change the filter's results")
+	require.Len(t, page.Runs, 1)
+	assert.False(t, page.Runs[0].AttentionChecked, "a pull-request run waits for its repository's recompute")
+	assert.NotNil(t, page.Runs[0].Attention, "the last verdict stays visible while it is rechecked")
+
+	other := "https://github.com/org/unrelated"
+	page, err = reader.ListRecentRuns(ctx, service.RecentRunsQuery{Repository: &other})
+	require.NoError(t, err)
+	assert.False(t, page.VerdictsPending, "another repository's queue does not affect this one")
 }

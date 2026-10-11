@@ -351,6 +351,9 @@ attention without evaluating CI reports on page load. Database triggers queue
 work in `verdict_queue` when results are inserted, deleted, or re-annotated and
 when commits are inserted or repaired, including writes from admin commands.
 Workers claim queued keys with a lease, so several replicas can share the queue.
+A run that has results in several repositories gets one verdict per
+repository. A server whose database connection is read-only serves stored
+verdicts but does not compute or queue new ones.
 
 - A run is evaluated once its results have stopped changing for 15 seconds.
 - New default-branch results or commits in a repository re-queue that

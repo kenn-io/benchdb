@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -61,8 +61,9 @@ type RecentRunListItem struct {
 	FirstResultAt time.Time      `json:"first_result_at"`
 	LastResultAt  time.Time      `json:"last_result_at"`
 	Commit        *ListCommit    `json:"commit"`
-	// AttentionChecked is false while the run's verdict is still being
-	// computed; Attention is then absent even if the run needs attention.
+	// AttentionChecked is false while the run's verdict is missing or a
+	// recompute that could change it is queued. Attention then holds the
+	// last stored verdict, if any.
 	AttentionChecked bool                `json:"attention_checked"`
 	Attention        *RecentRunAttention `json:"attention,omitempty"`
 }
@@ -72,8 +73,11 @@ type RecentRunsPage struct {
 	HasMore bool `json:"has_more"`
 	// AttentionRuns counts every checked run that needs attention, within the
 	// repository filter when one is set.
-	AttentionRuns int64               `json:"attention_runs"`
-	Runs          []RecentRunListItem `json:"runs"`
+	AttentionRuns int64 `json:"attention_runs"`
+	// VerdictsPending is true while queued recomputes can change verdicts
+	// within the repository filter, including for runs not on this page.
+	VerdictsPending bool                `json:"verdicts_pending"`
+	Runs            []RecentRunListItem `json:"runs"`
 }
 
 // ListRecentRuns returns grouped summaries for the newest runs.
@@ -115,11 +119,16 @@ func (r *Reader) ListRecentRuns(ctx context.Context, q RecentRunsQuery) (*Recent
 	if err != nil {
 		return nil, fmt.Errorf("count attention runs: %w", err)
 	}
-	return &RecentRunsPage{HasMore: hasMore, AttentionRuns: attentionRuns, Runs: items}, nil
+	pending, err := r.store.VerdictsPending(ctx, q.Repository)
+	if err != nil {
+		return nil, fmt.Errorf("check pending verdicts: %w", err)
+	}
+	return &RecentRunsPage{HasMore: hasMore, AttentionRuns: attentionRuns, VerdictsPending: pending, Runs: items}, nil
 }
 
-// attachRunVerdicts copies stored verdicts onto the page and queues the runs
-// that have none, so the next load of the page can show them.
+// attachRunVerdicts copies each run's stored verdict for the repository the
+// row shows onto the page, and queues the runs that have none so the next
+// load of the page can show them.
 func (r *Reader) attachRunVerdicts(ctx context.Context, items []RecentRunListItem) error {
 	if len(items) == 0 {
 		return nil
@@ -132,18 +141,19 @@ func (r *Reader) attachRunVerdicts(ctx context.Context, items []RecentRunListIte
 	if err != nil {
 		return fmt.Errorf("select run verdicts: %w", err)
 	}
-	byRun := make(map[string]storage.RunVerdict, len(verdicts))
+	type runRepository struct{ runID, repository string }
+	byRun := make(map[runRepository]storage.RunVerdict, len(verdicts))
 	for _, verdict := range verdicts {
-		byRun[verdict.RunID] = verdict
+		byRun[runRepository{verdict.RunID, verdict.Repository}] = verdict
 	}
 	var missing []string
 	for i := range items {
-		verdict, ok := byRun[items[i].RunID]
+		verdict, ok := byRun[runRepository{items[i].RunID, items[i].Repository}]
 		if !ok {
 			missing = append(missing, items[i].RunID)
 			continue
 		}
-		items[i].AttentionChecked = true
+		items[i].AttentionChecked = !verdict.Pending
 		if !verdict.NeedsAttention {
 			continue
 		}

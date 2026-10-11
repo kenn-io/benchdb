@@ -5667,10 +5667,11 @@ func (r RecentRunListItem) Validate() error {
 
 type RecentRunsPage struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema        *string             `json:"$schema,omitempty"`
-	AttentionRuns int64               `json:"attention_runs"`
-	HasMore       bool                `json:"has_more"`
-	Runs          []RecentRunListItem `json:"runs,omitempty" validate:"required"`
+	Schema          *string             `json:"$schema,omitempty"`
+	AttentionRuns   int64               `json:"attention_runs"`
+	HasMore         bool                `json:"has_more"`
+	Runs            []RecentRunListItem `json:"runs,omitempty" validate:"required"`
+	VerdictsPending bool                `json:"verdicts_pending"`
 }
 
 func (r RecentRunsPage) Validate() error {

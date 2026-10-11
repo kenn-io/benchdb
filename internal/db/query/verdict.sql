@@ -11,25 +11,36 @@ WITH ready AS (
   FOR UPDATE SKIP LOCKED
 )
 UPDATE verdict_queue AS q
-SET claimed_until = sqlc.arg('lease_until')::timestamptz
+SET claimed_until = sqlc.arg('lease_until')::timestamptz,
+    claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at;
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token;
 
--- name: CompleteVerdictQueue :exec
--- A key re-enqueued while it was being processed keeps its newer row.
+-- name: LockVerdictClaim :one
+-- Holds the claimed queue row for the rest of the transaction. No row means
+-- the lease expired and another worker owns the key.
+SELECT q.enqueued_at
+FROM verdict_queue q
+WHERE q.kind = sqlc.arg('kind') AND q.key = sqlc.arg('key') AND q.claim_token = sqlc.arg('claim_token')
+FOR UPDATE;
+
+-- name: DeleteVerdictClaim :execrows
 DELETE FROM verdict_queue
-WHERE kind = sqlc.arg('kind') AND key = sqlc.arg('key') AND enqueued_at = sqlc.arg('enqueued_at');
+WHERE kind = sqlc.arg('kind') AND key = sqlc.arg('key')
+  AND claim_token = sqlc.arg('claim_token') AND enqueued_at = sqlc.arg('enqueued_at');
+
+-- name: ReleaseVerdictClaim :exec
+-- A key re-enqueued while it was processed becomes claimable at once.
+UPDATE verdict_queue
+SET claimed_until = NULL, claim_token = NULL
+WHERE kind = sqlc.arg('kind') AND key = sqlc.arg('key') AND claim_token = sqlc.arg('claim_token');
 
 -- name: EnqueueVerdict :exec
 SELECT enqueue_verdict(sqlc.arg('kind')::text, sqlc.arg('key')::text);
 
 -- name: EnqueueMissingRunVerdicts :exec
-INSERT INTO verdict_queue (kind, key)
-SELECT 'run', ids.run_id
-FROM unnest(sqlc.arg('run_ids')::text[]) AS ids(run_id)
-WHERE NOT EXISTS (SELECT 1 FROM run_verdict v WHERE v.run_id = ids.run_id)
-ON CONFLICT DO NOTHING;
+SELECT enqueue_missing_run_verdicts(sqlc.arg('run_ids')::text[]);
 
 -- name: SelectRepositoryVerdictRuns :many
 -- Runs whose attention can change when default-branch history in the
@@ -41,54 +52,84 @@ WHERE br.commit_repo_url = sqlc.arg('repository')
   AND br."timestamp" >= sqlc.arg('since')::timestamp
   AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha);
 
--- name: GetRunVerdictSubject :one
--- The run's identity as the recent-runs list reports it: its latest result's
--- repository and commit.
-SELECT
-  latest.commit_repo_url,
+-- name: SelectRunVerdictSubjects :many
+-- One subject per repository the run has results in, identified the way the
+-- recent-runs list identifies it: by the latest result in that repository.
+SELECT DISTINCT ON (br.commit_repo_url)
+  br.commit_repo_url,
   c.sha AS commit_sha,
-  span.last_result_at::timestamp AS last_result_at
-FROM (
-  SELECT max(br."timestamp") AS last_result_at
-  FROM benchmark_result br
-  WHERE br.run_id = sqlc.arg('run_id')
-) span
-JOIN LATERAL (
-  SELECT br.commit_repo_url, br.commit_id
-  FROM benchmark_result br
-  WHERE br.run_id = sqlc.arg('run_id')
-  ORDER BY br."timestamp" DESC, br.id DESC
-  LIMIT 1
-) latest ON true
-LEFT JOIN commit c ON c.id = latest.commit_id;
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
+  br."timestamp" AS last_result_at
+FROM benchmark_result br
+LEFT JOIN commit c ON c.id = br.commit_id
+WHERE br.run_id = sqlc.arg('run_id')
+ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC;
 
 -- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, default_branch, needs_attention, attention, computed_at)
 VALUES (
   sqlc.arg('run_id'),
   sqlc.arg('repository'),
   sqlc.arg('last_result_at'),
+  sqlc.arg('default_branch'),
   sqlc.arg('needs_attention'),
   sqlc.narg('attention'),
   clock_timestamp()
 )
-ON CONFLICT (run_id) DO UPDATE SET
-  repository = EXCLUDED.repository,
+ON CONFLICT (run_id, repository) DO UPDATE SET
   last_result_at = EXCLUDED.last_result_at,
+  default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
   computed_at = EXCLUDED.computed_at;
 
--- name: DeleteRunVerdict :exec
-DELETE FROM run_verdict WHERE run_id = sqlc.arg('run_id');
+-- name: DeleteRunVerdictsExcept :exec
+-- Removes verdicts for repositories the run no longer has results in.
+DELETE FROM run_verdict
+WHERE run_id = sqlc.arg('run_id') AND NOT (repository = ANY(sqlc.arg('repositories')::text[]));
 
 -- name: SelectRunVerdicts :many
-SELECT v.run_id, v.repository, v.last_result_at, v.needs_attention, v.attention
+-- Every repository's verdict for the runs; the caller picks the repository it
+-- shows. A verdict is pending while a recompute that could change it is queued.
+SELECT
+  v.run_id,
+  v.repository,
+  v.last_result_at,
+  v.default_branch,
+  v.needs_attention,
+  v.attention,
+  (
+    EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'run' AND q.key = v.run_id)
+    OR (NOT v.default_branch AND EXISTS (
+      SELECT 1 FROM verdict_queue q WHERE q.kind = 'repository' AND q.key = v.repository
+    ))
+  )::boolean AS pending
 FROM run_verdict v
 WHERE v.run_id = ANY(sqlc.arg('run_ids')::text[]);
 
+-- name: VerdictsPending :one
+-- Whether any queued recompute can change verdicts within the repository
+-- filter, so a page can keep refreshing even when it lists no runs.
+SELECT EXISTS (
+  SELECT 1
+  FROM verdict_queue q
+  WHERE sqlc.narg('repository')::text IS NULL
+    OR (q.kind = 'repository' AND q.key = sqlc.narg('repository')::text)
+    OR (q.kind = 'run' AND EXISTS (
+      SELECT 1 FROM benchmark_result br
+      WHERE br.run_id = q.key AND br.commit_repo_url = sqlc.narg('repository')::text
+    ))
+)::boolean;
+
 -- name: CountAttentionRuns :one
+-- Counts runs the way the list shows them: within one repository, or by the
+-- repository of the run's latest results when no repository is selected.
 SELECT count(*)
 FROM run_verdict v
 WHERE v.needs_attention
-  AND (sqlc.narg('repository')::text IS NULL OR v.repository = sqlc.narg('repository')::text);
+  AND (sqlc.narg('repository')::text IS NULL OR v.repository = sqlc.narg('repository')::text)
+  AND (sqlc.narg('repository')::text IS NOT NULL OR NOT EXISTS (
+    SELECT 1 FROM run_verdict newer
+    WHERE newer.run_id = v.run_id
+      AND (newer.last_result_at, newer.repository) > (v.last_result_at, v.repository)
+  ));

@@ -1543,9 +1543,12 @@ components:
             $ref: "#/components/schemas/RecentRunListItem"
           nullable: true
           type: array
+        verdicts_pending:
+          type: boolean
       required:
         - has_more
         - attention_runs
+        - verdicts_pending
         - runs
       type: object
     RepositoryItem:

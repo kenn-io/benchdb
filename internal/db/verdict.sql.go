@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -23,10 +24,11 @@ WITH ready AS (
   FOR UPDATE SKIP LOCKED
 )
 UPDATE verdict_queue AS q
-SET claimed_until = $1::timestamptz
+SET claimed_until = $1::timestamptz,
+    claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token
 `
 
 type ClaimVerdictQueueParams struct {
@@ -39,6 +41,7 @@ type ClaimVerdictQueueRow struct {
 	Kind       string
 	Key        string
 	EnqueuedAt pgtype.Timestamptz
+	ClaimToken uuid.UUID
 }
 
 // Claim settled keys with a lease so concurrent servers never process the same
@@ -52,7 +55,12 @@ func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueuePa
 	items := []ClaimVerdictQueueRow{}
 	for rows.Next() {
 		var i ClaimVerdictQueueRow
-		if err := rows.Scan(&i.Kind, &i.Key, &i.EnqueuedAt); err != nil {
+		if err := rows.Scan(
+			&i.Kind,
+			&i.Key,
+			&i.EnqueuedAt,
+			&i.ClaimToken,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -63,30 +71,20 @@ func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueuePa
 	return items, nil
 }
 
-const completeVerdictQueue = `-- name: CompleteVerdictQueue :exec
-DELETE FROM verdict_queue
-WHERE kind = $1 AND key = $2 AND enqueued_at = $3
-`
-
-type CompleteVerdictQueueParams struct {
-	Kind       string
-	Key        string
-	EnqueuedAt pgtype.Timestamptz
-}
-
-// A key re-enqueued while it was being processed keeps its newer row.
-func (q *Queries) CompleteVerdictQueue(ctx context.Context, arg CompleteVerdictQueueParams) error {
-	_, err := q.db.Exec(ctx, completeVerdictQueue, arg.Kind, arg.Key, arg.EnqueuedAt)
-	return err
-}
-
 const countAttentionRuns = `-- name: CountAttentionRuns :one
 SELECT count(*)
 FROM run_verdict v
 WHERE v.needs_attention
   AND ($1::text IS NULL OR v.repository = $1::text)
+  AND ($1::text IS NOT NULL OR NOT EXISTS (
+    SELECT 1 FROM run_verdict newer
+    WHERE newer.run_id = v.run_id
+      AND (newer.last_result_at, newer.repository) > (v.last_result_at, v.repository)
+  ))
 `
 
+// Counts runs the way the list shows them: within one repository, or by the
+// repository of the run's latest results when no repository is selected.
 func (q *Queries) CountAttentionRuns(ctx context.Context, repository *string) (int64, error) {
 	row := q.db.QueryRow(ctx, countAttentionRuns, repository)
 	var count int64
@@ -94,21 +92,50 @@ func (q *Queries) CountAttentionRuns(ctx context.Context, repository *string) (i
 	return count, err
 }
 
-const deleteRunVerdict = `-- name: DeleteRunVerdict :exec
-DELETE FROM run_verdict WHERE run_id = $1
+const deleteRunVerdictsExcept = `-- name: DeleteRunVerdictsExcept :exec
+DELETE FROM run_verdict
+WHERE run_id = $1 AND NOT (repository = ANY($2::text[]))
 `
 
-func (q *Queries) DeleteRunVerdict(ctx context.Context, runID string) error {
-	_, err := q.db.Exec(ctx, deleteRunVerdict, runID)
+type DeleteRunVerdictsExceptParams struct {
+	RunID        string
+	Repositories []string
+}
+
+// Removes verdicts for repositories the run no longer has results in.
+func (q *Queries) DeleteRunVerdictsExcept(ctx context.Context, arg DeleteRunVerdictsExceptParams) error {
+	_, err := q.db.Exec(ctx, deleteRunVerdictsExcept, arg.RunID, arg.Repositories)
 	return err
 }
 
+const deleteVerdictClaim = `-- name: DeleteVerdictClaim :execrows
+DELETE FROM verdict_queue
+WHERE kind = $1 AND key = $2
+  AND claim_token = $3 AND enqueued_at = $4
+`
+
+type DeleteVerdictClaimParams struct {
+	Kind       string
+	Key        string
+	ClaimToken pgtype.UUID
+	EnqueuedAt pgtype.Timestamptz
+}
+
+func (q *Queries) DeleteVerdictClaim(ctx context.Context, arg DeleteVerdictClaimParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteVerdictClaim,
+		arg.Kind,
+		arg.Key,
+		arg.ClaimToken,
+		arg.EnqueuedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const enqueueMissingRunVerdicts = `-- name: EnqueueMissingRunVerdicts :exec
-INSERT INTO verdict_queue (kind, key)
-SELECT 'run', ids.run_id
-FROM unnest($1::text[]) AS ids(run_id)
-WHERE NOT EXISTS (SELECT 1 FROM run_verdict v WHERE v.run_id = ids.run_id)
-ON CONFLICT DO NOTHING
+SELECT enqueue_missing_run_verdicts($1::text[])
 `
 
 func (q *Queries) EnqueueMissingRunVerdicts(ctx context.Context, runIds []string) error {
@@ -130,39 +157,44 @@ func (q *Queries) EnqueueVerdict(ctx context.Context, arg EnqueueVerdictParams) 
 	return err
 }
 
-const getRunVerdictSubject = `-- name: GetRunVerdictSubject :one
-SELECT
-  latest.commit_repo_url,
-  c.sha AS commit_sha,
-  span.last_result_at::timestamp AS last_result_at
-FROM (
-  SELECT max(br."timestamp") AS last_result_at
-  FROM benchmark_result br
-  WHERE br.run_id = $1
-) span
-JOIN LATERAL (
-  SELECT br.commit_repo_url, br.commit_id
-  FROM benchmark_result br
-  WHERE br.run_id = $1
-  ORDER BY br."timestamp" DESC, br.id DESC
-  LIMIT 1
-) latest ON true
-LEFT JOIN commit c ON c.id = latest.commit_id
+const lockVerdictClaim = `-- name: LockVerdictClaim :one
+SELECT q.enqueued_at
+FROM verdict_queue q
+WHERE q.kind = $1 AND q.key = $2 AND q.claim_token = $3
+FOR UPDATE
 `
 
-type GetRunVerdictSubjectRow struct {
-	CommitRepoUrl string
-	CommitSha     *string
-	LastResultAt  time.Time
+type LockVerdictClaimParams struct {
+	Kind       string
+	Key        string
+	ClaimToken pgtype.UUID
 }
 
-// The run's identity as the recent-runs list reports it: its latest result's
-// repository and commit.
-func (q *Queries) GetRunVerdictSubject(ctx context.Context, runID string) (GetRunVerdictSubjectRow, error) {
-	row := q.db.QueryRow(ctx, getRunVerdictSubject, runID)
-	var i GetRunVerdictSubjectRow
-	err := row.Scan(&i.CommitRepoUrl, &i.CommitSha, &i.LastResultAt)
-	return i, err
+// Holds the claimed queue row for the rest of the transaction. No row means
+// the lease expired and another worker owns the key.
+func (q *Queries) LockVerdictClaim(ctx context.Context, arg LockVerdictClaimParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, lockVerdictClaim, arg.Kind, arg.Key, arg.ClaimToken)
+	var enqueued_at pgtype.Timestamptz
+	err := row.Scan(&enqueued_at)
+	return enqueued_at, err
+}
+
+const releaseVerdictClaim = `-- name: ReleaseVerdictClaim :exec
+UPDATE verdict_queue
+SET claimed_until = NULL, claim_token = NULL
+WHERE kind = $1 AND key = $2 AND claim_token = $3
+`
+
+type ReleaseVerdictClaimParams struct {
+	Kind       string
+	Key        string
+	ClaimToken pgtype.UUID
+}
+
+// A key re-enqueued while it was processed becomes claimable at once.
+func (q *Queries) ReleaseVerdictClaim(ctx context.Context, arg ReleaseVerdictClaimParams) error {
+	_, err := q.db.Exec(ctx, releaseVerdictClaim, arg.Kind, arg.Key, arg.ClaimToken)
+	return err
 }
 
 const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
@@ -201,8 +233,66 @@ func (q *Queries) SelectRepositoryVerdictRuns(ctx context.Context, arg SelectRep
 	return items, nil
 }
 
+const selectRunVerdictSubjects = `-- name: SelectRunVerdictSubjects :many
+SELECT DISTINCT ON (br.commit_repo_url)
+  br.commit_repo_url,
+  c.sha AS commit_sha,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
+  br."timestamp" AS last_result_at
+FROM benchmark_result br
+LEFT JOIN commit c ON c.id = br.commit_id
+WHERE br.run_id = $1
+ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC
+`
+
+type SelectRunVerdictSubjectsRow struct {
+	CommitRepoUrl string
+	CommitSha     *string
+	DefaultBranch bool
+	LastResultAt  time.Time
+}
+
+// One subject per repository the run has results in, identified the way the
+// recent-runs list identifies it: by the latest result in that repository.
+func (q *Queries) SelectRunVerdictSubjects(ctx context.Context, runID string) ([]SelectRunVerdictSubjectsRow, error) {
+	rows, err := q.db.Query(ctx, selectRunVerdictSubjects, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectRunVerdictSubjectsRow{}
+	for rows.Next() {
+		var i SelectRunVerdictSubjectsRow
+		if err := rows.Scan(
+			&i.CommitRepoUrl,
+			&i.CommitSha,
+			&i.DefaultBranch,
+			&i.LastResultAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectRunVerdicts = `-- name: SelectRunVerdicts :many
-SELECT v.run_id, v.repository, v.last_result_at, v.needs_attention, v.attention
+SELECT
+  v.run_id,
+  v.repository,
+  v.last_result_at,
+  v.default_branch,
+  v.needs_attention,
+  v.attention,
+  (
+    EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'run' AND q.key = v.run_id)
+    OR (NOT v.default_branch AND EXISTS (
+      SELECT 1 FROM verdict_queue q WHERE q.kind = 'repository' AND q.key = v.repository
+    ))
+  )::boolean AS pending
 FROM run_verdict v
 WHERE v.run_id = ANY($1::text[])
 `
@@ -211,10 +301,14 @@ type SelectRunVerdictsRow struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte
+	Pending        bool
 }
 
+// Every repository's verdict for the runs; the caller picks the repository it
+// shows. A verdict is pending while a recompute that could change it is queued.
 func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]SelectRunVerdictsRow, error) {
 	rows, err := q.db.Query(ctx, selectRunVerdicts, runIds)
 	if err != nil {
@@ -228,8 +322,10 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 			&i.RunID,
 			&i.Repository,
 			&i.LastResultAt,
+			&i.DefaultBranch,
 			&i.NeedsAttention,
 			&i.Attention,
+			&i.Pending,
 		); err != nil {
 			return nil, err
 		}
@@ -242,18 +338,19 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 }
 
 const upsertRunVerdict = `-- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, default_branch, needs_attention, attention, computed_at)
 VALUES (
   $1,
   $2,
   $3,
   $4,
   $5,
+  $6,
   clock_timestamp()
 )
-ON CONFLICT (run_id) DO UPDATE SET
-  repository = EXCLUDED.repository,
+ON CONFLICT (run_id, repository) DO UPDATE SET
   last_result_at = EXCLUDED.last_result_at,
+  default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
   computed_at = EXCLUDED.computed_at
@@ -263,6 +360,7 @@ type UpsertRunVerdictParams struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte
 }
@@ -272,8 +370,31 @@ func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictPara
 		arg.RunID,
 		arg.Repository,
 		arg.LastResultAt,
+		arg.DefaultBranch,
 		arg.NeedsAttention,
 		arg.Attention,
 	)
 	return err
+}
+
+const verdictsPending = `-- name: VerdictsPending :one
+SELECT EXISTS (
+  SELECT 1
+  FROM verdict_queue q
+  WHERE $1::text IS NULL
+    OR (q.kind = 'repository' AND q.key = $1::text)
+    OR (q.kind = 'run' AND EXISTS (
+      SELECT 1 FROM benchmark_result br
+      WHERE br.run_id = q.key AND br.commit_repo_url = $1::text
+    ))
+)::boolean
+`
+
+// Whether any queued recompute can change verdicts within the repository
+// filter, so a page can keep refreshing even when it lists no runs.
+func (q *Queries) VerdictsPending(ctx context.Context, repository *string) (bool, error) {
+	row := q.db.QueryRow(ctx, verdictsPending, repository)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

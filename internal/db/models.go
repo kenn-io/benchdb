@@ -192,6 +192,7 @@ type RunVerdict struct {
 	RunID          string
 	Repository     string
 	LastResultAt   time.Time
+	DefaultBranch  bool
 	NeedsAttention bool
 	Attention      []byte
 	ComputedAt     pgtype.Timestamptz
@@ -209,4 +210,5 @@ type VerdictQueue struct {
 	Key          string
 	EnqueuedAt   pgtype.Timestamptz
 	ClaimedUntil pgtype.Timestamptz
+	ClaimToken   pgtype.UUID
 }

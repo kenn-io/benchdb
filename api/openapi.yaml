@@ -1634,9 +1634,12 @@ components:
           type:
             - array
             - "null"
+        verdicts_pending:
+          type: boolean
       required:
         - has_more
         - attention_runs
+        - verdicts_pending
         - runs
       type: object
     RepositoryItem:

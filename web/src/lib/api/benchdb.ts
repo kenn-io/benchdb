@@ -776,6 +776,7 @@ export interface RecentRunsPage {
   has_more: boolean;
   /** @nullable */
   runs: RecentRunListItem[] | null;
+  verdicts_pending: boolean;
 }
 
 export interface RepositoryItem {

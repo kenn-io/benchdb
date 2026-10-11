@@ -50,6 +50,8 @@ export interface RecentRunsViewModel {
   hasMore: boolean;
   // Every checked run in the selected project that needs attention.
   attentionRuns: number;
+  // Queued recomputes can still change verdicts in the selected project.
+  verdictsPending: boolean;
   runs: RecentRunViewModel[];
 }
 
@@ -90,6 +92,7 @@ export async function listRecentRuns(
   return {
     hasMore: res.data.has_more,
     attentionRuns: res.data.attention_runs,
+    verdictsPending: res.data.verdicts_pending,
     runs: (res.data.runs ?? []).map(toRecentRunViewModel),
   };
 }
