@@ -17,7 +17,11 @@ COPY . .
 COPY --from=web-build /src/web/dist ./web/dist
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/benchdb ./cmd/benchdb
+# The build context excludes .git, so the commit comes in as a build argument.
+ARG BENCHDB_REVISION=""
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+    -ldflags "-X go.kenn.io/benchdb/internal/buildinfo.revision=${BENCHDB_REVISION}" \
+    -o /out/benchdb ./cmd/benchdb
 
 FROM gcr.io/distroless/static-debian12:nonroot
 

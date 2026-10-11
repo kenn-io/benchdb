@@ -53,10 +53,19 @@
 
   let repositories = $state<string[]>([]);
   let repositoriesError = $state<string | null>(null);
+  let buildRevision = $state("");
   onMount(() => {
     listRepositories(client).then(
       (loaded) => (repositories = loaded),
       (err: unknown) => (repositoriesError = err instanceof Error ? err.message : String(err)),
+    );
+    // The build label is informational: an unreachable server shows its own
+    // errors on the page, so a failed ping only leaves the label out.
+    client.ping().then(
+      (res) => {
+        if (res.status < 400 && res.data) buildRevision = res.data.revision;
+      },
+      () => {},
     );
   });
 
@@ -343,6 +352,9 @@
       <span class="nav-label">API Docs</span>
     </a>
     <ThemeToggle compact={rail} />
+    {#if buildRevision && !rail}
+      <p class="build-revision" title={buildRevision}>build {buildRevision.slice(0, 7)}</p>
+    {/if}
   </div>
 </aside>
 
@@ -514,6 +526,13 @@
     margin-top: auto;
     padding-top: 8px;
     border-top: 1px solid var(--c-border-muted);
+  }
+
+  .build-revision {
+    margin: 4px 10px 0;
+    color: var(--c-text-muted);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
   }
 
   .rail .sidebar-foot {

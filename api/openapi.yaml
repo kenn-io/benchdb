@@ -1183,10 +1183,14 @@ components:
           format: uri
           readOnly: true
           type: string
+        revision:
+          description: Git commit the server was built from; empty when the build did not record one.
+          type: string
         status:
           type: string
       required:
         - status
+        - revision
       type: object
     HistorySample:
       additionalProperties: false

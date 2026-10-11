@@ -18,9 +18,8 @@ func TestHealthPing(t *testing.T) {
 
 	resp := tapi.Get("/api/ping")
 	require.Equal(t, http.StatusOK, resp.Code, "body = %s", resp.Body.String())
-	var out struct {
-		Status string `json:"status"`
-	}
+	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
-	assert.Equal(t, "ok", out.Status)
+	assert.Equal(t, "ok", out["status"])
+	assert.Contains(t, out, "revision", "clients read the server's build revision from ping")
 }

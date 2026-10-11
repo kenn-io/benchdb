@@ -5,12 +5,15 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"go.kenn.io/benchdb/internal/buildinfo"
 )
 
 // HealthOutput is the /api/ping response.
 type HealthOutput struct {
 	Body struct {
-		Status string `json:"status"`
+		Status   string `json:"status"`
+		Revision string `json:"revision" doc:"Git commit the server was built from; empty when the build did not record one."`
 	}
 }
 
@@ -25,6 +28,7 @@ func RegisterHealth(api huma.API) {
 	}, func(_ context.Context, _ *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
 		out.Body.Status = "ok"
+		out.Body.Revision = buildinfo.Revision()
 		return out, nil
 	})
 }

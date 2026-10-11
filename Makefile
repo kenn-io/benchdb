@@ -89,7 +89,7 @@ CONTAINER_IMAGE_SPEC=$(DOCKER_REPO_ORG)/benchdb:$(CHECKOUT_VERSION_STRING)
 
 .PHONY: build-benchdb-container-image
 build-benchdb-container-image:
-	docker build . -f Dockerfile.server -t ${CONTAINER_IMAGE_SPEC}
+	docker build . -f Dockerfile.server --build-arg BENCHDB_REVISION=$(shell git rev-parse HEAD) -t ${CONTAINER_IMAGE_SPEC}
 	echo "Size of docker image:"
 	docker images --format "{{.Size}}" ${CONTAINER_IMAGE_SPEC}
 	# docker push ${CONTAINER_IMAGE_SPEC}
