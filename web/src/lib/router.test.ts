@@ -55,18 +55,25 @@ describe("browse route", () => {
   it("matches / as the recent-runs home", () => {
     expect(matchRoute("/")).toEqual({
       name: "home",
-      query: { repository: "", q: "", offset: 0 },
+      query: { repository: "", q: "", offset: 0, attention: false },
     });
   });
 
   it("parses and formats the home repository selector", () => {
-    const query = { repository: "https://github.com/apache/arrow-go", q: "", offset: 0 };
+    const query = { repository: "https://github.com/apache/arrow-go", q: "", offset: 0, attention: false };
     expect(matchRoute("/", "?repository=https%3A%2F%2Fgithub.com%2Fapache%2Farrow-go")).toEqual({
       name: "home",
       query,
     });
     expect(parseHomeQuery(formatHomeQuery(query))).toEqual(query);
     expect(formatHomeQuery({ repository: "" })).toBe("");
+  });
+
+  it("keeps the needs-attention filter in the home URL", () => {
+    const query = { repository: "", q: "", offset: 25, attention: true };
+    expect(formatHomeQuery(query)).toBe("?offset=25&attention=1");
+    expect(parseHomeQuery("?offset=25&attention=1")).toEqual(query);
+    expect(parseHomeQuery("?attention=yes").attention).toBe(false);
   });
 
   it("matches /series as browse with default query", () => {

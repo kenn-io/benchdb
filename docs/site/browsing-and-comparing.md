@@ -5,8 +5,8 @@ The Svelte dashboard is the supported web interface.
 ## Series Browse
 
 The home page summarizes recent benchmark activity. Use it to answer: what just
-ran, how much data did it publish, did any results error, and where is the CI
-report or a sample result?
+ran, how much data did it publish, did any results error, and which runs need
+attention?
 
 Navigation lives in a left sidebar: the project switcher, benchmark search,
 Runs, Benchmarks, and Compare, with Account, the API docs, and the theme at the
@@ -26,9 +26,20 @@ benchmarks come first, then improved ones, then the rest, each sorted by name.
 With all projects shown, each project gets its own section.
 
 The home dashboard groups activity by submitted `run_id` values, with direct
-links to run detail, batch detail, CI reports, and sample results. Batch pages
-are available at `/batches/<batch_id>` when you need to inspect a suite-level
-grouping across multiple runs.
+links to run detail, batch detail, and CI reports. Batch pages are available at
+`/batches/<batch_id>` when you need to inspect a suite-level grouping across
+multiple runs.
+
+Each run shows its CI attention verdict: the regressions, benchmark errors, or
+missing baselines that its CI report finds against the run's fork point, linked
+to that report. The server computes verdicts in the background once a run's
+results stop arriving, so a new run reads "Checking…" for a few seconds; a run
+being rechecked keeps its last verdict next to "Checking…". When
+default-branch results or commits arrive in a repository, the server
+re-evaluates that repository's pull-request runs from the last 14 days, so a
+baseline that lands after the pull request still updates its verdict. Older
+runs keep their last verdict. **Needs attention** filters the list to runs
+whose verdict needs attention, across all pages, and shows how many there are.
 
 Use the hardware filter to find benchmark series for a machine or cluster name.
 Hardware is part of result and series context, so hardware investigation starts

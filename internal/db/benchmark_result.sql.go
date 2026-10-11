@@ -502,8 +502,23 @@ candidate_runs AS (
   SELECT br.run_id, max(br."timestamp") AS last_result_at
   FROM benchmark_result br
   WHERE $2::text = ''
+    AND NOT $3::boolean
     AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
   GROUP BY br.run_id
+  UNION ALL
+  -- Matches CountAttentionRuns: without a repository filter a run is judged by
+  -- the repository of its latest result, ordered as the list orders it.
+  SELECT v.run_id, v.last_result_at
+  FROM run_verdict v
+  WHERE $3::boolean
+    AND v.needs_attention
+    AND ($1::text IS NULL OR v.repository = $1::text)
+    AND ($1::text IS NOT NULL OR NOT EXISTS (
+      SELECT 1 FROM run_verdict newer
+      WHERE newer.run_id = v.run_id
+        AND (newer.last_result_at, newer.last_result_id) > (v.last_result_at, v.last_result_id)
+    ))
+    AND ($2::text = '' OR v.run_id IN (SELECT run_id FROM matching_runs))
   UNION ALL
   SELECT mr.run_id, latest.last_result_at
   FROM matching_runs mr
@@ -514,13 +529,14 @@ candidate_runs AS (
       AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
   ) latest
   WHERE $2::text <> ''
+    AND NOT $3::boolean
 ),
 selected_runs AS MATERIALIZED (
   SELECT cr.run_id
   FROM candidate_runs cr
   ORDER BY cr.last_result_at DESC, cr.run_id DESC
-  LIMIT $4
-  OFFSET $3
+  LIMIT $5
+  OFFSET $4
 ),
 run_agg AS MATERIALIZED (
   SELECT
@@ -573,10 +589,11 @@ ORDER BY a.last_result_at DESC, a.run_id DESC
 `
 
 type SelectRecentRunsParams struct {
-	Repository  *string
-	Search      string
-	OffsetCount int32
-	PageSize    int32
+	Repository     *string
+	Search         string
+	NeedsAttention bool
+	OffsetCount    int32
+	PageSize       int32
 }
 
 type SelectRecentRunsRow struct {
@@ -603,13 +620,15 @@ type SelectRecentRunsRow struct {
 }
 
 // Search all history before pagination so older commits remain discoverable.
-// Aggregate result counts only for the selected run IDs.
+// Aggregate result counts only for the selected run IDs. The attention filter
+// pages over stored verdicts instead of the result table.
 // The empty-ref and matching-ref cases share the same paging and aggregation.
 // For a ref, calculate recency per matching run through its run_id index.
 func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsParams) ([]SelectRecentRunsRow, error) {
 	rows, err := q.db.Query(ctx, selectRecentRuns,
 		arg.Repository,
 		arg.Search,
+		arg.NeedsAttention,
 		arg.OffsetCount,
 		arg.PageSize,
 	)

@@ -188,9 +188,28 @@ type ResultArtifact struct {
 	ObjectKey string
 }
 
+type RunVerdict struct {
+	RunID          string
+	Repository     string
+	LastResultAt   time.Time
+	LastResultID   string
+	DefaultBranch  bool
+	NeedsAttention bool
+	Attention      []byte
+	ComputedAt     pgtype.Timestamptz
+}
+
 type User struct {
 	ID       string
 	Email    string
 	Name     string
 	Password string
+}
+
+type VerdictQueue struct {
+	Kind         string
+	Key          string
+	EnqueuedAt   pgtype.Timestamptz
+	ClaimedUntil pgtype.Timestamptz
+	ClaimToken   pgtype.UUID
 }

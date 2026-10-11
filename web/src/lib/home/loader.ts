@@ -32,6 +32,8 @@ export interface RecentRunViewModel {
   authorLabel: string;
   authorAvatar: string | null;
   lastResultAt: string;
+  // False while the server is still computing the run's verdict.
+  attentionChecked: boolean;
   attention: RecentRunAttentionViewModel | null;
 }
 
@@ -46,6 +48,10 @@ export interface RecentRunAttentionViewModel {
 
 export interface RecentRunsViewModel {
   hasMore: boolean;
+  // Every checked run in the selected project that needs attention.
+  attentionRuns: number;
+  // Queued recomputes can still change verdicts in the selected project.
+  verdictsPending: boolean;
   runs: RecentRunViewModel[];
 }
 
@@ -53,6 +59,7 @@ export interface RecentRunsQuery {
   repository: string;
   q?: string;
   offset?: number;
+  attention?: boolean;
 }
 
 export const RECENT_RUNS_PAGE_SIZE = 25;
@@ -67,11 +74,12 @@ export async function listRecentRuns(
 ): Promise<RecentRunsViewModel> {
   const apiQuery: {
     page_size: number;
-    include_attention: boolean;
+    needs_attention?: boolean;
     repository?: string;
     q?: string;
     offset?: number;
-  } = { page_size: RECENT_RUNS_PAGE_SIZE, include_attention: true };
+  } = { page_size: RECENT_RUNS_PAGE_SIZE };
+  if (query.attention) apiQuery.needs_attention = true;
   if (query.repository !== "") {
     apiQuery.repository = query.repository;
   }
@@ -83,6 +91,8 @@ export async function listRecentRuns(
   }
   return {
     hasMore: res.data.has_more,
+    attentionRuns: res.data.attention_runs,
+    verdictsPending: res.data.verdicts_pending,
     runs: (res.data.runs ?? []).map(toRecentRunViewModel),
   };
 }
@@ -118,6 +128,7 @@ function toRecentRunViewModel(run: RecentRun): RecentRunViewModel {
     authorLabel: authorName ?? authorLogin ?? "unknown author",
     authorAvatar: usableHTTPURL(commit?.author_avatar ?? null),
     lastResultAt: run.last_result_at,
+    attentionChecked: run.attention_checked,
     attention: toRecentRunAttentionViewModel(run.attention ?? null),
   };
 }

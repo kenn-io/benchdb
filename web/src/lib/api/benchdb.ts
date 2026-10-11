@@ -747,6 +747,7 @@ export type RecentRunListItemRunTags = { [key: string]: unknown };
 
 export interface RecentRunListItem {
   attention?: RecentRunAttention;
+  attention_checked: boolean;
   batch_count: number;
   commit: ListCommit | null;
   /** @nullable */
@@ -771,9 +772,11 @@ export interface RecentRunListItem {
 export interface RecentRunsPage {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
+  attention_runs: number;
   has_more: boolean;
   /** @nullable */
   runs: RecentRunListItem[] | null;
+  verdicts_pending: boolean;
 }
 
 export interface RepositoryItem {
@@ -1251,9 +1254,9 @@ offset?: number;
  */
 page_size?: number;
 /**
- * Include bounded CI attention summaries for the newest runs.
+ * Return only runs whose CI report needs attention.
  */
-include_attention?: boolean;
+needs_attention?: boolean;
 /**
  * Filter by repository URL.
  */
