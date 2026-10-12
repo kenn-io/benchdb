@@ -23,7 +23,10 @@ const (
 	runVerdictWindow = 14 * 24 * time.Hour
 	verdictLease     = 2 * time.Minute
 	verdictBatch     = 20
-	verdictTick      = 5 * time.Second
+	// verdictTick bounds how long a new benchmark result waits to be scored,
+	// since benchmark keys need no settling. An idle tick is one indexed
+	// query.
+	verdictTick = time.Second
 )
 
 // Verdicts recomputes stored run attention verdicts and benchmark statuses

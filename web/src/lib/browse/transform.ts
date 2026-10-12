@@ -180,16 +180,20 @@ export interface BrowseGroup {
 }
 
 /** groupByRepository splits ordered rows into one group per repository,
- * groups sorted by label, keeping each group's row order. */
+ * keeping each group's row order. Groups holding the most urgent status come
+ * first, so a project with regressions leads; ties sort by label. */
 export function groupByRepository(rows: BrowseRow[]): BrowseGroup[] {
-  const groups = new Map<string, BrowseGroup>();
+  const groups = new Map<string, BrowseGroup & { attention: number }>();
   for (const row of rows) {
     let group = groups.get(row.repository);
     if (group === undefined) {
-      group = { repository: row.repository, label: repositoryLabel(row.repository), rows: [] };
+      group = { repository: row.repository, label: repositoryLabel(row.repository), rows: [], attention: Infinity };
       groups.set(row.repository, group);
     }
     group.rows.push(row);
+    group.attention = Math.min(group.attention, STATUS_ATTENTION[row.status]);
   }
-  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  return [...groups.values()]
+    .sort((a, b) => a.attention - b.attention || a.label.localeCompare(b.label))
+    .map(({ repository, label, rows: groupRows }) => ({ repository, label, rows: groupRows }));
 }

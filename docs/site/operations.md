@@ -369,9 +369,9 @@ new ones.
   repository's pull-request runs with results from the last 14 days.
 - Upgrading to the release that adds verdicts queues runs from the last 14
   days; older runs are queued when a page first lists them.
-- A benchmark is scored at the worker's next pass, within about five seconds,
-  after a default-branch result for it is written or deleted, or after a commit
-  that carries its results joins or leaves the default branch.
+- A benchmark is scored within about a second after a default-branch result
+  for it is written or deleted, or after a commit that carries its results
+  joins or leaves the default branch.
 - Upgrading to the release that adds benchmark statuses queues every benchmark
   with default-branch history. Until the worker scores a benchmark, the
   Benchmarks list omits it.
