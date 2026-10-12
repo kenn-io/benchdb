@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"go.kenn.io/benchdb/internal/stats"
 	"go.kenn.io/benchdb/internal/storage"
@@ -62,9 +63,27 @@ type CompareResult struct {
 	Analysis     CompareAnalysis `json:"analysis"`
 }
 
+// historyLoader returns a fingerprint's default-branch history up to asOf.
+type historyLoader func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error)
+
 // Compare loads two results, validates they are comparable, and returns the
 // pairwise + lookback-z analysis. The API defaults to 5 percent and 2 standard deviations.
 func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, threshold, thresholdZ float64) (*CompareResult, error) {
+	return r.compare(ctx, baselineID, contenderID, threshold, thresholdZ, r.historyAsOf)
+}
+
+func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+	return r.store.SelectHistoryForFingerprintsAsOf(ctx, []string{fingerprint}, asOf)
+}
+
+// compare is Compare with the lookback history supplied by history, so a
+// caller comparing many results can load all their histories at once.
+func (r *Reader) compare(
+	ctx context.Context,
+	baselineID, contenderID string,
+	threshold, thresholdZ float64,
+	history historyLoader,
+) (*CompareResult, error) {
 	baseline, err := r.loadCompareResult(ctx, baselineID)
 	if err != nil {
 		return nil, err
@@ -108,6 +127,7 @@ func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, th
 	lookback, err := r.lookbackAnalysis(ctx, lookbackInput{
 		contender: contender, baseline: baseline, contSVS: contSVS,
 		unit: unit, lessIsBetter: lessIsBetter, thresholdZ: thresholdZ, tolerance: policy,
+		history: history,
 	})
 	if err != nil {
 		return nil, err
@@ -188,6 +208,7 @@ type lookbackInput struct {
 	unit         string
 	lessIsBetter bool
 	thresholdZ   float64
+	history      historyLoader
 }
 
 // lookbackAnalysis scores the contender against its default-branch baseline
@@ -200,7 +221,7 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 	if in.baseline.CommitID == nil || in.baseline.CommitTimestamp == nil {
 		return nil, nil
 	}
-	rows, err := r.store.SelectHistoryForFingerprintAsOf(ctx, in.contender.HistoryFingerprint, *in.baseline.CommitTimestamp)
+	rows, err := in.history(ctx, in.contender.HistoryFingerprint, *in.baseline.CommitTimestamp)
 	if err != nil {
 		return nil, fmt.Errorf("lookback window: %w", err)
 	}

@@ -332,17 +332,18 @@ func TestSelectHistoryAsOfCutoff(t *testing.T) {
 	day3 := mkCommit("d3", "d3", 3)
 	offBranch := mkCommit("f1", "base", 2) // sha != fork_point_sha
 
-	insert := func(commitID string, errBytes []byte) string {
+	insertFor := func(fingerprint, commitID string, errBytes []byte) string {
 		id, err := store.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
 			CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
 			RunID: "run", RunTags: []byte(`{"name":"b"}`), CommitID: new(commitID),
-			CommitRepoUrl: "repo", HistoryFingerprint: fp,
+			CommitRepoUrl: "repo", HistoryFingerprint: fingerprint,
 			Timestamp: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC),
 			Unit:      new("s"), Data: []*float64{new(1.0)}, Error: errBytes,
 		})
 		mustID(t, id, err)
 		return id
 	}
+	insert := func(commitID string, errBytes []byte) string { return insertFor(fp, commitID, errBytes) }
 	insert(day1, nil)
 	insert(day2, nil)
 	insert(day2tie, nil)
@@ -351,7 +352,7 @@ func TestSelectHistoryAsOfCutoff(t *testing.T) {
 	insert(day1, []byte(`{}`)) // errored: excluded
 
 	cutoff := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
-	rows, err := store.SelectHistoryForFingerprintAsOf(ctx, fp, cutoff)
+	rows, err := store.SelectHistoryForFingerprintsAsOf(ctx, []string{fp}, cutoff)
 	require.NoError(t, err)
 	// day1 + day2 + day2tie; day3/off-branch/errored excluded.
 	require.Len(t, rows, 3, "cutoff inclusive of ties, exclusive of later/off-branch/errored")
@@ -361,6 +362,22 @@ func TestSelectHistoryAsOfCutoff(t *testing.T) {
 	}
 	assert.Equal(t, map[string]bool{"d1": true, "d2": true, "d2b": true}, got,
 		"as-of window must return exactly the at-or-before-cutoff default-branch rows")
+
+	// One call serves several fingerprints, grouped by fingerprint.
+	const other, unrequested = "fp-other", "fp-unrequested"
+	insertFor(other, day1, nil)
+	insertFor(unrequested, day1, nil)
+	rows, err = store.SelectHistoryForFingerprintsAsOf(ctx, []string{other, fp}, cutoff)
+	require.NoError(t, err)
+	fingerprints := make([]string, len(rows))
+	for i, r := range rows {
+		fingerprints[i] = r.HistoryFingerprint
+	}
+	want := []string{fp, fp, fp, other}
+	if other < fp {
+		want = []string{other, fp, fp, fp}
+	}
+	assert.Equal(t, want, fingerprints, "rows come back grouped by fingerprint, without unrequested ones")
 }
 
 // TestSelectBenchmarkResultsFiltersAndCursor covers run_id/batch_id/run_reason/timestamp

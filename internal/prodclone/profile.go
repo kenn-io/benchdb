@@ -967,16 +967,21 @@ SELECT
   c."timestamp" AS commit_timestamp
 FROM benchmark_result br
 JOIN hardware hw ON hw.id = br.hardware_id
-JOIN commit c ON c.id = br.commit_id
+JOIN LATERAL (
+  SELECT dc.sha, dc.repository, dc.message, dc."timestamp"
+  FROM commit dc
+  WHERE dc.id = br.commit_id
+    AND dc.sha = dc.fork_point_sha
+    AND dc."timestamp" IS NOT NULL
+    AND dc."timestamp" <= (
+      SELECT c2."timestamp"
+      FROM benchmark_result br2
+      LEFT JOIN commit c2 ON c2.id = br2.commit_id
+      WHERE br2.id = $2
+    )
+  OFFSET 0
+) c ON true
 WHERE br.error IS NULL
   AND br.history_fingerprint = $1
-  AND c.sha = c.fork_point_sha
-  AND c."timestamp" IS NOT NULL
-  AND c."timestamp" <= (
-    SELECT c2."timestamp"
-    FROM benchmark_result br2
-    LEFT JOIN commit c2 ON c2.id = br2.commit_id
-    WHERE br2.id = $2
-  )
 ORDER BY c."timestamp", br.id
 `
