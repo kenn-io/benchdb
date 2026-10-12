@@ -304,3 +304,75 @@ func TestBenchmarkListReadsOneSnapshot(t *testing.T) {
 	assert.True(t, list.Pending, "so the page still reports the recompute as pending")
 	assert.Equal(t, int64(1), list.StatusCounts["stable"])
 }
+
+// resultOnCommit prepares a result for caseName on run runID on the commit
+// identified by commitID.
+func resultOnCommit(t *testing.T, ctx context.Context, st *db.Store, commitID, caseName, runID string) storage.InsertBenchmarkResultParams {
+	t.Helper()
+	caseID, err := st.GetOrCreateCase(ctx, caseName, []byte(`{}`))
+	mustID(t, caseID, err)
+	contextID, err := st.GetOrCreateContext(ctx, []byte(`{}`))
+	mustID(t, contextID, err)
+	infoID, err := st.GetOrCreateInfo(ctx, []byte(`{}`))
+	mustID(t, infoID, err)
+	hardwareID, err := st.GetOrCreateHardware(ctx, machineParams("m5"))
+	mustID(t, hardwareID, err)
+	return storage.InsertBenchmarkResultParams{
+		CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
+		RunID: runID, RunTags: []byte(`{"name":"b"}`), CommitID: new(commitID),
+		CommitRepoUrl: defaultSeriesRepo, HistoryFingerprint: "fp-" + caseName,
+		Timestamp: day(0), Unit: new("s"), Data: []*float64{new(1.0)},
+	}
+}
+
+// TestCommitRepairAndResultInsertQueueEveryBenchmark interleaves a result
+// insert on an unknown commit with that commit's repair. Neither transaction
+// can see the other's uncommitted write, so each must wait for the other
+// instead of both concluding the result is off the default branch.
+func TestCommitRepairAndResultInsertQueueEveryBenchmark(t *testing.T) {
+	for _, order := range []string{"result first", "repair first"} {
+		t.Run(order, func(t *testing.T) {
+			st, pool, ctx := newTestStore(t)
+			commitID, err := st.GetOrCreateCommit(ctx, storage.InsertCommitParams{
+				Sha: "unknown-sha", Repository: defaultSeriesRepo, Message: "", AuthorName: "",
+			})
+			mustID(t, commitID, err)
+			// A committed result from another run is already on the commit.
+			_, err = st.InsertBenchmarkResult(ctx, resultOnCommit(t, ctx, st, commitID, "earlier-bench", "earlier-run"))
+			require.NoError(t, err)
+			assert.Empty(t, queuedBenchmarks(t, ctx, pool), "an unknown commit is off the default branch")
+			result := resultOnCommit(t, ctx, st, commitID, "new-bench", "new-run")
+			const repair = `UPDATE commit SET fork_point_sha = sha, "timestamp" = $2 WHERE id = $1`
+
+			first, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = first.Rollback(ctx) })
+			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			second := make(chan error, 1)
+			if order == "result first" {
+				_, err = db.NewStore(first).InsertBenchmarkResult(ctx, result)
+				require.NoError(t, err)
+				go func() {
+					_, err := pool.Exec(waitCtx, repair, commitID, day(0))
+					second <- err
+				}()
+			} else {
+				_, err = first.Exec(ctx, repair, commitID, day(0))
+				require.NoError(t, err)
+				go func() {
+					_, err := st.InsertBenchmarkResult(waitCtx, result)
+					second <- err
+				}()
+			}
+			time.Sleep(500 * time.Millisecond)
+			assert.Empty(t, second, "the second writer must wait for the first")
+			require.NoError(t, first.Commit(ctx))
+			require.NoError(t, <-second, "the writers must not deadlock")
+
+			want := []string{benchmarkIDForCase(t, ctx, pool, "earlier-bench"), benchmarkIDForCase(t, ctx, pool, "new-bench")}
+			slices.Sort(want)
+			assert.Equal(t, want, queuedBenchmarks(t, ctx, pool))
+		})
+	}
+}

@@ -26,24 +26,32 @@ ALTER TABLE verdict_queue DROP CONSTRAINT verdict_queue_kind_check;
 ALTER TABLE verdict_queue ADD CONSTRAINT verdict_queue_kind_check
     CHECK (kind IN ('run', 'repository', 'benchmark'));
 
--- Queue rows are locked in one order everywhere: run keys, then the
--- repository key, then benchmark keys. A transaction locks a benchmark key
+-- Locks are taken in one order everywhere: the commit row, then run keys, then
+-- the repository key, then benchmark keys. A transaction locks a benchmark key
 -- only after the repository key, so the repository key serializes writers that
 -- touch the same benchmarks.
+--
+-- A result on a commit that is being repaired must not be missed by both
+-- sides: the repair cannot see an uncommitted result, and the result cannot
+-- see an uncommitted repair. Reading the commit FOR SHARE waits for a pending
+-- repair and returns its outcome, and makes a later repair wait until the
+-- result commits, so its scan finds the result.
 CREATE OR REPLACE FUNCTION queue_result_verdicts() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     changed benchmark_result;
+    default_branch boolean;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         changed := OLD;
     ELSE
         changed := NEW;
     END IF;
+    SELECT c.sha = c.fork_point_sha INTO default_branch
+    FROM commit c
+    WHERE c.id = changed.commit_id
+    FOR SHARE;
     PERFORM enqueue_verdict('run', changed.run_id);
-    IF EXISTS (
-        SELECT 1 FROM commit c
-        WHERE c.id = changed.commit_id AND c.sha = c.fork_point_sha
-    ) THEN
+    IF coalesce(default_branch, false) THEN
         PERFORM enqueue_verdict('repository', changed.commit_repo_url);
         PERFORM enqueue_verdict('benchmark', changed.benchmark_id);
     END IF;
