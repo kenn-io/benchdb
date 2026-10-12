@@ -672,14 +672,6 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
-	assert.Equal(t, int64(300), got[0].FingerprintMemberCount, "the count covers the whole membership")
-
-	preview, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
-		Fingerprints: []string{"fp-long"}, PerFingerprintLimit: 20,
-	})
-	require.NoError(t, err)
-	require.Len(t, preview, 20)
-	assert.Equal(t, day(280), *preview[0].CommitTimestamp)
 }
 
 func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
@@ -703,7 +695,6 @@ func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(0), *got[0].CommitTimestamp)
 	assert.Equal(t, day(20), *got[len(got)-1].CommitTimestamp)
-	assert.Equal(t, int64(21), got[0].FingerprintMemberCount, "the count honors the window")
 }
 
 // TestSelectSeriesPageRepositoryFilter asserts the repository filter matches the

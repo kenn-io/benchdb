@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -107,9 +108,9 @@ type BenchmarkHistory struct {
 	Tracks       []BenchmarkTrack `json:"tracks"`
 }
 
-// ListBenchmarks returns one page of benchmarks from their stored statuses,
-// with whole-scope status counts. Previews and point counts come from each
-// benchmark's history within the active window.
+// ListBenchmarks returns one page of benchmarks from their stored machine
+// tracks, with whole-scope status counts. Point counts and previews cover the
+// active window; a preview holds a track's latest stored points within it.
 func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*BenchmarkResult, error) {
 	pageSize := q.PageSize
 	if pageSize <= 0 {
@@ -129,25 +130,15 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		return nil, fmt.Errorf("list benchmarks: %w", err)
 	}
 	rows, counts := list.Rows, list.StatusCounts
-	fingerprints := make([]string, 0)
-	for _, row := range rows {
-		fingerprints = append(fingerprints, row.HistoryFingerprints...)
-	}
-	members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
-		Fingerprints:        fingerprints,
-		ActiveSince:         q.ActiveSince,
-		ActiveUntil:         q.ActiveUntil,
-		PerFingerprintLimit: benchmarkPreviewLen,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list benchmark members: %w", err)
-	}
-	byFingerprint := groupMembersByFingerprint(members)
 	items := make([]BenchmarkListItem, 0, len(rows))
 	for _, row := range rows {
 		tags, err := jsonObject(row.CaseTags)
 		if err != nil {
 			return nil, err
+		}
+		preview, err := windowedPreview(row.PreviewTracks, q.ActiveSince, q.ActiveUntil)
+		if err != nil {
+			return nil, fmt.Errorf("decode preview for benchmark %s: %w", row.BenchmarkID, err)
 		}
 		if tags == nil {
 			tags = map[string]any{}
@@ -163,8 +154,8 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 			MachineNames:  row.MachineNames, LatestCommitSha: row.LatestCommitSha,
 			LatestCommitTimestamp: row.LatestCommitTimestamp,
 			LatestResultTimestamp: row.LatestResultTimestamp,
-			PointCount:            benchmarkPointCount(row.HistoryFingerprints, byFingerprint),
-			PreviewTracks:         benchmarkPreview(row.HistoryFingerprints, byFingerprint),
+			PointCount:            row.PointCount,
+			PreviewTracks:         preview,
 		})
 	}
 	result := &BenchmarkResult{
@@ -175,7 +166,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		},
 		StatusesPending: list.Pending,
 	}
-	if len(items) == pageSize {
+	if list.More {
 		last := rows[len(rows)-1]
 		result.NextCursor = &BenchmarkCursor{Status: last.Status, Name: last.CaseName, ID: last.BenchmarkID}
 	}
@@ -194,54 +185,64 @@ func benchmarkIdentityUnit(units []string) (*string, *bool) {
 	return unit, lessIsBetter
 }
 
-// benchmarkPointCount counts the benchmark's history points within the active
-// window across its fingerprints.
-func benchmarkPointCount(fingerprints []string, members map[string][]storage.HistoryRow) int64 {
-	var count int64
-	for _, fingerprint := range fingerprints {
-		if tail := members[fingerprint]; len(tail) > 0 {
-			count += tail[0].FingerprintMemberCount
+// windowedPreview decodes a benchmark's stored track previews and keeps the
+// points inside the active window. A track stores its latest points, so with
+// only a window start these are exactly its latest points inside the window.
+// Tracks left without points are dropped.
+func windowedPreview(data []byte, since, until *time.Time) ([]BenchmarkPreviewTrack, error) {
+	var stored []BenchmarkPreviewTrack
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, err
+	}
+	tracks := make([]BenchmarkPreviewTrack, 0, len(stored))
+	for _, track := range stored {
+		points := slices.DeleteFunc(track.Points, func(point BenchmarkPreviewPoint) bool {
+			return (since != nil && point.CommitTimestamp.Before(*since)) ||
+				(until != nil && point.CommitTimestamp.After(*until))
+		})
+		if len(points) > 0 {
+			tracks = append(tracks, BenchmarkPreviewTrack{MachineName: track.MachineName, Points: points})
 		}
 	}
-	return count
+	return tracks, nil
 }
 
-func benchmarkPreview(
-	fingerprints []string,
-	members map[string][]storage.HistoryRow,
-) []BenchmarkPreviewTrack {
-	byMachine := make(map[string][]BenchmarkPreviewPoint)
-	for _, fingerprint := range fingerprints {
-		for _, member := range members[fingerprint] {
-			if member.CommitTimestamp == nil || member.HardwareName == "" {
-				continue
-			}
+// trackPreview returns a track's latest chart points across its fingerprints,
+// oldest first. Members whose single value summary cannot be computed are
+// skipped, so one bad result never empties the chart.
+func trackPreview(members map[string][]storage.HistoryRow) []BenchmarkPreviewPoint {
+	points := make([]BenchmarkPreviewPoint, 0)
+	for _, segment := range members {
+		for _, member := range segment {
 			value, _, err := historySVS(member.Unit, member.Data)
 			if err != nil {
 				continue
 			}
-			byMachine[member.HardwareName] = append(byMachine[member.HardwareName], BenchmarkPreviewPoint{
-				CommitTimestamp: *member.CommitTimestamp,
-				Value:           value,
-				Unit:            member.Unit,
+			points = append(points, BenchmarkPreviewPoint{
+				CommitTimestamp: *member.CommitTimestamp, Value: value, Unit: member.Unit,
 			})
 		}
 	}
-
-	tracks := make([]BenchmarkPreviewTrack, 0, len(byMachine))
-	for machineName, points := range byMachine {
-		slices.SortFunc(points, func(a, b BenchmarkPreviewPoint) int {
-			return a.CommitTimestamp.Compare(b.CommitTimestamp)
-		})
-		if len(points) > benchmarkPreviewLen {
-			points = points[len(points)-benchmarkPreviewLen:]
-		}
-		tracks = append(tracks, BenchmarkPreviewTrack{MachineName: machineName, Points: points})
-	}
-	slices.SortFunc(tracks, func(a, b BenchmarkPreviewTrack) int {
-		return cmp.Compare(a.MachineName, b.MachineName)
+	slices.SortStableFunc(points, func(a, b BenchmarkPreviewPoint) int {
+		return a.CommitTimestamp.Compare(b.CommitTimestamp)
 	})
-	return tracks
+	if len(points) > benchmarkPreviewLen {
+		points = points[len(points)-benchmarkPreviewLen:]
+	}
+	return points
+}
+
+// trackPointTimestamps returns the commit time of every history point in a
+// track, oldest first, so the list can count points inside a window.
+func trackPointTimestamps(members map[string][]storage.HistoryRow) []time.Time {
+	timestamps := make([]time.Time, 0)
+	for _, segment := range members {
+		for _, member := range segment {
+			timestamps = append(timestamps, *member.CommitTimestamp)
+		}
+	}
+	slices.SortFunc(timestamps, time.Time.Compare)
+	return timestamps
 }
 
 func benchmarkStatus(
@@ -325,7 +326,7 @@ type benchmarkTrack struct {
 // full default-branch history, as SelectHistoryForBenchmark returns it. A
 // track's status is the worst over its current segments; a track without one
 // unit of known direction is insufficient.
-func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) []storage.BenchmarkVerdict {
+func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) ([]storage.BenchmarkVerdict, error) {
 	tracks := make(map[string]*benchmarkTrack)
 	machines := make([]string, 0)
 	for _, row := range rows {
@@ -361,8 +362,13 @@ func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) []storage.BenchmarkVe
 		units := slices.Sorted(maps.Keys(track.units))
 		unit, lessIsBetter := benchmarkIdentityUnit(units)
 		slices.Sort(track.fingerprints)
+		preview, err := json.Marshal(trackPreview(track.members))
+		if err != nil {
+			return nil, fmt.Errorf("encode preview for %s on %s: %w", track.verdict.BenchmarkID, machine, err)
+		}
 		verdict := track.verdict
-		verdict.HistoryFingerprints = track.fingerprints
+		verdict.PointTimestamps = trackPointTimestamps(track.members)
+		verdict.PreviewPoints = preview
 		verdict.Unit = unit
 		verdict.Status = benchmarkStatus(track.fingerprints, track.members, unit, lessIsBetter)
 		verdict.LatestResultID = track.latest.ID
@@ -371,7 +377,7 @@ func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) []storage.BenchmarkVe
 		verdict.LatestCommitTimestamp = *track.latest.CommitTimestamp
 		verdicts = append(verdicts, verdict)
 	}
-	return verdicts
+	return verdicts, nil
 }
 
 // laterHistoryRow orders members the way the list picks a latest result: by

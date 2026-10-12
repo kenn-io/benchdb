@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -33,8 +34,9 @@ func benchmarkIDForCase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, c
 }
 
 // storeBenchmarkTracks replaces a seeded benchmark's stored tracks through the
-// worker's claim-and-finish path. Each track takes its identity and latest
-// result from the benchmark's history on that machine.
+// worker's claim-and-finish path. Each track takes its identity, point times,
+// preview, and latest result from the benchmark's history on that machine.
+// The preview holds every point, since these tracks are short.
 func storeBenchmarkTracks(
 	t *testing.T, ctx context.Context, st *db.Store, pool *pgxpool.Pool, caseName string, tracks ...storedTrack,
 ) string {
@@ -48,22 +50,23 @@ func storeBenchmarkTracks(
 		if track.unit != "" {
 			verdict.Unit = new(track.unit)
 		}
-		points := 0
+		preview := []previewPoint{}
 		for _, row := range history {
 			if row.HardwareName != track.machine {
 				continue
 			}
 			verdict.Repository, verdict.CaseID = row.Repository, row.CaseID
-			points++
-			if !slices.Contains(verdict.HistoryFingerprints, row.HistoryFingerprint) {
-				verdict.HistoryFingerprints = append(verdict.HistoryFingerprints, row.HistoryFingerprint)
-			}
+			verdict.PointTimestamps = append(verdict.PointTimestamps, *row.CommitTimestamp)
+			preview = append(preview, previewPoint{CommitTimestamp: *row.CommitTimestamp, Value: row.Data[0], Unit: row.Unit})
 			if row.CommitTimestamp.After(verdict.LatestCommitTimestamp) {
 				verdict.LatestResultID, verdict.LatestResultTimestamp = row.ID, row.Timestamp
 				verdict.LatestCommitSHA, verdict.LatestCommitTimestamp = row.CommitSha, *row.CommitTimestamp
 			}
 		}
-		require.NotZero(t, points, "%s has no history on %s", caseName, track.machine)
+		require.NotEmpty(t, preview, "%s has no history on %s", caseName, track.machine)
+		var err error
+		verdict.PreviewPoints, err = json.Marshal(preview)
+		require.NoError(t, err)
 		verdicts = append(verdicts, verdict)
 	}
 
@@ -86,6 +89,29 @@ func listBenchmarks(t *testing.T, ctx context.Context, st *db.Store, p storage.B
 	list, err := st.SelectBenchmarkList(ctx, p)
 	require.NoError(t, err)
 	return list
+}
+
+// previewPoint mirrors one stored chart point.
+type previewPoint struct {
+	CommitTimestamp time.Time `json:"commit_timestamp"`
+	Value           float64   `json:"value"`
+	Unit            *string   `json:"unit"`
+}
+
+// previewMachines decodes a page row's stored previews into point counts by
+// machine.
+func previewMachines(t *testing.T, row storage.BenchmarkPageRow) map[string]int {
+	t.Helper()
+	var tracks []struct {
+		MachineName string         `json:"machine_name"`
+		Points      []previewPoint `json:"points"`
+	}
+	require.NoError(t, json.Unmarshal(row.PreviewTracks, &tracks))
+	machines := map[string]int{}
+	for _, track := range tracks {
+		machines[track.MachineName] = len(track.Points)
+	}
+	return machines
 }
 
 func benchmarkNames(rows []storage.BenchmarkPageRow) []string {
@@ -119,7 +145,8 @@ func TestBenchmarkPageOrdersStoredStatusesAcrossPages(t *testing.T) {
 	alpha := first[0]
 	assert.Equal(t, "regressed", alpha.Status, "the worst track decides")
 	assert.Equal(t, []string{"m5", "m7"}, alpha.MachineNames)
-	assert.Equal(t, []string{"fp-alpha-m5", "fp-alpha-m7"}, alpha.HistoryFingerprints)
+	assert.Equal(t, int64(3), alpha.PointCount)
+	assert.Equal(t, map[string]int{"m5": 2, "m7": 1}, previewMachines(t, alpha))
 	assert.Equal(t, day(2), alpha.LatestCommitTimestamp, "the latest result across tracks")
 	assert.Equal(t, []float64{1}, alpha.LatestData)
 	require.NotNil(t, alpha.Unit)
@@ -132,6 +159,13 @@ func TestBenchmarkPageOrdersStoredStatusesAcrossPages(t *testing.T) {
 	assert.Equal(t, []string{"delta", "gamma"}, benchmarkNames(second))
 	assert.Equal(t, "insufficient", second[1].Status)
 	assert.Nil(t, second[1].Unit)
+
+	assert.True(t, listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 2}).More)
+	assert.False(t, listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 4}).More,
+		"a page that ends exactly at the last benchmark has no next page")
+	recent := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10, ActiveSince: new(day(1))}).Rows
+	require.Equal(t, "alpha", recent[0].CaseName)
+	assert.Equal(t, int64(2), recent[0].PointCount, "only points inside the window count")
 
 	improved := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10, Status: new("improved")})
 	assert.Equal(t, []string{"beta"}, benchmarkNames(improved.Rows))
@@ -184,7 +218,8 @@ func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
 	m7 := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Hardware: new("m7"), PageSize: 10}).Rows
 	require.Len(t, m7, 1)
 	assert.Equal(t, []string{"m7"}, m7[0].MachineNames)
-	assert.Equal(t, []string{"fp-alpha-m7"}, m7[0].HistoryFingerprints)
+	assert.Equal(t, int64(1), m7[0].PointCount)
+	assert.Equal(t, map[string]int{"m7": 1}, previewMachines(t, m7[0]))
 	assert.Equal(t, []float64{2}, m7[0].LatestData)
 }
 

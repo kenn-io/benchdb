@@ -62,13 +62,16 @@ type RunVerdict struct {
 
 // BenchmarkVerdict is one machine's stored track of a logical benchmark over
 // default-branch history. Unit is nil unless the track has one unit with a
-// known direction.
+// known direction. PointTimestamps holds the commit time of every history
+// point, oldest first; PreviewPoints is the JSON array of its latest chart
+// points.
 type BenchmarkVerdict struct {
 	BenchmarkID           string
 	MachineName           string
 	Repository            string
 	CaseID                string
-	HistoryFingerprints   []string
+	PointTimestamps       []time.Time
+	PreviewPoints         []byte
 	Unit                  *string
 	Status                string
 	LatestResultID        string

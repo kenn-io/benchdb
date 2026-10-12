@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -226,13 +227,20 @@ func TestBenchmarkVerdictsStoreEachMachineTrack(t *testing.T) {
 	other := "B"
 	m3[len(m3)-1].Unit = &other
 
-	verdicts := benchmarkVerdicts(benchmarkHistory(m1Old, m1New, m2, m3))
+	verdicts, err := benchmarkVerdicts(benchmarkHistory(m1Old, m1New, m2, m3))
+	require.NoError(t, err)
 
 	require.Len(t, verdicts, 3)
 	m1Track := verdicts[0]
 	assert.Equal(t, "m1", m1Track.MachineName)
 	assert.Equal(t, statusStable, m1Track.Status, "the superseded context does not decide the track")
-	assert.Equal(t, []string{"m1-new", "m1-old"}, m1Track.HistoryFingerprints)
+	require.Len(t, m1Track.PointTimestamps, len(preDropSVS)+len(postDropSVS))
+	assert.True(t, slices.IsSortedFunc(m1Track.PointTimestamps, time.Time.Compare))
+	var preview []BenchmarkPreviewPoint
+	require.NoError(t, json.Unmarshal(m1Track.PreviewPoints, &preview))
+	require.Len(t, preview, benchmarkPreviewLen, "the preview spans both contexts, latest points only")
+	assert.Equal(t, *m1Old[0].CommitTimestamp, preview[0].CommitTimestamp)
+	assert.InDelta(t, postDropSVS[len(postDropSVS)-1], preview[len(preview)-1].Value, 0)
 	assert.Equal(t, *m1New[len(m1New)-1].CommitTimestamp, m1Track.LatestCommitTimestamp)
 	assert.Equal(t, fmt.Sprintf("m1-new-%c", 'a'+len(postDropSVS)-1), m1Track.LatestResultID)
 	assert.Equal(t, "case", m1Track.CaseID)
@@ -246,5 +254,46 @@ func TestBenchmarkVerdictsStoreEachMachineTrack(t *testing.T) {
 	assert.Nil(t, verdicts[2].Unit, "a track with two units has no unit")
 	assert.Equal(t, statusInsufficient, verdicts[2].Status)
 
-	assert.Empty(t, benchmarkVerdicts(nil), "a benchmark without history has no tracks")
+	empty, err := benchmarkVerdicts(nil)
+	require.NoError(t, err)
+	assert.Empty(t, empty, "a benchmark without history has no tracks")
+}
+
+func TestTrackPreviewKeepsTheLatestComputablePoints(t *testing.T) {
+	svs := make([]float64, benchmarkPreviewLen+5)
+	for i := range svs {
+		svs[i] = float64(i + 1)
+	}
+	segment := machineSegment("fp", "m1", 0, svs)
+	// The latest member has no data, so its summary cannot be computed.
+	segment[len(segment)-1].Data = nil
+
+	preview := trackPreview(map[string][]storage.HistoryRow{"fp": segment})
+
+	require.Len(t, preview, benchmarkPreviewLen)
+	assert.InDelta(t, svs[len(svs)-2], preview[len(preview)-1].Value, 0, "the uncomputable latest point is skipped")
+	assert.InDelta(t, svs[len(svs)-benchmarkPreviewLen-1], preview[0].Value, 0)
+	assert.Len(t, trackPointTimestamps(map[string][]storage.HistoryRow{"fp": segment}), len(svs),
+		"point counts include every history point")
+}
+
+func TestWindowedPreviewKeepsPointsInsideTheWindow(t *testing.T) {
+	at := func(day int) time.Time { return time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC) }
+	stored, err := json.Marshal([]BenchmarkPreviewTrack{
+		{MachineName: "m1", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(1), Value: 1}, {CommitTimestamp: at(5), Value: 5}}},
+		{MachineName: "m2", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(2), Value: 2}}},
+	})
+	require.NoError(t, err)
+
+	all, err := windowedPreview(stored, nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+	recent, err := windowedPreview(stored, new(at(3)), nil)
+	require.NoError(t, err)
+	assert.Equal(t, []BenchmarkPreviewTrack{{MachineName: "m1", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(5), Value: 5}}}},
+		recent, "a machine without points in the window has no preview")
+	early, err := windowedPreview(stored, nil, new(at(2)))
+	require.NoError(t, err)
+	assert.Len(t, early, 2)
+	assert.Len(t, early[0].Points, 1)
 }
