@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -789,14 +790,34 @@ func (r *CIReporter) findBaselineRun(
 	return candidates[0], true, nil
 }
 
-// batchedHistory loads the history of every report fingerprint in one query
-// per baseline commit time, instead of one query per comparison row.
-func (r *CIReporter) batchedHistory(fingerprints []string) historyLoader {
+// ciReportPendingComparison is a contender row with a matching baseline row,
+// whose analysis needs the baseline's lookback history.
+type ciReportPendingComparison struct {
+	index       int
+	row         storage.CIReportResultRow
+	baselineRow storage.CIReportResultRow
+}
+
+// batchedHistory loads lookback history in one query per baseline commit time.
+// Each query asks only for the fingerprints compared against a baseline at that
+// time; comparisons without a baseline commit time never read history.
+func (r *CIReporter) batchedHistory(pending []ciReportPendingComparison) historyLoader {
+	requested := map[int64][]string{}
+	for _, comparison := range pending {
+		if at := comparison.baselineRow.CommitTimestamp; at != nil {
+			key := at.UnixNano()
+			requested[key] = append(requested[key], comparison.row.HistoryFingerprint)
+		}
+	}
 	loaded := map[int64]map[string][]storage.HistoryRow{}
 	return func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
 		key := asOf.UnixNano()
 		byFingerprint, ok := loaded[key]
 		if !ok {
+			fingerprints := requested[key]
+			if !slices.Contains(fingerprints, fingerprint) {
+				fingerprints = append(fingerprints, fingerprint)
+			}
 			rows, err := r.store.SelectHistoryForFingerprintsAsOf(ctx, fingerprints, asOf)
 			if err != nil {
 				return nil, err
@@ -840,15 +861,8 @@ func (r *CIReporter) assembleComparisons(
 		baselineRows[runKey][row.HistoryFingerprint] = row
 	}
 
-	var fingerprints []string
-	for _, row := range rows {
-		if runKey, ok := ciReportResultRunKey(row); ok && contenderRunKeys[runKey] {
-			fingerprints = append(fingerprints, row.HistoryFingerprint)
-		}
-	}
-	history := r.batchedHistory(fingerprints)
-
 	comparisons := []CIReportComparison{}
+	var pending []ciReportPendingComparison
 	for _, row := range rows {
 		runKey, ok := ciReportResultRunKey(row)
 		if !ok || !contenderRunKeys[runKey] {
@@ -887,31 +901,49 @@ func (r *CIReporter) assembleComparisons(
 			comparisons = append(comparisons, comp)
 			continue
 		}
-		analysis, err := r.reader.compare(ctx, baselineRow.ResultID, row.ResultID, threshold, thresholdZ, history)
-		if err != nil {
-			if errors.Is(err, ErrNotComparable) {
-				comp.Status = CIReportRowStatusNotComparable
-				reason := err.Error()
-				comp.Reason = &reason
-				baseSide := ciReportBaselineSideFromRow(baselineRow)
-				comp.Baseline = &baseSide
-				comparisons = append(comparisons, comp)
-				continue
-			}
-			return nil, err
-		}
-		comp.Analysis = ciReportAnalysisFromCompare(analysis.Analysis)
-		comp.Unit = &analysis.Unit
-		comp.LessIsBetter = &analysis.LessIsBetter
-		baseSide := ciReportBaselineSideFromRow(baselineRow)
-		baseSide.SVS = &analysis.Baseline.SVS
-		comp.Baseline = &baseSide
-		comp.Contender.SVS = &analysis.Contender.SVS
-		comp.Links.Compare = ciReportCompareLink(baselineRow.ResultID, row.ResultID, threshold, thresholdZ)
-		comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
+		pending = append(pending, ciReportPendingComparison{index: len(comparisons), row: row, baselineRow: baselineRow})
 		comparisons = append(comparisons, comp)
 	}
+
+	history := r.batchedHistory(pending)
+	for _, item := range pending {
+		if err := r.analyzeComparison(ctx, &comparisons[item.index], item, threshold, thresholdZ, history); err != nil {
+			return nil, err
+		}
+	}
 	return comparisons, nil
+}
+
+// analyzeComparison fills in the pairwise and lookback analysis for a contender
+// row with a matching baseline row.
+func (r *CIReporter) analyzeComparison(
+	ctx context.Context,
+	comp *CIReportComparison,
+	item ciReportPendingComparison,
+	threshold, thresholdZ float64,
+	history historyLoader,
+) error {
+	analysis, err := r.reader.compare(ctx, item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ, history)
+	baseSide := ciReportBaselineSideFromRow(item.baselineRow)
+	if errors.Is(err, ErrNotComparable) {
+		comp.Status = CIReportRowStatusNotComparable
+		reason := err.Error()
+		comp.Reason = &reason
+		comp.Baseline = &baseSide
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	comp.Analysis = ciReportAnalysisFromCompare(analysis.Analysis)
+	comp.Unit = &analysis.Unit
+	comp.LessIsBetter = &analysis.LessIsBetter
+	baseSide.SVS = &analysis.Baseline.SVS
+	comp.Baseline = &baseSide
+	comp.Contender.SVS = &analysis.Contender.SVS
+	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ)
+	comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
+	return nil
 }
 
 func ciReportComparisonBase(row storage.CIReportResultRow) (CIReportComparison, error) {

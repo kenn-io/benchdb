@@ -10,7 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.kenn.io/benchdb/internal/commit"
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/service"
+	"go.kenn.io/benchdb/internal/stats"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 type ciCommitProvider map[string]commit.Info
@@ -537,4 +540,73 @@ func TestCIReportRejectsInvalidExplicitBaselineRunIDs(t *testing.T) {
 			assert.Contains(t, validation.Error(), tt.want)
 		})
 	}
+}
+
+// historyRecordingStore records the fingerprints each lookback history query
+// requests, keyed by its cutoff.
+type historyRecordingStore struct {
+	*db.Store
+	requested map[time.Time][]string
+}
+
+func (s *historyRecordingStore) SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]storage.HistoryRow, error) {
+	s.requested[asOf.UTC()] = append(s.requested[asOf.UTC()], fingerprints...)
+	return s.Store.SelectHistoryForFingerprintsAsOf(ctx, fingerprints, asOf)
+}
+
+func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	ing := service.NewIngester(store, ciCommitProvider{
+		"c1": ciCommitInfo("c1", nil, "c1", t0),
+		"c2": ciCommitInfo("c2", new("c1"), "c2", t0.Add(24*time.Hour)),
+		"c3": ciCommitInfo("c3", new("c2"), "c3", t0.Add(48*time.Hour)),
+		"pr": ciCommitInfo("pr", new("c3"), "c3", t0.Add(72*time.Hour)),
+	})
+	submit := func(runID, sha, name string, value float64) *service.Result {
+		t.Helper()
+		req := machineReq(samples(value, value+1, value+2), "s")
+		req.Tags = map[string]any{"name": name, "source": "test"}
+		req.RunID, req.GitHub.Commit = runID, sha
+		res, err := ing.Submit(ctx, req)
+		require.NoError(t, err)
+		return res
+	}
+	// Benchmark A's baseline is on c2 and B's on c3, so each pull-request run
+	// compares against a different baseline commit.
+	submit("main-c1", "c1", "bench-a", 10)
+	submit("main-c1", "c1", "bench-b", 20)
+	baselineA := submit("main-c2", "c2", "bench-a", 11)
+	baselineB := submit("main-c3", "c3", "bench-b", 21)
+	contenderA := submit("pr-a", "pr", "bench-a", 30)
+	contenderB := submit("pr-b", "pr", "bench-b", 40)
+
+	recording := &historyRecordingStore{Store: store, requested: map[time.Time][]string{}}
+	report, err := service.NewCIReporter(recording, "").Report(ctx, service.CIReportQuery{
+		Repository: testRepo, CommitSHA: "pr", Baseline: service.CIReportBaselineForkPoint,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, map[time.Time][]string{
+		t0.Add(24 * time.Hour): {contenderA.HistoryFingerprint},
+		t0.Add(48 * time.Hour): {contenderB.HistoryFingerprint},
+	}, recording.requested, "each cutoff loads only the fingerprints compared against it")
+
+	reader := service.NewReader(store)
+	analyzed := 0
+	for _, run := range report.Runs {
+		for _, row := range run.Comparisons {
+			baseline := map[string]string{contenderA.ID: baselineA.ID, contenderB.ID: baselineB.ID}[row.Contender.ResultID]
+			require.NotEmpty(t, baseline, "unexpected contender %s", row.Contender.ResultID)
+			single, err := reader.Compare(ctx, baseline, row.Contender.ResultID,
+				stats.PairwisePercentThresholdDefault, stats.ZScoreThresholdDefault)
+			require.NoError(t, err)
+			require.NotNil(t, row.Analysis)
+			require.NotNil(t, single.Analysis.LookbackZScore, "the comparison has lookback history")
+			assert.Equal(t, single.Analysis.LookbackZScore, row.Analysis.LookbackZScore)
+			assert.Equal(t, single.Analysis.Pairwise, row.Analysis.Pairwise)
+			analyzed++
+		}
+	}
+	assert.Equal(t, 2, analyzed)
 }
