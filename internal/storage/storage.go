@@ -65,7 +65,9 @@ type Store interface {
 	GetBenchmarkResultDetail(ctx context.Context, id string) (ResultDetailRow, error)
 	SelectHistoryForFingerprint(ctx context.Context, fingerprint string) ([]HistoryRow, error)
 	SelectHistoryForBenchmark(ctx context.Context, benchmarkID string) ([]BenchmarkHistoryRow, error)
-	SelectHistoryForFingerprintAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]HistoryRow, error)
+	// SelectHistoryForFingerprintsAsOf returns the history of every requested
+	// fingerprint up to asOf, ordered by fingerprint and then commit time.
+	SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]HistoryRow, error)
 	GetResultForCompare(ctx context.Context, id string) (CompareResultRow, error)
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)

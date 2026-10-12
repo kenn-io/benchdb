@@ -789,6 +789,28 @@ func (r *CIReporter) findBaselineRun(
 	return candidates[0], true, nil
 }
 
+// batchedHistory loads the history of every report fingerprint in one query
+// per baseline commit time, instead of one query per comparison row.
+func (r *CIReporter) batchedHistory(fingerprints []string) historyLoader {
+	loaded := map[int64]map[string][]storage.HistoryRow{}
+	return func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+		key := asOf.UnixNano()
+		byFingerprint, ok := loaded[key]
+		if !ok {
+			rows, err := r.store.SelectHistoryForFingerprintsAsOf(ctx, fingerprints, asOf)
+			if err != nil {
+				return nil, err
+			}
+			byFingerprint = map[string][]storage.HistoryRow{}
+			for _, row := range rows {
+				byFingerprint[row.HistoryFingerprint] = append(byFingerprint[row.HistoryFingerprint], row)
+			}
+			loaded[key] = byFingerprint
+		}
+		return byFingerprint[fingerprint], nil
+	}
+}
+
 func (r *CIReporter) assembleComparisons(
 	ctx context.Context,
 	rows []storage.CIReportResultRow,
@@ -817,6 +839,14 @@ func (r *CIReporter) assembleComparisons(
 		}
 		baselineRows[runKey][row.HistoryFingerprint] = row
 	}
+
+	var fingerprints []string
+	for _, row := range rows {
+		if runKey, ok := ciReportResultRunKey(row); ok && contenderRunKeys[runKey] {
+			fingerprints = append(fingerprints, row.HistoryFingerprint)
+		}
+	}
+	history := r.batchedHistory(fingerprints)
 
 	comparisons := []CIReportComparison{}
 	for _, row := range rows {
@@ -857,7 +887,7 @@ func (r *CIReporter) assembleComparisons(
 			comparisons = append(comparisons, comp)
 			continue
 		}
-		analysis, err := r.reader.Compare(ctx, baselineRow.ResultID, row.ResultID, threshold, thresholdZ)
+		analysis, err := r.reader.compare(ctx, baselineRow.ResultID, row.ResultID, threshold, thresholdZ, history)
 		if err != nil {
 			if errors.Is(err, ErrNotComparable) {
 				comp.Status = CIReportRowStatusNotComparable

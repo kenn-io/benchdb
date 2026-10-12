@@ -171,7 +171,7 @@ type SelectHistoryForFingerprintRow struct {
 // change_annotations, from which the service derives begins_distribution_change
 // for the rolling-statistics (zscorestats) computation in internal/stats.
 //
-// This query and SelectHistoryForFingerprintAsOf share one membership
+// This query and SelectHistoryForFingerprintsAsOf share one membership
 // definition; both require a non-null commit timestamp because the series is
 // time-ordered by it (a null would sort as the zero time and corrupt the
 // rolling-statistics window).
@@ -212,7 +212,7 @@ func (q *Queries) SelectHistoryForFingerprint(ctx context.Context, historyFinger
 	return items, nil
 }
 
-const selectHistoryForFingerprintAsOf = `-- name: SelectHistoryForFingerprintAsOf :many
+const selectHistoryForFingerprintsAsOf = `-- name: SelectHistoryForFingerprintsAsOf :many
 SELECT
   br.id,
   br.history_fingerprint,
@@ -231,22 +231,27 @@ SELECT
 FROM benchmark_result br
 JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
-JOIN commit c ON c.id = br.commit_id
-WHERE br.error IS NULL
+JOIN LATERAL (
+  SELECT dc.sha, dc.repository, dc.message, dc."timestamp"
+  FROM commit dc
+  WHERE dc.id = br.commit_id
+    AND dc.sha = dc.fork_point_sha
+    AND dc."timestamp" IS NOT NULL
+    AND dc."timestamp" <= $1
+  OFFSET 0
+) c ON true
+WHERE br.history_fingerprint = ANY($2::text[])
+  AND br.error IS NULL
   AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
-  AND br.history_fingerprint = $1
-  AND c.sha = c.fork_point_sha
-  AND c."timestamp" IS NOT NULL
-  AND c."timestamp" <= $2
-ORDER BY c."timestamp", br.id
+ORDER BY br.history_fingerprint, c."timestamp", br.id
 `
 
-type SelectHistoryForFingerprintAsOfParams struct {
-	HistoryFingerprint string
-	AsOf               *time.Time
+type SelectHistoryForFingerprintsAsOfParams struct {
+	AsOf                *time.Time
+	HistoryFingerprints []string
 }
 
-type SelectHistoryForFingerprintAsOfRow struct {
+type SelectHistoryForFingerprintsAsOfRow struct {
 	ID                 string
 	HistoryFingerprint string
 	Timestamp          time.Time
@@ -263,25 +268,26 @@ type SelectHistoryForFingerprintAsOfRow struct {
 	CommitTimestamp    *time.Time
 }
 
-// The baseline-distribution window for compare: the same default-branch
-// membership as SelectHistoryForFingerprint, restricted to commits at or before
-// a cutoff timestamp. The timestamp cutoff approximates git ancestry (Phase-2;
-// true ancestry is Phase 4). Columns match SelectHistoryForFingerprint so both
-// map to storage.HistoryRow.
+// The baseline-distribution windows for compare and CI reports: the same
+// default-branch membership as SelectHistoryForFingerprint for each requested
+// fingerprint, restricted to commits at or before a cutoff timestamp. The
+// timestamp cutoff approximates git ancestry (Phase-2; true ancestry is Phase
+// 4). Columns match SelectHistoryForFingerprint so both map to
+// storage.HistoryRow.
 //
-// Both queries share one membership definition and require a non-null commit
-// timestamp for time-ordering. The `c."timestamp" <= as_of` bound already
-// excludes nulls; the explicit IS NOT NULL predicate keeps the two queries'
-// membership identical and the intent visible.
-func (q *Queries) SelectHistoryForFingerprintAsOf(ctx context.Context, arg SelectHistoryForFingerprintAsOfParams) ([]SelectHistoryForFingerprintAsOfRow, error) {
-	rows, err := q.db.Query(ctx, selectHistoryForFingerprintAsOf, arg.HistoryFingerprint, arg.AsOf)
+// Postgres cannot estimate sha = fork_point_sha and, left alone, walks every
+// default-branch commit in every repository before the cutoff. The query starts
+// from the fingerprints' own results and looks each commit up by primary key;
+// OFFSET 0 keeps the planner from flattening the lookup back into a join.
+func (q *Queries) SelectHistoryForFingerprintsAsOf(ctx context.Context, arg SelectHistoryForFingerprintsAsOfParams) ([]SelectHistoryForFingerprintsAsOfRow, error) {
+	rows, err := q.db.Query(ctx, selectHistoryForFingerprintsAsOf, arg.AsOf, arg.HistoryFingerprints)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SelectHistoryForFingerprintAsOfRow{}
+	items := []SelectHistoryForFingerprintsAsOfRow{}
 	for rows.Next() {
-		var i SelectHistoryForFingerprintAsOfRow
+		var i SelectHistoryForFingerprintsAsOfRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.HistoryFingerprint,

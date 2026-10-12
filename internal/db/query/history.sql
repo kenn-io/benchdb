@@ -6,7 +6,7 @@
 -- change_annotations, from which the service derives begins_distribution_change
 -- for the rolling-statistics (zscorestats) computation in internal/stats.
 --
--- This query and SelectHistoryForFingerprintAsOf share one membership
+-- This query and SelectHistoryForFingerprintsAsOf share one membership
 -- definition; both require a non-null commit timestamp because the series is
 -- time-ordered by it (a null would sort as the zero time and corrupt the
 -- rolling-statistics window).
@@ -78,17 +78,18 @@ WHERE br.benchmark_id = sqlc.arg('benchmark_id')
   AND c."timestamp" IS NOT NULL
 ORDER BY hw.name, br.history_fingerprint, c."timestamp", br.id;
 
--- name: SelectHistoryForFingerprintAsOf :many
--- The baseline-distribution window for compare: the same default-branch
--- membership as SelectHistoryForFingerprint, restricted to commits at or before
--- a cutoff timestamp. The timestamp cutoff approximates git ancestry (Phase-2;
--- true ancestry is Phase 4). Columns match SelectHistoryForFingerprint so both
--- map to storage.HistoryRow.
+-- name: SelectHistoryForFingerprintsAsOf :many
+-- The baseline-distribution windows for compare and CI reports: the same
+-- default-branch membership as SelectHistoryForFingerprint for each requested
+-- fingerprint, restricted to commits at or before a cutoff timestamp. The
+-- timestamp cutoff approximates git ancestry (Phase-2; true ancestry is Phase
+-- 4). Columns match SelectHistoryForFingerprint so both map to
+-- storage.HistoryRow.
 --
--- Both queries share one membership definition and require a non-null commit
--- timestamp for time-ordering. The `c."timestamp" <= as_of` bound already
--- excludes nulls; the explicit IS NOT NULL predicate keeps the two queries'
--- membership identical and the intent visible.
+-- Postgres cannot estimate sha = fork_point_sha and, left alone, walks every
+-- default-branch commit in every repository before the cutoff. The query starts
+-- from the fingerprints' own results and looks each commit up by primary key;
+-- OFFSET 0 keeps the planner from flattening the lookup back into a join.
 SELECT
   br.id,
   br.history_fingerprint,
@@ -107,11 +108,16 @@ SELECT
 FROM benchmark_result br
 JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
-JOIN commit c ON c.id = br.commit_id
-WHERE br.error IS NULL
+JOIN LATERAL (
+  SELECT dc.sha, dc.repository, dc.message, dc."timestamp"
+  FROM commit dc
+  WHERE dc.id = br.commit_id
+    AND dc.sha = dc.fork_point_sha
+    AND dc."timestamp" IS NOT NULL
+    AND dc."timestamp" <= sqlc.arg('as_of')
+  OFFSET 0
+) c ON true
+WHERE br.history_fingerprint = ANY(sqlc.arg('history_fingerprints')::text[])
+  AND br.error IS NULL
   AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
-  AND br.history_fingerprint = sqlc.arg('history_fingerprint')
-  AND c.sha = c.fork_point_sha
-  AND c."timestamp" IS NOT NULL
-  AND c."timestamp" <= sqlc.arg('as_of')
-ORDER BY c."timestamp", br.id;
+ORDER BY br.history_fingerprint, c."timestamp", br.id;

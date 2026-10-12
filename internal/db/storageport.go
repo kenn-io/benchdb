@@ -383,7 +383,7 @@ func compareResultFromRow(r GetResultForCompareRow) storage.CompareResultRow {
 	}
 }
 
-func historyAsOfRowsFromRows(rows []SelectHistoryForFingerprintAsOfRow) []storage.HistoryRow {
+func historyAsOfRowsFromRows(rows []SelectHistoryForFingerprintsAsOfRow) []storage.HistoryRow {
 	out := make([]storage.HistoryRow, len(rows))
 	for i, r := range rows {
 		out[i] = storage.HistoryRow{

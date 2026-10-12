@@ -763,12 +763,12 @@ func (s *Store) SelectHistoryForBenchmark(ctx context.Context, benchmarkID strin
 	return benchmarkHistoryRowsFromRows(rows), nil
 }
 
-// SelectHistoryForFingerprintAsOf returns the baseline-distribution window: the
-// membership series restricted to commits at or before asOf.
-func (s *Store) SelectHistoryForFingerprintAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
-	rows, err := s.q.SelectHistoryForFingerprintAsOf(ctx, SelectHistoryForFingerprintAsOfParams{
-		HistoryFingerprint: fingerprint,
-		AsOf:               &asOf,
+// SelectHistoryForFingerprintsAsOf returns the baseline-distribution windows:
+// each fingerprint's membership series restricted to commits at or before asOf.
+func (s *Store) SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]storage.HistoryRow, error) {
+	rows, err := s.q.SelectHistoryForFingerprintsAsOf(ctx, SelectHistoryForFingerprintsAsOfParams{
+		HistoryFingerprints: fingerprints,
+		AsOf:                &asOf,
 	})
 	if err != nil {
 		return nil, err
