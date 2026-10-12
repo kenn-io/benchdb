@@ -285,15 +285,11 @@ func TestWindowedPreviewKeepsPointsInsideTheWindow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	all, err := windowedPreview(stored, nil, nil)
+	all, err := windowedPreview(stored, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
-	recent, err := windowedPreview(stored, new(at(3)), nil)
+	recent, err := windowedPreview(stored, new(at(3)))
 	require.NoError(t, err)
 	assert.Equal(t, []BenchmarkPreviewTrack{{MachineName: "m1", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(5), Value: 5}}}},
 		recent, "a machine without points in the window has no preview")
-	early, err := windowedPreview(stored, nil, new(at(2)))
-	require.NoError(t, err)
-	assert.Len(t, early, 2)
-	assert.Len(t, early[0].Points, 1)
 }

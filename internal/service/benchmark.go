@@ -136,7 +136,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		if err != nil {
 			return nil, err
 		}
-		preview, err := windowedPreview(row.PreviewTracks, q.ActiveSince, q.ActiveUntil)
+		preview, err := windowedPreview(row.PreviewTracks, q.ActiveSince)
 		if err != nil {
 			return nil, fmt.Errorf("decode preview for benchmark %s: %w", row.BenchmarkID, err)
 		}
@@ -186,10 +186,11 @@ func benchmarkIdentityUnit(units []string) (*string, *bool) {
 }
 
 // windowedPreview decodes a benchmark's stored track previews and keeps the
-// points inside the active window. A track stores its latest points, so with
-// only a window start these are exactly its latest points inside the window.
-// Tracks left without points are dropped.
-func windowedPreview(data []byte, since, until *time.Time) ([]BenchmarkPreviewTrack, error) {
+// points at or after the window start. A track stores its latest points, so
+// these are exactly its latest points inside the window. The window end needs
+// no filter: the list keeps only tracks whose latest commit, and so every
+// stored point, is at or before it. Tracks left without points are dropped.
+func windowedPreview(data []byte, since *time.Time) ([]BenchmarkPreviewTrack, error) {
 	var stored []BenchmarkPreviewTrack
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return nil, err
@@ -197,8 +198,7 @@ func windowedPreview(data []byte, since, until *time.Time) ([]BenchmarkPreviewTr
 	tracks := make([]BenchmarkPreviewTrack, 0, len(stored))
 	for _, track := range stored {
 		points := slices.DeleteFunc(track.Points, func(point BenchmarkPreviewPoint) bool {
-			return (since != nil && point.CommitTimestamp.Before(*since)) ||
-				(until != nil && point.CommitTimestamp.After(*until))
+			return since != nil && point.CommitTimestamp.Before(*since)
 		})
 		if len(points) > 0 {
 			tracks = append(tracks, BenchmarkPreviewTrack{MachineName: track.MachineName, Points: points})
