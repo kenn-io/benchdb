@@ -485,6 +485,8 @@ func recentRunRowsFromRows(rows []SelectRecentRunsRow) []storage.RecentRunRow {
 			CommitAuthorLogin:  r.CommitAuthorLogin,
 			CommitAuthorAvatar: r.CommitAuthorAvatar,
 			CommitTimestamp:    r.CommitTimestamp,
+
+			CommitIsDefaultBranch: r.CommitIsDefaultBranch,
 		}
 	}
 	return out

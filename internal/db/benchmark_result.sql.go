@@ -574,7 +574,8 @@ SELECT
   c.author_name AS commit_author_name,
   c.author_login AS commit_author_login,
   c.author_avatar AS commit_author_avatar,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM run_agg a
 JOIN LATERAL (
   SELECT br.id, br.run_reason, br.run_tags, br.batch_id, br.commit_repo_url, br.commit_id, br."timestamp"
@@ -597,26 +598,27 @@ type SelectRecentRunsParams struct {
 }
 
 type SelectRecentRunsRow struct {
-	RunID              string
-	FirstResultAt      time.Time
-	LastResultAt       time.Time
-	ResultCount        int64
-	ErrorCount         int64
-	SeriesCount        int64
-	BatchCount         int64
-	MachineNames       []string
-	LatestResultID     string
-	RunReason          *string
-	RunTags            []byte
-	LatestBatchID      *string
-	CommitRepoUrl      string
-	CommitSha          *string
-	CommitRepository   *string
-	CommitMessage      *string
-	CommitAuthorName   *string
-	CommitAuthorLogin  *string
-	CommitAuthorAvatar *string
-	CommitTimestamp    *time.Time
+	RunID                 string
+	FirstResultAt         time.Time
+	LastResultAt          time.Time
+	ResultCount           int64
+	ErrorCount            int64
+	SeriesCount           int64
+	BatchCount            int64
+	MachineNames          []string
+	LatestResultID        string
+	RunReason             *string
+	RunTags               []byte
+	LatestBatchID         *string
+	CommitRepoUrl         string
+	CommitSha             *string
+	CommitRepository      *string
+	CommitMessage         *string
+	CommitAuthorName      *string
+	CommitAuthorLogin     *string
+	CommitAuthorAvatar    *string
+	CommitTimestamp       *time.Time
+	CommitIsDefaultBranch bool
 }
 
 // Search all history before pagination so older commits remain discoverable.
@@ -660,6 +662,7 @@ func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsPara
 			&i.CommitAuthorLogin,
 			&i.CommitAuthorAvatar,
 			&i.CommitTimestamp,
+			&i.CommitIsDefaultBranch,
 		); err != nil {
 			return nil, err
 		}
