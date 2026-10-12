@@ -218,9 +218,8 @@ func TestMigrateQueuesRecentRunsForVerdicts(t *testing.T) {
 
 	require.NoError(t, db.Migrate(ctx, pool))
 	assertCurrentMigration(t, ctx, pool)
-	var kind, key string
-	require.NoError(t, pool.QueryRow(ctx, `SELECT kind, key FROM verdict_queue WHERE kind = 'run'`).Scan(&kind, &key))
-	assert.Equal(t, "run", kind)
+	var key string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT key FROM verdict_queue WHERE kind = 'run'`).Scan(&key))
 	assert.Equal(t, "recent-run", key, "recent runs get verdicts without waiting for a page view")
 }
 

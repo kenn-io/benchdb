@@ -5,6 +5,7 @@ import {
   formatDate,
   formatSVS,
   groupByRepository,
+  mergeRows,
   sortRows,
   sparklinePoints,
   tagsText,
@@ -151,6 +152,18 @@ describe("groupByRepository", () => {
       item({ benchmark_id: "a1", repository: "https://github.com/acme/apps", status: "stable" }),
     ]);
     expect(groupByRepository(rows).map((g) => g.label)).toEqual(["acme/widgets", "acme/gizmo", "acme/apps"]);
+  });
+});
+
+describe("mergeRows", () => {
+  it("replaces a benchmark that a later page returns again and appends the rest", () => {
+    const loaded = toBrowseRows([item({ benchmark_id: "a" }), item({ benchmark_id: "b", status: "regressed" })]);
+    const page = toBrowseRows([item({ benchmark_id: "b", status: "stable" }), item({ benchmark_id: "c" })]);
+    expect(mergeRows(loaded, page).map((row) => [row.benchmarkId, row.status])).toEqual([
+      ["a", "stable"],
+      ["b", "stable"],
+      ["c", "stable"],
+    ]);
   });
 });
 

@@ -87,6 +87,16 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
   });
 }
 
+/** mergeRows appends a later page. A benchmark whose status changed between
+ * requests can come back on a later page; its newer row replaces the loaded
+ * one instead of listing it twice. */
+export function mergeRows(loaded: BrowseRow[], page: BrowseRow[]): BrowseRow[] {
+  const incoming = new Map(page.map((row) => [row.benchmarkId, row]));
+  const merged = loaded.map((row) => incoming.get(row.benchmarkId) ?? row);
+  const loadedIds = new Set(loaded.map((row) => row.benchmarkId));
+  return [...merged, ...page.filter((row) => !loadedIds.has(row.benchmarkId))];
+}
+
 export type SortKey = "name" | "svs" | "points" | "commit";
 
 export interface SortSpec {

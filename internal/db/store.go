@@ -909,9 +909,43 @@ func (s *Store) SelectSeriesPage(ctx context.Context, p storage.SeriesListParams
 	return seriesPageRowsFromRows(rows), nil
 }
 
-// SelectBenchmarkPage returns one row per logical benchmark, aggregated over
+// SelectBenchmarkList reads the page, the status counts and the pending flag
+// in one read-only repeatable-read transaction, so a worker that finishes
+// mid-request cannot pair an outdated page with a settled pending flag.
+func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkListParams) (storage.BenchmarkList, error) {
+	beginner, ok := s.q.db.(interface {
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	})
+	if !ok {
+		return storage.BenchmarkList{}, errors.New("benchmark list requires transaction support")
+	}
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return storage.BenchmarkList{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	rows, err := benchmarkPageRows(ctx, q, p)
+	if err != nil {
+		return storage.BenchmarkList{}, fmt.Errorf("select benchmark page: %w", err)
+	}
+	counts, err := benchmarkStatusCounts(ctx, q, p)
+	if err != nil {
+		return storage.BenchmarkList{}, fmt.Errorf("count benchmark statuses: %w", err)
+	}
+	pending, err := q.BenchmarkVerdictsPending(ctx, p.Repository)
+	if err != nil {
+		return storage.BenchmarkList{}, fmt.Errorf("check pending benchmark statuses: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return storage.BenchmarkList{}, err
+	}
+	return storage.BenchmarkList{Rows: rows, StatusCounts: counts, Pending: pending}, nil
+}
+
+// benchmarkPageRows returns one row per logical benchmark, aggregated over
 // its stored machine tracks.
-func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkListParams) ([]storage.BenchmarkPageRow, error) {
+func benchmarkPageRows(ctx context.Context, q *Queries, p storage.BenchmarkListParams) ([]storage.BenchmarkPageRow, error) {
 	params := SelectBenchmarkPageParams{
 		Q: p.Q, Hardware: p.Hardware, Repository: p.Repository,
 		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince,
@@ -931,7 +965,7 @@ func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkList
 		}
 		params.CursorRank, params.CursorName, params.CursorID = &rank, &p.Cursor.Name, &p.Cursor.ID
 	}
-	rows, err := s.q.SelectBenchmarkPage(ctx, params)
+	rows, err := q.SelectBenchmarkPage(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -965,10 +999,10 @@ func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkList
 	return out, nil
 }
 
-// CountBenchmarkStatuses counts benchmarks per status in SelectBenchmarkPage's
-// scope, before its status filter and cursor.
-func (s *Store) CountBenchmarkStatuses(ctx context.Context, p storage.BenchmarkListParams) (map[string]int64, error) {
-	rows, err := s.q.CountBenchmarkStatuses(ctx, CountBenchmarkStatusesParams{
+// benchmarkStatusCounts counts benchmarks per status in the page's scope,
+// before its status filter and cursor.
+func benchmarkStatusCounts(ctx context.Context, q *Queries, p storage.BenchmarkListParams) (map[string]int64, error) {
+	rows, err := q.CountBenchmarkStatuses(ctx, CountBenchmarkStatusesParams{
 		Q: p.Q, Hardware: p.Hardware, Repository: p.Repository,
 		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince, ActiveUntil: p.ActiveUntil,
 	})

@@ -391,6 +391,47 @@ describe("SeriesBrowse", () => {
     }
   });
 
+  it("lists a benchmark once when its status changes between pages", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: {
+      benchmarks: [item("f1", "flaky", { status: "regressed" })], next_page_cursor: "cur2",
+    } });
+    GET.mockResolvedValueOnce({ status: 200, data: {
+      benchmarks: [item("f1", "flaky", { status: "stable" }), item("f2", "other")], next_page_cursor: null,
+    } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => screen.getByRole("link", { name: "flaky" }));
+    await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+    await waitFor(() => screen.getByRole("link", { name: "other" }));
+    expect(screen.getAllByRole("link", { name: "flaky" })).toHaveLength(1);
+    expect(within(screen.getByRole("table")).queryByText("regressed")).toBeNull();
+  });
+
+  it("keeps refreshing the first page when Load more fails", async () => {
+    vi.useFakeTimers();
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "one")], status_counts: { regressed: 0, improved: 0, stable: 2, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: "cur2",
+      } });
+      GET.mockResolvedValueOnce({ data: { detail: "boom" }, status: 500 });
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "one", { status: "regressed" })], next_page_cursor: "cur2",
+      } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(0);
+      await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText(/failed to load more/i)).toBeInTheDocument();
+
+      // The reload resumes at the next backoff step.
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(GET).toHaveBeenCalledTimes(3);
+      expect(within(screen.getByRole("table")).getByText("regressed")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops reloading once more pages are loaded", async () => {
     vi.useFakeTimers();
     try {

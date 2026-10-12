@@ -14,24 +14,39 @@ import (
 )
 
 const benchmarkVerdictsPending = `-- name: BenchmarkVerdictsPending :one
-SELECT EXISTS (
+SELECT coalesce((
+  $1::text IS NULL
+  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'benchmark')
+) OR EXISTS (
   SELECT 1
   FROM verdict_queue q
+  CROSS JOIN LATERAL (
+    SELECT 1
+    FROM benchmark_verdict v
+    WHERE v.benchmark_id = q.key AND v.repository = $1::text
+    UNION ALL
+    SELECT 1
+    FROM benchmark_result br
+    WHERE br.benchmark_id = q.key
+      AND br.error IS NULL
+      AND br.commit_repo_url = $1::text
+    LIMIT 1
+  ) owned
   WHERE q.kind = 'benchmark'
-    AND ($1::text IS NULL OR EXISTS (
-      SELECT 1 FROM benchmark_result br
-      WHERE br.benchmark_id = q.key AND br.commit_repo_url = $1::text
-    ))
-)::boolean
+), false)::boolean AS pending
 `
 
 // Whether a queued recompute can change a benchmark within the repository
-// filter, so the list can refresh until statuses settle.
+// filter, so the list can refresh until statuses settle. A queued benchmark
+// belongs to the repository of its stored rows, which outlive its last
+// result, or of its listable results. Each queued key is looked up on its own
+// so the results lookup uses the partial benchmark_id index instead of
+// scanning every result.
 func (q *Queries) BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error) {
 	row := q.db.QueryRow(ctx, benchmarkVerdictsPending, repository)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
+	var pending bool
+	err := row.Scan(&pending)
+	return pending, err
 }
 
 const claimVerdictQueue = `-- name: ClaimVerdictQueue :many

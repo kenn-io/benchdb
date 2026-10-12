@@ -74,10 +74,9 @@ type Store interface {
 	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
-	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
-	// CountBenchmarkStatuses counts benchmarks per status within p's scope,
-	// ignoring p.Status, p.Cursor and p.PageSize.
-	CountBenchmarkStatuses(ctx context.Context, p BenchmarkListParams) (map[string]int64, error)
+	// SelectBenchmarkList reads a benchmark page, its scope's status counts,
+	// and whether statuses are pending, all from one database snapshot.
+	SelectBenchmarkList(ctx context.Context, p BenchmarkListParams) (BenchmarkList, error)
 	SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]CIReportRunRow, error)
 	SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]CIReportRunRow, error)
 	GetCIReportCommit(ctx context.Context, repository, sha string) (CIReportCommitRow, error)
@@ -743,6 +742,16 @@ type BenchmarkListParams struct {
 	Status      *string
 	Cursor      *BenchmarkCursor
 	PageSize    int32
+}
+
+// BenchmarkList is one benchmark page read from a single snapshot.
+// StatusCounts counts every benchmark in the page's scope by status, ignoring
+// the status filter, cursor and page size. Pending reports that a queued
+// recompute can still change benchmarks in the repository filter.
+type BenchmarkList struct {
+	Rows         []BenchmarkPageRow
+	StatusCounts map[string]int64
+	Pending      bool
 }
 
 // BenchmarkCursor is the last row of the previous benchmark page.

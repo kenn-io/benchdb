@@ -208,9 +208,3 @@ func (s *Store) VerdictsPending(ctx context.Context, repository *string) (bool, 
 func (s *Store) CountAttentionRuns(ctx context.Context, repository *string) (int64, error) {
 	return s.q.CountAttentionRuns(ctx, repository)
 }
-
-// BenchmarkVerdictsPending reports whether queued recomputes can change
-// benchmarks within the repository filter.
-func (s *Store) BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error) {
-	return s.q.BenchmarkVerdictsPending(ctx, repository)
-}

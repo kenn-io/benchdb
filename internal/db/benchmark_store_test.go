@@ -81,6 +81,13 @@ func storeBenchmarkTracks(
 	return benchmarkID
 }
 
+func listBenchmarks(t *testing.T, ctx context.Context, st *db.Store, p storage.BenchmarkListParams) storage.BenchmarkList {
+	t.Helper()
+	list, err := st.SelectBenchmarkList(ctx, p)
+	require.NoError(t, err)
+	return list
+}
+
 func benchmarkNames(rows []storage.BenchmarkPageRow) []string {
 	names := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -107,8 +114,7 @@ func TestBenchmarkPageOrdersStoredStatusesAcrossPages(t *testing.T) {
 		storedTrack{machine: "m5", status: "regressed", unit: "s"},
 		storedTrack{machine: "m7", status: "stable", unit: "B"})
 
-	first, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 2})
-	require.NoError(t, err)
+	first := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 2}).Rows
 	assert.Equal(t, []string{"alpha", "beta"}, benchmarkNames(first))
 	alpha := first[0]
 	assert.Equal(t, "regressed", alpha.Status, "the worst track decides")
@@ -120,21 +126,17 @@ func TestBenchmarkPageOrdersStoredStatusesAcrossPages(t *testing.T) {
 	assert.Equal(t, "s", *alpha.Unit)
 
 	last := first[len(first)-1]
-	second, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
+	second := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{
 		PageSize: 2, Cursor: &storage.BenchmarkCursor{Status: last.Status, Name: last.CaseName, ID: last.BenchmarkID},
-	})
-	require.NoError(t, err)
+	}).Rows
 	assert.Equal(t, []string{"delta", "gamma"}, benchmarkNames(second))
 	assert.Equal(t, "insufficient", second[1].Status)
 	assert.Nil(t, second[1].Unit)
 
-	improved, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 10, Status: new("improved")})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"beta"}, benchmarkNames(improved))
-	counts, err := st.CountBenchmarkStatuses(ctx, storage.BenchmarkListParams{Status: new("improved")})
-	require.NoError(t, err)
-	assert.Equal(t, map[string]int64{"regressed": 1, "improved": 1, "stable": 1, "insufficient": 1}, counts,
-		"counts ignore the status filter")
+	improved := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10, Status: new("improved")})
+	assert.Equal(t, []string{"beta"}, benchmarkNames(improved.Rows))
+	assert.Equal(t, map[string]int64{"regressed": 1, "improved": 1, "stable": 1, "insufficient": 1},
+		improved.StatusCounts, "counts ignore the status filter")
 }
 
 func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
@@ -168,22 +170,18 @@ func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.params.PageSize = 10
-			rows, err := st.SelectBenchmarkPage(ctx, tc.params)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, benchmarkNames(rows))
-			assert.Equal(t, tc.status, rows[0].Status)
-			counts, err := st.CountBenchmarkStatuses(ctx, tc.params)
-			require.NoError(t, err)
+			list := listBenchmarks(t, ctx, st, tc.params)
+			assert.Equal(t, tc.want, benchmarkNames(list.Rows))
+			assert.Equal(t, tc.status, list.Rows[0].Status)
 			var total int64
-			for _, n := range counts {
+			for _, n := range list.StatusCounts {
 				total += n
 			}
 			assert.Equal(t, int64(len(tc.want)), total, "counts share the page's scope")
 		})
 	}
 
-	m7, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{Hardware: new("m7"), PageSize: 10})
-	require.NoError(t, err)
+	m7 := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Hardware: new("m7"), PageSize: 10}).Rows
 	require.Len(t, m7, 1)
 	assert.Equal(t, []string{"m7"}, m7[0].MachineNames)
 	assert.Equal(t, []string{"fp-alpha-m7"}, m7[0].HistoryFingerprints)
@@ -200,8 +198,7 @@ func TestFinishBenchmarkVerdictsDropsVanishedTracks(t *testing.T) {
 
 	storeBenchmarkTracks(t, ctx, st, pool, "alpha", storedTrack{machine: "m7", status: "improved", unit: "s"})
 
-	rows, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 10})
-	require.NoError(t, err)
+	rows := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10}).Rows
 	require.Len(t, rows, 1)
 	assert.Equal(t, []string{"m7"}, rows[0].MachineNames)
 	assert.Equal(t, "improved", rows[0].Status)
@@ -240,18 +237,70 @@ func TestDefaultBranchHistoryQueuesItsBenchmark(t *testing.T) {
 	assert.Equal(t, []string{prID}, queuedBenchmarks(t, ctx, pool))
 }
 
-func TestBenchmarkVerdictsPendingFollowsRepository(t *testing.T) {
-	st, _, ctx := newTestStore(t)
-	seedSeriesRepo(t, st, ctx, "fp-fork", "fork-bench", `{}`, "m5", "https://github.com/org/fork",
-		[]seriesMember{{ts: day(0), value: 1}})
+func TestBenchmarkStatusesPendingFollowRepository(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	const fork = "https://github.com/org/fork"
+	seedSeriesRepo(t, st, ctx, "fp-fork", "fork-bench", `{}`, "m5", fork, []seriesMember{{ts: day(0), value: 1}})
+	pending := func(repository *string) bool {
+		t.Helper()
+		return listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Repository: repository, PageSize: 10}).Pending
+	}
 
-	pending, err := st.BenchmarkVerdictsPending(ctx, nil)
+	assert.True(t, pending(nil))
+	assert.True(t, pending(new(fork)))
+	assert.False(t, pending(new(defaultSeriesRepo)), "another repository's queued benchmark is not pending here")
+
+	storeBenchmarkTracks(t, ctx, st, pool, "fork-bench", storedTrack{machine: "m5", status: "stable", unit: "s"})
+	assert.False(t, pending(new(fork)))
+	_, err := pool.Exec(ctx, `DELETE FROM benchmark_result WHERE history_fingerprint = 'fp-fork'`)
 	require.NoError(t, err)
-	assert.True(t, pending)
-	pending, err = st.BenchmarkVerdictsPending(ctx, new("https://github.com/org/fork"))
+	assert.True(t, pending(new(fork)), "a benchmark whose last result is gone stays pending until it is dropped")
+}
+
+// snapshotProbe begins list transactions that run onFirstQuery right after
+// their first statement starts, standing in for a worker that finishes while a
+// list request is in flight.
+type snapshotProbe struct {
+	*pgxpool.Pool
+	onFirstQuery func()
+}
+
+func (p *snapshotProbe) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	tx, err := p.Pool.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &probedTx{Tx: tx, onFirstQuery: p.onFirstQuery}, nil
+}
+
+type probedTx struct {
+	pgx.Tx
+	onFirstQuery func()
+}
+
+func (tx *probedTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	rows, err := tx.Tx.Query(ctx, sql, args...)
+	if hook := tx.onFirstQuery; hook != nil {
+		tx.onFirstQuery = nil
+		hook()
+	}
+	return rows, err
+}
+
+func TestBenchmarkListReadsOneSnapshot(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-alpha", "alpha", `{}`, "m5", []seriesMember{{ts: day(0), value: 1}})
+	storeBenchmarkTracks(t, ctx, st, pool, "alpha", storedTrack{machine: "m5", status: "stable", unit: "s"})
+	seedSeries(t, st, ctx, "fp-alpha", "alpha", `{}`, "m5", []seriesMember{{ts: day(1), value: 9}})
+
+	probed := db.NewStore(&snapshotProbe{Pool: pool, onFirstQuery: func() {
+		storeBenchmarkTracks(t, ctx, st, pool, "alpha", storedTrack{machine: "m5", status: "regressed", unit: "s"})
+	}})
+	list, err := probed.SelectBenchmarkList(ctx, storage.BenchmarkListParams{PageSize: 10})
 	require.NoError(t, err)
-	assert.True(t, pending)
-	pending, err = st.BenchmarkVerdictsPending(ctx, new(defaultSeriesRepo))
-	require.NoError(t, err)
-	assert.False(t, pending, "another repository's queued benchmark is not pending here")
+
+	require.Len(t, list.Rows, 1)
+	assert.Equal(t, "stable", list.Rows[0].Status, "the page predates the worker's write")
+	assert.True(t, list.Pending, "so the page still reports the recompute as pending")
+	assert.Equal(t, int64(1), list.StatusCounts["stable"])
 }

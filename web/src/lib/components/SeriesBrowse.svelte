@@ -8,6 +8,7 @@
   import { listSeries, type BrowsePage, type BrowseStatusCounts } from "../browse/loader";
   import {
     groupByRepository,
+    mergeRows,
     sortRows,
     windowStartIso,
     type BrowseRow,
@@ -155,6 +156,7 @@
   async function loadMore() {
     if (nextCursor === null || loadingMore) return;
     const token = reqToken;
+    const hadMorePages = morePagesLoaded;
     loadingMore = true;
     moreErrorMsg = null;
     morePagesLoaded = true;
@@ -162,11 +164,14 @@
     try {
       const page = await listSeries(client, query, nextCursor);
       if (token !== reqToken) return;
-      rows = [...rows, ...page.rows];
+      rows = mergeRows(rows, page.rows);
       nextCursor = page.nextCursor;
     } catch (err) {
       if (token !== reqToken) return;
       moreErrorMsg = err instanceof Error ? err.message : String(err);
+      // Only the first page is shown, so it keeps refreshing.
+      morePagesLoaded = hadMorePages;
+      scheduleRefresh(parseBrowseQuery(filterQuery));
     } finally {
       if (token === reqToken) loadingMore = false;
     }

@@ -124,18 +124,11 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		ActiveUntil: q.ActiveUntil, Status: q.Status, Cursor: q.Cursor,
 		PageSize: int32(pageSize),
 	}
-	rows, err := r.store.SelectBenchmarkPage(ctx, params)
+	list, err := r.store.SelectBenchmarkList(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list benchmarks: %w", err)
 	}
-	counts, err := r.store.CountBenchmarkStatuses(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("count benchmark statuses: %w", err)
-	}
-	pending, err := r.store.BenchmarkVerdictsPending(ctx, q.Repository)
-	if err != nil {
-		return nil, fmt.Errorf("check pending benchmark statuses: %w", err)
-	}
+	rows, counts := list.Rows, list.StatusCounts
 	fingerprints := make([]string, 0)
 	for _, row := range rows {
 		fingerprints = append(fingerprints, row.HistoryFingerprints...)
@@ -180,7 +173,7 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 			Regressed: counts[statusRegressed], Improved: counts[statusImproved],
 			Stable: counts[statusStable], Insufficient: counts[statusInsufficient],
 		},
-		StatusesPending: pending,
+		StatusesPending: list.Pending,
 	}
 	if len(items) == pageSize {
 		last := rows[len(rows)-1]

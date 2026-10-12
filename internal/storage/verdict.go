@@ -90,7 +90,6 @@ type VerdictStore interface {
 	// FinishBenchmarkVerdicts replaces the claimed benchmark's tracks with
 	// verdicts, with the same ErrLeaseLost check.
 	FinishBenchmarkVerdicts(ctx context.Context, claim VerdictClaim, verdicts []BenchmarkVerdict) error
-	BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error)
 	EnqueueVerdict(ctx context.Context, kind VerdictKind, key string) error
 	// EnqueueMissingRunVerdicts queues runs without verdicts. It writes
 	// nothing on a read-only connection.

@@ -179,13 +179,28 @@ WHERE benchmark_id = sqlc.arg('benchmark_id') AND NOT (machine_name = ANY(sqlc.a
 
 -- name: BenchmarkVerdictsPending :one
 -- Whether a queued recompute can change a benchmark within the repository
--- filter, so the list can refresh until statuses settle.
-SELECT EXISTS (
+-- filter, so the list can refresh until statuses settle. A queued benchmark
+-- belongs to the repository of its stored rows, which outlive its last
+-- result, or of its listable results. Each queued key is looked up on its own
+-- so the results lookup uses the partial benchmark_id index instead of
+-- scanning every result.
+SELECT coalesce((
+  sqlc.narg('repository')::text IS NULL
+  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'benchmark')
+) OR EXISTS (
   SELECT 1
   FROM verdict_queue q
+  CROSS JOIN LATERAL (
+    SELECT 1
+    FROM benchmark_verdict v
+    WHERE v.benchmark_id = q.key AND v.repository = sqlc.narg('repository')::text
+    UNION ALL
+    SELECT 1
+    FROM benchmark_result br
+    WHERE br.benchmark_id = q.key
+      AND br.error IS NULL
+      AND br.commit_repo_url = sqlc.narg('repository')::text
+    LIMIT 1
+  ) owned
   WHERE q.kind = 'benchmark'
-    AND (sqlc.narg('repository')::text IS NULL OR EXISTS (
-      SELECT 1 FROM benchmark_result br
-      WHERE br.benchmark_id = q.key AND br.commit_repo_url = sqlc.narg('repository')::text
-    ))
-)::boolean;
+), false)::boolean AS pending;
