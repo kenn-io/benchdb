@@ -74,7 +74,9 @@ type Store interface {
 	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
-	SelectBenchmarkPage(ctx context.Context, p BenchmarkListParams) ([]BenchmarkPageRow, error)
+	// SelectBenchmarkList reads a benchmark page, its scope's status counts,
+	// and whether statuses are pending, all from one database snapshot.
+	SelectBenchmarkList(ctx context.Context, p BenchmarkListParams) (BenchmarkList, error)
 	SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]CIReportRunRow, error)
 	SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]CIReportRunRow, error)
 	GetCIReportCommit(ctx context.Context, repository, sha string) (CIReportCommitRow, error)
@@ -541,12 +543,12 @@ type ResultDetailRow struct {
 type BenchmarkHistoryRow struct {
 	HistoryRow
 	BenchmarkID  string
+	CaseID       string
 	CaseName     string
 	CaseTags     []byte
 	ContextTags  []byte
 	HardwareID   string
 	HardwareType string
-	HardwareName string
 	Repository   string
 }
 
@@ -572,10 +574,10 @@ type HistoryRow struct {
 	CommitMessage      string
 	CommitTimestamp    *time.Time
 
-	// SegmentFirstCommitTimestamp is the earliest member commit of the row's
-	// fingerprint. Only SelectSeriesMembers sets it, because that query returns
-	// a bounded tail whose first row is not the segment's start.
-	SegmentFirstCommitTimestamp time.Time
+	// FingerprintMemberCount is the fingerprint's whole membership within the
+	// requested window. Only SelectSeriesMembers sets it, because that query
+	// returns a bounded tail.
+	FingerprintMemberCount int64
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,
@@ -693,6 +695,8 @@ type SeriesMembersParams struct {
 	Fingerprints []string
 	ActiveSince  *time.Time
 	ActiveUntil  *time.Time
+	// PerFingerprintLimit caps each fingerprint's tail; zero uses the default.
+	PerFingerprintLimit int32
 }
 
 // SeriesPageRow is one series in the list: identity plus the newest-commit
@@ -723,8 +727,11 @@ type SeriesPageRow struct {
 	HardwareHash          string
 }
 
-// BenchmarkListParams filters and paginates logical benchmarks. BenchmarkID
-// is the exact stable identity filter; cursor order is latest commit then ID.
+// BenchmarkListParams filters and paginates logical benchmarks from their
+// stored machine tracks. Hardware keeps one machine's track; the active window
+// keeps tracks whose latest commit falls inside it. BenchmarkID is the exact
+// stable identity filter. Pages run in status order, regressions first, then
+// by name and ID.
 type BenchmarkListParams struct {
 	Q           *string
 	Hardware    *string
@@ -732,29 +739,46 @@ type BenchmarkListParams struct {
 	BenchmarkID *string
 	ActiveSince *time.Time
 	ActiveUntil *time.Time
-	CursorTs    *time.Time
-	CursorID    *string
+	Status      *string
+	Cursor      *BenchmarkCursor
 	PageSize    int32
 }
 
-// BenchmarkPageRow is one logical benchmark (case + repository), with the
-// latest result and aggregate fleet coverage across all fingerprint segments.
+// BenchmarkList is one benchmark page read from a single snapshot.
+// StatusCounts counts every benchmark in the page's scope by status, ignoring
+// the status filter, cursor and page size. Pending reports that a queued
+// recompute can still change benchmarks in the repository filter.
+type BenchmarkList struct {
+	Rows         []BenchmarkPageRow
+	StatusCounts map[string]int64
+	Pending      bool
+}
+
+// BenchmarkCursor is the last row of the previous benchmark page.
+type BenchmarkCursor struct {
+	Status string
+	Name   string
+	ID     string
+}
+
+// BenchmarkPageRow is one logical benchmark (case + repository) aggregated
+// over its machine tracks in scope: the worst status, the shared unit (nil
+// when the tracks do not share one), and the latest result across tracks.
 type BenchmarkPageRow struct {
-	BenchmarkID              string
-	LatestHistoryFingerprint string
-	LatestResultID           string
-	LatestResultTimestamp    time.Time
-	LatestCommitSha          string
-	LatestCommitTimestamp    time.Time
-	CommitRepoURL            string
-	LatestUnit               *string
-	LatestData               []float64
-	PointCount               int64
-	BenchmarkUnits           []string
-	HistoryFingerprints      []string
-	MachineNames             []string
-	CaseName                 string
-	CaseTags                 []byte
+	BenchmarkID           string
+	Repository            string
+	CaseName              string
+	CaseTags              []byte
+	Unit                  *string
+	Status                string
+	MachineNames          []string
+	HistoryFingerprints   []string
+	LatestResultID        string
+	LatestResultTimestamp time.Time
+	LatestCommitSha       string
+	LatestCommitTimestamp time.Time
+	LatestUnit            *string
+	LatestData            []float64
 }
 
 // CIReportRunRow is one distinct benchmark run selected for PR/CI reporting,

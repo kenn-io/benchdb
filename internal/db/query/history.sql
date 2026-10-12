@@ -53,6 +53,7 @@ SELECT
   br.run_tags,
   i.tags AS info_tags,
   br.change_annotations,
+  br.case_id,
   cs.name AS case_name,
   cs.tags AS case_tags,
   ctx.tags AS context_tags,

@@ -63,6 +63,7 @@ func TestRunProfileCollectsHTTPSQLPlansAndRelationSizes(t *testing.T) {
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "RecentRunsPage100 cold")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "SeriesBrowseDefaultPage5 cold")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "SeriesBrowseDefaultPage50 cold")
+	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "BenchmarkBrowseDefaultPage50 cold")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "SeriesBrowseQBroad cold")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "SeriesBrowseDefaultPage5 warm-1")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "CIReportByCommitRun cold")

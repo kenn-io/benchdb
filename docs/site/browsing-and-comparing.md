@@ -22,8 +22,18 @@ last project you chose. `GET /api/repositories` lists the projects.
 The series explorer lives at `/series`. Use it to find benchmark families,
 filter by search text, and navigate to trend pages. Benchmark rows show recent
 state, latest result metadata, and a compact history summary. Regressed
-benchmarks come first, then improved ones, then the rest, each sorted by name.
-With all projects shown, each project gets its own section.
+benchmarks come first, then improved ones, then stable ones, then those with
+too little history, each sorted by name, across every page. With all projects
+shown, each project gets its own section.
+
+Each benchmark's status compares its latest default-branch result with the
+history before it, on each machine. With every machine shown, the benchmark
+takes its worst machine's status; with one machine selected, it shows that
+machine's own status. The status filters above the list count every benchmark
+that matches the other filters, not just the loaded rows, and the
+`?status=regressed` filter lists only regressions. The server scores a
+benchmark in the background within seconds of a new result; until then the
+page shows "Updating statuses…" and reloads itself.
 
 The home dashboard groups activity by submitted `run_id` values, with direct
 links to run detail, batch detail, and CI reports. Batch pages are available at
@@ -51,13 +61,12 @@ queries can match many production series, so pages cap rendered rows and ask you
 to narrow with search, hardware, repository, fingerprint, or active-time filters
 instead of painting an unbounded table.
 
-Default browse and substring search are intentionally recent discovery views.
-On large installations they start from a bounded window of recent
-default-branch commits that have benchmark results, then show the latest visible
-member for each benchmark. They can omit a benchmark whose matching results are
-all outside that window. A known logical benchmark ID at
-`/benchmarks/<benchmark_id>` loads its complete fleet history. A known history
-fingerprint at `/series/<fingerprint>` loads that directly comparable segment.
+The benchmark list and its search cover every benchmark with default-branch
+history. A time window keeps the machines whose latest default-branch result
+falls inside it, and counts only the points inside it. A known logical
+benchmark ID at `/benchmarks/<benchmark_id>` loads its complete fleet history. A
+known history fingerprint at `/series/<fingerprint>` loads that directly
+comparable segment.
 Run pages and CI reports also provide exact links into those histories.
 
 A benchmark row's status is the worst status among each machine's current

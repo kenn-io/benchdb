@@ -23,11 +23,15 @@ const (
 	runVerdictWindow = 14 * 24 * time.Hour
 	verdictLease     = 2 * time.Minute
 	verdictBatch     = 20
-	verdictTick      = 5 * time.Second
+	// verdictTick bounds how long a new benchmark result waits to be scored,
+	// since benchmark keys need no settling. An idle tick is one indexed
+	// query.
+	verdictTick = time.Second
 )
 
-// Verdicts recomputes stored run attention verdicts from the durable queue
-// that database triggers fill when results or commits change.
+// Verdicts recomputes stored run attention verdicts and benchmark statuses
+// from the durable queue that database triggers fill when results or commits
+// change.
 type Verdicts struct {
 	store    storage.Store
 	reporter *CIReporter
@@ -74,6 +78,12 @@ func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) erro
 			return err
 		}
 		return v.store.FinishVerdictClaim(ctx, claim)
+	case storage.VerdictKindBenchmark:
+		rows, err := v.store.SelectHistoryForBenchmark(ctx, claim.Key)
+		if err != nil {
+			return err
+		}
+		return v.store.FinishBenchmarkVerdicts(ctx, claim, benchmarkVerdicts(rows))
 	default:
 		return fmt.Errorf("unknown verdict kind %q", claim.Kind)
 	}
@@ -138,7 +148,7 @@ func (v *Verdicts) Run(ctx context.Context) {
 		for {
 			claimed, err := v.Process(ctx)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("run verdicts: %v", err)
+				log.Printf("verdicts: %v", err)
 			}
 			if claimed < verdictBatch || ctx.Err() != nil {
 				break

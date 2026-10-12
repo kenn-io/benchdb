@@ -43,6 +43,23 @@ provides browsing, comparison, and regression analysis.
   present, must remain a symlink to it.
 - Code reviewers must follow [REVIEW.md](REVIEW.md).
 
+## Writing
+
+- Write pull request descriptions, commit messages, documentation, and
+  changelog entries for the person using or operating BenchDB. Lead with the
+  outcome they will notice. Use plain language and short sentences, and explain
+  unfamiliar terms.
+- Give each bullet one main idea. Prefer a few short bullets to paragraphs, and
+  never post a wall of text.
+- Put implementation details after the outcome, and include them only when
+  they help the reader act, review, or understand a limit.
+- Write summary-only pull request descriptions: the benefit, what the code does
+  now, tradeoffs and limits, and where reviewers should look. Do not add test
+  plans, checklists, command transcripts, or sections named Tests, Testing,
+  Verification, or Test plan.
+- Keep pull request titles and descriptions in sync with the current diff.
+  Rewrite the description when the change moves instead of appending to it.
+
 ## CI runners
 
 Public CI profiles use Namespace's

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -43,6 +44,9 @@ type BenchmarkListItem struct {
 	PreviewTracks         []BenchmarkPreviewTrack `json:"preview_tracks"`
 }
 
+// BenchmarkQuery filters and paginates the benchmark list. Hardware keeps one
+// machine's track, the active window keeps tracks whose latest commit falls
+// inside it, and Status keeps benchmarks with that status.
 type BenchmarkQuery struct {
 	Q           *string
 	Hardware    *string
@@ -50,19 +54,31 @@ type BenchmarkQuery struct {
 	BenchmarkID *string
 	ActiveSince *time.Time
 	ActiveUntil *time.Time
-	CursorTs    *time.Time
-	CursorID    *string
+	Status      *string
+	Cursor      *BenchmarkCursor
 	PageSize    int
 }
 
-type BenchmarkCursor struct {
-	Ts time.Time
-	ID string
+// BenchmarkCursor is the last row of the previous page. Pages run in status
+// order, regressions first, then by name and ID.
+type BenchmarkCursor = storage.BenchmarkCursor
+
+// BenchmarkStatusCounts counts the benchmarks in a list's scope by status,
+// before the status filter.
+type BenchmarkStatusCounts struct {
+	Regressed    int64 `json:"regressed"`
+	Improved     int64 `json:"improved"`
+	Stable       int64 `json:"stable"`
+	Insufficient int64 `json:"insufficient"`
 }
 
+// BenchmarkResult is one page of benchmarks. StatusesPending reports that a
+// queued recompute can still change benchmarks in the repository filter.
 type BenchmarkResult struct {
-	Benchmarks []BenchmarkListItem
-	NextCursor *BenchmarkCursor
+	Benchmarks      []BenchmarkListItem
+	StatusCounts    BenchmarkStatusCounts
+	StatusesPending bool
+	NextCursor      *BenchmarkCursor
 }
 
 // BenchmarkSegment is one directly-comparable history fingerprint within a
@@ -91,6 +107,9 @@ type BenchmarkHistory struct {
 	Tracks       []BenchmarkTrack `json:"tracks"`
 }
 
+// ListBenchmarks returns one page of benchmarks from their stored statuses,
+// with whole-scope status counts. Previews and point counts come from each
+// benchmark's history within the active window.
 func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*BenchmarkResult, error) {
 	pageSize := q.PageSize
 	if pageSize <= 0 {
@@ -99,23 +118,26 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 	if pageSize > listPageSizeMax {
 		pageSize = listPageSizeMax
 	}
-	rows, err := r.store.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
+	params := storage.BenchmarkListParams{
 		Q: q.Q, Hardware: q.Hardware, Repository: q.Repository,
 		BenchmarkID: q.BenchmarkID, ActiveSince: q.ActiveSince,
-		ActiveUntil: q.ActiveUntil, CursorTs: q.CursorTs,
-		CursorID: q.CursorID, PageSize: int32(pageSize),
-	})
+		ActiveUntil: q.ActiveUntil, Status: q.Status, Cursor: q.Cursor,
+		PageSize: int32(pageSize),
+	}
+	list, err := r.store.SelectBenchmarkList(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list benchmarks: %w", err)
 	}
+	rows, counts := list.Rows, list.StatusCounts
 	fingerprints := make([]string, 0)
 	for _, row := range rows {
 		fingerprints = append(fingerprints, row.HistoryFingerprints...)
 	}
 	members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
-		Fingerprints: fingerprints,
-		ActiveSince:  q.ActiveSince,
-		ActiveUntil:  q.ActiveUntil,
+		Fingerprints:        fingerprints,
+		ActiveSince:         q.ActiveSince,
+		ActiveUntil:         q.ActiveUntil,
+		PerFingerprintLimit: benchmarkPreviewLen,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark members: %w", err)
@@ -123,7 +145,6 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 	byFingerprint := groupMembersByFingerprint(members)
 	items := make([]BenchmarkListItem, 0, len(rows))
 	for _, row := range rows {
-		unit, lessIsBetter := benchmarkIdentityUnit(row.BenchmarkUnits)
 		tags, err := jsonObject(row.CaseTags)
 		if err != nil {
 			return nil, err
@@ -135,20 +156,28 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		latestSVS, latestSVSType := latestSeriesSVS(row.LatestUnit, row.LatestData)
 		items = append(items, BenchmarkListItem{
 			BenchmarkID: row.BenchmarkID, Name: row.CaseName, Tags: tags,
-			Repository: row.CommitRepoURL, Unit: unit, LessIsBetter: lessIsBetter,
-			Status:         benchmarkStatus(row.HistoryFingerprints, byFingerprint, unit, lessIsBetter),
+			Repository: row.Repository, Unit: row.Unit, LessIsBetter: lessIsBetterPtr(row.Unit),
+			Status:         row.Status,
 			LatestResultID: row.LatestResultID, LatestSVS: latestSVS,
 			LatestSVSType: latestSVSType,
 			MachineNames:  row.MachineNames, LatestCommitSha: row.LatestCommitSha,
 			LatestCommitTimestamp: row.LatestCommitTimestamp,
-			LatestResultTimestamp: row.LatestResultTimestamp, PointCount: row.PointCount,
-			PreviewTracks: benchmarkPreview(row.HistoryFingerprints, byFingerprint),
+			LatestResultTimestamp: row.LatestResultTimestamp,
+			PointCount:            benchmarkPointCount(row.HistoryFingerprints, byFingerprint),
+			PreviewTracks:         benchmarkPreview(row.HistoryFingerprints, byFingerprint),
 		})
 	}
-	result := &BenchmarkResult{Benchmarks: items}
+	result := &BenchmarkResult{
+		Benchmarks: items,
+		StatusCounts: BenchmarkStatusCounts{
+			Regressed: counts[statusRegressed], Improved: counts[statusImproved],
+			Stable: counts[statusStable], Insufficient: counts[statusInsufficient],
+		},
+		StatusesPending: list.Pending,
+	}
 	if len(items) == pageSize {
 		last := rows[len(rows)-1]
-		result.NextCursor = &BenchmarkCursor{Ts: last.LatestCommitTimestamp, ID: last.BenchmarkID}
+		result.NextCursor = &BenchmarkCursor{Status: last.Status, Name: last.CaseName, ID: last.BenchmarkID}
 	}
 	return result, nil
 }
@@ -163,6 +192,18 @@ func benchmarkIdentityUnit(units []string) (*string, *bool) {
 		return nil, nil
 	}
 	return unit, lessIsBetter
+}
+
+// benchmarkPointCount counts the benchmark's history points within the active
+// window across its fingerprints.
+func benchmarkPointCount(fingerprints []string, members map[string][]storage.HistoryRow) int64 {
+	var count int64
+	for _, fingerprint := range fingerprints {
+		if tail := members[fingerprint]; len(tail) > 0 {
+			count += tail[0].FingerprintMemberCount
+		}
+	}
+	return count
 }
 
 func benchmarkPreview(
@@ -253,21 +294,93 @@ func currentSegments(
 }
 
 // supersededSegment reports whether another segment on the same machine begins
-// strictly after segment's latest commit. A segment begins at its earliest
-// member, which can precede the bounded tail of members loaded here.
+// strictly after segment's latest commit. Segments hold full history, so a
+// segment begins at its first member.
 func supersededSegment(segment []storage.HistoryRow, segments [][]storage.HistoryRow) bool {
 	machine := segment[0].HardwareName
 	latest := latestHistoryRowTime(segment)
 	for _, other := range segments {
 		first := other[0]
-		if first.HardwareName != machine || first.SegmentFirstCommitTimestamp.IsZero() {
+		if first.HardwareName != machine || first.CommitTimestamp == nil {
 			continue
 		}
-		if first.SegmentFirstCommitTimestamp.After(latest) {
+		if first.CommitTimestamp.After(latest) {
 			return true
 		}
 	}
 	return false
+}
+
+// benchmarkTrack accumulates one machine's history while benchmarkVerdicts
+// reads a benchmark's rows.
+type benchmarkTrack struct {
+	verdict      storage.BenchmarkVerdict
+	fingerprints []string
+	members      map[string][]storage.HistoryRow
+	units        map[string]bool
+	latest       storage.HistoryRow
+}
+
+// benchmarkVerdicts derives each machine's stored track from a benchmark's
+// full default-branch history, as SelectHistoryForBenchmark returns it. A
+// track's status is the worst over its current segments; a track without one
+// unit of known direction is insufficient.
+func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) []storage.BenchmarkVerdict {
+	tracks := make(map[string]*benchmarkTrack)
+	machines := make([]string, 0)
+	for _, row := range rows {
+		if row.CommitTimestamp == nil {
+			continue
+		}
+		track, ok := tracks[row.HardwareName]
+		if !ok {
+			track = &benchmarkTrack{
+				verdict: storage.BenchmarkVerdict{
+					BenchmarkID: row.BenchmarkID, MachineName: row.HardwareName,
+					Repository: row.Repository, CaseID: row.CaseID,
+				},
+				members: make(map[string][]storage.HistoryRow),
+				units:   make(map[string]bool),
+			}
+			tracks[row.HardwareName] = track
+			machines = append(machines, row.HardwareName)
+		}
+		if _, seen := track.members[row.HistoryFingerprint]; !seen {
+			track.fingerprints = append(track.fingerprints, row.HistoryFingerprint)
+		}
+		track.members[row.HistoryFingerprint] = append(track.members[row.HistoryFingerprint], row.HistoryRow)
+		track.units[derefString(row.Unit)] = true
+		if track.latest.CommitTimestamp == nil || laterHistoryRow(row.HistoryRow, track.latest) {
+			track.latest = row.HistoryRow
+		}
+	}
+	slices.Sort(machines)
+	verdicts := make([]storage.BenchmarkVerdict, 0, len(machines))
+	for _, machine := range machines {
+		track := tracks[machine]
+		units := slices.Sorted(maps.Keys(track.units))
+		unit, lessIsBetter := benchmarkIdentityUnit(units)
+		slices.Sort(track.fingerprints)
+		verdict := track.verdict
+		verdict.HistoryFingerprints = track.fingerprints
+		verdict.Unit = unit
+		verdict.Status = benchmarkStatus(track.fingerprints, track.members, unit, lessIsBetter)
+		verdict.LatestResultID = track.latest.ID
+		verdict.LatestResultTimestamp = track.latest.Timestamp
+		verdict.LatestCommitSHA = track.latest.CommitSha
+		verdict.LatestCommitTimestamp = *track.latest.CommitTimestamp
+		verdicts = append(verdicts, verdict)
+	}
+	return verdicts
+}
+
+// laterHistoryRow orders members the way the list picks a latest result: by
+// commit time, then by result ID.
+func laterHistoryRow(a, b storage.HistoryRow) bool {
+	if byCommit := a.CommitTimestamp.Compare(*b.CommitTimestamp); byCommit != 0 {
+		return byCommit > 0
+	}
+	return a.ID > b.ID
 }
 
 func (r *Reader) BenchmarkHistory(ctx context.Context, benchmarkID string) (*BenchmarkHistory, error) {

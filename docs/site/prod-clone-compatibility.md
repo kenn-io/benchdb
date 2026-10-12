@@ -89,8 +89,9 @@ BENCHDB_DB_URL='postgresql://<writable-role>@<clone-host>:<port>/<clone-database
   ./bin/benchdb migrate
 ```
 
-Preflight refuses a clone that lacks the `run_verdict` and `verdict_queue`
-tables, and includes them in its privilege and row-count checks.
+Preflight refuses a clone that lacks the `run_verdict`, `verdict_queue`, and
+`benchmark_verdict` tables, and includes them in its privilege and row-count
+checks.
 
 ## Running The Gate
 

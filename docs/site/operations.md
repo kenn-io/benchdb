@@ -350,23 +350,31 @@ The repository does not ship a kube-prometheus or Grafana stack generator.
 Cluster monitoring stacks are deployment-owned; BenchDB owns only the
 application `ServiceMonitor` that advertises how to scrape `/metrics`.
 
-## Run Verdicts
+## Run Verdicts And Benchmark Statuses
 
 Every server process runs a background worker that stores each run's CI
-attention verdict in `run_verdict`, so the home page can show and filter by
-attention without evaluating CI reports on page load. Database triggers queue
+attention verdict in `run_verdict` and each benchmark's status in
+`benchmark_verdict`, so the home page and the Benchmarks list can show, filter,
+and count them without evaluating history on page load. Database triggers queue
 work in `verdict_queue` when results are inserted, deleted, or re-annotated and
 when commits are inserted or repaired, including writes from admin commands.
 Workers claim queued keys with a lease, so several replicas can share the queue.
 A run that has results in several repositories gets one verdict per
-repository. A server whose database connection is read-only serves stored
-verdicts but does not compute or queue new ones.
+repository. A benchmark gets one row per machine. A server whose database
+connection is read-only serves stored verdicts but does not compute or queue
+new ones.
 
 - A run is evaluated once its results have stopped changing for 15 seconds.
 - New default-branch results or commits in a repository re-queue that
   repository's pull-request runs with results from the last 14 days.
 - Upgrading to the release that adds verdicts queues runs from the last 14
   days; older runs are queued when a page first lists them.
+- A benchmark is scored within about a second after a default-branch result
+  for it is written or deleted, or after a commit that carries its results
+  joins or leaves the default branch.
+- Upgrading to the release that adds benchmark statuses queues every benchmark
+  with default-branch history. Until the worker scores a benchmark, the
+  Benchmarks list omits it.
 
 Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
 and default thresholds. After an upgrade that changes CI report rules, re-queue
@@ -374,6 +382,15 @@ existing verdicts so they are recomputed:
 
 ```sql
 SELECT enqueue_verdict('run', run_id) FROM (SELECT DISTINCT run_id FROM run_verdict ORDER BY run_id) runs;
+```
+
+A benchmark status compares each machine's latest point with the points before
+it at the default z-score threshold. After an upgrade that changes that rule,
+re-queue every benchmark:
+
+```sql
+SELECT enqueue_verdict('benchmark', benchmark_id)
+FROM (SELECT DISTINCT benchmark_id FROM benchmark_verdict ORDER BY benchmark_id) benchmarks;
 ```
 
 ## Unknown Commit Repair

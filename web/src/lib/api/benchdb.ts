@@ -249,6 +249,13 @@ export interface BenchmarkListItem {
   unit: string | null;
 }
 
+export interface BenchmarkStatusCounts {
+  improved: number;
+  insufficient: number;
+  regressed: number;
+  stable: number;
+}
+
 export interface BenchmarkPage {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
@@ -256,6 +263,9 @@ export interface BenchmarkPage {
   benchmarks: BenchmarkListItem[] | null;
   /** @nullable */
   next_page_cursor: string | null;
+  status_counts: BenchmarkStatusCounts;
+  /** A queued recompute can still change benchmarks in the repository filter; statuses settle within seconds. */
+  statuses_pending: boolean;
 }
 
 export type CIReportStatus = typeof CIReportStatus[keyof typeof CIReportStatus];
@@ -1138,7 +1148,7 @@ export type ListBenchmarksParams = {
  */
 q?: string;
 /**
- * Only benchmarks with results from this machine name.
+ * Only this machine's track of each benchmark: its status, latest value and history.
  */
 hardware?: string;
 /**
@@ -1150,13 +1160,17 @@ repository?: string;
  */
 benchmark_id?: string;
 /**
- * Latest commit at or after this instant, RFC3339.
+ * Only machine tracks whose latest commit is at or after this instant, RFC3339.
  */
 active_since?: string;
 /**
- * Latest commit at or before this instant, RFC3339.
+ * Only machine tracks whose latest commit is at or before this instant, RFC3339.
  */
 active_until?: string;
+/**
+ * Only benchmarks with this status.
+ */
+status?: ListBenchmarksStatus;
 /**
  * Pagination cursor from a previous page.
  */
@@ -1166,6 +1180,16 @@ cursor?: string;
  */
 page_size?: number;
 };
+
+export type ListBenchmarksStatus = typeof ListBenchmarksStatus[keyof typeof ListBenchmarksStatus];
+
+
+export const ListBenchmarksStatus = {
+  regressed: 'regressed',
+  improved: 'improved',
+  stable: 'stable',
+  insufficient: 'insufficient',
+} as const;
 
 export type GetCiReportParams = {
 /**

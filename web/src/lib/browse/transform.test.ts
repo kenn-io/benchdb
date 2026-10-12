@@ -5,9 +5,9 @@ import {
   formatDate,
   formatSVS,
   groupByRepository,
+  mergeRows,
   sortRows,
   sparklinePoints,
-  statusCounts,
   tagsText,
   toBrowseRows,
   windowStartIso,
@@ -143,17 +143,27 @@ describe("groupByRepository", () => {
     ]);
     expect(groupByRepository([])).toEqual([]);
   });
+
+  it("leads with the project that holds the most urgent status", () => {
+    const rows = toBrowseRows([
+      item({ benchmark_id: "g1", repository: "https://github.com/acme/gizmo", status: "improved" }),
+      item({ benchmark_id: "w1", repository: "https://github.com/acme/widgets", status: "stable" }),
+      item({ benchmark_id: "w2", repository: "https://github.com/acme/widgets", status: "regressed" }),
+      item({ benchmark_id: "a1", repository: "https://github.com/acme/apps", status: "stable" }),
+    ]);
+    expect(groupByRepository(rows).map((g) => g.label)).toEqual(["acme/widgets", "acme/gizmo", "acme/apps"]);
+  });
 });
 
-describe("statusCounts", () => {
-  it("counts regressed and improved rows", () => {
-    const rows = toBrowseRows([
-      item({ status: "regressed" }),
-      item({ status: "regressed" }),
-      item({ status: "improved" }),
-      item({ status: "stable" }),
+describe("mergeRows", () => {
+  it("replaces a benchmark that a later page returns again and appends the rest", () => {
+    const loaded = toBrowseRows([item({ benchmark_id: "a" }), item({ benchmark_id: "b", status: "regressed" })]);
+    const page = toBrowseRows([item({ benchmark_id: "b", status: "stable" }), item({ benchmark_id: "c" })]);
+    expect(mergeRows(loaded, page).map((row) => [row.benchmarkId, row.status])).toEqual([
+      ["a", "stable"],
+      ["b", "stable"],
+      ["c", "stable"],
     ]);
-    expect(statusCounts(rows)).toEqual({ regressed: 2, improved: 1 });
   });
 });
 

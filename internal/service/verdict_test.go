@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -290,7 +291,8 @@ func TestCommitRepairAndResultWritesQueueVerdictsWithoutDeadlock(t *testing.T) {
 	ing, _, pool, ctx := newIngester(t)
 	submitAt(t, ctx, ing, "shared-run", "c1", 10, time.Now().UTC())
 
-	// A result write locks the run's queue key and then the repository's.
+	// A result write locks the run's queue key, then the repository's, then
+	// the benchmark's.
 	writer, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = writer.Rollback(ctx) })
@@ -306,6 +308,8 @@ func TestCommitRepairAndResultWritesQueueVerdictsWithoutDeadlock(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('repository', $1)`, testRepo)
+	require.NoError(t, err, "the writer must not deadlock with the repair")
+	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('benchmark', benchmark_id) FROM benchmark_result WHERE run_id = 'shared-run'`)
 	require.NoError(t, err, "the writer must not deadlock with the repair")
 	require.NoError(t, writer.Commit(ctx))
 	require.NoError(t, <-repaired)
@@ -336,4 +340,56 @@ func TestListingAndCommitRepairQueueVerdictsWithoutDeadlock(t *testing.T) {
 	require.NoError(t, err, "the repair must not deadlock with the listing")
 	require.NoError(t, repair.Commit(ctx))
 	require.NoError(t, <-listed)
+}
+
+func listBenchmarks(t *testing.T, ctx context.Context, store *db.Store, q service.BenchmarkQuery) *service.BenchmarkResult {
+	t.Helper()
+	page, err := service.NewReader(store).ListBenchmarks(ctx, q)
+	require.NoError(t, err)
+	return page
+}
+
+func TestBenchmarkStatusesFollowDefaultBranchHistory(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	start := time.Now().UTC().Truncate(time.Second).Add(-24 * time.Hour)
+	provider := ciCommitProvider{}
+	baseline := []float64{10, 10.2, 9.9, 10.1, 9.8, 10, 10.1}
+	for i := range len(baseline) + 1 {
+		sha := fmt.Sprintf("c%d", i)
+		provider[sha] = ciCommitInfo(sha, nil, sha, start.Add(time.Duration(i)*time.Hour))
+	}
+	ing := service.NewIngester(store, provider)
+	for i, value := range baseline {
+		submitAt(t, ctx, ing, fmt.Sprintf("main-%d", i), fmt.Sprintf("c%d", i), value, start.Add(time.Duration(i)*time.Hour))
+	}
+	drainVerdicts(t, ctx, store)
+
+	page := listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
+	require.Len(t, page.Benchmarks, 1)
+	assert.Equal(t, "stable", page.Benchmarks[0].Status)
+	assert.Equal(t, int64(len(baseline)), page.Benchmarks[0].PointCount)
+	recent := listBenchmarks(t, ctx, store, service.BenchmarkQuery{ActiveSince: new(start.Add(4 * time.Hour))})
+	require.Len(t, recent.Benchmarks, 1)
+	assert.Equal(t, int64(len(baseline)-4), recent.Benchmarks[0].PointCount, "a window counts only its own points")
+	assert.Equal(t, service.BenchmarkStatusCounts{Stable: 1}, page.StatusCounts)
+	assert.False(t, page.StatusesPending)
+
+	slow := submitAt(t, ctx, ing, "main-slow", fmt.Sprintf("c%d", len(baseline)), 30, start.Add(time.Duration(len(baseline))*time.Hour))
+	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
+	assert.True(t, page.StatusesPending, "the new result queued its benchmark")
+	assert.Equal(t, "stable", page.Benchmarks[0].Status, "the stored status shows until the recompute")
+
+	drainVerdicts(t, ctx, store)
+	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{Status: new("regressed")})
+	require.Len(t, page.Benchmarks, 1)
+	assert.Equal(t, "regressed", page.Benchmarks[0].Status)
+	assert.Equal(t, slow.ID, page.Benchmarks[0].LatestResultID)
+	assert.Equal(t, service.BenchmarkStatusCounts{Regressed: 1}, page.StatusCounts)
+	assert.Empty(t, listBenchmarks(t, ctx, store, service.BenchmarkQuery{Status: new("stable")}).Benchmarks)
+
+	require.NoError(t, ing.DeleteResult(ctx, slow.ID))
+	drainVerdicts(t, ctx, store)
+	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
+	require.Len(t, page.Benchmarks, 1)
+	assert.Equal(t, "stable", page.Benchmarks[0].Status, "deleting the regression restores the status")
 }

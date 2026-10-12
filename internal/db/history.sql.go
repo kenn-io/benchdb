@@ -22,6 +22,7 @@ SELECT
   br.run_tags,
   i.tags AS info_tags,
   br.change_annotations,
+  br.case_id,
   cs.name AS case_name,
   cs.tags AS case_tags,
   ctx.tags AS context_tags,
@@ -59,6 +60,7 @@ type SelectHistoryForBenchmarkRow struct {
 	RunTags            []byte
 	InfoTags           []byte
 	ChangeAnnotations  []byte
+	CaseID             string
 	CaseName           string
 	CaseTags           []byte
 	ContextTags        []byte
@@ -96,6 +98,7 @@ func (q *Queries) SelectHistoryForBenchmark(ctx context.Context, benchmarkID str
 			&i.RunTags,
 			&i.InfoTags,
 			&i.ChangeAnnotations,
+			&i.CaseID,
 			&i.CaseName,
 			&i.CaseTags,
 			&i.ContextTags,

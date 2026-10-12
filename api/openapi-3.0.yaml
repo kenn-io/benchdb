@@ -324,8 +324,15 @@ components:
         next_page_cursor:
           nullable: true
           type: string
+        status_counts:
+          $ref: "#/components/schemas/BenchmarkStatusCounts"
+        statuses_pending:
+          description: A queued recompute can still change benchmarks in the repository filter; statuses settle within seconds.
+          type: boolean
       required:
         - benchmarks
+        - status_counts
+        - statuses_pending
         - next_page_cursor
       type: object
     BenchmarkPreviewPoint:
@@ -379,6 +386,27 @@ components:
         - context
         - hardware
         - samples
+      type: object
+    BenchmarkStatusCounts:
+      additionalProperties: false
+      properties:
+        improved:
+          format: int64
+          type: integer
+        insufficient:
+          format: int64
+          type: integer
+        regressed:
+          format: int64
+          type: integer
+        stable:
+          format: int64
+          type: integer
+      required:
+        - regressed
+        - improved
+        - stable
+        - insufficient
       type: object
     BenchmarkTrack:
       additionalProperties: false
@@ -2846,12 +2874,12 @@ paths:
           schema:
             description: Substring match on benchmark name and tags.
             type: string
-        - description: Only benchmarks with results from this machine name.
+        - description: "Only this machine's track of each benchmark: its status, latest value and history."
           explode: false
           in: query
           name: hardware
           schema:
-            description: Only benchmarks with results from this machine name.
+            description: "Only this machine's track of each benchmark: its status, latest value and history."
             type: string
         - description: Filter by repository URL.
           explode: false
@@ -2867,19 +2895,31 @@ paths:
           schema:
             description: Filter by stable benchmark identifier.
             type: string
-        - description: Latest commit at or after this instant, RFC3339.
+        - description: Only machine tracks whose latest commit is at or after this instant, RFC3339.
           explode: false
           in: query
           name: active_since
           schema:
-            description: Latest commit at or after this instant, RFC3339.
+            description: Only machine tracks whose latest commit is at or after this instant, RFC3339.
             type: string
-        - description: Latest commit at or before this instant, RFC3339.
+        - description: Only machine tracks whose latest commit is at or before this instant, RFC3339.
           explode: false
           in: query
           name: active_until
           schema:
-            description: Latest commit at or before this instant, RFC3339.
+            description: Only machine tracks whose latest commit is at or before this instant, RFC3339.
+            type: string
+        - description: Only benchmarks with this status.
+          explode: false
+          in: query
+          name: status
+          schema:
+            description: Only benchmarks with this status.
+            enum:
+              - regressed
+              - improved
+              - stable
+              - insufficient
             type: string
         - description: Pagination cursor from a previous page.
           explode: false

@@ -60,6 +60,36 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 	})
 }
 
+// FinishBenchmarkVerdicts replaces the benchmark's machine tracks and
+// completes the claim atomically, or returns storage.ErrLeaseLost without
+// writing.
+func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.BenchmarkVerdict) error {
+	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
+		machines := make([]string, 0, len(verdicts))
+		for _, verdict := range verdicts {
+			machines = append(machines, verdict.MachineName)
+			if err := q.UpsertBenchmarkVerdict(ctx, UpsertBenchmarkVerdictParams{
+				BenchmarkID:           verdict.BenchmarkID,
+				MachineName:           verdict.MachineName,
+				Repository:            verdict.Repository,
+				CaseID:                verdict.CaseID,
+				HistoryFingerprints:   verdict.HistoryFingerprints,
+				Unit:                  verdict.Unit,
+				Status:                verdict.Status,
+				LatestResultID:        verdict.LatestResultID,
+				LatestResultTimestamp: verdict.LatestResultTimestamp,
+				LatestCommitSha:       verdict.LatestCommitSHA,
+				LatestCommitTimestamp: verdict.LatestCommitTimestamp,
+			}); err != nil {
+				return err
+			}
+		}
+		return q.DeleteBenchmarkVerdictsExcept(ctx, DeleteBenchmarkVerdictsExceptParams{
+			BenchmarkID: claim.Key, MachineNames: machines,
+		})
+	})
+}
+
 // FinishVerdictClaim completes a claim that writes no verdicts.
 func (s *Store) FinishVerdictClaim(ctx context.Context, claim storage.VerdictClaim) error {
 	return s.withVerdictClaim(ctx, claim, func(*Queries) error { return nil })
