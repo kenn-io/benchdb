@@ -117,7 +117,7 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("check database read-only mode: %w", err)
 	}
 	if readOnly {
-		log.Printf("read-only database: run verdicts are not computed")
+		log.Printf("read-only database: run verdicts and benchmark statuses are not computed")
 	} else {
 		verdictCtx, stopVerdicts := context.WithCancel(ctx)
 		verdictsDone := make(chan struct{})

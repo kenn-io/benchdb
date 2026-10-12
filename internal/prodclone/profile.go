@@ -248,6 +248,15 @@ func profileHTTPCalls(samples profileSamples) []profileHTTPCall {
 			resp, err := client.ListSeriesWithResponse(ctx, &benchdbclient.ListSeriesRequestOptions{Query: &benchdbclient.ListSeriesQuery{PageSize: new(int64(profileSmallPageSize)), Fingerprint: new(samples.longFingerprint)}}, editor)
 			return responseStatus(resp), err
 		}},
+		{name: "BenchmarkBrowseDefaultPage50", operation: "GET /api/benchmarks", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			resp, err := client.ListBenchmarksWithResponse(ctx, &benchdbclient.ListBenchmarksRequestOptions{Query: &benchdbclient.ListBenchmarksQuery{PageSize: new(int64(profileLargePageSize))}}, editor)
+			return responseStatus(resp), err
+		}},
+		{name: "BenchmarkBrowseRegressed", operation: "GET /api/benchmarks?status=regressed", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
+			status := benchdbclient.ListBenchmarksQueryStatusRegressed
+			resp, err := client.ListBenchmarksWithResponse(ctx, &benchdbclient.ListBenchmarksRequestOptions{Query: &benchdbclient.ListBenchmarksQuery{PageSize: new(int64(profileLargePageSize)), Status: &status}}, editor)
+			return responseStatus(resp), err
+		}},
 		{name: "HistoryLong", operation: "GET /api/history", call: func(ctx context.Context, client *benchdbclient.Client, editor runtime.RequestEditorFn) (int, error) {
 			resp, err := client.GetHistoryWithResponse(ctx, &benchdbclient.GetHistoryRequestOptions{Query: &benchdbclient.GetHistoryQuery{Fingerprint: samples.longFingerprint}}, editor)
 			return responseStatus(resp), err

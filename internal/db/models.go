@@ -107,6 +107,21 @@ type BenchmarkResult struct {
 	BenchmarkID             string
 }
 
+type BenchmarkVerdict struct {
+	BenchmarkID           string
+	MachineName           string
+	Repository            string
+	CaseID                string
+	HistoryFingerprints   []string
+	Unit                  *string
+	Status                string
+	LatestResultID        string
+	LatestResultTimestamp time.Time
+	LatestCommitSha       string
+	LatestCommitTimestamp time.Time
+	ComputedAt            pgtype.Timestamptz
+}
+
 type Case struct {
 	ID   string
 	Name string

@@ -105,7 +105,7 @@ func TestHistoryExcludesNullCommitTimestamp(t *testing.T) {
 }
 
 func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
-	tapi, _, _ := seedAPI(t)
+	tapi, pool, ctx := seedAPI(t)
 	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}, runReason: "manual", changeAnnotations: map[string]any{"exclude_from_history": false}})
 	baseline := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{30}})
@@ -114,6 +114,7 @@ func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	before := historyByFP(t, tapi, fp)
 	require.Len(t, before.Samples, 4)
 	benchmarkID := getResultDetail(t, tapi, contender).BenchmarkID
+	drainVerdicts(t, ctx, pool)
 	pages := map[string]string{}
 	for _, path := range []string{"/api/series", "/api/series?fingerprint=" + fp, "/api/series?q=bench", "/api/benchmarks", "/api/benchmarks/" + benchmarkID} {
 		resp := tapi.Get(path)
@@ -137,6 +138,7 @@ func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	})
 	assert.Equal(t, fp, fpForResult(t, tapi, excluded), "excluded results remain directly comparable")
 	assert.Equal(t, before, historyByFP(t, tapi, fp), "backfill must not add a recovery observation or change statistics")
+	drainVerdicts(t, ctx, pool)
 	for path, beforePage := range pages {
 		resp := tapi.Get(path)
 		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())

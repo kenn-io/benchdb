@@ -1,11 +1,17 @@
 import type { createBenchDBClient } from "../api/client";
 import type { BrowseQuery } from "../router";
-import { toBrowseRows, windowStartIso, type BrowseRow } from "./transform";
+import { toBrowseRows, windowStartIso, type BrowseRow, type SeriesStatus } from "./transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 
+/** BrowseStatusCounts counts every benchmark the other filters match, by status. */
+export type BrowseStatusCounts = Record<SeriesStatus, number>;
+
 export interface BrowsePage {
   rows: BrowseRow[];
+  statusCounts: BrowseStatusCounts;
+  /** A queued recompute can still change benchmarks in the project filter. */
+  statusesPending: boolean;
   nextCursor: string | null;
 }
 
@@ -32,6 +38,7 @@ export async function listSeries(
         ...(query.hardware !== "" && { hardware: query.hardware }),
         ...(query.repository !== "" && { repository: query.repository }),
         ...(since !== null && { active_since: since }),
+        ...(query.status !== "" && { status: query.status }),
         ...(cursor !== null && { cursor }),
       });
   if (res.status >= 400 || !res.data) {
@@ -39,5 +46,10 @@ export async function listSeries(
   }
   // The generated schema types `benchmarks` as nullable (a Go nil slice serializes
   // as JSON null); treat null as an empty page, matching the history loader.
-  return { rows: toBrowseRows(res.data.benchmarks ?? []), nextCursor: res.data.next_page_cursor };
+  return {
+    rows: toBrowseRows(res.data.benchmarks ?? []),
+    statusCounts: res.data.status_counts,
+    statusesPending: res.data.statuses_pending,
+    nextCursor: res.data.next_page_cursor,
+  };
 }

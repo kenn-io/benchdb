@@ -86,12 +86,15 @@ export interface CIReportRoute {
 }
 
 export type BrowseWindow = "all" | "30d" | "3mo" | "1y";
+/** BrowseStatus filters the benchmark list by stored status; "" lists all. */
+export type BrowseStatus = "" | "regressed" | "improved" | "stable" | "insufficient";
 
 export interface BrowseQuery {
   q: string;
   hardware: string;
   repository: string;
   window: BrowseWindow;
+  status: BrowseStatus;
   view: "table" | "charts";
 }
 
@@ -280,7 +283,14 @@ export function formatCompareQuery(query: CompareQuery): string {
   return s === "" ? "" : `?${s}`;
 }
 
-export const DEFAULT_BROWSE_QUERY: BrowseQuery = { q: "", hardware: "", repository: "", window: "all", view: "table" };
+export const DEFAULT_BROWSE_QUERY: BrowseQuery = {
+  q: "",
+  hardware: "",
+  repository: "",
+  window: "all",
+  status: "",
+  view: "table",
+};
 export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0, attention: false };
 export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
   runID: "",
@@ -291,6 +301,7 @@ export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
 };
 
 const BROWSE_WINDOWS: readonly BrowseWindow[] = ["all", "30d", "3mo", "1y"];
+const BROWSE_STATUSES: readonly BrowseStatus[] = ["regressed", "improved", "stable", "insufficient"];
 
 export function parseHomeQuery(search: string): HomeQuery {
   const params = new URLSearchParams(search);
@@ -313,16 +324,18 @@ export function formatHomeQuery(query: Partial<HomeQuery>): string {
   return s === "" ? "" : `?${s}`;
 }
 
-/** parseBrowseQuery is total: absent params and unknown window/view values fall back
- * to the defaults, so a hand-edited URL can never produce an invalid route. */
+/** parseBrowseQuery is total: absent params and unknown window/status/view values
+ * fall back to the defaults, so a hand-edited URL can never produce an invalid route. */
 export function parseBrowseQuery(search: string): BrowseQuery {
   const params = new URLSearchParams(search);
   const window = params.get("window");
+  const status = params.get("status");
   return {
     q: params.get("q") ?? "",
     hardware: params.get("hardware") ?? "",
     repository: params.get("repository") ?? "",
     window: BROWSE_WINDOWS.includes(window as BrowseWindow) ? (window as BrowseWindow) : "all",
+    status: BROWSE_STATUSES.includes(status as BrowseStatus) ? (status as BrowseStatus) : "",
     view: params.get("view") === "charts" ? "charts" : "table",
   };
 }
@@ -335,6 +348,7 @@ export function formatBrowseQuery(query: BrowseQuery): string {
   if (query.hardware !== "") params.set("hardware", query.hardware);
   if (query.repository !== "") params.set("repository", query.repository);
   if (query.window !== "all") params.set("window", query.window);
+  if (query.status !== "") params.set("status", query.status);
   if (query.view === "charts") params.set("view", "charts");
   const s = params.toString();
   return s === "" ? "" : `?${s}`;

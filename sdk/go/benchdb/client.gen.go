@@ -3518,6 +3518,26 @@ func (s SeriesListItemStatus) Validate() error {
 	}
 }
 
+// ListBenchmarksQueryStatus Only benchmarks with this status.
+type ListBenchmarksQueryStatus string
+
+const (
+	ListBenchmarksQueryStatusImproved     ListBenchmarksQueryStatus = "improved"
+	ListBenchmarksQueryStatusInsufficient ListBenchmarksQueryStatus = "insufficient"
+	ListBenchmarksQueryStatusRegressed    ListBenchmarksQueryStatus = "regressed"
+	ListBenchmarksQueryStatusStable       ListBenchmarksQueryStatus = "stable"
+)
+
+// Validate checks if the ListBenchmarksQueryStatus value is valid
+func (l ListBenchmarksQueryStatus) Validate() error {
+	switch l {
+	case ListBenchmarksQueryStatusImproved, ListBenchmarksQueryStatusInsufficient, ListBenchmarksQueryStatusRegressed, ListBenchmarksQueryStatusStable:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid ListBenchmarksQueryStatus value, got: %v", l))
+	}
+}
+
 // GetCiReportQueryBaseline Automatic baseline selector.
 type GetCiReportQueryBaseline string
 
@@ -3803,7 +3823,7 @@ type ListBenchmarksQuery struct {
 	// Q Substring match on benchmark name and tags.
 	Q *string `json:"q,omitempty"`
 
-	// Hardware Only benchmarks with results from this machine name.
+	// Hardware Only this machine's track of each benchmark: its status, latest value and history.
 	Hardware *string `json:"hardware,omitempty"`
 
 	// Repository Filter by repository URL.
@@ -3812,17 +3832,35 @@ type ListBenchmarksQuery struct {
 	// BenchmarkID Filter by stable benchmark identifier.
 	BenchmarkID *string `json:"benchmark_id,omitempty"`
 
-	// ActiveSince Latest commit at or after this instant, RFC3339.
+	// ActiveSince Only machine tracks whose latest commit is at or after this instant, RFC3339.
 	ActiveSince *string `json:"active_since,omitempty"`
 
-	// ActiveUntil Latest commit at or before this instant, RFC3339.
+	// ActiveUntil Only machine tracks whose latest commit is at or before this instant, RFC3339.
 	ActiveUntil *string `json:"active_until,omitempty"`
+
+	// Status Only benchmarks with this status.
+	Status *ListBenchmarksQueryStatus `json:"status,omitempty"`
 
 	// Cursor Pagination cursor from a previous page.
 	Cursor *string `json:"cursor,omitempty"`
 
 	// PageSize Page size (max 1000).
 	PageSize *int64 `json:"page_size,omitempty"`
+}
+
+func (l ListBenchmarksQuery) Validate() error {
+	var errors runtime.ValidationErrors
+	if l.Status != nil {
+		if v, ok := any(l.Status).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Status", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type GetCiReportQuery struct {
@@ -4581,9 +4619,13 @@ func (b BenchmarkListItem) Validate() error {
 
 type BenchmarkPage struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema         *string             `json:"$schema,omitempty"`
-	Benchmarks     []BenchmarkListItem `json:"benchmarks,omitempty" validate:"required"`
-	NextPageCursor *string             `json:"next_page_cursor,omitempty" validate:"required"`
+	Schema         *string               `json:"$schema,omitempty"`
+	Benchmarks     []BenchmarkListItem   `json:"benchmarks,omitempty" validate:"required"`
+	NextPageCursor *string               `json:"next_page_cursor,omitempty" validate:"required"`
+	StatusCounts   BenchmarkStatusCounts `json:"status_counts"`
+
+	// StatusesPending A queued recompute can still change benchmarks in the repository filter; statuses settle within seconds.
+	StatusesPending bool `json:"statuses_pending"`
 }
 
 func (b BenchmarkPage) Validate() error {
@@ -4598,6 +4640,11 @@ func (b BenchmarkPage) Validate() error {
 	if b.NextPageCursor != nil {
 		if err := typesValidator.Var(b.NextPageCursor, "required"); err != nil {
 			errors = errors.Append("NextPageCursor", err)
+		}
+	}
+	if v, ok := any(b.StatusCounts).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("StatusCounts", err)
 		}
 	}
 	if len(errors) == 0 {
@@ -4667,6 +4714,13 @@ func (b BenchmarkSegment) Validate() error {
 		return nil
 	}
 	return errors
+}
+
+type BenchmarkStatusCounts struct {
+	Improved     int64 `json:"improved"`
+	Insufficient int64 `json:"insufficient"`
+	Regressed    int64 `json:"regressed"`
+	Stable       int64 `json:"stable"`
 }
 
 type BenchmarkTrack struct {

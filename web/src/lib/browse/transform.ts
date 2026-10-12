@@ -193,15 +193,3 @@ export function groupByRepository(rows: BrowseRow[]): BrowseGroup[] {
   }
   return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
-
-export interface StatusCounts {
-  regressed: number;
-  improved: number;
-}
-
-export function statusCounts(rows: BrowseRow[]): StatusCounts {
-  return {
-    regressed: rows.filter((row) => row.status === "regressed").length,
-    improved: rows.filter((row) => row.status === "improved").length,
-  };
-}

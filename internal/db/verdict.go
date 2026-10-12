@@ -60,6 +60,36 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 	})
 }
 
+// FinishBenchmarkVerdicts replaces the benchmark's machine tracks and
+// completes the claim atomically, or returns storage.ErrLeaseLost without
+// writing.
+func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.BenchmarkVerdict) error {
+	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
+		machines := make([]string, 0, len(verdicts))
+		for _, verdict := range verdicts {
+			machines = append(machines, verdict.MachineName)
+			if err := q.UpsertBenchmarkVerdict(ctx, UpsertBenchmarkVerdictParams{
+				BenchmarkID:           verdict.BenchmarkID,
+				MachineName:           verdict.MachineName,
+				Repository:            verdict.Repository,
+				CaseID:                verdict.CaseID,
+				HistoryFingerprints:   verdict.HistoryFingerprints,
+				Unit:                  verdict.Unit,
+				Status:                verdict.Status,
+				LatestResultID:        verdict.LatestResultID,
+				LatestResultTimestamp: verdict.LatestResultTimestamp,
+				LatestCommitSha:       verdict.LatestCommitSHA,
+				LatestCommitTimestamp: verdict.LatestCommitTimestamp,
+			}); err != nil {
+				return err
+			}
+		}
+		return q.DeleteBenchmarkVerdictsExcept(ctx, DeleteBenchmarkVerdictsExceptParams{
+			BenchmarkID: claim.Key, MachineNames: machines,
+		})
+	})
+}
+
 // FinishVerdictClaim completes a claim that writes no verdicts.
 func (s *Store) FinishVerdictClaim(ctx context.Context, claim storage.VerdictClaim) error {
 	return s.withVerdictClaim(ctx, claim, func(*Queries) error { return nil })
@@ -177,4 +207,10 @@ func (s *Store) VerdictsPending(ctx context.Context, repository *string) (bool, 
 // CountAttentionRuns counts runs, as the list shows them, that need attention.
 func (s *Store) CountAttentionRuns(ctx context.Context, repository *string) (int64, error) {
 	return s.q.CountAttentionRuns(ctx, repository)
+}
+
+// BenchmarkVerdictsPending reports whether queued recomputes can change
+// benchmarks within the repository filter.
+func (s *Store) BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error) {
+	return s.q.BenchmarkVerdictsPending(ctx, repository)
 }

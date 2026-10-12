@@ -21,6 +21,9 @@ const (
 	// VerdictKindRepository keys a repository whose recent pull-request runs
 	// must be re-evaluated.
 	VerdictKindRepository VerdictKind = "repository"
+	// VerdictKindBenchmark keys one benchmark_id whose machine tracks must be
+	// recomputed.
+	VerdictKindBenchmark VerdictKind = "benchmark"
 )
 
 // VerdictClaim is one leased queue entry. EnqueuedAt identifies the version
@@ -57,6 +60,23 @@ type RunVerdict struct {
 	Pending        bool
 }
 
+// BenchmarkVerdict is one machine's stored track of a logical benchmark over
+// default-branch history. Unit is nil unless the track has one unit with a
+// known direction.
+type BenchmarkVerdict struct {
+	BenchmarkID           string
+	MachineName           string
+	Repository            string
+	CaseID                string
+	HistoryFingerprints   []string
+	Unit                  *string
+	Status                string
+	LatestResultID        string
+	LatestResultTimestamp time.Time
+	LatestCommitSHA       string
+	LatestCommitTimestamp time.Time
+}
+
 // VerdictStore persists computed verdicts and the queue of keys to recompute.
 type VerdictStore interface {
 	ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil time.Time, limit int32) ([]VerdictClaim, error)
@@ -67,6 +87,10 @@ type VerdictStore interface {
 	// FinishVerdictClaim completes a claim that writes no verdicts, with the
 	// same ErrLeaseLost check.
 	FinishVerdictClaim(ctx context.Context, claim VerdictClaim) error
+	// FinishBenchmarkVerdicts replaces the claimed benchmark's tracks with
+	// verdicts, with the same ErrLeaseLost check.
+	FinishBenchmarkVerdicts(ctx context.Context, claim VerdictClaim, verdicts []BenchmarkVerdict) error
+	BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error)
 	EnqueueVerdict(ctx context.Context, kind VerdictKind, key string) error
 	// EnqueueMissingRunVerdicts queues runs without verdicts. It writes
 	// nothing on a read-only connection.

@@ -29,6 +29,7 @@ var requiredSchemaTables = []string{
 	"user",
 	"run_verdict",
 	"verdict_queue",
+	"benchmark_verdict",
 }
 
 var writableTableSpecs = []writableTableSpec{
@@ -42,6 +43,7 @@ var writableTableSpecs = []writableTableSpec{
 	{name: `public."user"`, schemaName: "user", regclass: `public."user"`, countSQL: `SELECT count(*) FROM public."user"`, required: true},
 	{name: "public.run_verdict", schemaName: "run_verdict", regclass: "public.run_verdict", countSQL: "SELECT count(*) FROM public.run_verdict", required: true},
 	{name: "public.verdict_queue", schemaName: "verdict_queue", regclass: "public.verdict_queue", countSQL: "SELECT count(*) FROM public.verdict_queue", required: true},
+	{name: "public.benchmark_verdict", schemaName: "benchmark_verdict", regclass: "public.benchmark_verdict", countSQL: "SELECT count(*) FROM public.benchmark_verdict", required: true},
 }
 
 var writablePrivileges = []string{"INSERT", "UPDATE", "DELETE", "TRUNCATE"}

@@ -1,10 +1,12 @@
 -- name: ClaimVerdictQueue :many
 -- Claim settled keys with a lease so concurrent servers never process the same
--- key at once and a crashed worker's keys become claimable again.
+-- key at once and a crashed worker's keys become claimable again. Benchmark
+-- keys need no settling: a result changes only its own benchmark, and keys
+-- re-enqueued between ticks already coalesce.
 WITH ready AS (
   SELECT q.kind, q.key
   FROM verdict_queue q
-  WHERE q.enqueued_at <= sqlc.arg('settled_before')::timestamptz
+  WHERE (q.enqueued_at <= sqlc.arg('settled_before')::timestamptz OR q.kind = 'benchmark')
     AND (q.claimed_until IS NULL OR q.claimed_until < clock_timestamp())
   ORDER BY q.enqueued_at
   LIMIT sqlc.arg('batch_size')
@@ -137,3 +139,53 @@ WHERE v.needs_attention
     WHERE newer.run_id = v.run_id
       AND (newer.last_result_at, newer.last_result_id) > (v.last_result_at, v.last_result_id)
   ));
+
+-- name: UpsertBenchmarkVerdict :exec
+INSERT INTO benchmark_verdict (
+  benchmark_id, machine_name, repository, case_id, history_fingerprints, unit,
+  status, latest_result_id, latest_result_timestamp,
+  latest_commit_sha, latest_commit_timestamp, computed_at
+)
+VALUES (
+  sqlc.arg('benchmark_id'),
+  sqlc.arg('machine_name'),
+  sqlc.arg('repository'),
+  sqlc.arg('case_id'),
+  sqlc.arg('history_fingerprints')::text[],
+  sqlc.narg('unit'),
+  sqlc.arg('status'),
+  sqlc.arg('latest_result_id'),
+  sqlc.arg('latest_result_timestamp'),
+  sqlc.arg('latest_commit_sha'),
+  sqlc.arg('latest_commit_timestamp'),
+  clock_timestamp()
+)
+ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
+  repository = EXCLUDED.repository,
+  case_id = EXCLUDED.case_id,
+  history_fingerprints = EXCLUDED.history_fingerprints,
+  unit = EXCLUDED.unit,
+  status = EXCLUDED.status,
+  latest_result_id = EXCLUDED.latest_result_id,
+  latest_result_timestamp = EXCLUDED.latest_result_timestamp,
+  latest_commit_sha = EXCLUDED.latest_commit_sha,
+  latest_commit_timestamp = EXCLUDED.latest_commit_timestamp,
+  computed_at = EXCLUDED.computed_at;
+
+-- name: DeleteBenchmarkVerdictsExcept :exec
+-- Removes tracks for machines the benchmark no longer has history on.
+DELETE FROM benchmark_verdict
+WHERE benchmark_id = sqlc.arg('benchmark_id') AND NOT (machine_name = ANY(sqlc.arg('machine_names')::text[]));
+
+-- name: BenchmarkVerdictsPending :one
+-- Whether a queued recompute can change a benchmark within the repository
+-- filter, so the list can refresh until statuses settle.
+SELECT EXISTS (
+  SELECT 1
+  FROM verdict_queue q
+  WHERE q.kind = 'benchmark'
+    AND (sqlc.narg('repository')::text IS NULL OR EXISTS (
+      SELECT 1 FROM benchmark_result br
+      WHERE br.benchmark_id = q.key AND br.commit_repo_url = sqlc.narg('repository')::text
+    ))
+)::boolean;

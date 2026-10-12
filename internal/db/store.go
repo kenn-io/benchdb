@@ -1,10 +1,12 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,11 +48,6 @@ const (
 	// commit window is selected. Keep the cap explicit so the browse query
 	// remains bounded on production-sized history tables.
 	seriesBrowseScopedCommitLimit = int32(512)
-	// Logical benchmark browse uses the same recent-commit discovery model but
-	// needs a wider cap because a commit can contain only one logical benchmark.
-	benchmarkBrowseRecentCommitMinLimit   = int32(320)
-	benchmarkBrowseRecentCommitMaxLimit   = int32(4096)
-	benchmarkBrowseRecentCommitPageFactor = int32(4)
 	// Browse/search row enrichment needs enough recent points for the 100-commit
 	// stats window and sparkline, but full histories remain on history endpoints.
 	seriesMembersTailLimit = int32(256)
@@ -912,50 +909,103 @@ func (s *Store) SelectSeriesPage(ctx context.Context, p storage.SeriesListParams
 	return seriesPageRowsFromRows(rows), nil
 }
 
-// SelectBenchmarkPage returns one row per logical benchmark across machines
-// and environment contexts.
+// SelectBenchmarkPage returns one row per logical benchmark, aggregated over
+// its stored machine tracks.
 func (s *Store) SelectBenchmarkPage(ctx context.Context, p storage.BenchmarkListParams) ([]storage.BenchmarkPageRow, error) {
-	rows, err := s.q.SelectBenchmarkPage(ctx, SelectBenchmarkPageParams{
+	params := SelectBenchmarkPageParams{
 		Q: p.Q, Hardware: p.Hardware, Repository: p.Repository,
 		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince,
-		ActiveUntil: p.ActiveUntil, CursorTs: p.CursorTs,
-		CursorID: p.CursorID, PageSize: p.PageSize,
-		SearchCommitLimit: benchmarkBrowseRecentCommitLimit(p),
-	})
+		ActiveUntil: p.ActiveUntil, PageSize: p.PageSize,
+	}
+	if p.Status != nil {
+		rank, err := benchmarkStatusRank(*p.Status)
+		if err != nil {
+			return nil, err
+		}
+		params.StatusRank = &rank
+	}
+	if p.Cursor != nil {
+		rank, err := benchmarkStatusRank(p.Cursor.Status)
+		if err != nil {
+			return nil, err
+		}
+		params.CursorRank, params.CursorName, params.CursorID = &rank, &p.Cursor.Name, &p.Cursor.ID
+	}
+	rows, err := s.q.SelectBenchmarkPage(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]storage.BenchmarkPageRow, 0, len(rows))
 	for _, row := range rows {
-		if row.LatestCommitTimestamp == nil {
-			return nil, fmt.Errorf("benchmark %s latest commit timestamp is null", row.BenchmarkID)
+		status, err := benchmarkStatusFromRank(row.StatusRank)
+		if err != nil {
+			return nil, err
+		}
+		var unit *string
+		if row.Unit != "" {
+			unit = &row.Unit
 		}
 		out = append(out, storage.BenchmarkPageRow{
-			BenchmarkID:              row.BenchmarkID,
-			LatestHistoryFingerprint: row.LatestHistoryFingerprint,
-			LatestResultID:           row.LatestResultID,
-			LatestResultTimestamp:    row.LatestResultTimestamp,
-			LatestCommitSha:          row.LatestCommitSha,
-			LatestCommitTimestamp:    *row.LatestCommitTimestamp,
-			CommitRepoURL:            row.CommitRepoUrl,
-			LatestUnit:               row.LatestUnit,
-			LatestData:               row.LatestData,
-			PointCount:               row.PointCount,
-			BenchmarkUnits:           row.BenchmarkUnits,
-			HistoryFingerprints:      row.HistoryFingerprints,
-			MachineNames:             row.MachineNames,
-			CaseName:                 row.CaseName,
-			CaseTags:                 row.CaseTags,
+			BenchmarkID:           row.BenchmarkID,
+			Repository:            row.Repository,
+			CaseName:              row.CaseName,
+			CaseTags:              row.CaseTags,
+			Unit:                  unit,
+			Status:                status,
+			MachineNames:          row.MachineNames,
+			HistoryFingerprints:   row.HistoryFingerprints,
+			LatestResultID:        row.LatestResultID,
+			LatestResultTimestamp: row.LatestResultTimestamp,
+			LatestCommitSha:       row.LatestCommitSha,
+			LatestCommitTimestamp: row.LatestCommitTimestamp,
+			LatestUnit:            row.LatestUnit,
+			LatestData:            row.LatestData,
 		})
 	}
 	return out, nil
 }
 
-func benchmarkBrowseRecentCommitLimit(p storage.BenchmarkListParams) int32 {
-	return min(
-		max(p.PageSize*benchmarkBrowseRecentCommitPageFactor, benchmarkBrowseRecentCommitMinLimit),
-		benchmarkBrowseRecentCommitMaxLimit,
-	)
+// CountBenchmarkStatuses counts benchmarks per status in SelectBenchmarkPage's
+// scope, before its status filter and cursor.
+func (s *Store) CountBenchmarkStatuses(ctx context.Context, p storage.BenchmarkListParams) (map[string]int64, error) {
+	rows, err := s.q.CountBenchmarkStatuses(ctx, CountBenchmarkStatusesParams{
+		Q: p.Q, Hardware: p.Hardware, Repository: p.Repository,
+		BenchmarkID: p.BenchmarkID, ActiveSince: p.ActiveSince, ActiveUntil: p.ActiveUntil,
+	})
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(benchmarkStatusRanks))
+	for _, status := range benchmarkStatusRanks {
+		counts[status] = 0
+	}
+	for _, row := range rows {
+		status, err := benchmarkStatusFromRank(row.StatusRank)
+		if err != nil {
+			return nil, err
+		}
+		counts[status] = row.Benchmarks
+	}
+	return counts, nil
+}
+
+// benchmarkStatusRanks lists benchmark statuses in page order; a status's
+// index is the rank the benchmark queries compute.
+var benchmarkStatusRanks = []string{"regressed", "improved", "stable", "insufficient"}
+
+func benchmarkStatusRank(status string) (int32, error) {
+	rank := slices.Index(benchmarkStatusRanks, status)
+	if rank < 0 {
+		return 0, fmt.Errorf("unknown benchmark status %q", status)
+	}
+	return int32(rank), nil
+}
+
+func benchmarkStatusFromRank(rank int32) (string, error) {
+	if rank < 0 || int(rank) >= len(benchmarkStatusRanks) {
+		return "", fmt.Errorf("unknown benchmark status rank %d", rank)
+	}
+	return benchmarkStatusRanks[rank], nil
 }
 
 func seriesQNeedsCompleteSearch(p storage.SeriesListParams) bool {
@@ -1073,7 +1123,7 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 		Fingerprints:        p.Fingerprints,
 		ActiveSince:         p.ActiveSince,
 		ActiveUntil:         p.ActiveUntil,
-		PerFingerprintLimit: seriesMembersTailLimit,
+		PerFingerprintLimit: cmp.Or(p.PerFingerprintLimit, seriesMembersTailLimit),
 	})
 	if err != nil {
 		return nil, err

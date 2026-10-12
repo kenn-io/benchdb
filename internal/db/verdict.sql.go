@@ -13,11 +13,32 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const benchmarkVerdictsPending = `-- name: BenchmarkVerdictsPending :one
+SELECT EXISTS (
+  SELECT 1
+  FROM verdict_queue q
+  WHERE q.kind = 'benchmark'
+    AND ($1::text IS NULL OR EXISTS (
+      SELECT 1 FROM benchmark_result br
+      WHERE br.benchmark_id = q.key AND br.commit_repo_url = $1::text
+    ))
+)::boolean
+`
+
+// Whether a queued recompute can change a benchmark within the repository
+// filter, so the list can refresh until statuses settle.
+func (q *Queries) BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error) {
+	row := q.db.QueryRow(ctx, benchmarkVerdictsPending, repository)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const claimVerdictQueue = `-- name: ClaimVerdictQueue :many
 WITH ready AS (
   SELECT q.kind, q.key
   FROM verdict_queue q
-  WHERE q.enqueued_at <= $2::timestamptz
+  WHERE (q.enqueued_at <= $2::timestamptz OR q.kind = 'benchmark')
     AND (q.claimed_until IS NULL OR q.claimed_until < clock_timestamp())
   ORDER BY q.enqueued_at
   LIMIT $3
@@ -45,7 +66,9 @@ type ClaimVerdictQueueRow struct {
 }
 
 // Claim settled keys with a lease so concurrent servers never process the same
-// key at once and a crashed worker's keys become claimable again.
+// key at once and a crashed worker's keys become claimable again. Benchmark
+// keys need no settling: a result changes only its own benchmark, and keys
+// re-enqueued between ticks already coalesce.
 func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueueParams) ([]ClaimVerdictQueueRow, error) {
 	rows, err := q.db.Query(ctx, claimVerdictQueue, arg.LeaseUntil, arg.SettledBefore, arg.BatchSize)
 	if err != nil {
@@ -91,6 +114,22 @@ func (q *Queries) CountAttentionRuns(ctx context.Context, repository *string) (i
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteBenchmarkVerdictsExcept = `-- name: DeleteBenchmarkVerdictsExcept :exec
+DELETE FROM benchmark_verdict
+WHERE benchmark_id = $1 AND NOT (machine_name = ANY($2::text[]))
+`
+
+type DeleteBenchmarkVerdictsExceptParams struct {
+	BenchmarkID  string
+	MachineNames []string
+}
+
+// Removes tracks for machines the benchmark no longer has history on.
+func (q *Queries) DeleteBenchmarkVerdictsExcept(ctx context.Context, arg DeleteBenchmarkVerdictsExceptParams) error {
+	_, err := q.db.Exec(ctx, deleteBenchmarkVerdictsExcept, arg.BenchmarkID, arg.MachineNames)
+	return err
 }
 
 const deleteRunVerdictsExcept = `-- name: DeleteRunVerdictsExcept :exec
@@ -339,6 +378,70 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertBenchmarkVerdict = `-- name: UpsertBenchmarkVerdict :exec
+INSERT INTO benchmark_verdict (
+  benchmark_id, machine_name, repository, case_id, history_fingerprints, unit,
+  status, latest_result_id, latest_result_timestamp,
+  latest_commit_sha, latest_commit_timestamp, computed_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5::text[],
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  clock_timestamp()
+)
+ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
+  repository = EXCLUDED.repository,
+  case_id = EXCLUDED.case_id,
+  history_fingerprints = EXCLUDED.history_fingerprints,
+  unit = EXCLUDED.unit,
+  status = EXCLUDED.status,
+  latest_result_id = EXCLUDED.latest_result_id,
+  latest_result_timestamp = EXCLUDED.latest_result_timestamp,
+  latest_commit_sha = EXCLUDED.latest_commit_sha,
+  latest_commit_timestamp = EXCLUDED.latest_commit_timestamp,
+  computed_at = EXCLUDED.computed_at
+`
+
+type UpsertBenchmarkVerdictParams struct {
+	BenchmarkID           string
+	MachineName           string
+	Repository            string
+	CaseID                string
+	HistoryFingerprints   []string
+	Unit                  *string
+	Status                string
+	LatestResultID        string
+	LatestResultTimestamp time.Time
+	LatestCommitSha       string
+	LatestCommitTimestamp time.Time
+}
+
+func (q *Queries) UpsertBenchmarkVerdict(ctx context.Context, arg UpsertBenchmarkVerdictParams) error {
+	_, err := q.db.Exec(ctx, upsertBenchmarkVerdict,
+		arg.BenchmarkID,
+		arg.MachineName,
+		arg.Repository,
+		arg.CaseID,
+		arg.HistoryFingerprints,
+		arg.Unit,
+		arg.Status,
+		arg.LatestResultID,
+		arg.LatestResultTimestamp,
+		arg.LatestCommitSha,
+		arg.LatestCommitTimestamp,
+	)
+	return err
 }
 
 const upsertRunVerdict = `-- name: UpsertRunVerdict :exec

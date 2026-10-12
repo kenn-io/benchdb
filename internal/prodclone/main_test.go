@@ -659,6 +659,7 @@ func validSamplesTargetInfo(user string) TargetInfo {
 			"user",
 			"run_verdict",
 			"verdict_queue",
+			"benchmark_verdict",
 		},
 		WritableTablePrivileges: map[string][]string{},
 	}
@@ -687,7 +688,7 @@ func writeCompleteReportArtifacts(t *testing.T, dir string) {
 			"host":                          "clone-db.example",
 			"port":                          5432,
 			"default_transaction_read_only": true,
-			"schema_tables":                 []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue"},
+			"schema_tables":                 []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue", "benchmark_verdict"},
 			"writable_table_privileges":     map[string][]string{},
 		},
 		"policy": map[string]any{
@@ -861,15 +862,16 @@ func readDelta(t *testing.T, path string) CountComparison {
 func completeCountSnapshot() CountSnapshot {
 	return CountSnapshot{
 		WritableTableCounts: map[string]int64{
-			`public."case"`:        1,
-			"public.context":       2,
-			"public.info":          3,
-			"public.hardware":      4,
-			"public.commit":        5,
-			"public.api_token":     6,
-			`public."user"`:        7,
-			"public.run_verdict":   8,
-			"public.verdict_queue": 9,
+			`public."case"`:            1,
+			"public.context":           2,
+			"public.info":              3,
+			"public.hardware":          4,
+			"public.commit":            5,
+			"public.api_token":         6,
+			`public."user"`:            7,
+			"public.run_verdict":       8,
+			"public.verdict_queue":     9,
+			"public.benchmark_verdict": 10,
 		},
 	}
 }

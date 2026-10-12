@@ -1,10 +1,12 @@
 package api_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,7 @@ import (
 )
 
 func TestBenchmarkBrowseAndHistoryGroupFleetMachines(t *testing.T) {
-	tapi, _, _ := seedAPI(t)
+	tapi, pool, ctx := seedAPI(t)
 	firstID := seedResult(t, tapi, seedOpts{
 		name: "fleet-bench", machine: "machine-a", sha: "commit-a",
 		ts: day(0), data: []float64{1},
@@ -28,6 +30,7 @@ func TestBenchmarkBrowseAndHistoryGroupFleetMachines(t *testing.T) {
 
 	detail := getResultDetail(t, tapi, firstID)
 	require.NotEmpty(t, detail.BenchmarkID)
+	drainVerdicts(t, ctx, pool)
 
 	resp := tapi.Get("/api/benchmarks")
 	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
@@ -98,7 +101,7 @@ func TestBenchmarkHistoryOrdersMachineSegmentsByNewestSample(t *testing.T) {
 }
 
 func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
-	tapi, _, _ := seedAPI(t)
+	tapi, pool, ctx := seedAPI(t)
 	// The benchmark got about 2x faster when its context changed. The old
 	// context ends on a slow spike that is a regression within its own history.
 	preDrop := []float64{0.000269, 0.000274, 0.000271, 0.000275, 0.000276, 0.000266, 0.000265,
@@ -121,6 +124,7 @@ func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
 			context: map[string]any{"build": "new"},
 		})
 	}
+	drainVerdicts(t, ctx, pool)
 
 	resp := tapi.Get("/api/benchmarks")
 	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
@@ -145,4 +149,54 @@ func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
 	require.NotNil(t, latest.RollingStddev)
 	assert.Less(t, math.Abs(*latest.Residual / *latest.RollingStddev), stats.ZScoreThresholdDefault,
 		"the trend page scores the latest point inside the threshold band")
+}
+
+func TestBenchmarkListPagesRegressionsFirstWithStatusCounts(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	series := map[string][]float64{
+		"a-steady":     {1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005},
+		"b-single":     {1},
+		"z-regressing": {1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20},
+	}
+	for name, values := range series {
+		for i, value := range values {
+			seedResult(t, tapi, seedOpts{
+				name: name, sha: fmt.Sprintf("%s-%d", name, i), ts: day(i), data: []float64{value},
+			})
+		}
+	}
+	drainVerdicts(t, ctx, pool)
+
+	getPage := func(path string) api.BenchmarkPage {
+		t.Helper()
+		resp := tapi.Get(path)
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		var page api.BenchmarkPage
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+		return page
+	}
+	var names []string
+	path := "/api/benchmarks?page_size=1"
+	for range len(series) {
+		page := getPage(path)
+		require.Len(t, page.Benchmarks, 1)
+		names = append(names, page.Benchmarks[0].Name)
+		assert.Equal(t, service.BenchmarkStatusCounts{Regressed: 1, Stable: 1, Insufficient: 1}, page.StatusCounts)
+		require.NotNil(t, page.NextPageCursor)
+		path = "/api/benchmarks?page_size=1&cursor=" + url.QueryEscape(*page.NextPageCursor)
+	}
+	assert.Equal(t, []string{"z-regressing", "a-steady", "b-single"}, names, "regressions lead, then stable, then insufficient")
+	assert.Empty(t, getPage(path).Benchmarks)
+
+	insufficient := getPage("/api/benchmarks?status=insufficient")
+	require.Len(t, insufficient.Benchmarks, 1)
+	assert.Equal(t, "b-single", insufficient.Benchmarks[0].Name)
+	assert.Equal(t, service.BenchmarkStatusCounts{Regressed: 1, Stable: 1, Insufficient: 1}, insufficient.StatusCounts)
+	assert.False(t, insufficient.StatusesPending)
+
+	unknownStatus := base64.StdEncoding.EncodeToString([]byte("broken|id|name"))
+	for _, bad := range []string{"status=bogus", "cursor=not-base64!", "cursor=" + url.QueryEscape(unknownStatus)} {
+		resp := tapi.Get("/api/benchmarks?" + bad)
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, "%s: %s", bad, resp.Body.String())
+	}
 }

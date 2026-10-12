@@ -33,6 +33,20 @@ func seedAPI(t *testing.T) (humatest.TestAPI, *pgxpool.Pool, context.Context) {
 	return tapi, pool, ctx
 }
 
+// drainVerdicts runs the verdict worker until the queue is empty, so lists that
+// read stored statuses reflect everything seeded so far.
+func drainVerdicts(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	verdicts := service.NewVerdicts(db.NewStore(pool), 0)
+	for {
+		claimed, err := verdicts.Process(ctx)
+		require.NoError(t, err)
+		if claimed == 0 {
+			return
+		}
+	}
+}
+
 // seedOpts overrides the parts of validBody that a series fixture varies. The
 // tags/context/info/machine_info are held constant so every seeded result shares
 // one history_fingerprint; unit is excluded from the fingerprint, so a mixed-unit

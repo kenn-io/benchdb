@@ -37,12 +37,25 @@ function fakeClient(
 }
 
 describe("listSeries", () => {
-  it("maps filters, window, and cursor onto the endpoint params", async () => {
-    const { client, GET } = fakeClient({ benchmarks: [seriesItem], next_page_cursor: "cur2" });
+  it("maps filters, window, status, and cursor onto the endpoint params", async () => {
+    const statusCounts = { regressed: 2, improved: 0, stable: 5, insufficient: 1 };
+    const { client, GET } = fakeClient({
+      benchmarks: [seriesItem],
+      status_counts: statusCounts,
+      statuses_pending: true,
+      next_page_cursor: "cur2",
+    });
     const now = new Date("2026-06-09T00:00:00Z");
     const page = await listSeries(
       client,
-      { ...DEFAULT_BROWSE_QUERY, q: "demo", hardware: "m5", repository: "https://github.com/benchdb/demo", window: "30d" },
+      {
+        ...DEFAULT_BROWSE_QUERY,
+        q: "demo",
+        hardware: "m5",
+        repository: "https://github.com/benchdb/demo",
+        window: "30d",
+        status: "regressed",
+      },
       "cur1",
       now,
     );
@@ -52,10 +65,13 @@ describe("listSeries", () => {
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
           active_since: "2026-05-10T00:00:00.000Z",
+          status: "regressed",
           cursor: "cur1",
         } });
     expect(page.rows).toHaveLength(1);
     expect(page.rows[0]!.name).toBe("demo");
+    expect(page.statusCounts).toEqual(statusCounts);
+    expect(page.statusesPending).toBe(true);
     expect(page.nextCursor).toBe("cur2");
   });
 

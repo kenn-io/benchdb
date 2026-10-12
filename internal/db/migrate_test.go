@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 5
+const latestMigrationVersion = 6
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -218,9 +219,43 @@ func TestMigrateQueuesRecentRunsForVerdicts(t *testing.T) {
 	require.NoError(t, db.Migrate(ctx, pool))
 	assertCurrentMigration(t, ctx, pool)
 	var kind, key string
-	require.NoError(t, pool.QueryRow(ctx, `SELECT kind, key FROM verdict_queue`).Scan(&kind, &key))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT kind, key FROM verdict_queue WHERE kind = 'run'`).Scan(&kind, &key))
 	assert.Equal(t, "run", kind)
 	assert.Equal(t, "recent-run", key, "recent runs get verdicts without waiting for a page view")
+}
+
+func TestMigrateQueuesDefaultBranchBenchmarksForStatuses(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for _, file := range []string{
+		"000002_result_artifacts.up.sql",
+		"000003_saved_run_reports.up.sql",
+		"000004_saved_report_baseline_units.up.sql",
+		"000005_run_verdicts.up.sql",
+	} {
+		migration, err := os.ReadFile("migrations/" + file)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 5, false)
+	assertCurrentBaseline(t, ctx, pool)
+	_, err := pool.Exec(ctx, `INSERT INTO commit (id, sha, repository, message, author_name, "timestamp", fork_point_sha)
+		VALUES ('commit-1', 'sha-1', 'https://example.com/org/repo', 'main', 'author', now(), 'sha-1')`)
+	require.NoError(t, err)
+	var benchmarkID string
+	require.NoError(t, pool.QueryRow(ctx, `UPDATE benchmark_result SET commit_id = 'commit-1'
+		WHERE submission_key = 'submission-1' RETURNING benchmark_id`).Scan(&benchmarkID))
+	_, err = pool.Exec(ctx, `DELETE FROM verdict_queue`)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+	assertCurrentMigration(t, ctx, pool)
+	rows, err := pool.Query(ctx, `SELECT key FROM verdict_queue WHERE kind = 'benchmark'`)
+	require.NoError(t, err)
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	assert.Equal(t, []string{benchmarkID}, keys, "existing benchmarks get statuses without new results")
 }
 
 func applyBaselineSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

@@ -1,7 +1,9 @@
 package service
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,9 +95,6 @@ func machineSegment(
 		rows[i].CommitTimestamp = &ts
 		rows[i].Timestamp = ts
 	}
-	for i := range rows {
-		rows[i].SegmentFirstCommitTimestamp = *rows[0].CommitTimestamp
-	}
 	return rows
 }
 
@@ -135,22 +134,6 @@ func TestBenchmarkStatusKeepsOverlappingMachineSegments(t *testing.T) {
 	assert.Equal(t, statusRegressed, benchmarkStatus(
 		[]string{"context-a", "context-b"},
 		map[string][]storage.HistoryRow{"context-a": stable, "context-b": regressed},
-		unit,
-		lessIsBetter,
-	))
-}
-
-func TestBenchmarkStatusKeepsOverlappingSegmentWithTruncatedTail(t *testing.T) {
-	regressed := machineSegment("context-a", "m1", 0, regressedSVS)
-	// context-b began before context-a's last commit, but only its later tail
-	// was loaded, so its first loaded row starts after context-a ends.
-	overlapping := machineSegment("context-b", "m1", 0, append(slices.Clone(stableSVS), stableSVS...))
-	tail := overlapping[len(regressedSVS)+2:]
-	require.True(t, tail[0].CommitTimestamp.After(latestHistoryRowTime(regressed)))
-	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(regressed), tail...))
-	assert.Equal(t, statusRegressed, benchmarkStatus(
-		[]string{"context-a", "context-b"},
-		map[string][]storage.HistoryRow{"context-a": regressed, "context-b": tail},
 		unit,
 		lessIsBetter,
 	))
@@ -212,4 +195,56 @@ func TestSeriesIdentityUnit(t *testing.T) {
 	unit, lib = seriesIdentityUnit(mixedUnitMembers())
 	assert.Nil(t, unit)
 	assert.Nil(t, lib)
+}
+
+// benchmarkHistory places machine segments into one benchmark's history rows,
+// ordered as SelectHistoryForBenchmark returns them.
+func benchmarkHistory(segments ...[]storage.HistoryRow) []storage.BenchmarkHistoryRow {
+	rows := make([]storage.BenchmarkHistoryRow, 0)
+	for _, segment := range segments {
+		for i, member := range segment {
+			member.ID = member.HistoryFingerprint + "-" + string(rune('a'+i))
+			rows = append(rows, storage.BenchmarkHistoryRow{
+				HistoryRow: member, BenchmarkID: "bench", CaseID: "case", Repository: "https://github.com/org/repo",
+			})
+		}
+	}
+	slices.SortStableFunc(rows, func(a, b storage.BenchmarkHistoryRow) int {
+		if byMachine := strings.Compare(a.HardwareName, b.HardwareName); byMachine != 0 {
+			return byMachine
+		}
+		return strings.Compare(a.HistoryFingerprint, b.HistoryFingerprint)
+	})
+	return rows
+}
+
+func TestBenchmarkVerdictsStoreEachMachineTrack(t *testing.T) {
+	m1Old := machineSegment("m1-old", "m1", 0, preDropSVS)
+	m1New := machineSegment("m1-new", "m1", len(preDropSVS), postDropSVS)
+	m2 := machineSegment("m2", "m2", 0, regressedSVS)
+	m3 := machineSegment("m3", "m3", 0, stableSVS)
+	other := "B"
+	m3[len(m3)-1].Unit = &other
+
+	verdicts := benchmarkVerdicts(benchmarkHistory(m1Old, m1New, m2, m3))
+
+	require.Len(t, verdicts, 3)
+	m1Track := verdicts[0]
+	assert.Equal(t, "m1", m1Track.MachineName)
+	assert.Equal(t, statusStable, m1Track.Status, "the superseded context does not decide the track")
+	assert.Equal(t, []string{"m1-new", "m1-old"}, m1Track.HistoryFingerprints)
+	assert.Equal(t, *m1New[len(m1New)-1].CommitTimestamp, m1Track.LatestCommitTimestamp)
+	assert.Equal(t, fmt.Sprintf("m1-new-%c", 'a'+len(postDropSVS)-1), m1Track.LatestResultID)
+	assert.Equal(t, "case", m1Track.CaseID)
+	require.NotNil(t, m1Track.Unit)
+	assert.Equal(t, "s", *m1Track.Unit)
+
+	assert.Equal(t, "m2", verdicts[1].MachineName)
+	assert.Equal(t, statusRegressed, verdicts[1].Status)
+
+	assert.Equal(t, "m3", verdicts[2].MachineName)
+	assert.Nil(t, verdicts[2].Unit, "a track with two units has no unit")
+	assert.Equal(t, statusInsufficient, verdicts[2].Status)
+
+	assert.Empty(t, benchmarkVerdicts(nil), "a benchmark without history has no tracks")
 }

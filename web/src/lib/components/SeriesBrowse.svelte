@@ -5,18 +5,26 @@
   import { onDestroy } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
-  import { listSeries } from "../browse/loader";
+  import { listSeries, type BrowsePage, type BrowseStatusCounts } from "../browse/loader";
   import {
     groupByRepository,
     sortRows,
-    statusCounts,
     windowStartIso,
     type BrowseRow,
+    type SeriesStatus,
     type SortKey,
     type SortSpec,
   } from "../browse/transform";
   import { repositoryLabel } from "../repository";
-  import { DEFAULT_BROWSE_QUERY, formatBrowseQuery, parseBrowseQuery, interceptNavClick, navigate, type BrowseQuery, type BrowseWindow } from "../router";
+  import {
+    DEFAULT_BROWSE_QUERY,
+    formatBrowseQuery,
+    parseBrowseQuery,
+    interceptNavClick,
+    navigate,
+    type BrowseQuery,
+    type BrowseWindow,
+  } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
   import BrowseTrendCard from "./BrowseTrendCard.svelte";
 
@@ -36,10 +44,13 @@
 
   let rows = $state<BrowseRow[]>([]);
   let nextCursor = $state<string | null>(null);
+  let statusCounts = $state<BrowseStatusCounts | null>(null);
+  let statusesPending = $state(false);
   let loading = $state(true);
   let loadingMore = $state(false);
   let errorMsg = $state<string | null>(null);
   let moreErrorMsg = $state<string | null>(null);
+  let refreshError = $state<string | null>(null);
   let sort = $state<SortSpec | null>(null);
   let searchFilter = $state("");
   const chartView = $derived(query.view === "charts");
@@ -47,7 +58,9 @@
   const clearedURL = $derived(
     `/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository: query.repository, view: query.view })}`,
   );
-  const hasFilters = $derived(query.q !== "" || query.hardware !== "" || query.window !== "all");
+  const hasFilters = $derived(
+    query.q !== "" || query.hardware !== "" || query.window !== "all" || query.status !== "",
+  );
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table" }));
   let zeroBased = $state(false);
@@ -60,6 +73,16 @@
   // Monotonic token: a stale response (filters changed mid-flight) must not
   // overwrite a newer page.
   let reqToken = 0;
+  // The server scores a benchmark within seconds of a new result. While a
+  // score is queued, the first page reloads with a growing delay for up to a
+  // minute; once more pages are loaded it stops, so rows never jump away.
+  const REFRESH_FIRST_MS = 2000;
+  const REFRESH_MAX_MS = 15_000;
+  const REFRESH_BUDGET_MS = 60_000;
+  let refreshDelay = REFRESH_FIRST_MS;
+  let refreshWaited = 0;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let morePagesLoaded = false;
 
   $effect(() => {
     const filters = parseBrowseQuery(filterQuery);
@@ -67,22 +90,36 @@
     void load(filters);
   });
 
+  function showPage(page: BrowsePage) {
+    rows = page.rows;
+    nextCursor = page.nextCursor;
+    statusCounts = page.statusCounts;
+    statusesPending = page.statusesPending;
+  }
+
   async function load(q: BrowseQuery) {
     const token = ++reqToken;
+    clearTimeout(refreshTimer);
+    refreshDelay = REFRESH_FIRST_MS;
+    refreshWaited = 0;
+    morePagesLoaded = false;
     loading = true;
     rows = [];
     nextCursor = null;
+    statusCounts = null;
+    statusesPending = false;
     // A fresh page load supersedes any in-flight load-more, whose guarded
     // finally will then skip its cleanup — clear the flag here so the new
     // page's Load more cannot start out wedged disabled.
     loadingMore = false;
     errorMsg = null;
     moreErrorMsg = null;
+    refreshError = null;
     try {
       const page = await listSeries(client, q);
       if (token !== reqToken) return;
-      rows = page.rows;
-      nextCursor = page.nextCursor;
+      showPage(page);
+      scheduleRefresh(q);
     } catch (err) {
       if (token !== reqToken) return;
       errorMsg = err instanceof Error ? err.message : String(err);
@@ -91,11 +128,37 @@
     }
   }
 
+  function scheduleRefresh(q: BrowseQuery) {
+    clearTimeout(refreshTimer);
+    if (!statusesPending || morePagesLoaded || refreshWaited >= REFRESH_BUDGET_MS) return;
+    const delay = refreshDelay;
+    refreshWaited += delay;
+    refreshDelay = Math.min(Math.round(delay * 1.5), REFRESH_MAX_MS);
+    refreshTimer = setTimeout(() => void refresh(q), delay);
+  }
+
+  async function refresh(q: BrowseQuery) {
+    const token = reqToken;
+    try {
+      const page = await listSeries(client, q);
+      if (token !== reqToken || morePagesLoaded) return;
+      showPage(page);
+      refreshError = null;
+    } catch (err) {
+      if (token !== reqToken) return;
+      // A failed refresh keeps the benchmarks already shown.
+      refreshError = err instanceof Error ? err.message : String(err);
+    }
+    scheduleRefresh(q);
+  }
+
   async function loadMore() {
     if (nextCursor === null || loadingMore) return;
     const token = reqToken;
     loadingMore = true;
     moreErrorMsg = null;
+    morePagesLoaded = true;
+    clearTimeout(refreshTimer);
     try {
       const page = await listSeries(client, query, nextCursor);
       if (token !== reqToken) return;
@@ -128,7 +191,8 @@
   }
 
   onDestroy(() => {
-    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    clearTimeout(searchTimer);
+    clearTimeout(refreshTimer);
   });
 
   function toggleSort(key: SortKey) {
@@ -159,7 +223,27 @@
       : [{ repository: query.repository, label: repositoryLabel(query.repository), rows: visible }],
   );
   const showGroupHeadings = $derived(groups.length > 1);
-  const counts = $derived(statusCounts(rows));
+  const statusFilters: { status: SeriesStatus; label: string }[] = [
+    { status: "regressed", label: "Regressed" },
+    { status: "improved", label: "Improved" },
+    { status: "stable", label: "Stable" },
+    { status: "insufficient", label: "Insufficient" },
+  ];
+  const totalBenchmarks = $derived(
+    statusCounts === null ? 0 : statusFilters.reduce((sum, { status }) => sum + statusCounts![status], 0),
+  );
+  const activeStatusLabel = $derived(statusFilters.find((option) => option.status === query.status)?.label ?? "");
+  const emptyHeading = $derived(
+    activeStatusLabel !== ""
+      ? `No ${activeStatusLabel.toLowerCase()} benchmarks`
+      : hasFilters
+        ? "No benchmarks match these filters"
+        : "No benchmarks yet",
+  );
+
+  function statusHref(status: BrowseQuery["status"]): string {
+    return `/series${formatBrowseQuery({ ...query, status })}`;
+  }
   let machineOptions = $derived.by((): SelectDropdownOption[] => {
     const names = new Set(rows.flatMap((row) => row.machineNames));
     if (query.hardware !== "") names.add(query.hardware);
@@ -190,17 +274,28 @@
       <p class="eyebrow">{query.repository === "" ? "All projects" : repositoryLabel(query.repository)}</p>
       <h1>Benchmarks</h1>
     </div>
-    <div class="header-actions">
-      {#if !loading && errorMsg === null}
-        <div class="page-meta" aria-label="Benchmark summary">
-          <span>{plural(rows.length, "benchmark")}{nextCursor !== null ? " loaded" : ""}</span>
-          {#if counts.regressed > 0}<span class="meta-regressed">{counts.regressed} regressed</span>{/if}
-          {#if counts.improved > 0}<span class="meta-improved">{counts.improved} improved</span>{/if}
-        </div>
-      {/if}
-      <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Result explorer</a>
-    </div>
+    <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Result explorer</a>
   </header>
+
+  {#if statusCounts !== null && (totalBenchmarks > 0 || query.status !== "")}
+    <nav class="status-filters" aria-label="Filter benchmarks by status">
+      <a class="button-pill" class:active={query.status === ""} aria-current={query.status === "" ? "true" : undefined}
+        href={appURL(statusHref(""))} onclick={(e) => go(e, statusHref(""))}>
+        All <strong class="filter-count">{totalBenchmarks.toLocaleString()}</strong>
+      </a>
+      {#each statusFilters as option (option.status)}
+        {#if statusCounts[option.status] > 0 || query.status === option.status}
+          <a class="button-pill status-filter {option.status}" class:active={query.status === option.status}
+            aria-current={query.status === option.status ? "true" : undefined}
+            href={appURL(statusHref(option.status))} onclick={(e) => go(e, statusHref(option.status))}>
+            <span class="dot" aria-hidden="true"></span>
+            {option.label} <strong class="filter-count">{statusCounts[option.status].toLocaleString()}</strong>
+          </a>
+        {/if}
+      {/each}
+      {#if statusesPending}<span class="pending-note" role="status">Updating statuses…</span>{/if}
+    </nav>
+  {/if}
 
   <div class="panel browse-filters">
     <div class="benchmark-search">
@@ -267,9 +362,13 @@
     </section>
   {:else if visible.length === 0}
     <section class="panel state-panel empty-panel" aria-label="No matching benchmarks">
-      <h2>{hasFilters ? "No benchmarks match these filters" : "No benchmarks yet"}</h2>
+      <h2>{emptyHeading}</h2>
+      {#if statusesPending}<p>New results are still being scored. This page updates when they finish.</p>{/if}
     </section>
   {:else}
+    {#if refreshError}
+      <p class="refresh-error" role="status">Couldn't refresh benchmark statuses: {refreshError}</p>
+    {/if}
     {#each groups as group (group.repository)}
       <section class="benchmark-group" aria-label={group.label}>
         {#if showGroupHeadings}
@@ -291,7 +390,7 @@
         {/if}
       </section>
     {/each}
-    {#if nextCursor !== null}
+    {#if sort !== null && nextCursor !== null}
       <p class="scope-note">Sorting covers loaded benchmarks only.</p>
     {/if}
     {#if moreErrorMsg}
@@ -312,15 +411,33 @@
   .series-page {
     gap: 12px;
   }
-  .header-actions {
-    display: grid;
-    justify-items: end;
-    gap: 8px;
+  .status-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
-  .meta-regressed { color: var(--c-error); }
-  .meta-improved { color: var(--c-success); }
-  @media (max-width: 760px) {
-    .header-actions { justify-items: start; }
+  .status-filters .button-pill {
+    gap: 6px;
+  }
+  .status-filter .dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: var(--c-unknown);
+  }
+  .status-filter.regressed .dot { background: var(--c-error); }
+  .status-filter.improved .dot { background: var(--c-success); }
+  .status-filter.stable .dot { background: var(--c-stable); }
+  .status-filter.insufficient .dot { background: var(--c-insufficient); }
+  .filter-count {
+    font-variant-numeric: tabular-nums;
+  }
+  .pending-note,
+  .refresh-error {
+    margin: 0;
+    color: var(--c-text-muted);
+    font-size: 0.78rem;
   }
   .browse-filters {
     display: flex;

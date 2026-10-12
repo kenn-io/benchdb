@@ -7,7 +7,20 @@ import { DEFAULT_BROWSE_QUERY, parseBrowseQuery } from "../router";
 import SeriesBrowse from "./SeriesBrowse.svelte";
 
 const GET = vi.fn();
-const client = getBenchDB({ get: GET } as unknown as AxiosInstance);
+
+type Status = "regressed" | "improved" | "stable" | "insufficient";
+
+// The fake server counts the page's own rows unless a test sets the
+// whole-scope status counts itself.
+async function serve(...args: unknown[]) {
+  const res = await GET(...args);
+  const data = res?.data as { benchmarks?: { status: Status }[] | null; status_counts?: unknown } | undefined;
+  if (data === undefined || data === null || !("benchmarks" in data) || data.status_counts !== undefined) return res;
+  const counts = { regressed: 0, improved: 0, stable: 0, insufficient: 0 };
+  for (const benchmark of data.benchmarks ?? []) counts[benchmark.status] += 1;
+  return { ...res, data: { statuses_pending: false, ...data, status_counts: counts } };
+}
+const client = getBenchDB({ get: serve } as unknown as AxiosInstance);
 vi.mock("../api/client", () => ({
   createBenchDBClient: () => client,
 }));
@@ -52,7 +65,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByText(/loading benchmarks/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Benchmarks" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Benchmark summary")).toHaveTextContent("1 benchmark");
+    expect(screen.getByRole("navigation", { name: "Filter benchmarks by status" })).toHaveTextContent("All 1 Stable 1");
     expect(screen.getByRole("link", { name: /result explorer/i })).toHaveAttribute("href", "/results");
     expect(screen.getByRole("group", { name: "Time window" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
@@ -265,6 +278,7 @@ describe("SeriesBrowse", () => {
           hardware: "m5",
           repository: "https://github.com/benchdb/demo",
           window: "30d",
+          status: "regressed",
           view: "charts",
         },
       },
@@ -285,7 +299,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByText("benchdb/demo", { selector: ".eyebrow" })).toBeInTheDocument();
   });
 
-  it("lists regressions first and counts regressed and improved benchmarks", async () => {
+  it("lists regressions first", async () => {
     GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [
       item("f1", "aaa"),
       item("f2", "zzz", { status: "regressed" }),
@@ -298,7 +312,102 @@ describe("SeriesBrowse", () => {
       .filter((el) => el.tagName === "A")
       .map((a) => a.textContent);
     expect(links).toEqual(["zzz", "mmm", "aaa"]);
-    expect(screen.getByLabelText("Benchmark summary")).toHaveTextContent("3 benchmarks 1 regressed 1 improved");
+  });
+
+  it("counts every benchmark in scope and filters by status", async () => {
+    GET.mockResolvedValue({ status: 200, data: {
+      benchmarks: [item("f2", "zzz", { status: "regressed" })],
+      status_counts: { regressed: 3, improved: 0, stable: 250, insufficient: 4 },
+      statuses_pending: false,
+      next_page_cursor: "cur2",
+    } });
+    render(SeriesBrowse, { props: { query: { ...DEFAULT_BROWSE_QUERY, repository: "https://github.com/benchdb/demo" } } });
+    const nav = await screen.findByRole("navigation", { name: "Filter benchmarks by status" });
+    expect(nav).toHaveTextContent("All 257 Regressed 3 Stable 250 Insufficient 4");
+    expect(within(nav).getByRole("link", { name: /^All/ })).toHaveAttribute("aria-current", "true");
+    expect(within(nav).queryByRole("link", { name: /Improved/ })).toBeNull();
+
+    await fireEvent.click(within(nav).getByRole("link", { name: /Regressed/ }));
+    expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fdemo&status=regressed");
+  });
+
+  it("requests the selected status and names it when nothing matches", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: {
+      benchmarks: [],
+      status_counts: { regressed: 0, improved: 0, stable: 2, insufficient: 0 },
+      statuses_pending: false,
+      next_page_cursor: null,
+    } });
+    render(SeriesBrowse, { props: { query: { ...DEFAULT_BROWSE_QUERY, status: "regressed" } } });
+    await waitFor(() => expect(screen.getByText("No regressed benchmarks")).toBeInTheDocument());
+    expect((GET.mock.calls[0]![1] as { params: { status?: string } }).params.status).toBe("regressed");
+    const nav = screen.getByRole("navigation", { name: "Filter benchmarks by status" });
+    expect(within(nav).getByRole("link", { name: /Regressed/ })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("reloads the first page until queued statuses settle", async () => {
+    vi.useFakeTimers();
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [], status_counts: { regressed: 0, improved: 0, stable: 0, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: null,
+      } });
+      GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("No benchmarks yet")).toBeInTheDocument();
+      expect(screen.getByText(/still being scored/)).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(GET).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a reload that finishes after more pages are loaded", async () => {
+    vi.useFakeTimers();
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "one")], status_counts: { regressed: 0, improved: 0, stable: 2, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: "cur2",
+      } });
+      let finishReload: (v: unknown) => void;
+      GET.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve; }));
+      GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(2000);
+      await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+      await vi.advanceTimersByTimeAsync(0);
+      finishReload!({ status: 200, data: { benchmarks: [item("f3", "three")], next_page_cursor: null } });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.getByRole("link", { name: "two" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "three" })).toBeNull();
+      expect(GET).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops reloading once more pages are loaded", async () => {
+    vi.useFakeTimers();
+    try {
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "one")], status_counts: { regressed: 0, improved: 0, stable: 2, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: "cur2",
+      } });
+      GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f2", "two")], next_page_cursor: null } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(0);
+      await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.getByRole("link", { name: "two" })).toBeInTheDocument();
+      expect(GET).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("groups benchmarks by project when every project is shown", async () => {

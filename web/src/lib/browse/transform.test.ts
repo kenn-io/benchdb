@@ -7,7 +7,6 @@ import {
   groupByRepository,
   sortRows,
   sparklinePoints,
-  statusCounts,
   tagsText,
   toBrowseRows,
   windowStartIso,
@@ -142,18 +141,6 @@ describe("groupByRepository", () => {
       ["acme/widgets", ["w2", "w1"]],
     ]);
     expect(groupByRepository([])).toEqual([]);
-  });
-});
-
-describe("statusCounts", () => {
-  it("counts regressed and improved rows", () => {
-    const rows = toBrowseRows([
-      item({ status: "regressed" }),
-      item({ status: "regressed" }),
-      item({ status: "improved" }),
-      item({ status: "stable" }),
-    ]);
-    expect(statusCounts(rows)).toEqual({ regressed: 2, improved: 1 });
   });
 });
 

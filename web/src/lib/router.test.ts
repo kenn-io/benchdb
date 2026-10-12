@@ -79,30 +79,38 @@ describe("browse route", () => {
   it("matches /series as browse with default query", () => {
     expect(matchRoute("/series")).toEqual({
       name: "browse",
-      query: { q: "", hardware: "", repository: "", window: "all", view: "table" },
+      query: { q: "", hardware: "", repository: "", window: "all", status: "", view: "table" },
     });
   });
 
   it("parses filters from the search string", () => {
-    expect(matchRoute("/series", "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo&view=charts")).toEqual({
+    expect(matchRoute("/series", "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo&status=regressed&view=charts")).toEqual({
       name: "browse",
-      query: { q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo", view: "charts" },
+      query: { q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo", status: "regressed", view: "charts" },
     });
   });
 
   it("is total over junk search strings", () => {
-    expect(parseBrowseQuery("?window=bogus&view=bogus&unknown=x")).toEqual({
-      q: "", hardware: "", repository: "", window: "all", view: "table",
+    expect(parseBrowseQuery("?window=bogus&status=bogus&view=bogus&unknown=x")).toEqual({
+      q: "", hardware: "", repository: "", window: "all", status: "", view: "table",
     });
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatBrowseQuery({ q: "", hardware: "", repository: "", window: "all", view: "table" })).toBe("");
-    expect(formatBrowseQuery({ q: "tpch", hardware: "", repository: "", window: "30d", view: "charts" })).toBe("?q=tpch&window=30d&view=charts");
+    expect(formatBrowseQuery({ q: "", hardware: "", repository: "", window: "all", status: "", view: "table" })).toBe("");
+    expect(formatBrowseQuery({ q: "tpch", hardware: "", repository: "", window: "30d", status: "improved", view: "charts" }))
+      .toBe("?q=tpch&window=30d&status=improved&view=charts");
   });
 
   it("round-trips parse(format(q))", () => {
-    const q = { q: "a b", hardware: "m5", repository: "https://github.com/o/r", window: "1y" as const, view: "charts" as const };
+    const q = {
+      q: "a b",
+      hardware: "m5",
+      repository: "https://github.com/o/r",
+      window: "1y" as const,
+      status: "insufficient" as const,
+      view: "charts" as const,
+    };
     expect(parseBrowseQuery(formatBrowseQuery(q))).toEqual(q);
   });
 });

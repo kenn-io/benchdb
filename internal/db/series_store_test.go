@@ -672,18 +672,14 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
-	for _, row := range got {
-		assert.Equal(t, day(0), row.SegmentFirstCommitTimestamp, "segment start precedes the returned tail")
-	}
+	assert.Equal(t, int64(300), got[0].FingerprintMemberCount, "the count covers the whole membership")
 
-	since := day(100)
-	windowed, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
-		Fingerprints: []string{"fp-long"},
-		ActiveSince:  &since,
+	preview, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-long"}, PerFingerprintLimit: 20,
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, windowed)
-	assert.Equal(t, day(100), windowed[0].SegmentFirstCommitTimestamp, "segment start honors active_since")
+	require.Len(t, preview, 20)
+	assert.Equal(t, day(280), *preview[0].CommitTimestamp)
 }
 
 func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
@@ -707,57 +703,7 @@ func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(0), *got[0].CommitTimestamp)
 	assert.Equal(t, day(20), *got[len(got)-1].CommitTimestamp)
-}
-
-func TestSelectBenchmarkPagePaginatesLogicalFleetAndCountsSelectedHistory(t *testing.T) {
-	st, _, ctx := newTestStore(t)
-	seedSeries(t, st, ctx, "fp-fleet-a", "fleet-bench", `{}`, "m5", []seriesMember{
-		{ts: day(0), value: 1},
-		{ts: day(2), value: 2},
-	})
-	seedSeries(t, st, ctx, "fp-fleet-b", "fleet-bench", `{}`, "m7", []seriesMember{
-		{ts: day(1), value: 3},
-	})
-	seedSeries(t, st, ctx, "fp-older", "older-bench", `{}`, "m5", []seriesMember{
-		{ts: day(-1), value: 4},
-	})
-
-	first, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
-	require.NoError(t, err)
-	require.Len(t, first, 1)
-	assert.Equal(t, "fleet-bench", first[0].CaseName)
-	assert.Equal(t, int64(3), first[0].PointCount)
-	assert.Equal(t, []string{"fp-fleet-a", "fp-fleet-b"}, first[0].HistoryFingerprints)
-	assert.Equal(t, []string{"m5", "m7"}, first[0].MachineNames)
-	assert.Equal(t, []string{"s"}, first[0].BenchmarkUnits)
-
-	cursorTS := first[0].LatestCommitTimestamp
-	second, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{
-		CursorTs: &cursorTS, CursorID: &first[0].BenchmarkID, PageSize: 1,
-	})
-	require.NoError(t, err)
-	require.Len(t, second, 1)
-	assert.Equal(t, "older-bench", second[0].CaseName)
-
-	history, err := st.SelectHistoryForBenchmark(ctx, first[0].BenchmarkID)
-	require.NoError(t, err)
-	assert.Len(t, history, 3)
-}
-
-func TestSelectBenchmarkPageRejectsMixedFleetUnits(t *testing.T) {
-	st, _, ctx := newTestStore(t)
-	seedSeries(t, st, ctx, "fp-seconds", "fleet-bench", `{}`, "m5", []seriesMember{
-		{ts: day(0), value: 1, unit: "s"},
-	})
-	seedSeries(t, st, ctx, "fp-bytes", "fleet-bench", `{}`, "m7", []seriesMember{
-		{ts: day(1), value: 2, unit: "B"},
-	})
-
-	page, err := st.SelectBenchmarkPage(ctx, storage.BenchmarkListParams{PageSize: 1})
-
-	require.NoError(t, err)
-	require.Len(t, page, 1)
-	assert.ElementsMatch(t, []string{"s", "B"}, page[0].BenchmarkUnits)
+	assert.Equal(t, int64(21), got[0].FingerprintMemberCount, "the count honors the window")
 }
 
 // TestSelectSeriesPageRepositoryFilter asserts the repository filter matches the
