@@ -40,12 +40,17 @@ type PairwiseAnalysis struct {
 // window. Null when there is no baseline commit, the window is not single-unit,
 // or the z-score is not computable.
 type LookbackAnalysis struct {
-	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`
-	_                    struct{}         `json:"-" nullable:"true"`
-	ZScore               float64          `json:"z_score"`
-	ZThreshold           float64          `json:"z_threshold"`
-	RegressionIndicated  bool             `json:"regression_indicated"`
-	ImprovementIndicated bool             `json:"improvement_indicated"`
+	Tolerance *ChangeTolerance `json:"tolerance,omitempty"`
+	_         struct{}         `json:"-" nullable:"true"`
+	ZScore    float64          `json:"z_score"`
+	// BaselineZScore measures the contender against its own baseline result,
+	// in standard deviations of the baseline window. A change counts only
+	// when it is also at least BaselineZThreshold from the baseline result.
+	BaselineZScore       *float64 `json:"baseline_z_score"`
+	BaselineZThreshold   float64  `json:"baseline_z_threshold"`
+	ZThreshold           float64  `json:"z_threshold"`
+	RegressionIndicated  bool     `json:"regression_indicated"`
+	ImprovementIndicated bool     `json:"improvement_indicated"`
 }
 
 // CompareAnalysis holds the two verdicts; either may be null.
@@ -125,7 +130,7 @@ func (r *Reader) compare(
 		return nil, fmt.Errorf("%w: %v", ErrNotComparable, err)
 	}
 	lookback, err := r.lookbackAnalysis(ctx, lookbackInput{
-		contender: contender, baseline: baseline, contSVS: contSVS,
+		contender: contender, baseline: baseline, contSVS: contSVS, baseSVS: baseSVS,
 		unit: unit, lessIsBetter: lessIsBetter, thresholdZ: thresholdZ, tolerance: policy,
 		history: history,
 	})
@@ -205,6 +210,7 @@ type lookbackInput struct {
 	contender    storage.CompareResultRow
 	baseline     storage.CompareResultRow
 	contSVS      float64
+	baseSVS      float64
 	unit         string
 	lessIsBetter bool
 	thresholdZ   float64
@@ -250,13 +256,38 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 		return nil, nil // z not computable (nil/zero-stddev/NaN) — a legitimate absent lookback
 	}
 	tolerance := in.tolerance.evaluate(*mean, in.contSVS)
-	return &LookbackAnalysis{
+	regressed, improved, fromBaseline := movedFromBaseline(in, stddev)
+	analysis := &LookbackAnalysis{
 		Tolerance:            tolerance,
 		ZScore:               round4SigFigs(v.ZScore),
+		BaselineZThreshold:   stats.BaselineSigmaThreshold,
 		ZThreshold:           v.ZThreshold,
-		RegressionIndicated:  v.RegressionIndicated && !tolerance.WithinTolerance,
-		ImprovementIndicated: v.ImprovementIndicated && !tolerance.WithinTolerance,
-	}, nil
+		RegressionIndicated:  v.RegressionIndicated && regressed && !tolerance.WithinTolerance,
+		ImprovementIndicated: v.ImprovementIndicated && improved && !tolerance.WithinTolerance,
+	}
+	if fromBaseline != nil {
+		rounded := round4SigFigs(*fromBaseline)
+		analysis.BaselineZScore = &rounded
+	}
+	return analysis, nil
+}
+
+// movedFromBaseline reports whether the contender moved away from its own
+// baseline result, worse or better, by at least BaselineSigmaThreshold
+// standard deviations of the baseline window and by more than
+// MinimumChangePercent. Being outside the window's band is not enough on its
+// own: a contender that matches its baseline did not cause the difference,
+// which an earlier default-branch commit already carried, and a change of a
+// percent or two is noise across dozens of benchmarks.
+func movedFromBaseline(in lookbackInput, stddev *float64) (regressed, improved bool, z *float64) {
+	z = stats.ZScore(&in.contSVS, in.lessIsBetter, &in.baseSVS, stddev)
+	change := stats.PairwiseVerdict(in.baseSVS, in.contSVS, in.lessIsBetter, stats.MinimumChangePercent)
+	if z == nil || change == nil {
+		return false, false, z
+	}
+	regressed = -*z >= stats.BaselineSigmaThreshold && change.RegressionIndicated
+	improved = *z >= stats.BaselineSigmaThreshold && change.ImprovementIndicated
+	return regressed, improved, z
 }
 
 // round4SigFigs rounds x to 4 significant figures for display only. Verdict

@@ -610,3 +610,57 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 	}
 	assert.Equal(t, 2, analyzed)
 }
+
+// TestCIReportForkPointUsesTheMergedBase covers runs that measure a pull
+// request merged onto the default branch. The default branch slowed down after
+// the pull request forked; the pull request itself changed nothing.
+func TestCIReportForkPointUsesTheMergedBase(t *testing.T) {
+	sha := func(c byte) string { return strings.Repeat(string(c), 40) }
+	main1, main2, main3, main4, pr := sha('1'), sha('2'), sha('3'), sha('4'), sha('f')
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		main1: ciCommitInfo(main1, nil, main1, t0),
+		main2: ciCommitInfo(main2, new(main1), main2, t0.Add(24*time.Hour)),
+		main3: ciCommitInfo(main3, new(main2), main3, t0.Add(48*time.Hour)),
+		main4: ciCommitInfo(main4, new(main3), main4, t0.Add(96*time.Hour)),
+		pr:    ciCommitInfo(pr, new(main3), main3, t0.Add(72*time.Hour)),
+	}
+	for _, tt := range []struct {
+		name         string
+		base         any
+		baselineSHA  string
+		status       service.CIReportStatus
+		comparisonIs string
+	}{
+		{"merged base", main4, main4, service.CIReportStatusSuccess, service.CIReportRowStatusStable},
+		{"no merged base", nil, main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+		{"unknown merged base", sha('9'), main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+		{"malformed merged base", "main", main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, store, _, ctx := newIngester(t)
+			ing := service.NewIngester(store, provider)
+			ciSubmit(t, ing, ctx, "main-1", main1, 10)
+			ciSubmit(t, ing, ctx, "main-2", main2, 10.2)
+			ciSubmit(t, ing, ctx, "main-3", main3, 9.8)
+			ciSubmit(t, ing, ctx, "main-4", main4, 15)
+			req := machineReq(samples(15.05, 16.05, 17.05), "s")
+			req.RunID, req.BatchID, req.GitHub.Commit = "pr-run", "pr-batch", pr
+			if tt.base != nil {
+				req.RunTags = map[string]any{"measurement-mode": "merged-main", "base-sha": tt.base}
+			}
+			_, err := ing.Submit(ctx, req)
+			require.NoError(t, err)
+
+			report, err := service.NewCIReporter(store, "").Report(ctx, service.CIReportQuery{
+				Repository: testRepo, CommitSHA: pr, Baseline: service.CIReportBaselineForkPoint,
+			})
+			require.NoError(t, err)
+			require.Len(t, report.Runs, 1)
+			assert.Equal(t, tt.baselineSHA, report.Runs[0].BaselineCommit.Sha)
+			assert.Equal(t, tt.status, report.Status)
+			require.Len(t, report.Runs[0].Comparisons, 1)
+			assert.Equal(t, tt.comparisonIs, report.Runs[0].Comparisons[0].Status)
+		})
+	}
+}

@@ -11,6 +11,8 @@ const lookback = (over = {}) => ({
   regression_indicated: false,
   z_score: 1.23,
   z_threshold: 5,
+  baseline_z_score: 1.5 as number | null,
+  baseline_z_threshold: 3,
   ...over,
 });
 
@@ -44,6 +46,15 @@ describe("lookbackText", () => {
       "z 6.30 vs threshold 5 — improvement indicated",
     );
     expect(lookbackText(lookback())).toBe("z 1.23 vs threshold 5 — within threshold");
+  });
+
+  it("says why a change outside the band did not count", () => {
+    expect(lookbackText(lookback({ z_score: -6.3, baseline_z_score: -0.4 }))).toBe(
+      "z -6.30 vs threshold 5 — outside the band, but within 3σ of its baseline (z -0.40)",
+    );
+    expect(lookbackText(lookback({ z_score: -6.3, baseline_z_score: -9 }))).toBe(
+      "z -6.30 vs threshold 5 — outside the band, but within 2% of its baseline",
+    );
   });
 
   it("renders n/a for a null verdict, never a fake zero", () => {

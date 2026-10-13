@@ -320,6 +320,9 @@ export interface ChangeTolerance {
  * @nullable
  */
 export type LookbackAnalysis = {
+  /** @nullable */
+  baseline_z_score: number | null;
+  baseline_z_threshold: number;
   improvement_indicated: boolean;
   regression_indicated: boolean;
   tolerance?: ChangeTolerance;

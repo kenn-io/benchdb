@@ -158,7 +158,13 @@ func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	require.NotNil(t, direct.Analysis.Pairwise)
 	assert.True(t, direct.Analysis.Pairwise.ImprovementIndicated)
 	assert.Equal(t, "ad-hoc-run", direct.Baseline.RunID)
-	assert.Equal(t, comparisonBefore.Analysis.LookbackZScore, direct.Analysis.LookbackZScore)
+	// The history window is the same; only the baseline result differs.
+	require.NotNil(t, direct.Analysis.LookbackZScore)
+	assert.InDelta(t, comparisonBefore.Analysis.LookbackZScore.ZScore, direct.Analysis.LookbackZScore.ZScore, 0)
+	assert.Equal(t, comparisonBefore.Analysis.LookbackZScore.Tolerance.Reference,
+		direct.Analysis.LookbackZScore.Tolerance.Reference)
+	assert.False(t, direct.Analysis.LookbackZScore.RegressionIndicated,
+		"the contender is far better than the excluded baseline it is compared against")
 }
 
 func TestHistoryExclusionAnnotationUpdatesAndValidation(t *testing.T) {

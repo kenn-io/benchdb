@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -515,6 +516,21 @@ func (r *CIReporter) selectBaselineRuns(
 			selections[run.RunID] = selection
 			continue
 		}
+		if baseline == CIReportBaselineForkPoint {
+			merged, ancestry, ok, err := r.mergedBaseRun(ctx, run, contendersByRun[run.RunID], candidateSHA)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				runID := merged.runID
+				selection.baselineRunID = &runID
+				selection.baselineCommitID = merged.commitID
+				selection.commit = &merged.commit
+				selection.commitsSkipped = ciReportSkippedCommits(ancestry, merged.depth)
+				selections[run.RunID] = selection
+				continue
+			}
+		}
 
 		ancestry, err := r.store.SelectCIReportBaselineAncestry(ctx, commit.NormalizeRepoURL(run.CommitRepoURL), candidateSHA, CIReportBaselineAncestorLimit)
 		if err != nil {
@@ -643,6 +659,45 @@ func (r *CIReporter) selectExplicitBaselineRuns(
 		selections[run.RunID] = selection
 	}
 	return selections, nil
+}
+
+// mergedBaseTag names the run tag that records the default-branch commit a
+// run's measured code was merged onto, for runs that measure a pull request
+// merged onto the default branch rather than its head alone.
+const mergedBaseTag = "base-sha"
+
+var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// mergedBaseRun finds the fork_point baseline for a run measured on merged
+// main: the default-branch measurement nearest at or before the commit named
+// by its base-sha tag. Comparing against the fork point would charge every
+// default-branch change between the fork point and that commit to the pull
+// request. It reports false when the run has no such tag, when the tag names
+// the fork point itself, or when no measurement is found, so the caller falls
+// back to the fork point.
+func (r *CIReporter) mergedBaseRun(
+	ctx context.Context,
+	run storage.CIReportRunRow,
+	contenderRows []storage.CIReportResultRow,
+	forkPointSHA string,
+) (ciReportBaselineCandidate, []storage.CIReportCommitRow, bool, error) {
+	tags, err := jsonObject(run.RunTags)
+	if err != nil {
+		return ciReportBaselineCandidate{}, nil, false, fmt.Errorf("decode run tags for %s: %w", run.RunID, err)
+	}
+	base, _ := tags[mergedBaseTag].(string)
+	if !fullSHA.MatchString(base) || base == forkPointSHA {
+		return ciReportBaselineCandidate{}, nil, false, nil
+	}
+	ancestry, err := r.store.SelectCIReportBaselineAncestry(ctx, commit.NormalizeRepoURL(run.CommitRepoURL), base, CIReportBaselineAncestorLimit)
+	if err != nil {
+		return ciReportBaselineCandidate{}, nil, false, fmt.Errorf("select ci report merged base ancestry: %w", err)
+	}
+	if len(ancestry) == 0 {
+		return ciReportBaselineCandidate{}, nil, false, nil
+	}
+	candidate, ok, err := r.findBaselineRun(ctx, run, contenderRows, ancestry)
+	return candidate, ancestry, ok, err
 }
 
 func (r *CIReporter) resolveBaselineCandidate(

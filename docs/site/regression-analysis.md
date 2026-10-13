@@ -19,6 +19,28 @@ CI report status uses lookback z-score regression verdicts as the primary
 failure signal. Pairwise analysis is still shown in report rows as useful
 context.
 
+## The contender must move from its own baseline
+
+Being outside the history band is not enough on its own. A comparison counts as
+a regression or improvement only when the contender also:
+
+- is at least **3 standard deviations** of the history window away from its own
+  baseline result, in the same direction, and
+- differs from that baseline result by **more than 2%**.
+
+A contender that matches its baseline did not cause the difference: an earlier
+default-branch commit already carried it, for example when the default branch
+stepped to a new level after the pull request forked. And across the dozens of
+benchmarks in a typical run, a change of a percent or two outside a very steady
+history is usually noise. Each lookback result reports `baseline_z_score`, the
+contender's distance from its baseline result in standard deviations, and
+`baseline_z_threshold`, so a report shows why a change did or did not count.
+
+This applies to CI reports, comparisons, saved run reports, Runs page verdicts,
+and alerts. Benchmark statuses on the Benchmarks page compare a machine's latest
+point with its own history and have no separate baseline result, so they use
+the history band alone.
+
 ## How Lookback Works
 
 The analysis starts from the single value summary, or SVS, for each result. SVS
@@ -52,7 +74,8 @@ Both pairwise percent change and lookback z-score use strict thresholds. The
 default lookback threshold is **2 standard deviations**: a z-score below `-2`
 is a regression and a score above `2` is an improvement. Exactly `-2` or `2`
 does not cross the threshold. This applies to CI reports, comparisons, and
-series verdicts. Automatic distribution-shift detection remains separate.
+series verdicts. Comparisons also need the move from their own baseline
+described above. Automatic distribution-shift detection remains separate.
 
 The previous default of 5 could classify a slowdown more than four standard
 deviations above the trailing trend as stable. The default is now more sensitive;
@@ -74,8 +97,8 @@ benchmark before enough history exists for the lookback model.
 
 | Status | Meaning |
 | --- | --- |
-| `regressed` | Lookback analysis indicates a regression. |
-| `improved` | Lookback analysis indicates an improvement. |
+| `regressed` | Lookback analysis indicates a regression, and the contender is at least 3σ and more than 2% worse than its baseline. |
+| `improved` | Lookback analysis indicates an improvement, and the contender is at least 3σ and more than 2% better than its baseline. |
 | `stable` | Enough history exists and no regression or improvement is indicated. |
 | `insufficient` | Not enough history exists for z-score analysis. |
 | `errored` | The benchmark result itself contains an error payload. |
