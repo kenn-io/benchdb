@@ -100,6 +100,34 @@ describe("BrowseTrendCard", () => {
     expect(Number(latest.getAttribute("cy"))).toBe(highest);
   });
 
+  it("shows each machine's latest value inside the selected window", async () => {
+    const sample = (id: string, day: number, value: number) => ({
+      benchmark_result_id: id,
+      commit_timestamp: `2024-01-${String(day).padStart(2, "0")}T12:00:00Z`,
+      result_timestamp: `2024-01-${String(day).padStart(2, "0")}T12:00:00Z`,
+      single_value_summary: value,
+      unit: "s", change_annotations: {}, zscorestats: null,
+    });
+    // A result newer than the window arrived after the list loaded.
+    GET.mockResolvedValue({ status: 200, data: {
+      benchmark_id: "bench-1", name: row.name, tags: {}, repository: "",
+      unit: "s", less_is_better: true,
+      tracks: [{ machine_name: "m5", segments: [{ history_fingerprint: "a", samples: [
+        sample("r1", 1, 10), sample("r2", 2, 11), sample("r3", 11, 12), sample("r4", 20, 99),
+      ] }] }],
+    } });
+    const { container } = render(BrowseTrendCard, { props: {
+      row: { ...row, pointCount: 4 },
+      timeRange: { min: Date.parse("2024-01-01T00:00:00Z"), max: Date.parse("2024-01-15T00:00:00Z") },
+    } });
+
+    await waitFor(() => expect(container.querySelector(".point-mark.latest")).not.toBeNull());
+    const legend = within(container.querySelector("footer")!).getByText("m5").parentElement!;
+    expect(legend).toHaveTextContent(/12 s/);
+    expect(legend).not.toHaveTextContent(/99 s/);
+    expect(screen.getByRole("button", { name: /open trend daily-usage/i })).toHaveAccessibleName(/m5: latest 12 s/);
+  });
+
   it("waits to load omitted history until the card nears the viewport", async () => {
     let reveal: () => void = () => {};
     let observedMargin = "";

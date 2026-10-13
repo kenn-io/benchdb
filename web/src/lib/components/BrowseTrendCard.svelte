@@ -126,7 +126,11 @@
   let plotLeft = $derived(Math.max(...yLabels.map((label) => label.length), 1) * LABEL_CHAR_WIDTH + 12);
   let plotRight = $derived(width - PAD_RIGHT);
   let colors = $derived(machineColors(tracks.map((track) => track.machineName), resolvedTheme()));
-  let latestByMachine = $derived(new Map(tracks.map((track) => [track.machineName, latestPreviewPoint(track.points)])));
+  // The legend's latest values come from the points inside the time window,
+  // the same points the chart marks and the summary describes.
+  let latestByMachine = $derived(
+    new Map(visibleTracks.map((track) => [track.machineName, latestPreviewPoint(track.points)])),
+  );
 
   function x(point: BrowsePreviewPoint): number {
     if (maxX === minX) return (plotLeft + plotRight) / 2;
