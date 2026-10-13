@@ -71,6 +71,19 @@ func TestSeriesStatus(t *testing.T) {
 	assert.Equal(t, "insufficient", seriesStatus(mixedUnitMembers(), nil, nil))
 }
 
+func TestSeriesStatusNeedsMoreThanMinimumChange(t *testing.T) {
+	libTrue := true
+	steady := []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000}
+	status := func(latest float64) string {
+		return seriesStatus(membersFromSVS(append(slices.Clone(steady), latest), "s"), new("s"), &libTrue)
+	}
+	// Far outside a very steady band, but within 2% of the window mean.
+	assert.Equal(t, statusStable, status(1.015))
+	assert.Equal(t, statusStable, status(0.985))
+	assert.Equal(t, statusRegressed, status(1.03))
+	assert.Equal(t, statusImproved, status(0.97))
+}
+
 func TestBenchmarkStatusUsesWorstFleetSegment(t *testing.T) {
 	stable := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
 	regressed := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s")

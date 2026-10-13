@@ -132,12 +132,16 @@ func seriesStatus(members []storage.HistoryRow, unit *string, lessIsBetter *bool
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
 	z := stats.ZScore(&latestSVS, *lessIsBetter, mean, stddev)
 	v := stats.LookbackZVerdict(z, stats.ZScoreThresholdDefault)
-	switch {
-	case v == nil:
+	if v == nil {
 		return statusInsufficient
-	case v.RegressionIndicated:
+	}
+	// A series has no baseline result of its own, so a change must also be
+	// larger than MinimumChangePercent of the window mean to count.
+	large := stats.ExceedsMinimumChange(latestSVS, *mean)
+	switch {
+	case v.RegressionIndicated && large:
 		return statusRegressed
-	case v.ImprovementIndicated:
+	case v.ImprovementIndicated && large:
 		return statusImproved
 	default:
 		return statusStable

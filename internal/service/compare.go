@@ -284,9 +284,7 @@ func movedFromBaseline(in lookbackInput, stddev *float64) (regressed, improved b
 	if z == nil {
 		return false, false, z
 	}
-	// Compare magnitudes rather than dividing, so a zero baseline still
-	// counts any change as large enough.
-	large := math.Abs(in.contSVS-in.baseSVS) > math.Abs(in.baseSVS)*stats.MinimumChangePercent/100
+	large := stats.ExceedsMinimumChange(in.contSVS, in.baseSVS)
 	regressed = large && -*z >= stats.BaselineSigmaThreshold
 	improved = large && *z >= stats.BaselineSigmaThreshold
 	return regressed, improved, z

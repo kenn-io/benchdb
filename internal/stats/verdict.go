@@ -64,3 +64,10 @@ func LookbackZVerdict(zscore *float64, thresholdZ float64) *LookbackResult {
 		ImprovementIndicated: z > thresholdZ,
 	}
 }
+
+// ExceedsMinimumChange reports whether value differs from reference by more
+// than MinimumChangePercent of reference. It compares magnitudes rather than
+// dividing, so any change from a zero reference counts.
+func ExceedsMinimumChange(value, reference float64) bool {
+	return math.Abs(value-reference) > math.Abs(reference)*MinimumChangePercent/100
+}
