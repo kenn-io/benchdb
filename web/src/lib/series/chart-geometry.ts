@@ -168,3 +168,19 @@ export function observedValueRange(
     max: max + pad,
   };
 }
+
+/** niceTicks returns round values (1, 2, or 5 times a power of ten apart)
+ * inside range, about target intervals across it, for labeled gridlines. It
+ * always returns at least two ticks for a nonempty range, so a scale shows. */
+export function niceTicks(range: ValueRange, target = 3): number[] {
+  const span = range.max - range.min;
+  if (!Number.isFinite(span) || span <= 0) return [range.min];
+  const raw = span / target;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((multiple) => multiple * magnitude).find((candidate) => candidate >= raw)!;
+  const ticks: number[] = [];
+  for (let k = Math.ceil(range.min / step); k * step <= range.max; k++) {
+    ticks.push(Number((k * step).toPrecision(12)));
+  }
+  return ticks.length < 2 ? niceTicks(range, target * 2) : ticks;
+}

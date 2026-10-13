@@ -172,22 +172,22 @@ describe("SeriesBrowse", () => {
       const { container, rerender } = render(SeriesBrowse, {
         props: { query: parseBrowseQuery(window.location.search) },
       });
-      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      await screen.findByRole("button", { name: /^open trend demo\b/i });
       expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
 
       await fireEvent.click(screen.getByRole("button", { name: "30 days" }));
       await rerender({ query: parseBrowseQuery(window.location.search) });
-      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      await screen.findByRole("button", { name: /^open trend demo\b/i });
 
       const marks = container.querySelectorAll(".point-mark");
       expect(marks).toHaveLength(2);
       expect(Number(marks[0]!.getAttribute("cy")) - Number(marks[1]!.getAttribute("cy"))).toBeGreaterThan(100);
       expect([...container.querySelectorAll(".axis-label")].map((label) => label.textContent)).toEqual(["May 10", "Jun 8"]);
-      expect(Number(marks[1]!.getAttribute("cx"))).toBe(512);
+      expect(marks[1]!.getAttribute("cx")).toBe(container.querySelector(".axis")!.getAttribute("x2"));
 
       await fireEvent.click(screen.getByRole("button", { name: /all time/i }));
       await rerender({ query: parseBrowseQuery(window.location.search) });
-      await screen.findByRole("img", { name: /demo fleet trend preview/i });
+      await screen.findByRole("button", { name: /^open trend demo\b/i });
       expect(container.querySelectorAll(".point-mark")).toHaveLength(3);
       expect(container.querySelector(".axis-label")).toHaveTextContent("Jan 1");
     } finally {
@@ -221,7 +221,7 @@ describe("SeriesBrowse", () => {
       params: { page_size: 200, q: "demo", hardware: "m5" },
     }));
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open trend demo\b/i })).toBeInTheDocument();
   });
 
   it("loads charts directly from the URL with benchmark detail links", async () => {
@@ -230,7 +230,7 @@ describe("SeriesBrowse", () => {
     render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
     const cards = await screen.findByRole("region", { name: "benchdb/demo" });
     expect(within(cards).getByText("regressed")).toBeInTheDocument();
-    expect(within(cards).getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
+    expect(within(cards).getByRole("button", { name: /^open trend demo\b/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Charts" })).toHaveAttribute("aria-pressed", "true");
     const link = within(cards).getByRole("link", { name: "demo" });
     expect(link).toHaveAttribute("href", "/benchmarks/f1");
@@ -248,7 +248,7 @@ describe("SeriesBrowse", () => {
     expect(window.location.search).toBe("?view=charts");
     await rerender({ query: parseBrowseQuery(window.location.search) });
 
-    expect(screen.getByRole("img", { name: /demo fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open trend demo\b/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
     const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
     await fireEvent.click(yAxis);
@@ -256,7 +256,7 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-    await screen.findByRole("img", { name: /second fleet trend preview/i });
+    await screen.findByRole("button", { name: /^open trend second\b/i });
     expect(GET.mock.calls[1]![1].params.cursor).toBe("cur2");
     await fireEvent.click(screen.getByRole("button", { name: "Table" }));
     expect(window.location.search).toBe("");
@@ -264,7 +264,7 @@ describe("SeriesBrowse", () => {
     expect(within(screen.getByRole("table")).getByRole("link", { name: "second" })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Charts" }));
     await rerender({ query: parseBrowseQuery(window.location.search) });
-    expect(screen.getByRole("img", { name: /second fleet trend preview/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open trend second\b/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
     expect(GET).toHaveBeenCalledTimes(2);
   });

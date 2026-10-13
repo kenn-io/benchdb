@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getBenchDB } from "../api/benchdb";
 import type { AxiosInstance } from "axios";
@@ -123,8 +123,9 @@ describe("BrowseTrendCard", () => {
       timeRange: { min: Date.parse("2023-11-01T00:00:00Z"), max: Date.parse("2024-02-01T00:00:00Z") },
     } });
     const marks = container.querySelectorAll(".point-mark");
-    expect(Number(marks[0]!.getAttribute("cx"))).toBe(8);
-    expect(Number(marks[2]!.getAttribute("cx"))).toBe(512);
+    const axis = container.querySelector(".axis")!;
+    expect(marks[0]!.getAttribute("cx")).toBe(axis.getAttribute("x1"));
+    expect(marks[2]!.getAttribute("cx")).toBe(axis.getAttribute("x2"));
     const labels = container.querySelectorAll(".axis-label");
     expect(labels[0]!.textContent).not.toBe(labels[1]!.textContent);
   });
@@ -134,9 +135,9 @@ describe("BrowseTrendCard", () => {
     const { container } = render(BrowseTrendCard, { props: { row, onopen } });
 
     const path = container.querySelector("path")?.getAttribute("d");
-    expect(path).toMatch(/^M8\.00,/);
     const xValues = [...(path?.matchAll(/[ML]([\d.]+),/g) ?? [])].map((match) => Number(match[1]));
     expect(xValues).toHaveLength(3);
+    expect(xValues[0]).toBe(Number(container.querySelector(".axis")!.getAttribute("x1")));
     expect(xValues[1]! - xValues[0]!).toBeLessThan((xValues[2]! - xValues[1]!) / 5);
 
     const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
@@ -161,6 +162,71 @@ describe("BrowseTrendCard", () => {
     await rerender({ row, zeroBased: true });
 
     expect(container.querySelector("path")?.getAttribute("d")).not.toBe(observedPath);
+  });
+
+  it("labels the value axis at round values in the benchmark's unit", () => {
+    const { container } = render(BrowseTrendCard, { props: { row } });
+    expect([...container.querySelectorAll(".value-label")].map((label) => label.textContent))
+      .toEqual(["10 s", "11 s", "12 s"]);
+  });
+
+  it("shows each machine's latest value and summarizes the chart for screen readers", () => {
+    const twoMachines: BrowseRow = { ...row, machineNames: ["m5", "m7"], previewTracks: [
+      row.previewTracks[0]!,
+      { machineName: "m7", points: [
+        { chartMs: Date.parse("2024-01-01T00:00:00Z"), value: 20, unit: "s" },
+        { chartMs: Date.parse("2024-01-10T00:00:00Z"), value: 21, unit: "s" },
+      ] },
+    ] };
+    render(BrowseTrendCard, { props: { row: twoMachines } });
+
+    const legend = screen.getByRole("contentinfo");
+    expect(within(legend).getByText("m5").parentElement).toHaveTextContent(/m5\s*12 s/);
+    expect(within(legend).getByText("m7").parentElement).toHaveTextContent(/m7\s*21 s/);
+    expect(screen.getByRole("button", { name: /open trend daily-usage/i })).toHaveAccessibleName(
+      "Open trend daily-usage. m5: latest 12 s, 3 results from 10 s to 12 s. " +
+      "m7: latest 21 s, 2 results from 20 s to 21 s",
+    );
+  });
+
+  it("keeps a machine's color when other machines are filtered out", () => {
+    const twoMachines: BrowseRow = { ...row, machineNames: ["a-machine", "m5"], previewTracks: [
+      { machineName: "a-machine", points: row.previewTracks[0]!.points },
+      row.previewTracks[0]!,
+    ] };
+    const swatch = (container: HTMLElement) =>
+      (within(container.querySelector("footer")!).getByText("m5").previousElementSibling as HTMLElement).style.background;
+
+    const both = render(BrowseTrendCard, { props: { row: twoMachines } });
+    const withOthers = swatch(both.container);
+    both.unmount();
+    const alone = render(BrowseTrendCard, { props: { row } });
+
+    expect(withOthers).not.toBe("");
+    expect(swatch(alone.container)).toBe(withOthers);
+  });
+
+  it("draws only the line and the latest point when points are too dense for dots", () => {
+    const start = Date.parse("2024-01-01T00:00:00Z");
+    const dense: BrowseRow = { ...row, pointCount: 200, previewTracks: [{ machineName: "m5", points:
+      Array.from({ length: 200 }, (_, index) => ({ chartMs: start + index * 3_600_000, value: 10 + (index % 5), unit: "s" })),
+    }] };
+    const { container } = render(BrowseTrendCard, { props: { row: dense } });
+
+    const marks = container.querySelectorAll(".point-mark");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveClass("latest");
+    expect(marks[0]!.getAttribute("cx")).toBe(container.querySelector(".axis")!.getAttribute("x2"));
+  });
+
+  it("keeps the tooltip of the rightmost point inside the chart", async () => {
+    const { container } = render(BrowseTrendCard, { props: { row } });
+    const hits = container.querySelectorAll(".point-hit");
+    await fireEvent.pointerEnter(hits[hits.length - 1]!);
+
+    const tooltip = screen.getByRole("tooltip");
+    const pointX = Number(hits[hits.length - 1]!.getAttribute("cx"));
+    expect(Number.parseFloat(tooltip.style.left)).toBeLessThan(pointX);
   });
 
   it("does not plot preview points with mixed units", () => {
