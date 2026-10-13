@@ -699,7 +699,7 @@
   select {
     min-height: 30px;
     min-width: 0;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-sm);
     background: var(--c-bg-inset);
     color: var(--c-text);

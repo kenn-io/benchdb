@@ -660,7 +660,7 @@
     width: 100%;
     min-height: 34px;
     padding: 0 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-sm);
     background: var(--c-bg-inset);
     color: var(--c-text);
@@ -907,7 +907,7 @@
     font-size: 0.85rem;
     padding: 0.25rem 0.4rem;
     width: 5rem;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: 4px;
     background: var(--c-bg-inset);
     color: var(--c-text);

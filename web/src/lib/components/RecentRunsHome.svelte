@@ -343,7 +343,7 @@
     min-width: 0;
     height: 32px;
     padding: 0 10px 0 28px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-md);
     background: var(--c-surface);
     color: var(--c-text);
