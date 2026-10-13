@@ -425,8 +425,6 @@ func seriesMembersRowsFromRows(rows []SelectSeriesMembersRow) []storage.HistoryR
 			CommitRepository:   r.CommitRepository,
 			CommitMessage:      r.CommitMessage,
 			CommitTimestamp:    r.CommitTimestamp,
-
-			FingerprintMemberCount: r.FingerprintMemberCount,
 		}
 	}
 	return out

@@ -573,11 +573,6 @@ type HistoryRow struct {
 	CommitRepository   string
 	CommitMessage      string
 	CommitTimestamp    *time.Time
-
-	// FingerprintMemberCount is the fingerprint's whole membership within the
-	// requested window. Only SelectSeriesMembers sets it, because that query
-	// returns a bounded tail.
-	FingerprintMemberCount int64
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,
@@ -695,8 +690,6 @@ type SeriesMembersParams struct {
 	Fingerprints []string
 	ActiveSince  *time.Time
 	ActiveUntil  *time.Time
-	// PerFingerprintLimit caps each fingerprint's tail; zero uses the default.
-	PerFingerprintLimit int32
 }
 
 // SeriesPageRow is one series in the list: identity plus the newest-commit
@@ -747,11 +740,13 @@ type BenchmarkListParams struct {
 // BenchmarkList is one benchmark page read from a single snapshot.
 // StatusCounts counts every benchmark in the page's scope by status, ignoring
 // the status filter, cursor and page size. Pending reports that a queued
-// recompute can still change benchmarks in the repository filter.
+// recompute can still change benchmarks in the repository filter. More
+// reports that another page follows.
 type BenchmarkList struct {
 	Rows         []BenchmarkPageRow
 	StatusCounts map[string]int64
 	Pending      bool
+	More         bool
 }
 
 // BenchmarkCursor is the last row of the previous benchmark page.
@@ -764,6 +759,8 @@ type BenchmarkCursor struct {
 // BenchmarkPageRow is one logical benchmark (case + repository) aggregated
 // over its machine tracks in scope: the worst status, the shared unit (nil
 // when the tracks do not share one), and the latest result across tracks.
+// PointCount counts the tracks' history points inside the active window.
+// PreviewTracks is the JSON array of each track's stored preview, by machine.
 type BenchmarkPageRow struct {
 	BenchmarkID           string
 	Repository            string
@@ -772,7 +769,8 @@ type BenchmarkPageRow struct {
 	Unit                  *string
 	Status                string
 	MachineNames          []string
-	HistoryFingerprints   []string
+	PointCount            int64
+	PreviewTracks         []byte
 	LatestResultID        string
 	LatestResultTimestamp time.Time
 	LatestCommitSha       string

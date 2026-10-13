@@ -43,9 +43,11 @@ Use a staged combination, not a single large storage rewrite.
    dashboard view. Those approaches improve individual screens but keep the
    100M-row analytical fact table inside the transactional database. Stored
    verdicts (`run_verdict`, `benchmark_verdict`) are not such a cache: they
-   hold one small row per run or per benchmark and machine, computed from the
-   facts, and are candidates to move to the analytical replica with other
-   rollups.
+   hold one row per run or per benchmark and machine, computed from the facts,
+   and are candidates to move to the analytical replica with other rollups. A
+   benchmark row also keeps its history's commit times and latest chart points,
+   so the Benchmarks list reads no history; its size grows with that machine's
+   history length, not with the result table.
 4. Prove a read-only columnar analytical replica before any primary fact-store
    switch. The first candidate is DuckDB reading Parquet, with DuckLake as the
    catalog layer to test after plain Parquet establishes a lower-bound baseline.
