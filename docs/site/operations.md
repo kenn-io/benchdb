@@ -381,7 +381,10 @@ new ones.
   and no points, and the page reads "Updating statuses…".
 
 Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
-and default thresholds. After an upgrade that changes CI report rules, re-queue
+and default thresholds. A run tagged with a `base-sha` is compared against that
+default-branch commit; see [baseline modes](ci-reporting.md#baseline-modes).
+Upgrading to the release that adopts the `base-sha` baseline and the
+move-from-baseline rule re-queues every stored run verdict. After an upgrade that changes CI report rules, re-queue
 existing verdicts so they are recomputed:
 
 ```sql
