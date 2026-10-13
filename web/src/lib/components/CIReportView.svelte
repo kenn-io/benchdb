@@ -604,7 +604,6 @@
   }
   .report-status.skipped, .row-status.insufficient {
     background: var(--c-insufficient);
-    color: var(--c-text-muted);
   }
   .row-status.stable {
     background: var(--c-stable);
