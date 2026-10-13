@@ -335,7 +335,7 @@ describe("RecentRunsHome", () => {
   it("shows an error state", async () => {
     GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(RecentRunsHome, { props: {} });
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load recent runs/i));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load runs/i));
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
   });
 

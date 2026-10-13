@@ -174,8 +174,9 @@
   {/if}
 
   {#if errorMsg}
-    <section class="panel state-panel" role="alert">
-      <p class="error">Failed to load recent runs: {errorMsg}</p>
+    <section class="panel state-panel error-panel" role="alert">
+      <h2>Failed to load runs</h2>
+      <p>{errorMsg}</p>
       <button type="button" class="button-pill" onclick={() => void load()}>Retry</button>
     </section>
   {:else if loading}
@@ -318,6 +319,9 @@
 <style>
   .home-page {
     gap: 12px;
+  }
+  .error-panel h2 {
+    color: var(--c-error);
   }
   /* Only a full table scrolls inside a fixed-height page. Below the stacking
      breakpoint, rows become cards and the page itself scrolls, so touch and
