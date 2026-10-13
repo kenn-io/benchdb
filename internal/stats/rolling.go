@@ -12,7 +12,12 @@ const (
 	DistributionCommitsDefault      = 100
 	PairwisePercentThresholdDefault = 5.0
 	ZScoreThresholdDefault          = 2.0
-	shiftZScoreThreshold            = 5.0
+	// A lookback change also has to move the contender away from its own
+	// baseline result by at least this many standard deviations of the
+	// baseline window, and by more than MinimumChangePercent, to count.
+	BaselineSigmaThreshold = 3.0
+	MinimumChangePercent   = 2.0
+	shiftZScoreThreshold   = 5.0
 )
 
 // SeriesPoint is one benchmark result within a single history fingerprint's

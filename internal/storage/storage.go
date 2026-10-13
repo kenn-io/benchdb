@@ -667,6 +667,9 @@ type RecentRunRow struct {
 	CommitAuthorLogin  *string
 	CommitAuthorAvatar *string
 	CommitTimestamp    *time.Time
+	// CommitIsDefaultBranch reports that the run's commit is on the default
+	// branch.
+	CommitIsDefaultBranch bool
 }
 
 // SeriesListParams filters and paginates the series list. Nil filters are

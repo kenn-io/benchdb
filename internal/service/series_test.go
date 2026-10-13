@@ -127,11 +127,33 @@ var (
 	regressedSVS = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}
 )
 
-func TestBenchmarkStatusKeepsOverlappingMachineSegments(t *testing.T) {
+func TestBenchmarkStatusFollowsContextsMeasuredAtTheLatestCommit(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		newStart int
+		want     string
+	}{
+		// The new context starts on the old context's last commit.
+		{"shared switchover commit", len(regressedSVS) - 1, statusStable},
+		// The new context starts two commits before the old one stops.
+		{"brief overlap", len(regressedSVS) - 3, statusStable},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// The old context ends on a regression within its own history.
+			old := machineSegment("old-context", "m1", 0, regressedSVS)
+			current := machineSegment("new-context", "m1", tt.newStart, stableSVS)
+			unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(old), current...))
+			assert.Equal(t, tt.want, benchmarkStatus([]string{"old-context", "new-context"},
+				map[string][]storage.HistoryRow{"old-context": old, "new-context": current}, unit, lessIsBetter))
+		})
+	}
+}
+
+func TestBenchmarkStatusKeepsContextsMeasuredSideBySide(t *testing.T) {
 	stable := machineSegment("context-a", "m1", 0, stableSVS)
-	// Starts before context-a's last commit, so both contexts are current.
-	regressed := machineSegment("context-b", "m1", 3, regressedSVS)
-	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
+	// Both contexts are measured at every commit, including the latest.
+	regressed := machineSegment("context-b", "m1", 0, regressedSVS)
+	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(stable), regressed...))
 	assert.Equal(t, statusRegressed, benchmarkStatus(
 		[]string{"context-a", "context-b"},
 		map[string][]storage.HistoryRow{"context-a": stable, "context-b": regressed},

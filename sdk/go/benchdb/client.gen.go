@@ -5528,6 +5528,8 @@ func (l ListTokensOutputBody) Validate() error {
 }
 
 type LookbackAnalysis struct {
+	BaselineZScore       *float64         `json:"baseline_z_score,omitempty"`
+	BaselineZThreshold   float64          `json:"baseline_z_threshold"`
 	ImprovementIndicated bool             `json:"improvement_indicated"`
 	RegressionIndicated  bool             `json:"regression_indicated"`
 	Tolerance            *ChangeTolerance `json:"tolerance,omitempty"`

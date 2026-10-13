@@ -67,6 +67,31 @@ func TestListResultsMarksOffBranchCommit(t *testing.T) {
 	}
 }
 
+func TestRecentRunsMarkDefaultBranchCommits(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	seedResult(t, tapi, seedOpts{sha: "main-sha", ts: day(1), data: []float64{10}, runID: "main-run"})
+	seedResult(t, tapi, seedOpts{sha: "pr-sha", ts: day(2), data: []float64{10}, runID: "pr-run"})
+	_, err := pool.Exec(ctx, `UPDATE commit SET fork_point_sha = 'main-sha' WHERE sha = 'pr-sha'`)
+	require.NoError(t, err)
+
+	resp := tapi.Get("/api/runs/recent?page_size=10")
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	var page struct {
+		Runs []struct {
+			RunID  string `json:"run_id"`
+			Commit struct {
+				IsDefaultBranch bool `json:"is_default_branch"`
+			} `json:"commit"`
+		} `json:"runs"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+	flags := map[string]bool{}
+	for _, run := range page.Runs {
+		flags[run.RunID] = run.Commit.IsDefaultBranch
+	}
+	assert.Equal(t, map[string]bool{"main-run": true, "pr-run": false}, flags)
+}
+
 func TestListResultsRunIDFilter(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
 	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}, runID: "run-a"})

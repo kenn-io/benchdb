@@ -270,46 +270,36 @@ func benchmarkStatus(
 }
 
 // currentSegments returns the fingerprint segments that still describe their
-// machine's current state. A context or hardware change starts a new fingerprint
-// on the same machine, so a segment whose last point precedes the first point of
-// another segment on that machine has been superseded: its latest point is
-// history, not the benchmark's latest comparable point. Segments that overlap in
-// time, such as concurrently measured contexts, all remain current.
+// machine's current state: those measured at the machine's latest commit. A
+// context or hardware change starts a new fingerprint on the same machine, and
+// the old fingerprint often shares the switchover commit or overlaps it by a
+// few results, so its last point is history, not the benchmark's latest
+// comparable point. Contexts measured side by side at the latest commit all
+// remain current.
 func currentSegments(
 	fingerprints []string,
 	members map[string][]storage.HistoryRow,
 ) [][]storage.HistoryRow {
 	segments := make([][]storage.HistoryRow, 0, len(fingerprints))
+	latestByMachine := make(map[string]time.Time)
 	for _, fingerprint := range fingerprints {
-		if segment := members[fingerprint]; len(segment) > 0 {
-			segments = append(segments, segment)
+		segment := members[fingerprint]
+		if len(segment) == 0 {
+			continue
+		}
+		segments = append(segments, segment)
+		machine := segment[0].HardwareName
+		if latest := latestHistoryRowTime(segment); latest.After(latestByMachine[machine]) {
+			latestByMachine[machine] = latest
 		}
 	}
 	current := make([][]storage.HistoryRow, 0, len(segments))
 	for _, segment := range segments {
-		if !supersededSegment(segment, segments) {
+		if latestHistoryRowTime(segment).Equal(latestByMachine[segment[0].HardwareName]) {
 			current = append(current, segment)
 		}
 	}
 	return current
-}
-
-// supersededSegment reports whether another segment on the same machine begins
-// strictly after segment's latest commit. Segments hold full history, so a
-// segment begins at its first member.
-func supersededSegment(segment []storage.HistoryRow, segments [][]storage.HistoryRow) bool {
-	machine := segment[0].HardwareName
-	latest := latestHistoryRowTime(segment)
-	for _, other := range segments {
-		first := other[0]
-		if first.HardwareName != machine || first.CommitTimestamp == nil {
-			continue
-		}
-		if first.CommitTimestamp.After(latest) {
-			return true
-		}
-	}
-	return false
 }
 
 // benchmarkTrack accumulates one machine's history while benchmarkVerdicts

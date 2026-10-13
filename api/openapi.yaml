@@ -1411,6 +1411,14 @@ components:
     LookbackAnalysis:
       additionalProperties: false
       properties:
+        baseline_z_score:
+          format: double
+          type:
+            - number
+            - "null"
+        baseline_z_threshold:
+          format: double
+          type: number
         improvement_indicated:
           type: boolean
         regression_indicated:
@@ -1425,6 +1433,8 @@ components:
           type: number
       required:
         - z_score
+        - baseline_z_score
+        - baseline_z_threshold
         - z_threshold
         - regression_indicated
         - improvement_indicated

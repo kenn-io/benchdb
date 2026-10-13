@@ -3,6 +3,8 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -62,10 +64,10 @@ func TestCIReportEndpointReturnsReport(t *testing.T) {
 func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 	tapi, pool, ctx := seedCIReportAPI(t, "")
 	api.NewReadHandler(service.NewReader(db.NewStore(pool))).Register(tapi)
-	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{10}})
-	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{20}})
-	baseline := seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c3", ts: day(3), data: []float64{30}})
-	contender := seedResult(t, tapi, seedOpts{runID: "contender", sha: "c4", ts: day(4), data: []float64{40}})
+	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{15}})
+	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{25}})
+	baseline := seedResult(t, tapi, seedOpts{runID: "baseline", sha: "c3", ts: day(3), data: []float64{10}})
+	contender := seedResult(t, tapi, seedOpts{runID: "contender", sha: "c4", ts: day(4), data: []float64{45}})
 	// The contender is off the default branch. A later default-branch result
 	// must not enter the historical window of this explicit comparison.
 	_, err := pool.Exec(ctx, `UPDATE commit SET parent = 'c3', fork_point_sha = 'c3' WHERE repository = $1 AND sha = 'c4'`, defaultRepo)
@@ -92,8 +94,11 @@ func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 			require.NotNil(t, row.Analysis)
 			lookback := row.Analysis.LookbackZScore
 			require.NotNil(t, lookback)
-			// Trailing mean 20, residual standard deviation sqrt(175/3).
-			assert.InDelta(t, -2.619, lookback.ZScore, 0.001)
+			// Trailing mean 50/3, standard deviation 10; the contender is
+			// also 3.5 standard deviations worse than its baseline result.
+			assert.InDelta(t, -2.833, lookback.ZScore, 0.001)
+			require.NotNil(t, lookback.BaselineZScore)
+			assert.InDelta(t, -3.5, *lookback.BaselineZScore, 0.001)
 			assert.Equal(t, tt.regression, lookback.RegressionIndicated)
 
 			response := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender + tt.query)
@@ -101,6 +106,47 @@ func TestCompareAndCIReportUseTrailingRegressionThreshold(t *testing.T) {
 			var comparison service.CompareResult
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &comparison))
 			assert.Equal(t, lookback, comparison.Analysis.LookbackZScore)
+		})
+	}
+}
+
+func TestCIReportRequiresAMoveFromTheContendersOwnBaseline(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		history   []float64
+		baseline  float64
+		contender float64
+		status    string
+	}{
+		// The default branch stepped up before the baseline; the contender
+		// only carries that step.
+		{"inherited step", []float64{10, 10.1, 9.9, 10, 10.1, 9.9, 10, 10.1, 9.9, 10, 10.1, 9.9}, 12, 12.1,
+			service.CIReportRowStatusStable},
+		// Far outside a very steady history, but only 1.5% slower.
+		{"tiny change", []float64{10, 10.01, 9.99, 10}, 10, 10.15, service.CIReportRowStatusStable},
+		{"real regression", []float64{10, 10.01, 9.99, 10}, 10, 11, service.CIReportRowStatusRegressed},
+		{"real improvement", []float64{10, 10.01, 9.99, 10}, 10, 9, service.CIReportRowStatusImproved},
+		// A zero baseline has no percentage change, but any move away from it
+		// is large enough.
+		{"zero baseline", []float64{1, 2}, 0, 100, service.CIReportRowStatusRegressed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tapi, _, _ := seedCIReportAPI(t, "")
+			for i, value := range tt.history {
+				seedResult(t, tapi, seedOpts{runID: fmt.Sprintf("history-%d", i), sha: fmt.Sprintf("h%d", i), ts: day(i), data: []float64{value}})
+			}
+			n := len(tt.history)
+			seedResult(t, tapi, seedOpts{runID: "baseline", sha: "base", ts: day(n), data: []float64{tt.baseline}})
+			seedResult(t, tapi, seedOpts{runID: "contender", sha: "next", ts: day(n + 1), data: []float64{tt.contender}})
+
+			report := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids=contender&baseline_run_ids=baseline"))
+			require.Len(t, report.Runs, 1)
+			require.Len(t, report.Runs[0].Comparisons, 1)
+			row := report.Runs[0].Comparisons[0]
+			assert.Equal(t, tt.status, row.Status)
+			require.NotNil(t, row.Analysis.LookbackZScore)
+			assert.GreaterOrEqual(t, math.Abs(row.Analysis.LookbackZScore.ZScore), 2.0,
+				"every case is outside the history band")
 		})
 	}
 }

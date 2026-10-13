@@ -187,6 +187,14 @@ Automatic baseline selection is controlled by `--baseline`:
 | `parent` | Compare against the selected commit's parent. Use this for step-by-step commit diagnostics. |
 | `latest_default` | Compare against the latest known default-branch run before the selected commit. This is useful when parent or fork-point runs are unavailable. |
 
+Some pull-request runs measure the pull request merged onto the default branch
+rather than its head alone. Such a run records the default-branch commit it was
+merged onto as the run tag `base-sha`, a full 40-character SHA. For these runs
+`fork_point` searches from that commit instead of the fork point, so changes
+the default branch made after the pull request forked are not charged to it.
+This works even when the fork point was never recorded. When no default-branch
+run is found from `base-sha`, the search falls back to the fork point.
+
 When a baseline run is not found, the report includes a typed baseline error
 and the commits searched. The default ancestry search is bounded; if it is
 exhausted, narrow the report with `--run-ids` or provide explicit

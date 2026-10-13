@@ -1331,6 +1331,13 @@ components:
       additionalProperties: false
       nullable: true
       properties:
+        baseline_z_score:
+          format: double
+          nullable: true
+          type: number
+        baseline_z_threshold:
+          format: double
+          type: number
         improvement_indicated:
           type: boolean
         regression_indicated:
@@ -1345,6 +1352,8 @@ components:
           type: number
       required:
         - z_score
+        - baseline_z_score
+        - baseline_z_threshold
         - z_threshold
         - regression_indicated
         - improvement_indicated

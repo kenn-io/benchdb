@@ -208,7 +208,8 @@ SELECT
   c.author_name AS commit_author_name,
   c.author_login AS commit_author_login,
   c.author_avatar AS commit_author_avatar,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
 FROM run_agg a
 JOIN LATERAL (
   SELECT br.id, br.run_reason, br.run_tags, br.batch_id, br.commit_repo_url, br.commit_id, br."timestamp"

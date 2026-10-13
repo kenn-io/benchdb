@@ -37,8 +37,24 @@ export function lookbackText(lookback: LookbackAnalysis): string {
   if (lookback === null) {
     return "n/a";
   }
-  const ind = lookback.tolerance?.within_tolerance ? "within configured tolerance" : indication(lookback.improvement_indicated, lookback.regression_indicated);
-  return `z ${lookback.z_score.toFixed(2)} vs threshold ${lookback.z_threshold} — ${ind}`;
+  return `z ${lookback.z_score.toFixed(2)} vs threshold ${lookback.z_threshold} — ${lookbackIndication(lookback)}`;
+}
+
+/** lookbackIndication explains the verdict. Outside the history band is not
+ * enough: the contender must also move from its own baseline result, so say
+ * which condition held a change back. */
+function lookbackIndication(lookback: NonNullable<LookbackAnalysis>): string {
+  if (lookback.tolerance?.within_tolerance) {
+    return "within configured tolerance";
+  }
+  if (lookback.improvement_indicated || lookback.regression_indicated || Math.abs(lookback.z_score) <= lookback.z_threshold) {
+    return indication(lookback.improvement_indicated, lookback.regression_indicated);
+  }
+  const fromBaseline = lookback.baseline_z_score;
+  if (fromBaseline !== null && Math.abs(fromBaseline) < lookback.baseline_z_threshold) {
+    return `outside the band, but within ${lookback.baseline_z_threshold}σ of its baseline (z ${fromBaseline.toFixed(2)})`;
+  }
+  return "outside the band, but within 2% of its baseline";
 }
 
 /** pairwiseText renders the pairwise percent verdict line; null renders "n/a"

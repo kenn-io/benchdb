@@ -44,6 +44,11 @@ Useful production payloads should also include:
 - rich `context`: toolchain, language, runtime, and other comparison context,
 - `run_reason`: `pull request`, `nightly`, `manual`, or similar,
 - `run_tags`: CI system, suite, shard, language, benchmark family,
+- `run_tags.base-sha`: for a pull-request run that measures the pull request
+  merged onto the default branch, the full SHA of the default-branch commit it
+  was merged onto. CI reports and Runs page verdicts compare such a run against
+  that commit instead of the fork point
+  ([baseline modes](ci-reporting.md#baseline-modes)),
 - `batch_id`: optional grouping across related runs,
 - `github.repository` and `github.commit`: required for commit-wide CI reports,
 - `github.pr_number` or `github.branch`: useful for display and audit.

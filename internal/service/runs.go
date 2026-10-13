@@ -241,5 +241,7 @@ func recentRunCommit(row storage.RecentRunRow) *ListCommit {
 		AuthorLogin:  row.CommitAuthorLogin,
 		AuthorAvatar: row.CommitAuthorAvatar,
 		Timestamp:    row.CommitTimestamp,
+
+		IsDefaultBranch: row.CommitIsDefaultBranch,
 	}
 }
