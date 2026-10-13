@@ -111,8 +111,15 @@ appears first, with controls to reveal more history when needed.
 Use the outlier and step filters when a long history needs triage. Filtering is
 applied before the rendered-row cap, so an old flagged point can still be found
 without revealing the full table. Selecting a point opens an inspector with the
-result id, commit, z-score, flags, result link, compare-pick buttons, and a
-copyable `benchdb history export` command for the same series. The benchmark
+result id, commit, distance from the rolling mean, flags, result link,
+compare-pick buttons, and a copyable `benchdb history export` command for the
+same series.
+
+Trend pages give a point's distance from its rolling mean in standard
+deviations with its direction in words, such as `4.12σ worse`, using the unit's
+`less_is_better` setting. A series without a known direction says `above` or
+`below` instead. CI reports show the same measure as a signed lookback z-score,
+where positive means better. The benchmark
 identity, range controls, summary counts, filters, and compare picks stay pinned
 as one context band while you scroll through a long table.
 

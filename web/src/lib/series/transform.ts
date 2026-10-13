@@ -104,7 +104,7 @@ export interface TableRow {
   chartMs: number;
   svs: number;
   unit: string | null;
-  z: number | null;
+  deviation: string | null;
   flags: string;
   machineName?: string;
 }
@@ -123,7 +123,7 @@ export function flagsText(stats: PointStats): string {
  * passes the windowed points, so a row click selects within the same array the
  * chart renders — a full-series index would pick the wrong point after range
  * filtering. */
-export function toTableRows(points: SeriesPoint[]): TableRow[] {
+export function toTableRows(points: SeriesPoint[], lessIsBetter: boolean | null = null): TableRow[] {
   return points.map((p, index) => ({
     index,
     resultId: p.resultId,
@@ -132,7 +132,7 @@ export function toTableRows(points: SeriesPoint[]): TableRow[] {
     chartMs: p.chartMs,
     svs: p.svs,
     unit: p.unit,
-    z: p.stats.z,
+    deviation: deviationText(p.stats.z, lessIsBetter),
     flags: flagsText(p.stats),
   }));
 }
@@ -299,18 +299,33 @@ function boundaryMetadata(p: SeriesPoint): string[] {
   ];
 }
 
+/** deviationText gives a point's distance from its rolling mean in standard
+ * deviations, with its direction in words: better or worse when the unit's
+ * direction is known, else above or below. A bare z would read oppositely
+ * here, where it follows the value, and in CI reports, where positive means
+ * better. */
+export function deviationText(z: number | null, lessIsBetter: boolean | null): string | null {
+  if (z === null) return null;
+  const size = `${Math.abs(z).toFixed(2)}σ`;
+  if (size === "0.00σ") return size;
+  if (lessIsBetter === null) return `${size} ${z > 0 ? "above" : "below"}`;
+  const worse = lessIsBetter ? z > 0 : z < 0;
+  return `${size} ${worse ? "worse" : "better"}`;
+}
+
 /** pointTooltip is the hover view-model. The title keeps the walking-skeleton
  * `sha · value unit` shape (the keystone e2e asserts it); lines add the engine
  * stats, omitting whatever is unavailable rather than printing nulls. */
-export function pointTooltip(p: SeriesPoint, locale?: string): TrendTooltip {
+export function pointTooltip(p: SeriesPoint, locale?: string, lessIsBetter: boolean | null = null): TrendTooltip {
   const lines: string[] = [];
   const formatted = formatMeasurement(p.svs, p.unit);
   const exact = exactMeasurement(p.svs, p.unit);
   if (formatted !== exact) {
     lines.push(`exact ${exact}`);
   }
-  if (p.stats.z !== null) {
-    lines.push(`z ${p.stats.z.toFixed(2)}`);
+  const deviation = deviationText(p.stats.z, lessIsBetter);
+  if (deviation !== null) {
+    lines.push(`vs. rolling mean: ${deviation}`);
   }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
     lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);

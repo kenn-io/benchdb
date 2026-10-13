@@ -425,7 +425,7 @@ describe("TrendPage", () => {
     const inspector = screen.getByRole("region", { name: /selected point/i });
     expect(within(inspector).getByText("sha-r2")).toBeInTheDocument();
     expect(within(inspector).getByText("r2")).toBeInTheDocument();
-    expect(within(inspector).getByText(/z 3\.00/i)).toBeInTheDocument();
+    expect(within(inspector).getByText("3.00σ worse")).toBeInTheDocument();
     expect(within(inspector).getByText("outlier")).toBeInTheDocument();
     expect(within(inspector).getByRole("link", { name: /open result/i })).toHaveAttribute(
       "href",

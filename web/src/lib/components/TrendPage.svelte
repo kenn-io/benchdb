@@ -16,6 +16,7 @@
   import { loadTrend, type TrendSource, type TrendViewModel } from "../series/loader";
   import {
     chartTimeExtent,
+    deviationText,
     flagsText,
     type SeriesPoint,
     type TableRow,
@@ -333,17 +334,13 @@
             chartMs: point.chartMs,
             svs: point.svs,
             unit: point.unit,
-            z: point.stats.z,
+            deviation: deviationText(point.stats.z, vm?.identity.lessIsBetter ?? null),
             flags: flagsText(point.stats),
             machineName,
           },
         ];
       })
       .sort((a, b) => b.chartMs - a.chartMs || b.resultId.localeCompare(a.resultId));
-  }
-
-  function zText(value: number | null): string {
-    return value === null ? "z —" : `z ${value.toFixed(2)}`;
   }
 
   function rowCountText(): string {
@@ -557,6 +554,7 @@
       {:else if visibleSegmentCount > 1}
         <FleetSeriesChart
           tracks={visibleTracks}
+          lessIsBetter={vm.identity.lessIsBetter}
           sigma={query.sigma}
           zeroBased={query.yAxis === "zero"}
           onopen={openResult}
@@ -564,6 +562,7 @@
       {:else}
         <SeriesChart
           points={visibleTracks[0]?.segments[0]?.points ?? []}
+          lessIsBetter={vm.identity.lessIsBetter}
           sigma={query.sigma}
           zeroBased={query.yAxis === "zero"}
           {selectedIndex}
@@ -588,8 +587,8 @@
               <dd>{sel.resultId}</dd>
             </div>
             <div>
-              <dt>z-score</dt>
-              <dd>{zText(sel.stats.z)}</dd>
+              <dt>vs. rolling mean</dt>
+              <dd>{deviationText(sel.stats.z, vm.identity.lessIsBetter) ?? "—"}</dd>
             </div>
             <div>
               <dt>flags</dt>
