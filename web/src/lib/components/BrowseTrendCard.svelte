@@ -2,7 +2,14 @@
   import { appURL } from "../base-path";
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
-  import { trackSummary, type BrowsePreviewPoint, type BrowsePreviewTrack, type BrowseRow } from "../browse/transform";
+  import {
+    comparePreviewPoints,
+    latestPreviewPoint,
+    trackSummary,
+    type BrowsePreviewPoint,
+    type BrowsePreviewTrack,
+    type BrowseRow,
+  } from "../browse/transform";
   import { machineColors } from "../machine-colors";
   import { axisTickLabels } from "../series/chart-format";
   import { loadTrend } from "../series/loader";
@@ -87,8 +94,8 @@
           .map((track) => ({
             machineName: track.machineName,
             points: track.segments.flatMap((segment) => segment.points)
-              .map((point) => ({ chartMs: point.chartMs, value: point.svs, unit: point.unit }))
-              .sort((a, b) => a.chartMs - b.chartMs),
+              .map((point) => ({ chartMs: point.chartMs, resultId: point.resultId, value: point.svs, unit: point.unit }))
+              .sort(comparePreviewPoints),
           }));
       })
       .catch((err) => {
@@ -119,14 +126,7 @@
   let plotLeft = $derived(Math.max(...yLabels.map((label) => label.length), 1) * LABEL_CHAR_WIDTH + 12);
   let plotRight = $derived(width - PAD_RIGHT);
   let colors = $derived(machineColors(tracks.map((track) => track.machineName), resolvedTheme()));
-  let latestByMachine = $derived(new Map(tracks.map((track) => [track.machineName, latestPoint(track.points)])));
-
-  function latestPoint(points: BrowsePreviewPoint[]): BrowsePreviewPoint | undefined {
-    return points.reduce<BrowsePreviewPoint | undefined>(
-      (latest, point) => (latest === undefined || point.chartMs >= latest.chartMs ? point : latest),
-      undefined,
-    );
-  }
+  let latestByMachine = $derived(new Map(tracks.map((track) => [track.machineName, latestPreviewPoint(track.points)])));
 
   function x(point: BrowsePreviewPoint): number {
     if (maxX === minX) return (plotLeft + plotRight) / 2;
@@ -221,7 +221,7 @@
         {/if}
         {#each visibleTracks as track (track.machineName)}
           {@const color = colors.get(track.machineName)}
-          {@const latest = latestPoint(track.points)}
+          {@const latest = latestPreviewPoint(track.points)}
           <path d={path(track.points)} style={`stroke:${color}`} />
           {#each track.points as point, pointIndex (`${point.chartMs}-${pointIndex}`)}
             <circle

@@ -29,9 +29,9 @@ const row: BrowseRow = {
     {
       machineName: "m5",
       points: [
-        { chartMs: Date.parse("2024-01-01T00:00:00Z"), value: 10, unit: "s" },
-        { chartMs: Date.parse("2024-01-02T00:00:00Z"), value: 11, unit: "s" },
-        { chartMs: Date.parse("2024-01-11T00:00:00Z"), value: 12, unit: "s" },
+        { chartMs: Date.parse("2024-01-01T00:00:00Z"), resultId: "r3", value: 10, unit: "s" },
+        { chartMs: Date.parse("2024-01-02T00:00:00Z"), resultId: "r4", value: 11, unit: "s" },
+        { chartMs: Date.parse("2024-01-11T00:00:00Z"), resultId: "r5", value: 12, unit: "s" },
       ],
     },
   ],
@@ -70,6 +70,34 @@ describe("BrowseTrendCard", () => {
     expect(titles[0]).toMatch(/m5.*2 s/);
     expect(titles.at(-1)).toMatch(/m5.*25 s/);
     expect(screen.queryByText("other-machine")).toBeNull();
+  });
+
+  it("shows the API's latest result when two contexts share the latest commit", async () => {
+    const sample = (id: string, day: number, value: number) => ({
+      benchmark_result_id: id,
+      commit_timestamp: `2024-01-${String(day).padStart(2, "0")}T12:00:00Z`,
+      result_timestamp: `2024-01-${String(day).padStart(2, "0")}T12:00:00Z`,
+      single_value_summary: value,
+      unit: "s", change_annotations: {}, zscorestats: null,
+    });
+    // Segment order (a, then z) disagrees with result-ID order at the shared
+    // latest commit, where the API reports result r9.
+    GET.mockResolvedValue({ status: 200, data: {
+      benchmark_id: "bench-1", name: row.name, tags: {}, repository: "",
+      unit: "s", less_is_better: true,
+      tracks: [{ machine_name: "m5", segments: [
+        { history_fingerprint: "a", samples: [sample("r1", 1, 10), sample("r9", 5, 30)] },
+        { history_fingerprint: "z", samples: [sample("r2", 2, 11), sample("r3", 5, 20)] },
+      ] }],
+    } });
+    const { container } = render(BrowseTrendCard, { props: { row: { ...row, pointCount: 4 } } });
+
+    await waitFor(() => expect(container.querySelectorAll(".point-hit")).toHaveLength(4));
+    expect(within(container.querySelector("footer")!).getByText("m5").parentElement).toHaveTextContent(/30 s/);
+    expect(screen.getByRole("button", { name: /open trend daily-usage/i })).toHaveAccessibleName(/m5: latest 30 s/);
+    const latest = container.querySelector(".point-mark.latest")!;
+    const highest = Math.min(...[...container.querySelectorAll(".point-hit")].map((hit) => Number(hit.getAttribute("cy"))));
+    expect(Number(latest.getAttribute("cy"))).toBe(highest);
   });
 
   it("waits to load omitted history until the card nears the viewport", async () => {
@@ -116,9 +144,9 @@ describe("BrowseTrendCard", () => {
   it("fits intraday data inside a wide selected window and labels the times", () => {
     const { container } = render(BrowseTrendCard, { props: {
       row: { ...row, previewTracks: [{ machineName: "m5", points: [
-        { chartMs: Date.parse("2024-01-11T12:00:00Z"), value: 10, unit: "s" },
-        { chartMs: Date.parse("2024-01-11T13:00:00Z"), value: 11, unit: "s" },
-        { chartMs: Date.parse("2024-01-11T14:00:00Z"), value: 12, unit: "s" },
+        { chartMs: Date.parse("2024-01-11T12:00:00Z"), resultId: "r6", value: 10, unit: "s" },
+        { chartMs: Date.parse("2024-01-11T13:00:00Z"), resultId: "r7", value: 11, unit: "s" },
+        { chartMs: Date.parse("2024-01-11T14:00:00Z"), resultId: "r8", value: 12, unit: "s" },
       ] }] },
       timeRange: { min: Date.parse("2023-11-01T00:00:00Z"), max: Date.parse("2024-02-01T00:00:00Z") },
     } });
@@ -174,8 +202,8 @@ describe("BrowseTrendCard", () => {
     const twoMachines: BrowseRow = { ...row, machineNames: ["m5", "m7"], previewTracks: [
       row.previewTracks[0]!,
       { machineName: "m7", points: [
-        { chartMs: Date.parse("2024-01-01T00:00:00Z"), value: 20, unit: "s" },
-        { chartMs: Date.parse("2024-01-10T00:00:00Z"), value: 21, unit: "s" },
+        { chartMs: Date.parse("2024-01-01T00:00:00Z"), resultId: "r9", value: 20, unit: "s" },
+        { chartMs: Date.parse("2024-01-10T00:00:00Z"), resultId: "r10", value: 21, unit: "s" },
       ] },
     ] };
     render(BrowseTrendCard, { props: { row: twoMachines } });
@@ -209,7 +237,7 @@ describe("BrowseTrendCard", () => {
   it("draws only the line and the latest point when points are too dense for dots", () => {
     const start = Date.parse("2024-01-01T00:00:00Z");
     const dense: BrowseRow = { ...row, pointCount: 200, previewTracks: [{ machineName: "m5", points:
-      Array.from({ length: 200 }, (_, index) => ({ chartMs: start + index * 3_600_000, value: 10 + (index % 5), unit: "s" })),
+      Array.from({ length: 200 }, (_, index) => ({ chartMs: start + index * 3_600_000, resultId: "r11", value: 10 + (index % 5), unit: "s" })),
     }] };
     const { container } = render(BrowseTrendCard, { props: { row: dense } });
 

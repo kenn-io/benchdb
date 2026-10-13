@@ -45,8 +45,8 @@ const item = (fp: string, name: string, overrides: Record<string, unknown> = {})
     {
       machine_name: "m5",
       points: [
-        { commit_timestamp: "2024-01-01T12:00:00Z", value: 1.2, unit: "s" },
-        { commit_timestamp: "2024-01-07T12:00:00Z", value: 1.5, unit: "s" },
+        { commit_timestamp: "2024-01-01T12:00:00Z", result_id: "r12", value: 1.2, unit: "s" },
+        { commit_timestamp: "2024-01-07T12:00:00Z", result_id: "r13", value: 1.5, unit: "s" },
       ],
     },
   ],
@@ -162,9 +162,9 @@ describe("SeriesBrowse", () => {
     try {
       GET.mockResolvedValue({ status: 200, data: {
         benchmarks: [item("f1", "demo", { preview_tracks: [{ machine_name: "m5", points: [
-          { commit_timestamp: "2026-01-01T12:00:00Z", value: 1000, unit: "s" },
-          { commit_timestamp: "2026-05-10T12:00:00Z", value: 10, unit: "s" },
-          { commit_timestamp: "2026-06-08T12:00:00Z", value: 12, unit: "s" },
+          { commit_timestamp: "2026-01-01T12:00:00Z", result_id: "r14", value: 1000, unit: "s" },
+          { commit_timestamp: "2026-05-10T12:00:00Z", result_id: "r15", value: 10, unit: "s" },
+          { commit_timestamp: "2026-06-08T12:00:00Z", result_id: "r16", value: 12, unit: "s" },
         ] }] })],
         next_page_cursor: null,
       } });
