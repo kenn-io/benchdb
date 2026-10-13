@@ -2,12 +2,14 @@
   import { appURL } from "../base-path";
   import { copyPlainText } from "../clipboard";
   import { interceptNavClick, navigate } from "../router";
+  import { shellQuote } from "../shell";
 
   const DOCS_URL = "https://benchdb.io/docs/submitting-results/";
 
-  // The command names this server, so it works when pasted as is.
+  // The command names this server, so it works when pasted as is; a base path
+  // with shell characters is quoted so it stays one argument.
   const serverURL = window.location.origin + appURL("/").replace(/\/$/, "");
-  const command = `benchdb results submit "bench-results/*.json" --server ${serverURL}`;
+  const command = `benchdb results submit "bench-results/*.json" --server ${shellQuote(serverURL)}`;
 
   let copied = $state(false);
 
