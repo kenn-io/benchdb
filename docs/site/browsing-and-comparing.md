@@ -27,7 +27,9 @@ too little history, each sorted by name, across every page. With all projects
 shown, each project gets its own section.
 
 Each benchmark's status compares its latest default-branch result with the
-history before it, on each machine. When a machine's measurement context
+history before it, on each machine. A change counts as a regression or
+improvement only when it is outside the history band and more than 2% from the
+history mean; see [Regression analysis](regression-analysis.md). When a machine's measurement context
 changes, such as a new toolchain or workload version, only the contexts measured
 at that machine's latest commit count; an old context that overlapped the
 switchover no longer decides the status. With every machine shown, the benchmark

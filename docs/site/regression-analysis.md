@@ -38,9 +38,10 @@ contender's distance from its baseline result in standard deviations, and
 `baseline_z_threshold`, so a report shows why a change did or did not count.
 
 This applies to CI reports, comparisons, saved run reports, Runs page verdicts,
-and alerts. Benchmark statuses on the Benchmarks page compare a machine's latest
-point with its own history and have no separate baseline result, so they use
-the history band alone.
+and alerts. Benchmark statuses on the Benchmarks and trend pages compare a
+machine's latest point with its own history and have no separate baseline
+result. They count a change when the latest point is outside the history band
+and differs from the history window's mean by more than 2%.
 
 ## How Lookback Works
 
