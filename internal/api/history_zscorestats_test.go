@@ -161,8 +161,8 @@ func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	// The history window is the same; only the baseline result differs.
 	require.NotNil(t, direct.Analysis.LookbackZScore)
 	assert.InDelta(t, comparisonBefore.Analysis.LookbackZScore.ZScore, direct.Analysis.LookbackZScore.ZScore, 0)
-	assert.Equal(t, comparisonBefore.Analysis.LookbackZScore.Tolerance.Reference,
-		direct.Analysis.LookbackZScore.Tolerance.Reference)
+	assert.InDelta(t, comparisonBefore.Analysis.LookbackZScore.Tolerance.Reference,
+		direct.Analysis.LookbackZScore.Tolerance.Reference, 0)
 	assert.False(t, direct.Analysis.LookbackZScore.RegressionIndicated,
 		"the contender is far better than the excluded baseline it is compared against")
 }
