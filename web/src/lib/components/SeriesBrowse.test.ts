@@ -145,6 +145,36 @@ describe("SeriesBrowse", () => {
     expect(screen.queryByRole("link", { name: "two" })).toBeNull();
   });
 
+  it("shows how to submit results before any benchmark exists", async () => {
+    GET.mockResolvedValue({ status: 200, data: { benchmarks: [], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByText("No benchmarks yet");
+    expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "How to format and submit results" })).toBeInTheDocument();
+  });
+
+  it("leaves the submit hint out while new results are still being scored", async () => {
+    GET.mockResolvedValue({ status: 200, data: {
+      benchmarks: [], status_counts: { regressed: 0, improved: 0, stable: 0, insufficient: 0 },
+      statuses_pending: true, next_page_cursor: null,
+    } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByText(/still being scored/);
+    expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
+  });
+
+  it("retries a failed load", async () => {
+    GET.mockResolvedValueOnce({ status: 500, data: { detail: "database unavailable" } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    const alert = await screen.findByRole("alert");
+
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    await fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByRole("link", { name: "demo" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("keeps charts selected when a window preset changes", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
