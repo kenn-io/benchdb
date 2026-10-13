@@ -27,13 +27,16 @@ too little history, each sorted by name, across every page. With all projects
 shown, each project gets its own section.
 
 Each benchmark's status compares its latest default-branch result with the
-history before it, on each machine. With every machine shown, the benchmark
+history before it, on each machine. When a machine's measurement context
+changes, such as a new toolchain or workload version, only the contexts measured
+at that machine's latest commit count; an old context that overlapped the
+switchover no longer decides the status. With every machine shown, the benchmark
 takes its worst machine's status; with one machine selected, it shows that
 machine's own status. The status filters above the list count every benchmark
 that matches the other filters, not just the loaded rows, and the
-`?status=regressed` filter lists only regressions. The server scores a
-benchmark in the background within seconds of a new result; until then the
-page shows "Updating statuses…" and reloads itself.
+`?status=regressed` filter lists only regressions. The server scores a benchmark
+in the background within seconds of a new result; until then the page shows
+"Updating statuses…" and reloads itself.
 
 The home dashboard groups activity by submitted `run_id` values, with direct
 links to run detail, batch detail, and CI reports. Batch pages are available at

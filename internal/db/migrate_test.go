@@ -376,7 +376,7 @@ func TestMigrateQueuesStoredBenchmarksToFillTheirPreviews(t *testing.T) {
 	assert.Zero(t, points, "existing tracks start empty until the worker recomputes them")
 }
 
-func TestMigrateRequeuesRunVerdictsForRescoring(t *testing.T) {
+func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
 	applyBaselineSchema(t, ctx, pool)
 	for _, file := range []string{
@@ -398,14 +398,20 @@ func TestMigrateRequeuesRunVerdictsForRescoring(t *testing.T) {
 			run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, computed_at)
 		VALUES ('old-run', 'https://example.com/org/repo', now(), 'result-1', false, true, now())`)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO benchmark_verdict (
+			benchmark_id, machine_name, repository, case_id, point_timestamps, preview_points, unit, status,
+			latest_result_id, latest_result_timestamp, latest_commit_sha, latest_commit_timestamp, computed_at)
+		VALUES ('old-bench', 'host', 'https://example.com/org/repo', 'case-1', '{}', '[]', 's', 'regressed',
+			'result-1', now(), 'sha-1', now(), now())`)
+	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `DELETE FROM verdict_queue`)
 	require.NoError(t, err)
 
 	require.NoError(t, db.Migrate(ctx, pool))
 	assertCurrentMigration(t, ctx, pool)
-	rows, err := pool.Query(ctx, `SELECT key FROM verdict_queue WHERE kind = 'run'`)
+	rows, err := pool.Query(ctx, `SELECT kind || ':' || key FROM verdict_queue ORDER BY 1`)
 	require.NoError(t, err)
 	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
-	assert.Equal(t, []string{"old-run"}, keys, "stored verdicts are rescored under the new rule")
+	assert.Equal(t, []string{"benchmark:old-bench", "run:old-run"}, keys, "stored verdicts are rescored under the new rules")
 }

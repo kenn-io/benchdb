@@ -383,8 +383,9 @@ new ones.
 Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
 and default thresholds. A run tagged with a `base-sha` is compared against that
 default-branch commit; see [baseline modes](ci-reporting.md#baseline-modes).
-Upgrading to the release that adopts the `base-sha` baseline and the
-move-from-baseline rule re-queues every stored run verdict. After an upgrade that changes CI report rules, re-queue
+Upgrading to the release that adopts the `base-sha` baseline, the
+move-from-baseline rule, and current-context benchmark statuses re-queues every
+stored run verdict and benchmark status. After an upgrade that changes CI report rules, re-queue
 existing verdicts so they are recomputed:
 
 ```sql
