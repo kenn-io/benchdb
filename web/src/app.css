@@ -18,23 +18,26 @@
   --c-surface-hover: #f0f3f7;
   --c-text: #181b24;
   --c-text-muted: #555b6e;
-  --c-text-faint: #858c9d;
+  /* Text tokens meet WCAG 2.2 AA (4.5:1) on every surface they sit on. */
+  --c-text-faint: #626b7e;
   --c-border: #d8dae2;
   --c-border-muted: #e6e8ee;
+  --c-control-border: #7e8597;
+  --c-control-border-strong: #6b7280;
   --c-accent: #2563eb;
   --c-accent-strong: #1d4ed8;
   --c-accent-soft: #eaf1ff;
   --c-on-accent: #fff;
   --c-focus-ring: rgba(37, 99, 235, 0.18);
-  --c-error: #dc2626;
+  --c-error: #c42121;
   --c-error-soft: #fff1f2;
-  --c-success: #059669;
+  --c-success: #047857;
   --c-success-soft: #ecfdf5;
-  --c-warning: #d97706;
+  --c-warning: #ad4f08;
   --c-warning-soft: #fffbeb;
-  --c-stable: #64748b;
+  --c-stable: #5d6879;
   --c-stable-soft: #f1f5f9;
-  --c-insufficient: #a3aab7;
+  --c-insufficient: #646d7f;
   --c-unknown: #94a3b8;
   --c-badge-bg: #f7f8fb;
   --c-on-badge: #fff;
@@ -42,7 +45,7 @@
   --c-trend-mean: #7c3aed;
   --c-band-fill: rgba(37, 99, 235, 0.16);
   --c-segment-shade: rgba(148, 163, 184, 0.1);
-  --c-step-marker: #d97706;
+  --c-step-marker: #ad4f08;
   --c-chart-point: #1f2937;
   --c-raw-point: rgba(100, 116, 139, 0.42);
   --c-current-result: #c026d3;
@@ -56,8 +59,10 @@
   --bg-surface: var(--c-surface);
   --bg-surface-hover: var(--c-surface-hover);
   --bg-inset: var(--c-bg-inset);
-  --border-default: var(--c-border);
-  --border-muted: var(--c-border-muted);
+  /* Kit-ui form controls draw their outline with these; an input's boundary
+     needs 3:1 against its surroundings (WCAG 2.2 1.4.11), unlike panel rules. */
+  --border-default: var(--c-control-border-strong);
+  --border-muted: var(--c-control-border);
   --text-primary: var(--c-text);
   --text-secondary: var(--c-text-muted);
   --text-muted: var(--c-text-faint);
@@ -85,9 +90,11 @@
   --c-surface-hover: #232e3b;
   --c-text: #e7ebf2;
   --c-text-muted: #9fa9b9;
-  --c-text-faint: #707b8c;
+  --c-text-faint: #8b95a7;
   --c-border: #2d3947;
   --c-border-muted: #232e3b;
+  --c-control-border: #6e7b8d;
+  --c-control-border-strong: #8792a3;
   --c-accent: #5b94ff;
   --c-accent-strong: #7eaaff;
   --c-accent-soft: rgba(91, 148, 255, 0.16);
@@ -102,7 +109,7 @@
   --c-warning-soft: rgba(217, 119, 6, 0.2);
   --c-stable: #94a3b8;
   --c-stable-soft: rgba(148, 163, 184, 0.16);
-  --c-insufficient: #6b7585;
+  --c-insufficient: #8b95a7;
   --c-unknown: #94a3b8;
   --c-badge-bg: #232e3b;
   --c-on-badge: #0e131a;
@@ -237,6 +244,28 @@ p {
   min-height: 0;
   padding: 14px 16px 18px;
   overflow: auto;
+}
+
+/* Focus lands here from the skip link; the content area is not a control. */
+.app-content:focus {
+  outline: none;
+}
+
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--c-surface);
+  color: var(--c-accent);
+  font-weight: 600;
+  transform: translateY(calc(-100% - 16px));
+}
+
+.skip-link:focus {
+  transform: none;
 }
 
 .page {

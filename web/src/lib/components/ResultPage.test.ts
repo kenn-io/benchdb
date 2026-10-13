@@ -335,6 +335,6 @@ describe("ResultPage", () => {
       return Promise.resolve({ data: { detail: "boom" }, status: 400 });
     });
     render(ResultPage, { props: { resultId: "rX" } });
-    await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load result/i));
   });
 });

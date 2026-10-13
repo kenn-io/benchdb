@@ -173,7 +173,7 @@
   {/if}
 
   {#if errorMsg}
-    <p class="error">Failed to load recent runs: {errorMsg}</p>
+    <p class="error" role="alert">Failed to load recent runs: {errorMsg}</p>
   {:else if loading}
     <p>Loading…</p>
   {:else if runs.length === 0}

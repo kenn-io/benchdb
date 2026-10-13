@@ -201,7 +201,7 @@
   <main class="page result-page">
     <section class="panel state-panel">
       <h1>Result unavailable</h1>
-      <p class="error">Failed to load result: {errorMsg}</p>
+      <p class="error" role="alert">Failed to load result: {errorMsg}</p>
     </section>
   </main>
 {:else if deleted}
@@ -298,7 +298,7 @@
     <section class="panel trend-hero" aria-label="Result in series trend">
       <h2>Series trend</h2>
       {#if historyError !== null}
-        <p class="error">Trend unavailable: {historyError}</p>
+        <p class="error" role="alert">Trend unavailable: {historyError}</p>
       {:else if !historyLoaded}
         <p class="empty-history">Loading series history…</p>
       {:else if historyPoints.length === 0}
@@ -421,7 +421,7 @@
           </button>
         </div>
         {#if actionMsg}<p class="ok">{actionMsg}</p>{/if}
-        {#if actionError}<p class="error">{actionError}</p>{/if}
+        {#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
       </section>
     {/if}
 
@@ -507,7 +507,7 @@
     color: var(--c-border);
   }
   .trend-foot .flag {
-    color: var(--c-warning);
+    color: var(--c-warn-text);
     font-weight: 700;
   }
   .empty-history {

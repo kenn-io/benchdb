@@ -71,14 +71,10 @@
     </thead>
     <tbody>
       {#each rows as row (row.benchmarkId)}
-        <!-- The whole row is a click target as a pointer convenience. role="link"
-             plus tabindex={-1} satisfy the a11y lint without adding a redundant
-             tab stop; the name <a> below is the keyboard/screen-reader affordance. -->
-        <tr
-          role="link"
-          aria-label={`Open series ${row.name}`}
-          tabindex={-1}
-          onclick={(e) => interceptNavClick(e) && onopen?.(row)}>
+        <!-- The whole row is a pointer convenience. It keeps its table-row role so
+             screen readers still read its cells; the name <a> below is the
+             keyboard and screen-reader way to open the benchmark. -->
+        <tr onclick={(e) => interceptNavClick(e) && onopen?.(row)}>
           <td class="name-cell" data-label="benchmark">
             <span class="identity-stack">
               <a

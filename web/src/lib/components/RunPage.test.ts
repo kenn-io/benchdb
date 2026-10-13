@@ -229,7 +229,7 @@ describe("RunPage", () => {
 
     GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(RunPage, { props: { runId: "run-a" } });
-    await waitFor(() => expect(screen.getByText(/failed to load run/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load run/i));
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
   });
 });

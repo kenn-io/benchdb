@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { toBrowseRows } from "../browse/transform";
@@ -51,6 +51,13 @@ const rows = toBrowseRows(
 );
 
 describe("BrowseTable", () => {
+  it("keeps benchmark rows as table rows with one link to open them", () => {
+    render(BrowseTable, { props: { rows } });
+    const row = screen.getByRole("row", { name: /tpch-q1/ });
+    expect(within(row).getByRole("cell", { name: /tpch-q1/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("link").filter((link) => /tpch-q1/.test(link.textContent ?? ""))).toHaveLength(1);
+  });
+
   it("renders one row with identity, value, status, and trend link", () => {
     render(BrowseTable, { props: { rows } });
     expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/benchmarks/b1");

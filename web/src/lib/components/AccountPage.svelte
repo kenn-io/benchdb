@@ -344,7 +344,7 @@
   {:else if loadState === "error"}
     <section class="panel empty-panel">
       <h2>Account unavailable</h2>
-      <p class="error">{pageError}</p>
+      <p class="error" role="alert">{pageError}</p>
     </section>
   {:else if loadState === "signed-out"}
     <section class="panel signed-out">
@@ -367,7 +367,7 @@
           <dd><code>{user.id}</code></dd>
         </dl>
         {#if logoutError}
-          <p class="error">{logoutError}</p>
+          <p class="error" role="alert">{logoutError}</p>
         {/if}
       </div>
 
@@ -394,7 +394,7 @@
           </div>
         {/if}
         {#if tokenError}
-          <p class="error">{tokenError}</p>
+          <p class="error" role="alert">{tokenError}</p>
         {/if}
 
         {#if tokens.length === 0}
@@ -483,7 +483,7 @@
       </form>
 
       {#if alertError}
-        <p class="error">{alertError}</p>
+        <p class="error" role="alert">{alertError}</p>
       {/if}
 
       {#if alertRules.length === 0}
@@ -545,7 +545,7 @@
           </div>
         </div>
         {#if eventsError}
-          <p class="error">{eventsError}</p>
+          <p class="error" role="alert">{eventsError}</p>
         {:else if !eventsLoading && selectedEvents().length === 0}
           <p class="empty-copy">No alert events.</p>
         {:else}

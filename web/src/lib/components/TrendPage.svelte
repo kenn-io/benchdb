@@ -392,7 +392,7 @@
   <main class="page trend-page">
     <section class="panel state-panel">
       <h1>Trend unavailable</h1>
-      <p class="error">Failed to load series: {errorMsg}</p>
+      <p class="error" role="alert">Failed to load series: {errorMsg}</p>
       {#if source.kind === "result"}
         <a
           class="button-pill"

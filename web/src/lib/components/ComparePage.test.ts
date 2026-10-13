@@ -383,7 +383,7 @@ describe("ComparePage", () => {
   it("shows the error state when loading fails", async () => {
     GET.mockResolvedValue({ data: { detail: "boom" }, status: 500 });
     render(ComparePage, { props: { query: QUERY } });
-    await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load comparison/i));
   });
 
   it("clears a stale not-comparable alert when a refetch fails generically", async () => {
@@ -398,8 +398,8 @@ describe("ComparePage", () => {
 
     GET.mockResolvedValue({ data: { detail: "boom" }, status: 500 });
     await rerender({ query: { ...QUERY, thresholdZ: 3 } });
-    await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load comparison/i));
+    expect(screen.queryByText(/not comparable/i)).not.toBeInTheDocument();
   });
 
   it("writes threshold changes to the URL and refetches on the new query", async () => {
