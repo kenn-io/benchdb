@@ -10,6 +10,7 @@ import {
   sparklinePoints,
   tagsText,
   toBrowseRows,
+  trackSummary,
   windowStartIso,
   type BrowseRow,
 } from "./transform";
@@ -181,5 +182,16 @@ describe("sparklinePoints", () => {
   });
   it("is empty for no values", () => {
     expect(sparklinePoints([], 100, 20, 2)).toBe("");
+  });
+});
+
+describe("trackSummary", () => {
+  it("summarizes a history too long to spread into Math.min", () => {
+    const points = Array.from({ length: 300_000 }, (_, index) => ({ chartMs: index, value: 10 + (index % 7), unit: "s" }));
+    expect(trackSummary({ machineName: "m5", points })).toBe("m5: latest 10 s, 300000 results from 10 s to 16 s");
+  });
+
+  it("has nothing to say about a machine without points", () => {
+    expect(trackSummary({ machineName: "m5", points: [] })).toBeNull();
   });
 });

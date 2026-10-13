@@ -207,3 +207,21 @@ export function groupByRepository(rows: BrowseRow[]): BrowseGroup[] {
     .sort((a, b) => a.attention - b.attention || a.label.localeCompare(b.label))
     .map(({ repository, label, rows: groupRows }) => ({ repository, label, rows: groupRows }));
 }
+
+/** trackSummary describes one machine's plotted points for screen readers:
+ * its latest value, and how many points span which range. It reads the
+ * points in one pass, so a long history cannot exceed an argument limit. */
+export function trackSummary(track: BrowsePreviewTrack): string | null {
+  let latest: BrowsePreviewPoint | undefined;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const point of track.points) {
+    if (latest === undefined || point.chartMs >= latest.chartMs) latest = point;
+    min = Math.min(min, point.value);
+    max = Math.max(max, point.value);
+  }
+  if (latest === undefined) return null;
+  const unit = latest.unit;
+  return `${track.machineName}: latest ${formatMeasurement(latest.value, unit)}, ` +
+    `${track.points.length} results from ${formatMeasurement(min, unit)} to ${formatMeasurement(max, unit)}`;
+}

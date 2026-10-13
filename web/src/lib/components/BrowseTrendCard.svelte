@@ -2,7 +2,7 @@
   import { appURL } from "../base-path";
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
-  import type { BrowsePreviewPoint, BrowsePreviewTrack, BrowseRow } from "../browse/transform";
+  import { trackSummary, type BrowsePreviewPoint, type BrowsePreviewTrack, type BrowseRow } from "../browse/transform";
   import { machineColors } from "../machine-colors";
   import { axisTickLabels } from "../series/chart-format";
   import { loadTrend } from "../series/loader";
@@ -156,17 +156,16 @@
   }
 
   // Screen readers get the chart's content as text: per machine, the latest
-  // value and the range and count of the points shown.
+  // value and the range and count of the points shown. When the chart shows a
+  // notice instead of points, the summary gives that notice.
   function chartSummary(): string {
-    const parts = visibleTracks.filter((track) => track.points.length > 0).map((track) => {
-      const values = track.points.map((point) => point.value);
-      const unit = track.points[0]!.unit;
-      const latest = latestPoint(track.points)!;
-      return `${track.machineName}: latest ${formatMeasurement(latest.value, unit)}, ` +
-        `${track.points.length} results from ${formatMeasurement(Math.min(...values), unit)} ` +
-        `to ${formatMeasurement(Math.max(...values), unit)}`;
-    });
-    return [`Open trend ${row.name}`, ...parts].join(". ");
+    const open = `Open trend ${row.name}`;
+    if (loadingHistory) return `${open}. Loading history`;
+    if (historyError) return `${open}. History unavailable`;
+    if (allPoints.length === 0) return `${open}. No trend preview`;
+    if (previewUnitCount > 1) return `${open}. Preview unavailable: mixed units`;
+    const parts = visibleTracks.map(trackSummary).filter((part) => part !== null);
+    return [open, ...parts].join(". ");
   }
 
   function axisDate(chartMs: number): string {

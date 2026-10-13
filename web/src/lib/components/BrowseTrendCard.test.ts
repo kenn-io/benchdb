@@ -219,14 +219,40 @@ describe("BrowseTrendCard", () => {
     expect(marks[0]!.getAttribute("cx")).toBe(container.querySelector(".axis")!.getAttribute("x2"));
   });
 
-  it("keeps the tooltip of the rightmost point inside the chart", async () => {
-    const { container } = render(BrowseTrendCard, { props: { row } });
-    const hits = container.querySelectorAll(".point-hit");
-    await fireEvent.pointerEnter(hits[hits.length - 1]!);
-
-    const tooltip = screen.getByRole("tooltip");
-    const pointX = Number(hits[hits.length - 1]!.getAttribute("cx"));
-    expect(Number.parseFloat(tooltip.style.left)).toBeLessThan(pointX);
+  it("keeps the tooltip inside the chart at its top and side edges", async () => {
+    // jsdom has no layout; give the chart and tooltip the sizes a browser would.
+    const CHART_WIDTH = 300;
+    const TOOLTIP_WIDTH = 200;
+    const TOOLTIP_HEIGHT = 30;
+    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("chart-button")) return CHART_WIDTH;
+      return this.classList.contains("chart-tooltip") ? TOOLTIP_WIDTH : 0;
+    });
+    const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("chart-tooltip") ? TOOLTIP_HEIGHT : 0;
+    });
+    try {
+      const { container } = render(BrowseTrendCard, { props: { row } });
+      expect(container.querySelector("svg")).toHaveAttribute("width", String(CHART_WIDTH));
+      const hits = [...container.querySelectorAll(".point-hit")];
+      // The first point sits at the left edge; the latest and highest at the top right.
+      for (const hit of [hits[0]!, hits[hits.length - 1]!]) {
+        await fireEvent.pointerEnter(hit);
+        const tooltip = screen.getByRole("tooltip");
+        expect(tooltip.style.left).toMatch(/px$/);
+        expect(tooltip.style.top).toMatch(/px$/);
+        const left = Number.parseFloat(tooltip.style.left);
+        const top = Number.parseFloat(tooltip.style.top);
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(left + TOOLTIP_WIDTH).toBeLessThanOrEqual(CHART_WIDTH);
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(top + TOOLTIP_HEIGHT).toBeLessThanOrEqual(150);
+        await fireEvent.pointerLeave(hit);
+      }
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
   });
 
   it("does not plot preview points with mixed units", () => {
@@ -237,5 +263,8 @@ describe("BrowseTrendCard", () => {
 
     expect(screen.getByText("Preview unavailable: mixed units")).toBeInTheDocument();
     expect(container.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("button", { name: /open trend daily-usage/i })).toHaveAccessibleName(
+      "Open trend daily-usage. Preview unavailable: mixed units",
+    );
   });
 });

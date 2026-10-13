@@ -26,6 +26,16 @@ describe("chart geometry", () => {
     expect(niceTicks({ min: 5, max: 5 })).toEqual([5]);
   });
 
+  it("falls back to the endpoints between adjacent floating-point values", () => {
+    const next = 1 + Number.EPSILON;
+    expect(niceTicks({ min: 1, max: next })).toEqual([1, next]);
+  });
+
+  it("keeps ticks distinct in a narrow range at a large magnitude", () => {
+    const ticks = niceTicks({ min: 999_999_999_999.9, max: 1_000_000_000_002.1 });
+    expect(ticks).toEqual([1_000_000_000_000, 1_000_000_000_001, 1_000_000_000_002]);
+  });
+
   it("pads both comparison endpoints, including an off-branch result beyond history", () => {
     const range = comparisonTimeRange([100_000, 200_000], [
       { role: "baseline", resultId: "a", chartMs: 200_000, value: 10, unit: "s" },
