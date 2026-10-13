@@ -507,17 +507,10 @@ func (r *CIReporter) selectBaselineRuns(
 			selections[run.RunID] = selection
 			continue
 		}
-		candidateSHA, candidateErr, err := r.resolveBaselineCandidate(ctx, baseline, run)
-		if err != nil {
-			return nil, err
-		}
-		if candidateErr != nil {
-			selection.baselineError = candidateErr
-			selections[run.RunID] = selection
-			continue
-		}
-		if baseline == CIReportBaselineForkPoint {
-			merged, ancestry, ok, err := r.mergedBaseRun(ctx, run, contendersByRun[run.RunID], candidateSHA)
+		// A merged-main run's recorded base is tried first, so it still finds
+		// a baseline when enrichment never recorded the fork point.
+		if baseline == CIReportBaselineForkPoint && !knownDefaultBranchRun(run) {
+			merged, ancestry, ok, err := r.mergedBaseRun(ctx, run, contendersByRun[run.RunID], derefString(run.CommitForkPointSha))
 			if err != nil {
 				return nil, err
 			}
@@ -530,6 +523,15 @@ func (r *CIReporter) selectBaselineRuns(
 				selections[run.RunID] = selection
 				continue
 			}
+		}
+		candidateSHA, candidateErr, err := r.resolveBaselineCandidate(ctx, baseline, run)
+		if err != nil {
+			return nil, err
+		}
+		if candidateErr != nil {
+			selection.baselineError = candidateErr
+			selections[run.RunID] = selection
+			continue
 		}
 
 		ancestry, err := r.store.SelectCIReportBaselineAncestry(ctx, commit.NormalizeRepoURL(run.CommitRepoURL), candidateSHA, CIReportBaselineAncestorLimit)
@@ -667,6 +669,12 @@ func (r *CIReporter) selectExplicitBaselineRuns(
 const mergedBaseTag = "base-sha"
 
 var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// knownDefaultBranchRun reports that the run's commit is recorded as on the
+// default branch, where a pull-request baseline does not apply.
+func knownDefaultBranchRun(run storage.CIReportRunRow) bool {
+	return run.CommitSha != nil && run.CommitForkPointSha != nil && *run.CommitForkPointSha == *run.CommitSha
+}
 
 // mergedBaseRun finds the fork_point baseline for a run measured on merged
 // main: the default-branch measurement nearest at or before the commit named

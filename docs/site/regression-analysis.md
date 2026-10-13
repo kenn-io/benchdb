@@ -26,7 +26,8 @@ a regression or improvement only when the contender also:
 
 - is at least **3 standard deviations** of the history window away from its own
   baseline result, in the same direction, and
-- differs from that baseline result by **more than 2%**.
+- differs from that baseline result by **more than 2%** of the baseline value;
+  any change from a zero baseline is large enough.
 
 A contender that matches its baseline did not cause the difference: an earlier
 default-branch commit already carried it, for example when the default branch

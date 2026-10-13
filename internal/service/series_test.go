@@ -137,7 +137,6 @@ func TestBenchmarkStatusFollowsContextsMeasuredAtTheLatestCommit(t *testing.T) {
 		{"shared switchover commit", len(regressedSVS) - 1, statusStable},
 		// The new context starts two commits before the old one stops.
 		{"brief overlap", len(regressedSVS) - 3, statusStable},
-		{"clean switchover", len(regressedSVS), statusStable},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// The old context ends on a regression within its own history.

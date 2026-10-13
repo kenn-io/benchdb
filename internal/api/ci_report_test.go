@@ -126,6 +126,9 @@ func TestCIReportRequiresAMoveFromTheContendersOwnBaseline(t *testing.T) {
 		{"tiny change", []float64{10, 10.01, 9.99, 10}, 10, 10.15, service.CIReportRowStatusStable},
 		{"real regression", []float64{10, 10.01, 9.99, 10}, 10, 11, service.CIReportRowStatusRegressed},
 		{"real improvement", []float64{10, 10.01, 9.99, 10}, 10, 9, service.CIReportRowStatusImproved},
+		// A zero baseline has no percentage change, but any move away from it
+		// is large enough.
+		{"zero baseline", []float64{1, 2}, 0, 100, service.CIReportRowStatusRegressed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tapi, _, _ := seedCIReportAPI(t, "")

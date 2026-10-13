@@ -618,28 +618,37 @@ func TestCIReportForkPointUsesTheMergedBase(t *testing.T) {
 	sha := func(c byte) string { return strings.Repeat(string(c), 40) }
 	main1, main2, main3, main4, pr := sha('1'), sha('2'), sha('3'), sha('4'), sha('f')
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	provider := ciCommitProvider{
-		main1: ciCommitInfo(main1, nil, main1, t0),
-		main2: ciCommitInfo(main2, new(main1), main2, t0.Add(24*time.Hour)),
-		main3: ciCommitInfo(main3, new(main2), main3, t0.Add(48*time.Hour)),
-		main4: ciCommitInfo(main4, new(main3), main4, t0.Add(96*time.Hour)),
-		pr:    ciCommitInfo(pr, new(main3), main3, t0.Add(72*time.Hour)),
+	provider := func(forkPointKnown bool) ciCommitProvider {
+		prInfo := ciCommitInfo(pr, new(main3), main3, t0.Add(72*time.Hour))
+		if !forkPointKnown {
+			// GitHub enrichment did not record where the pull request forked.
+			prInfo.ForkPointSha = nil
+		}
+		return ciCommitProvider{
+			main1: ciCommitInfo(main1, nil, main1, t0),
+			main2: ciCommitInfo(main2, new(main1), main2, t0.Add(24*time.Hour)),
+			main3: ciCommitInfo(main3, new(main2), main3, t0.Add(48*time.Hour)),
+			main4: ciCommitInfo(main4, new(main3), main4, t0.Add(96*time.Hour)),
+			pr:    prInfo,
+		}
 	}
 	for _, tt := range []struct {
-		name         string
-		base         any
-		baselineSHA  string
-		status       service.CIReportStatus
-		comparisonIs string
+		name           string
+		base           any
+		forkPointKnown bool
+		baselineSHA    string
+		status         service.CIReportStatus
+		comparisonIs   string
 	}{
-		{"merged base", main4, main4, service.CIReportStatusSuccess, service.CIReportRowStatusStable},
-		{"no merged base", nil, main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
-		{"unknown merged base", sha('9'), main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
-		{"malformed merged base", "main", main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+		{"merged base", main4, true, main4, service.CIReportStatusSuccess, service.CIReportRowStatusStable},
+		{"merged base without a fork point", main4, false, main4, service.CIReportStatusSuccess, service.CIReportRowStatusStable},
+		{"no merged base", nil, true, main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+		{"unknown merged base", sha('9'), true, main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+		{"malformed merged base", "main", true, main3, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, store, _, ctx := newIngester(t)
-			ing := service.NewIngester(store, provider)
+			ing := service.NewIngester(store, provider(tt.forkPointKnown))
 			ciSubmit(t, ing, ctx, "main-1", main1, 10)
 			ciSubmit(t, ing, ctx, "main-2", main2, 10.2)
 			ciSubmit(t, ing, ctx, "main-3", main3, 9.8)
@@ -663,4 +672,24 @@ func TestCIReportForkPointUsesTheMergedBase(t *testing.T) {
 			assert.Equal(t, tt.comparisonIs, report.Runs[0].Comparisons[0].Status)
 		})
 	}
+}
+
+func TestCIReportWithoutForkPointOrMergedBaseNeedsAction(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	main1, pr := strings.Repeat("1", 40), strings.Repeat("f", 40)
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	prInfo := ciCommitInfo(pr, new(main1), main1, t0.Add(time.Hour))
+	prInfo.ForkPointSha = nil
+	ing := service.NewIngester(store, ciCommitProvider{main1: ciCommitInfo(main1, nil, main1, t0), pr: prInfo})
+	ciSubmit(t, ing, ctx, "main-1", main1, 10)
+	ciSubmit(t, ing, ctx, "pr-run", pr, 10)
+
+	report, err := service.NewCIReporter(store, "").Report(ctx, service.CIReportQuery{
+		Repository: testRepo, CommitSHA: pr, Baseline: service.CIReportBaselineForkPoint,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, service.CIReportStatusActionRequired, report.Status)
+	require.Len(t, report.Runs, 1)
+	require.NotNil(t, report.Runs[0].BaselineError)
+	assert.Equal(t, service.CIReportBaselineErrorUnknownForkPoint, report.Runs[0].BaselineError.Code)
 }

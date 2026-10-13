@@ -281,12 +281,14 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 // percent or two is noise across dozens of benchmarks.
 func movedFromBaseline(in lookbackInput, stddev *float64) (regressed, improved bool, z *float64) {
 	z = stats.ZScore(&in.contSVS, in.lessIsBetter, &in.baseSVS, stddev)
-	change := stats.PairwiseVerdict(in.baseSVS, in.contSVS, in.lessIsBetter, stats.MinimumChangePercent)
-	if z == nil || change == nil {
+	if z == nil {
 		return false, false, z
 	}
-	regressed = -*z >= stats.BaselineSigmaThreshold && change.RegressionIndicated
-	improved = *z >= stats.BaselineSigmaThreshold && change.ImprovementIndicated
+	// Compare magnitudes rather than dividing, so a zero baseline still
+	// counts any change as large enough.
+	large := math.Abs(in.contSVS-in.baseSVS) > math.Abs(in.baseSVS)*stats.MinimumChangePercent/100
+	regressed = large && -*z >= stats.BaselineSigmaThreshold
+	improved = large && *z >= stats.BaselineSigmaThreshold
 	return regressed, improved, z
 }
 
