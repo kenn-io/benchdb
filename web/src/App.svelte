@@ -13,13 +13,25 @@
   import SeriesBrowse from "./lib/components/SeriesBrowse.svelte";
   import AppSidebar from "./lib/components/AppSidebar.svelte";
   import TrendPage from "./lib/components/TrendPage.svelte";
-  import { matchRoute, NAVIGATE_EVENT, type Route } from "./lib/router";
+  import { matchRoute, NAVIGATE_EVENT, pageTitle, type Route } from "./lib/router";
 
   function currentRoute(): Route {
     return matchRoute(window.location.pathname, window.location.search);
   }
 
   let route = $state<Route>(currentRoute());
+  let content: HTMLElement;
+
+  $effect(() => {
+    document.title = pageTitle(route);
+  });
+
+  // Moving focus (not just scrolling) makes the next Tab start in the page
+  // content, past the sidebar.
+  function skipToContent(e: MouseEvent) {
+    e.preventDefault();
+    content.focus();
+  }
 
   // Re-resolve on browser back/forward and on in-app navigate() pushes.
   onMount(() => {
@@ -35,10 +47,12 @@
   });
 </script>
 
+<a class="skip-link" href="#main-content" onclick={skipToContent}>Skip to content</a>
+
 <div class="app-shell">
   <AppSidebar {route} />
 
-  <div class="app-content">
+  <div class="app-content" id="main-content" tabindex="-1" bind:this={content}>
     {#if route.name === "home"}
       {#key JSON.stringify(route.query)}
         <RecentRunsHome query={route.query} />

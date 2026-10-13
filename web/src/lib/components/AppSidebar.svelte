@@ -486,7 +486,7 @@
     width: 100%;
     height: 30px;
     padding: 0 8px 0 28px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-md);
     background: var(--c-surface);
     color: var(--c-text);

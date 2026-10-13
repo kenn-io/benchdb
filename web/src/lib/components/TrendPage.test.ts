@@ -227,7 +227,7 @@ describe("TrendPage", () => {
   it("shows the error state when loading fails", async () => {
     GET.mockResolvedValue({ data: { detail: "boom" }, status: 400 });
     render(TrendPage, { props: { source: RESULT_SOURCE, query: DEFAULT_TREND_QUERY } });
-    await waitFor(() => expect(screen.getByText(/failed to load/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load series/i));
     expect(screen.getByRole("link", { name: /open result details/i })).toHaveAttribute(
       "href",
       "/results/r1",

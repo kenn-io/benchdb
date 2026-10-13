@@ -163,7 +163,7 @@ describe("BatchPage", () => {
 
     GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(BatchPage, { props: { batchId: "batch-a" } });
-    await waitFor(() => expect(screen.getByText(/failed to load batch/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load batch/i));
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
   });
 });

@@ -283,7 +283,7 @@
           oninput={(e) => onSearchInput(e.currentTarget.value)}
         />
         {#if seriesError}
-          <p class="error">{seriesError}</p>
+          <p class="error" role="alert">{seriesError}</p>
         {:else if seriesResults.length === 0}
           {#if seriesLoading}
             <p class="hint">Loading benchmarks…</p>
@@ -333,7 +333,7 @@
         {#if commitsLoading}
           <p class="hint">Loading commits…</p>
         {:else if commitsError}
-          <p class="error">{commitsError}</p>
+          <p class="error" role="alert">{commitsError}</p>
         {:else if comparisonTracks.length === 0}
           <p class="hint">This benchmark has no comparable machine history.</p>
         {:else if comparisonTracks.length > 1 && selectedTrackID === ""}
@@ -473,7 +473,7 @@
   <main class="page compare-page">
     <section class="panel state-panel">
       <h1>Comparison unavailable</h1>
-      <p class="error">Failed to load comparison: {errorMsg}</p>
+      <p class="error" role="alert">Failed to load comparison: {errorMsg}</p>
     </section>
   </main>
 {:else if !vm}
@@ -660,7 +660,7 @@
     width: 100%;
     min-height: 34px;
     padding: 0 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-sm);
     background: var(--c-bg-inset);
     color: var(--c-text);
@@ -907,7 +907,7 @@
     font-size: 0.85rem;
     padding: 0.25rem 0.4rem;
     width: 5rem;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: 4px;
     background: var(--c-bg-inset);
     color: var(--c-text);

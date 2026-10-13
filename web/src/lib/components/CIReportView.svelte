@@ -604,7 +604,6 @@
   }
   .report-status.skipped, .row-status.insufficient {
     background: var(--c-insufficient);
-    color: var(--c-text-muted);
   }
   .row-status.stable {
     background: var(--c-stable);
@@ -744,7 +743,7 @@
   .field-row input, .field-row select {
     min-height: 32px;
     padding: 0 8px;
-    border: 1px solid var(--c-border-muted);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-sm);
     background: var(--c-surface);
     color: var(--c-text);

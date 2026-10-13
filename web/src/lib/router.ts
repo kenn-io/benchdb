@@ -483,3 +483,29 @@ export function matchRoute(pathname: string, search = ""): Route {
   }
   return { name: "not-found" };
 }
+
+const ROUTE_TITLES: Record<Route["name"], string> = {
+  home: "Runs",
+  account: "Account",
+  browse: "Benchmarks",
+  "series-leaf": "Benchmark trend",
+  trend: "Benchmark trend",
+  "benchmark-trend": "Benchmark trend",
+  run: "Run",
+  batch: "Batch",
+  "results-list": "Results",
+  result: "Result",
+  compare: "Compare",
+  "ci-report": "CI report",
+  "not-found": "Not found",
+};
+
+/** pageTitle names the document for a route, so browser tabs, history, and
+ * screen readers can tell pages apart. */
+export function pageTitle(route: Route): string {
+  let page = ROUTE_TITLES[route.name];
+  if (route.name === "run") page = `Run ${route.runId}`;
+  if (route.name === "batch") page = `Batch ${route.batchId}`;
+  if (route.name === "result") page = `Result ${route.resultId}`;
+  return `${page} · BenchDB`;
+}

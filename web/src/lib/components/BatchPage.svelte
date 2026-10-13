@@ -134,7 +134,7 @@
 </script>
 
 {#if errorMsg}
-  <main class="page batch-page"><p class="error">Failed to load batch: {errorMsg}</p></main>
+  <main class="page batch-page"><p class="error" role="alert">Failed to load batch: {errorMsg}</p></main>
 {:else if loading || vm === null}
   <main class="page batch-page"><p>Loading…</p></main>
 {:else if vm.rows.length === 0}
@@ -335,7 +335,7 @@
     </section>
 
     {#if moreErrorMsg}
-      <p class="error">Failed to load more: {moreErrorMsg}</p>
+      <p class="error" role="alert">Failed to load more: {moreErrorMsg}</p>
     {/if}
     {#if vm.nextCursor !== null}
       <button type="button" class="button-pill more" onclick={loadMore} disabled={loadingMore}>

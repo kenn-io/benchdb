@@ -173,7 +173,7 @@
   {/if}
 
   {#if errorMsg}
-    <p class="error">Failed to load recent runs: {errorMsg}</p>
+    <p class="error" role="alert">Failed to load recent runs: {errorMsg}</p>
   {:else if loading}
     <p>Loading…</p>
   {:else if runs.length === 0}
@@ -343,7 +343,7 @@
     min-width: 0;
     height: 32px;
     padding: 0 10px 0 28px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-control-border);
     border-radius: var(--radius-md);
     background: var(--c-surface);
     color: var(--c-text);
