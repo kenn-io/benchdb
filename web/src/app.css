@@ -328,7 +328,9 @@ p {
 /* Compact page summary: a quiet inline line of counts under the header. It
    replaces the old big-number stat cards, which over-weighted trivial counts
    and pushed the real content (table/chart) below the fold. Only signal-bearing
-   facts (errors, regressions) are emphasized, via .summary-item.alert. */
+   facts are emphasized: regressions in red via .summary-item.alert, and
+   errors or incomplete coverage in amber via .summary-item.warning, matching
+   the status badges. */
 .summary-line {
   display: flex;
   flex-wrap: wrap;
@@ -350,6 +352,11 @@ p {
 
 .summary-item.alert {
   color: var(--c-error);
+  font-weight: 700;
+}
+
+.summary-item.warning {
+  color: var(--c-warn-text);
   font-weight: 700;
 }
 

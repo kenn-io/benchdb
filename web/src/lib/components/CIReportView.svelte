@@ -354,7 +354,7 @@
       <span class={`report-status ${r.status}`}>{reportStatusLabel(r.status)}</span>
       <span class="summary-item">{r.status_reason}</span>
       {#if r.summary.runs > 1}<span class="summary-item">{plural(r.summary.runs, "run")}</span>{/if}
-      <strong class="summary-item" class:alert={r.summary.compared < r.summary.contender_results}>
+      <strong class="summary-item" class:warning={r.summary.compared < r.summary.contender_results}>
         {r.summary.compared.toLocaleString()} of {r.summary.contender_results.toLocaleString()} compared
       </strong>
       <span class="summary-item" class:alert={r.summary.regressions > 0}>{plural(r.summary.regressions, "regression")}</span>

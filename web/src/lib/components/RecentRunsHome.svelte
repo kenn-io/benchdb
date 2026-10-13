@@ -199,7 +199,7 @@
       <span class="summary-item">{plural(totalResults, "result")}</span>
       {#if machineNames.length > 0}<span class="summary-item">{plural(machineNames.length, "machine")}</span>{/if}
       {#if totalErrors > 0}
-        <span class="summary-item alert">{plural(totalErrors, "error")}</span>
+        <span class="summary-item warning">{plural(totalErrors, "error")}</span>
       {/if}
       {#if attentionRuns === 0 && !query.attention && !verdictsPending}
         <span class="summary-item">Nothing needs attention</span>

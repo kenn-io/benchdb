@@ -288,7 +288,7 @@
         <span class="summary-item">{plural(vm.loadedBatches, "batch", "batches")}</span>
       {/if}
       {#if vm.loadedErrors > 0}
-        <span class="summary-item alert">{plural(vm.loadedErrors, "error")}</span>
+        <span class="summary-item warning">{plural(vm.loadedErrors, "error")}</span>
       {/if}
     </p>
 

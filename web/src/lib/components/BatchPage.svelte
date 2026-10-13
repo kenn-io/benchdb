@@ -170,7 +170,7 @@
     <p class="summary-line" aria-label="Batch summary">
       <span class="summary-item">{plural(vm.loadedResults, "result")}</span>
       <span class="summary-item">{plural(vm.loadedRuns, "run")}</span>
-      <span class="summary-item" class:alert={vm.loadedErrors > 0}>{plural(vm.loadedErrors, "error")}</span>
+      <span class="summary-item" class:warning={vm.loadedErrors > 0}>{plural(vm.loadedErrors, "error")}</span>
       <span class="summary-item">{plural(vm.loadedSeries, "series", "series")}</span>
     </p>
 
