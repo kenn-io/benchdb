@@ -112,7 +112,6 @@ type BenchmarkVerdict struct {
 	MachineName           string
 	Repository            string
 	CaseID                string
-	HistoryFingerprints   []string
 	Unit                  *string
 	Status                string
 	LatestResultID        string
@@ -120,6 +119,8 @@ type BenchmarkVerdict struct {
 	LatestCommitSha       string
 	LatestCommitTimestamp time.Time
 	ComputedAt            pgtype.Timestamptz
+	PointTimestamps       []time.Time
+	PreviewPoints         []byte
 }
 
 type Case struct {

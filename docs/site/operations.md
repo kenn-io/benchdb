@@ -355,7 +355,8 @@ application `ServiceMonitor` that advertises how to scrape `/metrics`.
 Every server process runs a background worker that stores each run's CI
 attention verdict in `run_verdict` and each benchmark's status in
 `benchmark_verdict`, so the home page and the Benchmarks list can show, filter,
-and count them without evaluating history on page load. Database triggers queue
+and count them without evaluating history on page load. Each benchmark row also
+stores its history's commit times and latest chart points for the list. Database triggers queue
 work in `verdict_queue` when results are inserted, deleted, or re-annotated and
 when commits are inserted or repaired, including writes from admin commands.
 Workers claim queued keys with a lease, so several replicas can share the queue.
@@ -375,6 +376,9 @@ new ones.
 - Upgrading to the release that adds benchmark statuses queues every benchmark
   with default-branch history. Until the worker scores a benchmark, the
   Benchmarks list omits it.
+- Upgrading to the release that stores chart points re-queues every stored
+  benchmark. Until the worker recomputes one, the list shows it with no chart
+  and no points, and the page reads "Updating statuses…".
 
 Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
 and default thresholds. After an upgrade that changes CI report rules, re-queue

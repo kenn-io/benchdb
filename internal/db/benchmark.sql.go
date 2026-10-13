@@ -86,7 +86,8 @@ WITH scoped AS (
     v.benchmark_id,
     v.machine_name,
     v.repository,
-    v.history_fingerprints,
+    v.point_timestamps,
+    v.preview_points,
     v.unit,
     v.latest_result_id,
     v.latest_result_timestamp,
@@ -97,12 +98,12 @@ WITH scoped AS (
     CASE v.status WHEN 'regressed' THEN 0 WHEN 'improved' THEN 1 WHEN 'stable' THEN 2 ELSE 3 END AS status_rank
   FROM benchmark_verdict v
   JOIN "case" cs ON cs.id = v.case_id
-  WHERE ($1::text IS NULL OR cs.name ILIKE '%' || $1::text || '%' OR cs.tags::text ILIKE '%' || $1::text || '%')
-    AND ($2::text IS NULL OR v.machine_name = $2::text)
-    AND ($3::text IS NULL OR v.repository = $3::text)
-    AND ($4::text IS NULL OR v.benchmark_id = $4::text)
-    AND ($5::timestamp IS NULL OR v.latest_commit_timestamp >= $5::timestamp)
-    AND ($6::timestamp IS NULL OR v.latest_commit_timestamp <= $6::timestamp)
+  WHERE ($3::text IS NULL OR cs.name ILIKE '%' || $3::text || '%' OR cs.tags::text ILIKE '%' || $3::text || '%')
+    AND ($4::text IS NULL OR v.machine_name = $4::text)
+    AND ($5::text IS NULL OR v.repository = $5::text)
+    AND ($6::text IS NULL OR v.benchmark_id = $6::text)
+    AND ($1::timestamp IS NULL OR v.latest_commit_timestamp >= $1::timestamp)
+    AND ($2::timestamp IS NULL OR v.latest_commit_timestamp <= $2::timestamp)
 ),
 benchmark AS (
   SELECT
@@ -149,11 +150,24 @@ SELECT
   p.status_rank,
   p.machine_names,
   (
-    SELECT array_agg(DISTINCT fingerprint ORDER BY fingerprint)
+    SELECT coalesce(sum(CASE
+      WHEN $1::timestamp IS NULL AND $2::timestamp IS NULL
+        THEN cardinality(s.point_timestamps)
+      ELSE (
+        SELECT count(*)
+        FROM unnest(s.point_timestamps) AS point
+        WHERE ($1::timestamp IS NULL OR point >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR point <= $2::timestamp)
+      ) END), 0)
     FROM scoped s
-    CROSS JOIN unnest(s.history_fingerprints) AS fingerprint
     WHERE s.benchmark_id = p.benchmark_id
-  )::text[] AS history_fingerprints,
+  )::bigint AS point_count,
+  (
+    SELECT jsonb_agg(jsonb_build_object('machine_name', s.machine_name, 'points', s.preview_points)
+                     ORDER BY s.machine_name)
+    FROM scoped s
+    WHERE s.benchmark_id = p.benchmark_id
+  )::jsonb AS preview_tracks,
   l.latest_result_id,
   l.latest_result_timestamp,
   l.latest_commit_sha,
@@ -169,12 +183,12 @@ ORDER BY p.status_rank, p.case_name, p.benchmark_id
 `
 
 type SelectBenchmarkPageParams struct {
+	ActiveSince *time.Time
+	ActiveUntil *time.Time
 	Q           *string
 	Hardware    *string
 	Repository  *string
 	BenchmarkID *string
-	ActiveSince *time.Time
-	ActiveUntil *time.Time
 	StatusRank  *int32
 	CursorRank  *int32
 	CursorName  *string
@@ -190,7 +204,8 @@ type SelectBenchmarkPageRow struct {
 	Unit                  string
 	StatusRank            int32
 	MachineNames          []string
-	HistoryFingerprints   []string
+	PointCount            int64
+	PreviewTracks         []byte
 	LatestResultID        string
 	LatestResultTimestamp time.Time
 	LatestCommitSha       string
@@ -205,15 +220,17 @@ type SelectBenchmarkPageRow struct {
 // it. A benchmark's status rank (0 regressed, 1 improved, 2 stable,
 // 3 insufficient) is the worst across its tracks, or insufficient when the
 // tracks do not share one unit. Pages run in status order, regressions first,
-// then by name. CountBenchmarkStatuses applies the same scope.
+// then by name. Point counts cover the tracks' history points inside the
+// active window, and previews hold each track's stored latest points.
+// CountBenchmarkStatuses applies the same scope.
 func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPageParams) ([]SelectBenchmarkPageRow, error) {
 	rows, err := q.db.Query(ctx, selectBenchmarkPage,
+		arg.ActiveSince,
+		arg.ActiveUntil,
 		arg.Q,
 		arg.Hardware,
 		arg.Repository,
 		arg.BenchmarkID,
-		arg.ActiveSince,
-		arg.ActiveUntil,
 		arg.StatusRank,
 		arg.CursorRank,
 		arg.CursorName,
@@ -235,7 +252,8 @@ func (q *Queries) SelectBenchmarkPage(ctx context.Context, arg SelectBenchmarkPa
 			&i.Unit,
 			&i.StatusRank,
 			&i.MachineNames,
-			&i.HistoryFingerprints,
+			&i.PointCount,
+			&i.PreviewTracks,
 			&i.LatestResultID,
 			&i.LatestResultTimestamp,
 			&i.LatestCommitSha,

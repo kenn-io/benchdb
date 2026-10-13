@@ -142,7 +142,7 @@ WHERE v.needs_attention
 
 -- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
-  benchmark_id, machine_name, repository, case_id, history_fingerprints, unit,
+  benchmark_id, machine_name, repository, case_id, point_timestamps, preview_points, unit,
   status, latest_result_id, latest_result_timestamp,
   latest_commit_sha, latest_commit_timestamp, computed_at
 )
@@ -151,7 +151,8 @@ VALUES (
   sqlc.arg('machine_name'),
   sqlc.arg('repository'),
   sqlc.arg('case_id'),
-  sqlc.arg('history_fingerprints')::text[],
+  sqlc.arg('point_timestamps')::timestamp[],
+  sqlc.arg('preview_points')::jsonb,
   sqlc.narg('unit'),
   sqlc.arg('status'),
   sqlc.arg('latest_result_id'),
@@ -163,7 +164,8 @@ VALUES (
 ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
   repository = EXCLUDED.repository,
   case_id = EXCLUDED.case_id,
-  history_fingerprints = EXCLUDED.history_fingerprints,
+  point_timestamps = EXCLUDED.point_timestamps,
+  preview_points = EXCLUDED.preview_points,
   unit = EXCLUDED.unit,
   status = EXCLUDED.status,
   latest_result_id = EXCLUDED.latest_result_id,

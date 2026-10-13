@@ -83,7 +83,11 @@ func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) erro
 		if err != nil {
 			return err
 		}
-		return v.store.FinishBenchmarkVerdicts(ctx, claim, benchmarkVerdicts(rows))
+		verdicts, err := benchmarkVerdicts(rows)
+		if err != nil {
+			return err
+		}
+		return v.store.FinishBenchmarkVerdicts(ctx, claim, verdicts)
 	default:
 		return fmt.Errorf("unknown verdict kind %q", claim.Kind)
 	}

@@ -43,7 +43,7 @@ WITH requested(fingerprint) AS MATERIALIZED (
   SELECT unnest($1::text[])
 ),
 members AS MATERIALIZED (
-  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.hardware_hash, m.hardware_name, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp, m.fingerprint_member_count
+  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.hardware_hash, m.hardware_name, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp
   FROM requested req
   CROSS JOIN LATERAL (
     SELECT
@@ -59,10 +59,7 @@ members AS MATERIALIZED (
       c.sha AS commit_sha,
       c.repository AS commit_repository,
       c.message AS commit_message,
-      c."timestamp" AS commit_timestamp,
-      -- The window runs before LIMIT, so it counts the whole membership, not
-      -- just the returned tail.
-      (count(*) OVER ())::bigint AS fingerprint_member_count
+      c."timestamp" AS commit_timestamp
     FROM (
       SELECT id, history_fingerprint, "timestamp", unit, mean, data,
              change_annotations, hardware_id, commit_id
@@ -104,8 +101,7 @@ SELECT
   commit_sha,
   commit_repository,
   commit_message,
-  commit_timestamp,
-  fingerprint_member_count
+  commit_timestamp
 FROM members
 ORDER BY history_fingerprint, commit_timestamp, id
 `
@@ -118,20 +114,19 @@ type SelectSeriesMembersParams struct {
 }
 
 type SelectSeriesMembersRow struct {
-	ID                     string
-	HistoryFingerprint     string
-	Timestamp              time.Time
-	Unit                   *string
-	Mean                   *float64
-	Data                   []float64
-	ChangeAnnotations      []byte
-	HardwareHash           string
-	HardwareName           string
-	CommitSha              string
-	CommitRepository       string
-	CommitMessage          string
-	CommitTimestamp        *time.Time
-	FingerprintMemberCount int64
+	ID                 string
+	HistoryFingerprint string
+	Timestamp          time.Time
+	Unit               *string
+	Mean               *float64
+	Data               []float64
+	ChangeAnnotations  []byte
+	HardwareHash       string
+	HardwareName       string
+	CommitSha          string
+	CommitRepository   string
+	CommitMessage      string
+	CommitTimestamp    *time.Time
 }
 
 // Recent membership rows (same definition as SelectHistoryForFingerprint) for a
@@ -167,7 +162,6 @@ func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembe
 			&i.CommitRepository,
 			&i.CommitMessage,
 			&i.CommitTimestamp,
-			&i.FingerprintMemberCount,
 		); err != nil {
 			return nil, err
 		}

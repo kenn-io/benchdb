@@ -5,13 +5,16 @@
 -- it. A benchmark's status rank (0 regressed, 1 improved, 2 stable,
 -- 3 insufficient) is the worst across its tracks, or insufficient when the
 -- tracks do not share one unit. Pages run in status order, regressions first,
--- then by name. CountBenchmarkStatuses applies the same scope.
+-- then by name. Point counts cover the tracks' history points inside the
+-- active window, and previews hold each track's stored latest points.
+-- CountBenchmarkStatuses applies the same scope.
 WITH scoped AS (
   SELECT
     v.benchmark_id,
     v.machine_name,
     v.repository,
-    v.history_fingerprints,
+    v.point_timestamps,
+    v.preview_points,
     v.unit,
     v.latest_result_id,
     v.latest_result_timestamp,
@@ -74,11 +77,24 @@ SELECT
   p.status_rank,
   p.machine_names,
   (
-    SELECT array_agg(DISTINCT fingerprint ORDER BY fingerprint)
+    SELECT coalesce(sum(CASE
+      WHEN sqlc.narg('active_since')::timestamp IS NULL AND sqlc.narg('active_until')::timestamp IS NULL
+        THEN cardinality(s.point_timestamps)
+      ELSE (
+        SELECT count(*)
+        FROM unnest(s.point_timestamps) AS point
+        WHERE (sqlc.narg('active_since')::timestamp IS NULL OR point >= sqlc.narg('active_since')::timestamp)
+          AND (sqlc.narg('active_until')::timestamp IS NULL OR point <= sqlc.narg('active_until')::timestamp)
+      ) END), 0)
     FROM scoped s
-    CROSS JOIN unnest(s.history_fingerprints) AS fingerprint
     WHERE s.benchmark_id = p.benchmark_id
-  )::text[] AS history_fingerprints,
+  )::bigint AS point_count,
+  (
+    SELECT jsonb_agg(jsonb_build_object('machine_name', s.machine_name, 'points', s.preview_points)
+                     ORDER BY s.machine_name)
+    FROM scoped s
+    WHERE s.benchmark_id = p.benchmark_id
+  )::jsonb AS preview_tracks,
   l.latest_result_id,
   l.latest_result_timestamp,
   l.latest_commit_sha,

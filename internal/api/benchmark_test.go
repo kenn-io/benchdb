@@ -177,16 +177,18 @@ func TestBenchmarkListPagesRegressionsFirstWithStatusCounts(t *testing.T) {
 	}
 	var names []string
 	path := "/api/benchmarks?page_size=1"
-	for range len(series) {
+	for {
 		page := getPage(path)
 		require.Len(t, page.Benchmarks, 1)
 		names = append(names, page.Benchmarks[0].Name)
 		assert.Equal(t, service.BenchmarkStatusCounts{Regressed: 1, Stable: 1, Insufficient: 1}, page.StatusCounts)
-		require.NotNil(t, page.NextPageCursor)
+		if page.NextPageCursor == nil {
+			break
+		}
 		path = "/api/benchmarks?page_size=1&cursor=" + url.QueryEscape(*page.NextPageCursor)
 	}
-	assert.Equal(t, []string{"z-regressing", "a-steady", "b-single"}, names, "regressions lead, then stable, then insufficient")
-	assert.Empty(t, getPage(path).Benchmarks)
+	assert.Equal(t, []string{"z-regressing", "a-steady", "b-single"}, names,
+		"regressions lead, then stable, then insufficient, and the last page offers no further page")
 
 	insufficient := getPage("/api/benchmarks?status=insufficient")
 	require.Len(t, insufficient.Benchmarks, 1)

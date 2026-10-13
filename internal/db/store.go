@@ -1,7 +1,6 @@
 package db
 
 import (
-	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -925,9 +924,16 @@ func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkList
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	rows, err := benchmarkPageRows(ctx, q, p)
+	// One extra row tells whether another page follows.
+	page := p
+	page.PageSize++
+	rows, err := benchmarkPageRows(ctx, q, page)
 	if err != nil {
 		return storage.BenchmarkList{}, fmt.Errorf("select benchmark page: %w", err)
+	}
+	more := len(rows) > int(p.PageSize)
+	if more {
+		rows = rows[:p.PageSize]
 	}
 	counts, err := benchmarkStatusCounts(ctx, q, p)
 	if err != nil {
@@ -940,7 +946,7 @@ func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkList
 	if err := tx.Commit(ctx); err != nil {
 		return storage.BenchmarkList{}, err
 	}
-	return storage.BenchmarkList{Rows: rows, StatusCounts: counts, Pending: pending}, nil
+	return storage.BenchmarkList{Rows: rows, StatusCounts: counts, Pending: pending, More: more}, nil
 }
 
 // benchmarkPageRows returns one row per logical benchmark, aggregated over
@@ -987,7 +993,8 @@ func benchmarkPageRows(ctx context.Context, q *Queries, p storage.BenchmarkListP
 			Unit:                  unit,
 			Status:                status,
 			MachineNames:          row.MachineNames,
-			HistoryFingerprints:   row.HistoryFingerprints,
+			PointCount:            row.PointCount,
+			PreviewTracks:         row.PreviewTracks,
 			LatestResultID:        row.LatestResultID,
 			LatestResultTimestamp: row.LatestResultTimestamp,
 			LatestCommitSha:       row.LatestCommitSha,
@@ -1157,7 +1164,7 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 		Fingerprints:        p.Fingerprints,
 		ActiveSince:         p.ActiveSince,
 		ActiveUntil:         p.ActiveUntil,
-		PerFingerprintLimit: cmp.Or(p.PerFingerprintLimit, seriesMembersTailLimit),
+		PerFingerprintLimit: seriesMembersTailLimit,
 	})
 	if err != nil {
 		return nil, err
