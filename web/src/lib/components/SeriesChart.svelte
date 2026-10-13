@@ -36,10 +36,12 @@
     currentResultId = null,
     markedIndices = [],
     comparisonMarkers = [],
+    lessIsBetter = null,
     onselect,
     onopen,
   }: {
     points: SeriesPoint[];
+    lessIsBetter?: boolean | null;
     sigma?: number;
     zeroBased?: boolean;
     height?: number;
@@ -342,7 +344,7 @@
   }
 
   async function showTooltip(p: SeriesPoint, cursorLeft: number, cursorTop: number) {
-    const vm = pointTooltip(p);
+    const vm = pointTooltip(p, undefined, lessIsBetter);
     const requestID = ++tooltipRequestID;
     tip = {
       left: tooltipLeftForCursor(cursorLeft, chartWrap?.clientWidth ?? 0),

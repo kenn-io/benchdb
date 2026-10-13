@@ -16,10 +16,6 @@
     onopen?: (row: TableRow) => void;
   } = $props();
 
-  function z(value: number | null): string {
-    return value === null ? "—" : value.toFixed(2);
-  }
-
   function measuredAt(value: number): string {
     return new Intl.DateTimeFormat(undefined, {
       month: "short",
@@ -38,7 +34,7 @@
         <th>commit</th>
         {#if rows.some((row) => row.machineName)}<th>machine</th>{/if}
         <th>result value</th>
-        <th>z</th>
+        <th>vs. rolling mean</th>
         <th>flags</th>
       </tr>
     </thead>
@@ -66,7 +62,7 @@
             <td data-label="machine">{row.machineName}</td>
           {/if}
           <td class="num" data-label="result value"><MeasurementValue value={row.svs} unit={row.unit} /></td>
-          <td class="num" data-label="z">{z(row.z)}</td>
+          <td class="num" data-label="vs. rolling mean">{row.deviation ?? "—"}</td>
           <td class="flags" data-label="flags">{row.flags}</td>
         </tr>
       {/each}

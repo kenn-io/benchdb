@@ -41,16 +41,17 @@ const rows = toTableRows(
       },
     },
   ]),
+  true,
 );
 
 describe("DetailTable", () => {
-  it("renders commit links, z, and flags", () => {
+  it("renders commit links, deviation from the rolling mean, and flags", () => {
     render(DetailTable, { props: { rows } });
     expect(screen.getByRole("link", { name: "abc1234" })).toHaveAttribute(
       "href",
       "/results/r1",
     );
-    expect(screen.getByText("4.00")).toBeInTheDocument();
+    expect(screen.getByText("4.00σ worse")).toBeInTheDocument();
     expect(screen.getByText("outlier")).toBeInTheDocument();
   });
 

@@ -27,9 +27,11 @@
     sigma = 2,
     zeroBased = true,
     height = 320,
+    lessIsBetter = null,
     onopen,
   }: {
     tracks: MachineTrack[];
+    lessIsBetter?: boolean | null;
     sigma?: number;
     zeroBased?: boolean;
     height?: number;
@@ -190,7 +192,7 @@
       positioned: false,
       requestID,
       machineName: target.machineName,
-      vm: pointTooltip(target.point),
+      vm: pointTooltip(target.point, undefined, lessIsBetter),
     };
     await tick();
     if (tip?.requestID !== requestID || !tooltipElement) return;

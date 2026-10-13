@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HistorySample, ZScoreStats } from "../api/benchdb";
 import {
+  deviationText,
   chartTimeExtent,
   distinctUnits,
   effectiveChartMs,
@@ -243,18 +244,38 @@ describe("flag and segment geometry", () => {
   });
 });
 
+describe("deviationText", () => {
+  it("says whether a point is better or worse than its rolling mean", () => {
+    // Lower is better: above the mean is worse, below it is better.
+    expect(deviationText(4.123, true)).toBe("4.12σ worse");
+    expect(deviationText(-1.5, true)).toBe("1.50σ better");
+    // Higher is better: the same deviations read the other way.
+    expect(deviationText(4.123, false)).toBe("4.12σ better");
+    expect(deviationText(-1.5, false)).toBe("1.50σ worse");
+  });
+
+  it("falls back to above or below when the direction is unknown", () => {
+    expect(deviationText(2, null)).toBe("2.00σ above");
+    expect(deviationText(-2, null)).toBe("2.00σ below");
+  });
+
+  it("gives no direction at the mean and nothing without a z", () => {
+    expect(deviationText(0.001, true)).toBe("0.00σ");
+    expect(deviationText(null, true)).toBeNull();
+  });
+});
+
 describe("toTableRows", () => {
-  it("fills z and flags from the engine stats", () => {
+  it("fills the deviation and flags from the engine stats", () => {
     const points = toSeriesPoints([
       sample({ zscorestats: zs({ residual: 0.25, rolling_stddev: 0.05 }) }),
       sample({ zscorestats: zs({ is_step: true, is_outlier: true }) }),
       sample({ zscorestats: null }),
     ]);
-    const rows = toTableRows(points);
-    expect(rows[0]).toMatchObject({ commitHash: "abc1234", svs: 1.1, flags: "" });
-    expect(rows[0]!.z).toBeCloseTo(5.0);
+    const rows = toTableRows(points, true);
+    expect(rows[0]).toMatchObject({ commitHash: "abc1234", svs: 1.1, flags: "", deviation: "5.00σ worse" });
     expect(rows[1]!.flags).toBe("step · outlier");
-    expect(rows[2]!.z).toBeNull();
+    expect(rows[2]!.deviation).toBeNull();
   });
 
   it("flags begins-only distribution changes as step, matching the chart markers", () => {
@@ -281,9 +302,9 @@ describe("pointTooltip", () => {
     const [p] = toSeriesPoints([
       sample({ zscorestats: zs({ residual: 0.2, rolling_stddev: 0.05, is_step: true }) }),
     ]);
-    const tip = pointTooltip(p!, "en-US");
+    const tip = pointTooltip(p!, "en-US", true);
     expect(tip.title).toBe("abc1234 · 1.1 s");
-    expect(tip.lines).toContain("z 4.00");
+    expect(tip.lines).toContain("vs. rolling mean: 4.00σ worse");
     expect(tip.lines).toContain("mean 1 s · standard deviation 50 ms");
     expect(tip.lines).toContain("step");
     expect(tip.lines.some((l) => l.includes("Jan 7, 2024"))).toBe(true);

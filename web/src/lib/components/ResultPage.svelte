@@ -311,6 +311,7 @@
       {:else}
         <SeriesChart
           points={historyPoints}
+          lessIsBetter={vm.lessIsBetter}
           sigma={2}
           height={320}
           currentResultId={resultId}
