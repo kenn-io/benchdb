@@ -13,6 +13,9 @@ _kpbuild/
 /.github/skills/
 /docs/site/assets/screenshots/*.png
 /docs/site/assets/screenshots/dashboard-screenshots-evidence.json
+/.impeccable/critique/
+/.impeccable/config.local.json
+/web/.impeccable/
 
 # Python helper tooling: SDK packaging, schema authoring, and migration examples.
 __pycache__/
