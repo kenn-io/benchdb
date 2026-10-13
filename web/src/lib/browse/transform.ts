@@ -25,6 +25,7 @@ export interface BrowseRow {
 
 export interface BrowsePreviewPoint {
   chartMs: number;
+  resultId: string;
   value: number;
   unit: string | null;
 }
@@ -79,6 +80,7 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
         machineName: track.machine_name,
         points: (track.points ?? []).map((point) => ({
           chartMs: Date.parse(point.commit_timestamp),
+          resultId: point.result_id,
           value: point.value,
           unit: point.unit,
         })),
@@ -206,4 +208,37 @@ export function groupByRepository(rows: BrowseRow[]): BrowseGroup[] {
   return [...groups.values()]
     .sort((a, b) => a.attention - b.attention || a.label.localeCompare(b.label))
     .map(({ repository, label, rows: groupRows }) => ({ repository, label, rows: groupRows }));
+}
+
+/** comparePreviewPoints orders points the way the API picks a latest result:
+ * by commit time, then by result ID. */
+export function comparePreviewPoints(a: BrowsePreviewPoint, b: BrowsePreviewPoint): number {
+  if (a.chartMs !== b.chartMs) return a.chartMs - b.chartMs;
+  return a.resultId < b.resultId ? -1 : a.resultId > b.resultId ? 1 : 0;
+}
+
+/** latestPreviewPoint returns the point the API would report as latest. */
+export function latestPreviewPoint(points: readonly BrowsePreviewPoint[]): BrowsePreviewPoint | undefined {
+  let latest: BrowsePreviewPoint | undefined;
+  for (const point of points) {
+    if (latest === undefined || comparePreviewPoints(point, latest) > 0) latest = point;
+  }
+  return latest;
+}
+
+/** trackSummary describes one machine's plotted points for screen readers:
+ * its latest value, and how many points span which range. It reads the
+ * points in one pass, so a long history cannot exceed an argument limit. */
+export function trackSummary(track: BrowsePreviewTrack): string | null {
+  const latest = latestPreviewPoint(track.points);
+  let min = Infinity;
+  let max = -Infinity;
+  for (const point of track.points) {
+    min = Math.min(min, point.value);
+    max = Math.max(max, point.value);
+  }
+  if (latest === undefined) return null;
+  const unit = latest.unit;
+  return `${track.machineName}: latest ${formatMeasurement(latest.value, unit)}, ` +
+    `${track.points.length} results from ${formatMeasurement(min, unit)} to ${formatMeasurement(max, unit)}`;
 }

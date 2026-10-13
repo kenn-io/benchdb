@@ -4655,6 +4655,7 @@ func (b BenchmarkPage) Validate() error {
 
 type BenchmarkPreviewPoint struct {
 	CommitTimestamp time.Time `json:"commit_timestamp" validate:"required"`
+	ResultID        string    `json:"result_id" validate:"required"`
 	Unit            *string   `json:"unit,omitempty" validate:"required"`
 	Value           float64   `json:"value"`
 }

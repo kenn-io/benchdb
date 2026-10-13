@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   closestIndexForSortedValueOffset,
+  niceTicks,
   closestIndexForValue,
   indexForCursorOffset,
   indexForCursorValue,
@@ -13,6 +14,28 @@ import {
 } from "./chart-geometry";
 
 describe("chart geometry", () => {
+  it("picks round tick values inside a range", () => {
+    expect(niceTicks({ min: 9.9, max: 12.1 })).toEqual([10, 11, 12]);
+    expect(niceTicks({ min: 0, max: 210 })).toEqual([0, 100, 200]);
+    expect(niceTicks({ min: 1.5389, max: 1.6011 })).toEqual([1.55, 1.6]);
+    // A 1-2-5 step can leave one tick inside a range; a finer step adds more.
+    expect(niceTicks({ min: 0.0000213, max: 0.0000287 })).toEqual([0.000022, 0.000024, 0.000026, 0.000028]);
+  });
+
+  it("returns a single tick for an empty range", () => {
+    expect(niceTicks({ min: 5, max: 5 })).toEqual([5]);
+  });
+
+  it("falls back to the endpoints between adjacent floating-point values", () => {
+    const next = 1 + Number.EPSILON;
+    expect(niceTicks({ min: 1, max: next })).toEqual([1, next]);
+  });
+
+  it("keeps ticks distinct in a narrow range at a large magnitude", () => {
+    const ticks = niceTicks({ min: 999_999_999_999.9, max: 1_000_000_000_002.1 });
+    expect(ticks).toEqual([1_000_000_000_000, 1_000_000_000_001, 1_000_000_000_002]);
+  });
+
   it("pads both comparison endpoints, including an off-branch result beyond history", () => {
     const range = comparisonTimeRange([100_000, 200_000], [
       { role: "baseline", resultId: "a", chartMs: 200_000, value: 10, unit: "s" },

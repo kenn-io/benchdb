@@ -213,6 +213,7 @@ export type BenchmarkListItemTags = { [key: string]: unknown };
 
 export interface BenchmarkPreviewPoint {
   commit_timestamp: string;
+  result_id: string;
   /** @nullable */
   unit: string | null;
   value: number;

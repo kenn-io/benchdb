@@ -312,6 +312,27 @@ func TestTrackPreviewKeepsTheLatestComputablePoints(t *testing.T) {
 		"point counts include every history point")
 }
 
+func TestTrackPreviewOrdersTiedCommitsByResultID(t *testing.T) {
+	// Two contexts on one machine share the latest commit. Their fingerprint
+	// order disagrees with their result-ID order, and the list's latest result
+	// is the higher result ID.
+	early := machineSegment("a-context", "m1", 0, []float64{1, 2, 9})
+	late := machineSegment("z-context", "m1", 0, []float64{1, 2, 3})
+	for i := range early {
+		early[i].ID = fmt.Sprintf("r%d-b", i)
+		late[i].ID = fmt.Sprintf("r%d-a", i)
+	}
+	members := map[string][]storage.HistoryRow{"a-context": early, "z-context": late}
+
+	for range 20 { // map iteration order varies between calls
+		preview := trackPreview(members)
+		latest := preview[len(preview)-1]
+		assert.Equal(t, "r2-b", latest.ResultID)
+		assert.InDelta(t, 9, latest.Value, 0)
+	}
+	assert.True(t, laterHistoryRow(early[2], late[2]), "the list picks the same latest result")
+}
+
 func TestWindowedPreviewKeepsPointsInsideTheWindow(t *testing.T) {
 	at := func(day int) time.Time { return time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC) }
 	stored, err := json.Marshal([]BenchmarkPreviewTrack{

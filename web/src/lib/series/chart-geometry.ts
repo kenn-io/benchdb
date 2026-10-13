@@ -168,3 +168,42 @@ export function observedValueRange(
     max: max + pad,
   };
 }
+
+const MAX_TICK_INTERVALS = 12;
+
+/** niceTicks returns round values (1, 2, or 5 times a power of ten apart)
+ * inside range, about target intervals across it, for labeled gridlines. A
+ * nonempty range always gets at least two distinct ticks, so a scale shows;
+ * when no round step fits, as between adjacent floating-point values, the
+ * range's own endpoints are the ticks. */
+export function niceTicks(range: ValueRange, target = 3): number[] {
+  const span = range.max - range.min;
+  if (!Number.isFinite(span) || span <= 0) return [range.min];
+  for (let intervals = target; intervals <= MAX_TICK_INTERVALS; intervals *= 2) {
+    const ticks = ticksAtStep(range, niceStep(span / intervals));
+    if (ticks.length >= 2) return ticks;
+  }
+  return [range.min, range.max];
+}
+
+function niceStep(raw: number): number {
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((multiple) => multiple * magnitude).find((candidate) => candidate >= raw)!;
+}
+
+// Every tick is a whole multiple of the step's power of ten, so rounding to
+// that many decimals removes floating-point noise without merging neighbours.
+// The tick count is bounded, and a tick that does not advance past the last
+// one, as when k * step loses precision at a large k, ends the list.
+function ticksAtStep(range: ValueRange, step: number): number[] {
+  const decimals = Math.min(100, Math.max(0, -Math.floor(Math.log10(step))));
+  const first = Math.ceil(range.min / step);
+  const ticks: number[] = [];
+  for (let i = 0; i <= MAX_TICK_INTERVALS * 2; i++) {
+    const tick = Number(((first + i) * step).toFixed(decimals));
+    if (tick > range.max) break;
+    if (ticks.length > 0 && tick <= ticks[ticks.length - 1]!) break;
+    if (tick >= range.min) ticks.push(tick);
+  }
+  return ticks;
+}

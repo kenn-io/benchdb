@@ -9,7 +9,9 @@ import {
   sortRows,
   sparklinePoints,
   tagsText,
+  latestPreviewPoint,
   toBrowseRows,
+  trackSummary,
   windowStartIso,
   type BrowseRow,
 } from "./transform";
@@ -57,7 +59,7 @@ describe("toBrowseRows", () => {
     const [row] = toBrowseRows([item({
       preview_tracks: [{
         machine_name: "m5",
-        points: [{ commit_timestamp: "2024-01-07T12:00:00Z", value: 12, unit: "B" }],
+        points: [{ commit_timestamp: "2024-01-07T12:00:00Z", result_id: "r2", value: 12, unit: "B" }],
       }],
     })]);
 
@@ -181,5 +183,29 @@ describe("sparklinePoints", () => {
   });
   it("is empty for no values", () => {
     expect(sparklinePoints([], 100, 20, 2)).toBe("");
+  });
+});
+
+describe("latestPreviewPoint", () => {
+  it("breaks a shared commit time by result ID, as the API picks a latest result", () => {
+    const points = [
+      { chartMs: 1, resultId: "r1", value: 1, unit: "s" },
+      { chartMs: 5, resultId: "r9", value: 9, unit: "s" },
+      { chartMs: 5, resultId: "r2", value: 2, unit: "s" },
+    ];
+    expect(latestPreviewPoint(points)?.resultId).toBe("r9");
+    expect(latestPreviewPoint([...points].reverse())?.resultId).toBe("r9");
+    expect(latestPreviewPoint([])).toBeUndefined();
+  });
+});
+
+describe("trackSummary", () => {
+  it("summarizes a history too long to spread into Math.min", () => {
+    const points = Array.from({ length: 300_000 }, (_, index) => ({ chartMs: index, resultId: "r1", value: 10 + (index % 7), unit: "s" }));
+    expect(trackSummary({ machineName: "m5", points })).toBe("m5: latest 10 s, 300000 results from 10 s to 16 s");
+  });
+
+  it("has nothing to say about a machine without points", () => {
+    expect(trackSummary({ machineName: "m5", points: [] })).toBeNull();
   });
 });

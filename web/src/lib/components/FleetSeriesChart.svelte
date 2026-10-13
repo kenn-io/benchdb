@@ -4,7 +4,7 @@
   import { onDestroy, tick, untrack } from "svelte";
 
   import { formatMeasurement } from "../format";
-  import { machineColor } from "../machine-colors";
+  import { machineColors } from "../machine-colors";
   import { axisSize, axisTickLabels } from "../series/chart-format";
   import {
     clampRangeToDomain,
@@ -36,6 +36,7 @@
     onopen?: (resultId: string) => void;
   } = $props();
 
+  const colors = $derived(machineColors(tracks.map((track) => track.machineName), resolvedTheme()));
   let chartWrap: HTMLDivElement;
   let host: HTMLDivElement;
   let tooltipElement = $state<HTMLDivElement>();
@@ -222,8 +223,7 @@
     const series: uPlot.Series[] = [{}];
     const bands: uPlot.Band[] = [];
     data.plotTracks.forEach((track, i) => {
-      const machineIndex = Math.max(0, tracks.findIndex((candidate) => candidate.machineName === track.machineName));
-      const color = machineColor(machineIndex);
+      const color = colors.get(track.machineName)!;
       const valueIndex = 1 + i * 4;
       series.push(
         { label: track.machineName, stroke: color, width: 2, spanGaps: true, points: { show: true, size: 6 } },
@@ -350,8 +350,8 @@
 <div class="fleet-chart" aria-label="Fleet benchmark trend" bind:this={chartWrap} onclick={openHoveredPoint}>
   <div class="chart-heading">
     <div class="legend" aria-hidden="true">
-      {#each tracks as track, i (track.machineName)}
-        <span><i class="machine" style={`background:${machineColor(i)}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
+      {#each tracks as track (track.machineName)}
+        <span><i class="machine" style={`background:${colors.get(track.machineName)}`}></i><strong>{track.machineName}</strong> · {trackSummary(track)}</span>
       {/each}
       <span><i class="mean"></i>rolling mean</span>
       <span><i class="band"></i>{sigma}σ range</span>

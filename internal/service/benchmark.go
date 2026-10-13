@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -16,6 +17,7 @@ const benchmarkPreviewLen = 20
 
 type BenchmarkPreviewPoint struct {
 	CommitTimestamp time.Time `json:"commit_timestamp"`
+	ResultID        string    `json:"result_id"`
 	Value           float64   `json:"value"`
 	Unit            *string   `json:"unit"`
 }
@@ -208,8 +210,9 @@ func windowedPreview(data []byte, since *time.Time) ([]BenchmarkPreviewTrack, er
 }
 
 // trackPreview returns a track's latest chart points across its fingerprints,
-// oldest first. Members whose single value summary cannot be computed are
-// skipped, so one bad result never empties the chart.
+// oldest first in the order the list picks a latest result: by commit time,
+// then by result ID. Members whose single value summary cannot be computed
+// are skipped, so one bad result never empties the chart.
 func trackPreview(members map[string][]storage.HistoryRow) []BenchmarkPreviewPoint {
 	points := make([]BenchmarkPreviewPoint, 0)
 	for _, segment := range members {
@@ -219,12 +222,15 @@ func trackPreview(members map[string][]storage.HistoryRow) []BenchmarkPreviewPoi
 				continue
 			}
 			points = append(points, BenchmarkPreviewPoint{
-				CommitTimestamp: *member.CommitTimestamp, Value: value, Unit: member.Unit,
+				CommitTimestamp: *member.CommitTimestamp, ResultID: member.ID, Value: value, Unit: member.Unit,
 			})
 		}
 	}
-	slices.SortStableFunc(points, func(a, b BenchmarkPreviewPoint) int {
-		return a.CommitTimestamp.Compare(b.CommitTimestamp)
+	slices.SortFunc(points, func(a, b BenchmarkPreviewPoint) int {
+		if byCommit := a.CommitTimestamp.Compare(b.CommitTimestamp); byCommit != 0 {
+			return byCommit
+		}
+		return strings.Compare(a.ResultID, b.ResultID)
 	})
 	if len(points) > benchmarkPreviewLen {
 		points = points[len(points)-benchmarkPreviewLen:]
