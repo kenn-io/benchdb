@@ -40,9 +40,10 @@ These commands send a bearer token when one is available:
 In CI and shared scripts, set `BENCHDB_TOKEN` and leave out `--token`. That
 keeps the token out of the process argument list.
 
-The credentials file is `benchdb/credentials.json` under the user config
-directory: `~/.config/benchdb/credentials.json` on Linux and
-`~/Library/Application Support/benchdb/credentials.json` on macOS. It maps each
+The credentials file is `benchdb/credentials.json` in the user config
+directory. On Linux that is `~/.config/benchdb/credentials.json`, or
+`$XDG_CONFIG_HOME/benchdb/credentials.json` when `XDG_CONFIG_HOME` is set. On
+macOS it is `~/Library/Application Support/benchdb/credentials.json`. It maps each
 `--server` value to a token, so the server URL must match the one used at login.
 The CLI writes the file with mode `0600`.
 
@@ -314,8 +315,8 @@ benchdb admin repair-commits --format json
 | `--github-timeout` | `20s` | Timeout for GitHub commit enrichment. |
 | `--format` | `text` | `text` or `json`. |
 
-This command needs GitHub credentials: either `GITHUB_API_TOKEN` with at least
-one usable token, or all of `BENCHDB_COMMIT_GITHUB_APP_ID`,
+This command needs GitHub credentials. Set either `GITHUB_API_TOKEN` with at
+least one usable token, or all of `BENCHDB_COMMIT_GITHUB_APP_ID`,
 `BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID`, and
 `BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE`. Setting both is an error.
 

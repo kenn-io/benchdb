@@ -1,6 +1,6 @@
 # Alerting
 
-This page explains BenchDB's scheduled alerts: how you define alert rules, how
+This page explains BenchDB's scheduled alerts. It covers alert rules, how
 `benchdb admin alerts evaluate` opens and resolves them, and how
 `benchdb admin alerts deliver` sends the resulting events. It is for operators
 who schedule these jobs and for users who manage rules.
@@ -93,7 +93,7 @@ pass.
 Each event stores the report status, status reason, repository, run id, commit
 SHA, report URL, and report summary JSON.
 
-The command prints a summary to stdout with these counts: `rules`,
+The command prints a summary to stdout with the counts `rules`,
 `evaluated`, `opened`, `resolved`, `unchanged`, `skipped`, `no_candidate`, and
 `failed`. It prints a warning to stderr for each rule that failed, and exits
 `1` if any rule failed.
