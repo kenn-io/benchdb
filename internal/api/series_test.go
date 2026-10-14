@@ -30,19 +30,25 @@ func listSeries(t *testing.T, tapi humatest.TestAPI, query string) seriesPage {
 	return page
 }
 
-// noisyBaseline is the verified in-band baseline from the service fixtures: seven
-// noisy points around 1.0 whose preceding-member distribution scores a within-band
-// latest as "stable" and a 1.20 latest as "regressed" (unit "s", less-is-better).
-var noisyBaseline = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01}
+// noisyBaseline is twelve noisy points around 1.0, enough history for a status:
+// two later results of 1.20 score "regressed" and within-band results "stable"
+// (unit "s", less-is-better).
+var noisyBaseline = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 0.99, 1.00, 1.01, 0.99, 1.00}
 
-// seedSeriesWithLatest seeds one series (case = name) with the noisy baseline at
-// days 0..6 followed by a single latest measurement at day(latestDay). It returns
-// the latest member's result id so identity assertions can pin latest_result_id.
-func seedSeriesWithLatest(t *testing.T, tapi humatest.TestAPI, name string, latest float64, latestDay int) string {
+// latestDay is the day of a seeded series' latest result.
+var latestDay = len(noisyBaseline) + 1
+
+// seedSeriesWithLatest seeds one series (case = name) with the noisy baseline
+// followed by two results of latest, since a status change has to hold for two
+// results. It returns the latest result id so identity assertions can pin
+// latest_result_id.
+func seedSeriesWithLatest(t *testing.T, tapi humatest.TestAPI, name string, latest float64) string {
 	t.Helper()
 	for i, v := range noisyBaseline {
 		seedResult(t, tapi, seedOpts{name: name, sha: name + shaN(i), ts: day(i), data: []float64{v}})
 	}
+	seedResult(t, tapi,
+		seedOpts{name: name, sha: name + shaN(latestDay-1), ts: day(latestDay - 1), data: []float64{latest}})
 	return seedResult(t, tapi,
 		seedOpts{name: name, sha: name + shaN(latestDay), ts: day(latestDay), data: []float64{latest}})
 }
@@ -65,8 +71,8 @@ func findSeries(t *testing.T, page seriesPage, name string) service.SeriesListIt
 // deterministic, and the page is non-full so next_page_cursor is null.
 func TestListSeriesStatusAndIdentity(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
-	regressedID := seedSeriesWithLatest(t, tapi, "regressed-bench", 1.20, 7)
-	seedSeriesWithLatest(t, tapi, "stable-bench", 1.005, 7)
+	regressedID := seedSeriesWithLatest(t, tapi, "regressed-bench", 1.20)
+	seedSeriesWithLatest(t, tapi, "stable-bench", 1.005)
 	// A single-point series has no baseline, so its status is "insufficient".
 	soloID := seedResult(t, tapi, seedOpts{name: "solo-bench", sha: "solo1", ts: day(1), data: []float64{5}})
 
@@ -94,13 +100,13 @@ func TestListSeriesStatusAndIdentity(t *testing.T) {
 	require.NotNil(t, regressed.LessIsBetter)
 	assert.True(t, *regressed.LessIsBetter, "seconds: less is better")
 	assert.Equal(t, regressedID, regressed.LatestResultID)
-	assert.Equal(t, "regressed-bench"+shaN(7), regressed.LatestCommitSha)
-	assert.Equal(t, int64(8), regressed.PointCount, "seven baseline points plus the latest")
+	assert.Equal(t, "regressed-bench"+shaN(latestDay), regressed.LatestCommitSha)
+	assert.Equal(t, int64(len(noisyBaseline)+2), regressed.PointCount, "the baseline plus the two latest results")
 	require.NotNil(t, regressed.LatestSVS)
 	assert.InDelta(t, 1.20, *regressed.LatestSVS, 1e-9)
 	require.NotNil(t, regressed.LatestSVSType)
 	assert.Equal(t, "min", *regressed.LatestSVSType, "seconds: best-mode SVS is the min")
-	assert.True(t, regressed.LatestResultTimestamp.Equal(day(7)), "latest result timestamp")
+	assert.True(t, regressed.LatestResultTimestamp.Equal(day(latestDay)), "latest result timestamp")
 }
 
 // TestListSeriesSparklineOldestFirst asserts the sparkline carries the per-member
@@ -131,7 +137,7 @@ func TestListSeriesMixedUnit(t *testing.T) {
 		seedResult(t, tapi, seedOpts{sha: shaN(i), ts: day(i), unit: "s", data: []float64{v}})
 	}
 	// A later member in a different unit makes the series mixed-unit.
-	seedResult(t, tapi, seedOpts{sha: shaN(7), ts: day(7), unit: "ns", data: []float64{1.2}})
+	seedResult(t, tapi, seedOpts{sha: shaN(len(noisyBaseline)), ts: day(len(noisyBaseline)), unit: "ns", data: []float64{1.2}})
 
 	page := listSeries(t, tapi, "")
 	require.Len(t, page.Series, 1)
