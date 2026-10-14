@@ -2,7 +2,7 @@
   import { appURL } from "../base-path";
   import { SearchInput } from "@kenn-io/kit-ui/search-input";
   import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries, type BrowsePage, type BrowseStatusCounts } from "../browse/loader";
@@ -78,19 +78,30 @@
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table", sort: "", yAxis: "observed" }));
 
-  // Refetch when the project changes, and again when queued scoring settles,
-  // since a new machine's benchmarks appear only once they are scored.
-  $effect(() => {
-    const repository = query.repository;
-    machines = null;
-    if (statusesPending) return;
-    let active = true;
+  // The machine list loads with each project, independently of scoring, and
+  // reloads once queued scoring settles, since a new machine's benchmarks
+  // appear only after they are scored. A reload keeps the current options.
+  let machinesToken = 0;
+  function loadMachines(repository: string) {
+    const token = ++machinesToken;
     void client.listMachines(repository === "" ? {} : { repository }).then((res) => {
-      if (active && res.status === 200) machines = res.data.machines;
+      if (token === machinesToken && res.status === 200) machines = res.data.machines;
     }).catch(() => {
       // The loaded rows' machines still fill the filter.
     });
-    return () => { active = false; };
+  }
+
+  $effect(() => {
+    const repository = query.repository;
+    machines = null;
+    loadMachines(repository);
+  });
+
+  let scoringWasPending = false;
+  $effect(() => {
+    const pending = statusesPending;
+    if (scoringWasPending && !pending) loadMachines(untrack(() => query.repository));
+    scoringWasPending = pending;
   });
   const timeRange = $derived.by(() => {
     const now = new Date();

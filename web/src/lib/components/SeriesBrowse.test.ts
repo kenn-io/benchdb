@@ -469,6 +469,23 @@ describe("SeriesBrowse", () => {
     }
   });
 
+  it("keeps the machine list while scoring is pending and more pages load", async () => {
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m7-elsewhere"] } });
+    GET.mockResolvedValueOnce({ status: 200, data: {
+      benchmarks: [item("f1", "demo")], status_counts: { regressed: 0, improved: 0, stable: 1, insufficient: 0 },
+      statuses_pending: true, next_page_cursor: "cur2",
+    } });
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f2", "second")], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "demo" });
+    // Loading another page stops the pending-status reloads.
+    await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByRole("link", { name: "second" });
+
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m7-elsewhere" })).toBeInTheDocument();
+  });
+
   it("drops a reload that finishes after more pages are loaded", async () => {
     vi.useFakeTimers();
     try {
