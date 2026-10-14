@@ -246,7 +246,7 @@ export interface CompareRoute {
 
 /** parseCompareQuery is total: missing ids become "" (the page renders a
  * pick-two explainer, not an error) and thresholds become null, meaning "use
- * the server defaults" (5% / 5 sigma). Only finite positive numbers survive,
+ * the server defaults" (5% / 2 sigma). Only finite positive numbers survive,
  * so junk never reaches the API. */
 export function parseCompareQuery(search: string): CompareQuery {
   const params = new URLSearchParams(search);

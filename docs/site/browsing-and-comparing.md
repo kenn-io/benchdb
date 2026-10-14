@@ -1,195 +1,233 @@
-# Browsing And Comparing
+# Browsing and comparing
 
-The Svelte dashboard is the supported web interface.
+This page describes the BenchDB dashboard, page by page. Use it to find a
+benchmark, trace a regression to a commit, inspect a result, and compare two
+results. [Regression analysis](regression-analysis.md) explains how the
+statuses on these pages are computed.
 
-## Series Browse
+## Navigation and projects
 
-The home page summarizes recent benchmark activity. Use it to answer: what just
-ran, how much data did it publish, did any results error, and which runs need
-attention?
+The left sidebar holds the project switcher, a benchmark search box, and links
+to Runs, Benchmarks, and Compare. Account, the API docs, and the theme toggle
+sit at the bottom. The sidebar collapses to a rail of icons, and the browser
+remembers that choice. On narrow screens the sidebar opens as a drawer from the
+menu button.
 
-Navigation lives in a left sidebar: the project switcher, benchmark search,
-Runs, Benchmarks, and Compare, with Account, the API docs, and the theme at the
-bottom. The sidebar collapses to an icon rail, and the browser remembers that
-choice. On narrow screens it opens as a drawer from the menu button.
+A project is a repository, identified by the repository URL that results
+submit. The project switcher scopes Runs, Benchmarks, and the sidebar search to
+one project. Runs and Benchmarks carry the project in the URL as
+`?repository=<url>`, so shared links stay scoped. Other pages keep the last
+project you chose until the page reloads. `GET /api/repositories` lists the
+projects.
 
-A project is a repository, identified by the `github.repository` URL that
-results submit. The project switcher in the sidebar scopes Runs, Benchmarks,
-and the series search to one project. The home page and `/series` carry the
-choice as `?repository=<url>`, so shared links stay scoped. Other pages keep the
-last project you chose. `GET /api/repositories` lists the projects.
+The sidebar search opens the Benchmarks page with your search text and the
+current project.
 
-The series explorer lives at `/series`. Use it to find benchmark families,
-filter by search text, and navigate to trend pages. Benchmark rows show recent
-state, latest result metadata, and a compact history summary. Regressed
-benchmarks come first, then improved ones, then stable ones, then those with
-too little history, each sorted by name, across every page. With all projects
-shown, each project gets its own section.
+## Runs
 
-The machine filter lists every machine with benchmark history in the selected
-project, from `GET /api/machines?repository=<url>`, not only the machines on
-loaded rows. The URL carries the filters and the view preferences, so a shared
-link opens the same view: `q`, `hardware`, `window`, `status`, `view=charts`,
-`sort` (such as `points-desc`), and `y=zero` for a zero-based chart axis.
-Sorting and the axis apply to loaded rows without reloading them. Clear filters
-keeps the project, view, sort, and axis.
+The Runs page at `/` lists runs, one row per submitted `run_id`, with the
+most recently active run first. Each row shows the commit and its author, the
+run reason, the machines, the run ID, the latest batch, the result count, any
+benchmark errors, and when the last result arrived. With all projects shown, a
+Project column names each run's repository. A summary line above the table
+counts runs, results, machines, and errors. The search box finds runs by commit
+SHA or by any part of a commit URL.
 
-Each benchmark's status compares its latest default-branch result with the
-history before it, on each machine. A change counts as a regression or
-improvement only when it is outside the history band, more than 2% from the
-history mean, and held for the two latest results, with at least 10 earlier
-results; see [Regression analysis](regression-analysis.md). Next to the
-status, the list shows that change in percent of the history mean, such as
-`+12.0%`, from the machine that set the status; when a benchmark runs on several
-machines, the list names that machine. The API returns it as `change_percent`
-and `change_machine`. When a machine's measurement context
-changes, such as a new toolchain or workload version, only the contexts measured
-at that machine's latest commit count; an old context that overlapped the
-switchover no longer decides the status. With every machine shown, the benchmark
-takes its worst machine's status; with one machine selected, it shows that
-machine's own status. The status filters above the list count every benchmark
-that matches the other filters, not just the loaded rows, and the
-`?status=regressed` filter lists only regressions. The server scores a benchmark
-in the background within seconds of a new result; until then the page shows
-"Updating statuses…" and reloads itself.
+Each pull-request run shows a verdict when its
+[CI report](ci-reporting.md) against the fork point finds something to act on,
+such as regressions, benchmark errors, or missing baselines. The verdict links
+to that report. Default-branch runs never need attention.
 
-The home dashboard groups activity by submitted `run_id` values, with direct
-links to run detail, batch detail, and CI reports. Batch pages are available at
-`/batches/<batch_id>` when you need to inspect a suite-level grouping across
-multiple runs.
+The server computes verdicts in the background once a run's results have
+stopped arriving for 15 seconds. Until then the run shows "Checking…". A run
+being rechecked keeps its last verdict next to "Checking…". When default-branch
+results or commits arrive in a repository, the server rechecks that
+repository's pull-request runs from the last 14 days. A baseline that lands
+after the pull request then still updates its verdict. Older runs keep their
+last verdict.
 
-Each run shows its CI attention verdict: the regressions, benchmark errors, or
-missing baselines that its CI report finds against the run's fork point, linked
-to that report. The server computes verdicts in the background once a run's
-results stop arriving, so a new run reads "Checking…" for a few seconds; a run
-being rechecked keeps its last verdict next to "Checking…". When
-default-branch results or commits arrive in a repository, the server
-re-evaluates that repository's pull-request runs from the last 14 days, so a
-baseline that lands after the pull request still updates its verdict. Older
-runs keep their last verdict. **Needs attention** filters the list to runs
-whose verdict needs attention, across all pages, and shows how many there are.
+**Needs attention** filters the list to runs whose verdict needs attention,
+across all pages, and shows how many there are. **Previous** and **Next** page
+through older runs.
 
-Use the hardware filter to find benchmark series for a machine or cluster name.
-Hardware is part of result and series context, so hardware investigation starts
-from benchmark activity rather than from a standalone catalog.
+When the server has no runs yet, the page shows a `benchdb results submit`
+command for this server that you can copy.
 
-The browse surface is designed for scanning. It favors full-width table rows,
-filters, and direct links over card grids or nested summary panels. Broad
-queries can match many production series, so pages cap rendered rows and ask you
-to narrow with search, hardware, repository, fingerprint, or active-time filters
-instead of painting an unbounded table.
+## Benchmarks
 
-The benchmark list and its search cover every benchmark with default-branch
-history. A time window keeps the machines whose latest default-branch result
-falls inside it, and counts only the points inside it. A known logical
-benchmark ID at `/benchmarks/<benchmark_id>` loads its complete fleet history. A
-known history fingerprint at `/series/<fingerprint>` loads that directly
-comparable segment.
-Run pages and CI reports also provide exact links into those histories.
+The Benchmarks page at `/series` lists every benchmark with default-branch
+history, one row per benchmark and repository across all of its machines.
+Regressed benchmarks come first, then improved, stable, and insufficient ones.
+Each group is sorted by name, and the order holds across pages. **Load more**
+fetches the next page. With all projects shown, each project gets its own
+section.
 
-A benchmark row's status is the worst status among each machine's current
-segments. A context or hardware change starts a new segment on that machine.
-Once the new segment begins, the earlier segment no longer affects the row's
-status. Segments that overlap in time all count.
+### Status and change
 
-Benchmark-name search shows a loaded family drilldown: case variants,
-hardware/context coverage, loaded history-point counts, and
-regressed/improved triage links. It is intentionally scoped to the loaded rows
-so it remains usable on large installations; load more or narrow the filters
-when you need broader coverage.
+Each row shows the benchmark's status and, next to it, how far the latest
+result moved from its history mean, such as `+12.0%`. When the benchmark runs
+on several machines, the row also names the machine that set the status. With
+every machine shown, a benchmark takes its worst machine's status. With one
+machine selected, it shows that machine's own status. The API returns the
+change as `change_percent` and the machine as `change_machine`.
 
-Use loaded triage links, CI reports, and per-series outlier and step filters to
-investigate current signals. Whole-family analytics should be treated as a
-scale-aware product workflow rather than as an unbounded table.
+A status counts a regression or improvement only when the latest result is
+outside the history band, more than 2% from the history mean, and the result
+before it moved the same way, with at least 10 earlier results.
+[Benchmark statuses](regression-analysis.md#benchmark-statuses) gives the full
+rule.
 
-## Trend Detail
+The status buttons above the list filter by status. Their counts cover every
+benchmark that matches the other filters, not only the loaded rows. The server
+scores a benchmark in the background within seconds of a new result. Until it
+finishes, the page shows "Updating statuses…" and reloads the first page for up
+to a minute.
 
-A benchmark trend page shows the result history across the machines in the
-fleet. The machine selector narrows that view, while the legacy fingerprint
-route shows one directly comparable segment. Trend detail is the primary place
-to inspect:
+### Filters and views
 
-- recent values,
-- outliers,
-- z-score context,
-- result links,
-- commit metadata,
-- manual baseline and contender picks.
+The search box matches benchmark names and tags. The machine filter lists every
+machine with benchmark history in the selected project, from
+`GET /api/machines?repository=<url>`. The time window (all time, 30 days,
+3 months, or 1 year) keeps machines whose latest default-branch result falls
+inside it. Point counts and charts then cover only the points inside the
+window. Statuses always use the full history.
 
-Trend pages are the canonical place to localize a regression. They show the
-commit-ordered series, per-machine rolling history context, result links, and
-point flags. Large histories are rendered progressively: the recent window
-appears first, with controls to reveal more history when needed.
+The table shows each benchmark's last value, point count, machines, status, and
+last commit. Click a column header to sort. Sorting covers loaded rows only.
+On narrow screens the table drops to two lines per benchmark, and a **Sort**
+menu replaces the column headers.
 
-Use the outlier and step filters when a long history needs triage. Filtering is
-applied before the rendered-row cap, so an old flagged point can still be found
-without revealing the full table. Selecting a point opens an inspector with the
-result id, commit, distance from the rolling mean, flags, result link,
-compare-pick buttons, and a copyable `benchdb history export` command for the
-same series.
+**Charts** shows one card per benchmark, with a line for each machine and each
+machine's latest value. The **Y-axis** menu switches between a zero baseline
+and the observed range. A card loads the benchmark's full history when you
+scroll near it.
+
+The URL carries the filters and view, so a shared link opens the same page:
+
+| Parameter | Values |
+| --- | --- |
+| `q` | Search text |
+| `hardware` | Machine name |
+| `repository` | Project URL |
+| `window` | `30d`, `3mo`, or `1y` |
+| `status` | `regressed`, `improved`, `stable`, or `insufficient` |
+| `view` | `charts` |
+| `sort` | `name-asc`, `name-desc`, `svs-asc`, `svs-desc`, `points-asc`, `points-desc`, `commit-asc`, or `commit-desc` |
+| `y` | `zero` |
+
+Sorting and the axis apply to loaded rows without reloading them. **Clear
+filters** keeps the project, view, sort, and axis.
+
+When the server has no benchmarks yet, the page shows the same submit command
+as the Runs page. **Result explorer** opens the results list.
+
+## Trend pages
+
+A trend page shows a benchmark's default-branch history as a chart and a
+table. It can open in three ways:
+
+| Route | Shows |
+| --- | --- |
+| `/benchmarks/<benchmark_id>` | Every machine that runs the benchmark |
+| `/series/<fingerprint>` | One series, which is one machine and one context |
+| `/series/by-result/<result_id>` or `/benchmarks/history/<result_id>` | The benchmark's full trend, with that result marked |
+
+A result-based link works only for a default-branch result.
+
+The controls above the chart choose the machine, the date range, the width of
+the band drawn around the rolling mean, and the y-axis. The range defaults to
+the last 90 days. The band defaults to ±2σ and can be ±1σ, ±3σ, or ±5σ. It is
+drawn on the chart only and does not change any status. The URL keeps changed
+controls as `range`, `date`, `from`, `to`, `sigma`, and `y_axis`. A summary line
+counts results, commits, outliers, and steps, and gives the dates of the first
+and last result.
+
+When more than one series is in view, such as several machines or a context
+change, the chart draws one line per series. Drag across the chart to zoom,
+and use **Reset zoom** to return. Click a point to open its result. The page
+checks for new results every 30 seconds and reports how many arrived.
+**Refresh** checks right away.
+
+The results table lists each point's time, commit, machine, value, distance from
+the rolling mean, and flags. **Outliers** and **Steps** filter the table before
+it is cut to 200 rows, so an old flagged point is easy to find. **Show more**
+adds 200 rows.
+
+Click a table row to select that point. The selected-point panel shows the
+commit, value, result ID, distance from the rolling mean, and flags, with
+**Open result**, **set baseline**, and **set contender** buttons. Once you set a
+baseline and a contender from the same machine, series, and unit, **Compare**
+opens the compare page for them.
 
 Trend pages give a point's distance from its rolling mean in standard
-deviations with its direction in words, such as `4.12σ worse`, using the unit's
-`less_is_better` setting. A series without a known direction says `above` or
-`below` instead. CI reports show the same measure as a signed lookback z-score,
-where positive means better. The benchmark
-identity, range controls, summary counts, filters, and compare picks stay pinned
-as one context band while you scroll through a long table.
+deviations, with its direction in words, such as `4.12σ worse`. The direction
+comes from the unit's `less_is_better` setting. A series without a known
+direction says `above` or `below` instead. CI reports show the same measure as a
+signed lookback z-score, where positive means better.
 
-Benchmark errors are surfaced on result detail, run detail, batch detail, and CI
-report pages. The trend history endpoint is value-history oriented and does not
-currently include errored benchmark attempts as history points.
+**Export history** at the bottom gives a `benchdb history export` command for
+the selected point, the result the page opened from, or the latest point. When
+one machine is in view, the page also shows that machine's environment.
 
-## Result Detail
+Results with an error payload are not part of the history. Find them on result,
+run, batch, and CI report pages. When a benchmark mixes units, the page warns
+about it and hides the chart.
 
-Use `/results` when you need a bounded, human-readable list of submitted
-benchmark results. The page filters by `run_id`, `batch_id`, `run_reason`, and
-timestamp bounds, then links each loaded row to result detail, run detail, batch
-detail, and the series trend. The run, batch, and trend columns appear only when
-they hold information: the run column hides when the list is filtered to one
-run, and the trend column hides when no loaded result is on the default branch.
+## Results list
 
-Result detail pages show the raw result payload interpreted by the API:
-case tags, context, info, hardware, run metadata, GitHub metadata, unit, data,
-validation, and errors.
+The results list at `/results` shows submitted results for exact filters:
+`run_id`, `batch_id`, `run_reason`, `earliest_timestamp`, and
+`latest_timestamp`. Each row links to the result, its run, its batch, and its
+trend. A column appears only when it holds information. The run column hides
+when the list is filtered to one run, and the trend column hides when no loaded
+result is on the default branch.
 
-The result page also exposes investigation fields that are easy to lose in a
-summary UI: hardware hash, history fingerprint, optional benchmark info,
-validation, change annotations, raw data/times counts, and the full JSON
-payload. Authenticated users can mark or unmark `begins_distribution_change`
-and delete a result through the dashboard; both actions call the same
-authenticated result APIs used by automation.
-
-Use **Export history JSON** on a result page when the browser workflow needs the
-raw history API response for that result. Use the CLI when you need a history
-CSV file.
-
-For automation and notebook workflows, the result-list API can be filtered by
-run or batch metadata:
+The same filters work on the API, for scripts and notebooks:
 
 ```bash
 curl "$BENCHDB_SERVER_URL/api/benchmark-results?run_id=$RUN_ID"
 curl "$BENCHDB_SERVER_URL/api/benchmark-results?batch_id=$BATCH_ID"
 ```
 
-Use `run_id` when you want one submitted run, and `batch_id` when you want the
-related runs that a benchmark suite grouped together. Runs and batches are
-submitted metadata, not separate storage objects, but the dashboard exposes
-first-class inspection pages over those result-list filters.
+Use `run_id` for one submitted run and `batch_id` for the runs that a benchmark
+suite grouped together. Runs and batches are metadata on results, not separate
+records.
 
-The run detail dashboard at `/runs/<run_id>` shows the run's CI report: the run
-compared with the default-branch run at its fork point, or with the baseline the
-server infers when the run has no commit metadata. The run's result rows, with
-links to result details, batches, and series trends, are listed below the
-report in a collapsed section.
+## Result page
 
-The batch detail dashboard at `/batches/<batch_id>` lists bounded result pages
-for one submitted batch, groups loaded rows by `run_id`, and links to run
-detail, CI reports, result detail, and series trends.
+A result page at `/results/<result_id>` shows one result. The top section gives
+the single value summary, the unit's direction, and how the value compares with
+the previous point in its history. It also lists iteration counts and
+aggregates, the raw data and times counts, and any error. A chart shows the
+result's series, followed by diagnostic artifacts and the commit, run, and
+machine details.
 
-## History CSV Export
+**Technical details** holds the environment, the machine identity hash, the
+history fingerprint, the benchmark ID, and JSON panels for tags, info, optional
+info, validation, change annotations, run tags, and the raw payload.
 
-Use the CLI when you need a history CSV file:
+**Explore full series** opens the benchmark's trend page. **Export history
+JSON** downloads `GET /api/history/<result_id>`.
+
+Users who can write results also see a **Manage** section. It can mark or
+unmark `begins_distribution_change` and delete the result. Both actions call
+the same authenticated result APIs that automation uses.
+
+## Run and batch pages
+
+The run page at `/runs/<run_id>` shows the run's CI report. The report compares
+the run with the default-branch run at its fork point. When the run has no
+commit metadata, the server infers the baseline from the run alone. The run's
+results are listed below the report in a collapsed section, with links to each
+result, batch, and trend.
+
+The batch page at `/batches/<batch_id>` lists the runs in one batch, with their
+reasons, commits, result counts, errors, and CI report links. Below that it
+lists the batch's results, with **Load more** for long batches.
+
+## History CSV export
+
+Use the CLI for a history CSV file:
 
 ```bash
 benchdb history export "$RESULT_ID" \
@@ -197,51 +235,59 @@ benchdb history export "$RESULT_ID" \
   --output history.csv
 ```
 
-Without `--output`, the CSV is written to stdout. The CSV is generated from the
-same JSON history API that powers trend pages. Trend pages show a copyable CLI
-command for the selected point or entry result, and result pages link directly
-to the JSON history response.
+Without `--output`, the CSV goes to stdout. The CSV comes from
+`GET /api/history/<result_id>`, the same response that **Export history JSON**
+downloads. It covers the result's own series.
 
 ## Compare
 
-The compare page evaluates two benchmark results. Use it for manual inspection
-or links from CI report rows. The comparison includes pairwise change and
-lookback z-score analysis where enough history exists.
+The compare page at `/compare` scores one result against another. Use it to
+check a change by hand or to follow a link from a CI report row.
 
-Single-result compare expects the two results to belong to the same history
-fingerprint, which keeps the pairwise value and lookback history tied to the
-same benchmark series. Opening `/compare` lists benchmarks with the most
-recent activity first; type in the search box to filter the list. After you
-choose a benchmark, pick a machine history and two of its commits. The picker
-offers only results from one history fingerprint and unit. When you already
-know result IDs, open **Advanced: compare by result ID**; the compare API
-remains the source of truth for manually typed IDs.
-Use CI reports for run-to-run and commit-wide comparisons.
+Without result IDs in the URL, the page walks you through a choice:
 
-## CI Report
+1. Choose a benchmark. The list follows the Benchmarks page order, regressions
+   first, and the search box matches names and tags.
+2. Choose a machine and history when the benchmark has more than one.
+3. Pick a baseline commit and a contender commit, then select **Compare**.
 
-The CI report page groups comparisons for a commit or run selector. It is the
-web counterpart to `benchdb ci report` and should be the first dashboard link
-people open from pull request logs.
+The picker offers only results from one machine, one series, and one unit. If
+you already know the result IDs, open **Advanced: compare by result ID**. The
+compare API rejects results from different series or units as not comparable.
 
-Rows are ordered by status (regressions, benchmark errors, not-comparable,
-improvements, insufficient history, then stable), and by name within a status.
-Stable rows stay collapsed until you reveal them, filter by status, or search.
-The change column shows the raw relative change, whose sign matches the
-contender and baseline values, followed by whether the change is better or
-worse.
+The comparison shows the status, the lookback z-score line, and the pairwise
+change line, with the practical tolerance when one applies. The lookback line
+says why a change outside the history band did not count, for example
+`outside the band, but within 3σ of its baseline`. **threshold %** and
+**threshold σ** change the thresholds and are saved in the URL as `threshold`
+and `threshold_z`. A table sets the two results side by side, and
+**View full trend** opens the benchmark's trend page.
 
-Use the status buttons, hardware selector, and search box to narrow a large
-report to the rows that need attention. The status buttons filter every run in
-the report, and the hardware selector appears when the report covers more than
-one machine. When some results were not compared, a coverage summary groups
-compared and missing results by machine. Missing baseline rows stay collapsed
-by default and can be revealed with the existing status filter.
+Use [CI reports](ci-reporting.md) to compare whole runs or commits.
 
-Large CI reports filter first, then render a bounded row set and reveal
-additional matching rows on demand. The report summary always describes the
-whole report; row rendering limits are only a browser-performance guard.
+## CI report page
 
-For manual run-to-run inspection, open a CI report URL with `run_ids` and
-`baseline_run_ids`. This uses the same CI report surface and row-status rules
-as pull request diagnostics.
+The CI report page at `/ci/report` is the web view of `benchdb ci report`. Link
+to it from pull request logs. The URL takes the same selectors as the API:
+`repository`, `commit_sha`, `run_ids`, `baseline_run_ids`, `baseline`,
+`threshold`, and `threshold_z`. For a run-to-run check, pass `run_ids` and
+`baseline_run_ids`.
+
+Rows are grouped by run. Within a run they are ordered regressions, benchmark
+errors, not comparable, improvements, insufficient history, then stable, and by
+name within each status. Stable rows stay hidden until you show them, filter by
+status, or search. Rows without a matching baseline are summarized per run, and
+**Show affected benchmarks** lists them.
+
+The **Change** column shows the relative change with the same sign as the
+values, followed by `better` or `worse`. The **Z** column shows the signed
+lookback z-score. A row held back by the practical tolerance reads
+`within tolerance`.
+
+The status buttons, search box, and machine menu narrow a large report. The
+status buttons apply to every run in the report. The machine menu appears when
+the report covers more than one machine. When some results were not compared, a
+coverage panel shows compared and missing results per machine.
+
+Each run shows its first 200 matching rows, and **Show more** adds 200 at a
+time. The report summary always covers the whole report.
