@@ -35,13 +35,6 @@ The script drives a hidden command group, `benchdb admin prod-clone`, inside
 the main `benchdb` binary. General CLI help does not list it, and it is not a
 supported user workflow.
 
-### Known issue with the report step
-
-The final `report` step requires an `sdk-smoke.json` artifact from the
-removed Python SDK smoke test. No current step writes that file, so `report`
-fails and the script exits 1 even when every other check passes. Until this
-is fixed, read `compat-report.md` and the individual artifacts to judge a run.
-
 ## Safety conditions
 
 Set these variables before every run:

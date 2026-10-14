@@ -726,10 +726,6 @@ func writeCompleteReportArtifacts(t *testing.T, dir string) {
 			{Surface: "CLI", Name: "benchdb compare", Operation: "compare", Passed: true},
 		},
 	})
-	writeJSON(t, filepath.Join(dir, "sdk-smoke.json"), CompatibilityProbeArtifact{
-		Passed: true,
-		Probes: []CompatibilityProbeResult{{Surface: "SDK", Name: "pytest sdk smoke", Operation: "tests/test_smoke.py", Passed: true}},
-	})
 	writeJSON(t, filepath.Join(dir, "log-scan.json"), LogScanArtifact{
 		Passed:   true,
 		Findings: []LogFinding{},
