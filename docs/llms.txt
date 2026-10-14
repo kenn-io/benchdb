@@ -31,7 +31,7 @@ served as raw Markdown at `/docs/<page>.md`.
 - [CLI reference](https://benchdb.io/docs/cli-reference.md): Every `benchdb` command, flag, and environment variable
 - [Authentication and tokens](https://benchdb.io/docs/auth-and-tokens.md): OIDC sign-in for people and reporter tokens for automation
 - [Operations](https://benchdb.io/docs/operations.md): Configuration, containers, migrations, health checks, and deployment
-- [Upgrading](https://benchdb.io/docs/upgrading.md): Rebuild experimental databases on the current baseline and keep released migration history
+- [Upgrading](https://benchdb.io/docs/upgrading.md): Back up, migrate, roll out, and roll back, plus rebuilding databases from before the schema reset
 - [Production clone compatibility](https://benchdb.io/docs/prod-clone-compatibility.md): Checking a release against a read-only copy of production data
 - [Storage roadmap](https://benchdb.io/docs/storage-roadmap.md): What the storage layer does today, what is decided, and what is proposed
 - [Contributing](https://benchdb.io/docs/contributing.md): Fork pull requests, local development, and the checks CI runs
