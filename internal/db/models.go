@@ -121,6 +121,7 @@ type BenchmarkVerdict struct {
 	ComputedAt            pgtype.Timestamptz
 	PointTimestamps       []time.Time
 	PreviewPoints         []byte
+	ChangePercent         *float64
 }
 
 type Case struct {

@@ -398,7 +398,7 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 const upsertBenchmarkVerdict = `-- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
   benchmark_id, machine_name, repository, case_id, point_timestamps, preview_points, unit,
-  status, latest_result_id, latest_result_timestamp,
+  status, change_percent, latest_result_id, latest_result_timestamp,
   latest_commit_sha, latest_commit_timestamp, computed_at
 )
 VALUES (
@@ -410,10 +410,11 @@ VALUES (
   $6::jsonb,
   $7,
   $8,
-  $9,
+  $9::double precision,
   $10,
   $11,
   $12,
+  $13,
   clock_timestamp()
 )
 ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
@@ -423,6 +424,7 @@ ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
   preview_points = EXCLUDED.preview_points,
   unit = EXCLUDED.unit,
   status = EXCLUDED.status,
+  change_percent = EXCLUDED.change_percent,
   latest_result_id = EXCLUDED.latest_result_id,
   latest_result_timestamp = EXCLUDED.latest_result_timestamp,
   latest_commit_sha = EXCLUDED.latest_commit_sha,
@@ -439,6 +441,7 @@ type UpsertBenchmarkVerdictParams struct {
 	PreviewPoints         []byte
 	Unit                  *string
 	Status                string
+	ChangePercent         *float64
 	LatestResultID        string
 	LatestResultTimestamp time.Time
 	LatestCommitSha       string
@@ -455,6 +458,7 @@ func (q *Queries) UpsertBenchmarkVerdict(ctx context.Context, arg UpsertBenchmar
 		arg.PreviewPoints,
 		arg.Unit,
 		arg.Status,
+		arg.ChangePercent,
 		arg.LatestResultID,
 		arg.LatestResultTimestamp,
 		arg.LatestCommitSha,

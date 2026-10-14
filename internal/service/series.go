@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"go.kenn.io/benchdb/internal/stats"
@@ -109,43 +110,64 @@ func seriesUnit(members []storage.HistoryRow) *string {
 // would null its residual and miss the regression. A mixed/unknown unit, a
 // too-short or zero-variance baseline, or an uncomputable z yields "insufficient".
 func seriesStatus(members []storage.HistoryRow, unit *string, lessIsBetter *bool) string {
+	return scoreSeries(members, unit, lessIsBetter).status
+}
+
+// seriesVerdict is a series' status and, when its history window has a
+// nonzero mean, how far the latest point moved from that mean, in percent of
+// the mean and signed by value: positive means the latest value is higher.
+type seriesVerdict struct {
+	status        string
+	changePercent *float64
+}
+
+// scoreSeries scores the latest member the way seriesStatus describes and
+// reports its change from the history window's mean.
+func scoreSeries(members []storage.HistoryRow, unit *string, lessIsBetter *bool) seriesVerdict {
+	insufficient := seriesVerdict{status: statusInsufficient}
 	if unit == nil || lessIsBetter == nil || len(members) < 2 {
-		return statusInsufficient
+		return insufficient
 	}
 	latest := members[len(members)-1]
 	latestSVS, _, err := historySVS(latest.Unit, latest.Data)
 	if err != nil {
-		return statusInsufficient
+		return insufficient
 	}
 	points := make([]stats.SeriesPoint, 0, len(members)-1)
 	for _, m := range members[:len(members)-1] { // baseline = members before the latest
 		svs, _, err := historySVS(m.Unit, m.Data)
 		if err != nil {
-			return statusInsufficient
+			return insufficient
 		}
 		p, err := seriesPointFromRow(m, svs)
 		if err != nil {
-			return statusInsufficient
+			return insufficient
 		}
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
+	verdict := seriesVerdict{status: statusInsufficient}
+	if mean != nil && *mean != 0 {
+		change := (latestSVS - *mean) / math.Abs(*mean) * 100
+		verdict.changePercent = &change
+	}
 	z := stats.ZScore(&latestSVS, *lessIsBetter, mean, stddev)
 	v := stats.LookbackZVerdict(z, stats.ZScoreThresholdDefault)
 	if v == nil {
-		return statusInsufficient
+		return verdict
 	}
 	// A series has no baseline result of its own, so a change must also be
 	// larger than MinimumChangePercent of the window mean to count.
 	large := stats.ExceedsMinimumChange(latestSVS, *mean)
 	switch {
 	case v.RegressionIndicated && large:
-		return statusRegressed
+		verdict.status = statusRegressed
 	case v.ImprovementIndicated && large:
-		return statusImproved
+		verdict.status = statusImproved
 	default:
-		return statusStable
+		verdict.status = statusStable
 	}
+	return verdict
 }
 
 // seriesSparkline returns the single value summaries of the last

@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ type storedTrack struct {
 	machine string
 	status  string
 	unit    string
+	change  *float64
 }
 
 func benchmarkIDForCase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, caseName string) string {
@@ -46,7 +48,9 @@ func storeBenchmarkTracks(
 	require.NoError(t, err)
 	verdicts := make([]storage.BenchmarkVerdict, 0, len(tracks))
 	for _, track := range tracks {
-		verdict := storage.BenchmarkVerdict{BenchmarkID: benchmarkID, MachineName: track.machine, Status: track.status}
+		verdict := storage.BenchmarkVerdict{
+			BenchmarkID: benchmarkID, MachineName: track.machine, Status: track.status, ChangePercent: track.change,
+		}
 		if track.unit != "" {
 			verdict.Unit = new(track.unit)
 		}
@@ -221,6 +225,50 @@ func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
 	assert.Equal(t, int64(1), m7[0].PointCount)
 	assert.Equal(t, map[string]int{"m7": 1}, previewMachines(t, m7[0]))
 	assert.Equal(t, []float64{2}, m7[0].LatestData)
+}
+
+func TestBenchmarkPageReportsTheChangeOfTheTrackThatSetsStatus(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	for _, name := range []string{"alpha", "beta", "gamma", "delta"} {
+		seedSeries(t, st, ctx, "fp-"+name+"-m5", name, `{}`, "m5", []seriesMember{{ts: day(0), value: 1}})
+		seedSeries(t, st, ctx, "fp-"+name+"-m7", name, `{}`, "m7", []seriesMember{{ts: day(1), value: 1}})
+	}
+	// The regressed track sets the status, even though the stable one moved more.
+	storeBenchmarkTracks(t, ctx, st, pool, "alpha",
+		storedTrack{machine: "m5", status: "regressed", unit: "s", change: new(12.0)},
+		storedTrack{machine: "m7", status: "stable", unit: "s", change: new(30.0)})
+	// Of two regressed tracks, the larger change wins, whatever its sign.
+	storeBenchmarkTracks(t, ctx, st, pool, "beta",
+		storedTrack{machine: "m5", status: "regressed", unit: "s", change: new(5.0)},
+		storedTrack{machine: "m7", status: "regressed", unit: "s", change: new(-8.0)})
+	// Tracks in different units have no comparable change.
+	storeBenchmarkTracks(t, ctx, st, pool, "gamma",
+		storedTrack{machine: "m5", status: "regressed", unit: "s", change: new(4.0)},
+		storedTrack{machine: "m7", status: "stable", unit: "B", change: new(1.0)})
+	storeBenchmarkTracks(t, ctx, st, pool, "delta",
+		storedTrack{machine: "m5", status: "insufficient", unit: "s"},
+		storedTrack{machine: "m7", status: "insufficient", unit: "s"})
+
+	changes := func(p storage.BenchmarkListParams) map[string]string {
+		p.PageSize = 10
+		out := map[string]string{}
+		for _, row := range listBenchmarks(t, ctx, st, p).Rows {
+			if row.ChangePercent == nil {
+				assert.Nil(t, row.ChangeMachine, "%s has a machine without a change", row.CaseName)
+				out[row.CaseName] = "none"
+				continue
+			}
+			require.NotNil(t, row.ChangeMachine)
+			out[row.CaseName] = fmt.Sprintf("%g on %s", *row.ChangePercent, *row.ChangeMachine)
+		}
+		return out
+	}
+
+	assert.Equal(t, map[string]string{
+		"alpha": "12 on m5", "beta": "-8 on m7", "gamma": "none", "delta": "none",
+	}, changes(storage.BenchmarkListParams{}))
+	assert.Equal(t, "30 on m7", changes(storage.BenchmarkListParams{Hardware: new("m7")})["alpha"],
+		"a machine filter reports that machine's change")
 }
 
 func TestFinishBenchmarkVerdictsDropsVanishedTracks(t *testing.T) {

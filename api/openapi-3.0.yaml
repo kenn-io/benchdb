@@ -239,6 +239,15 @@ components:
       properties:
         benchmark_id:
           type: string
+        change_machine:
+          description: The machine whose track sets status and change_percent.
+          nullable: true
+          type: string
+        change_percent:
+          description: How far the latest point on change_machine moved from its history window's mean, in percent of the mean; positive means a higher value. Null when the tracks share no unit or the mean is zero.
+          format: double
+          nullable: true
+          type: number
         latest_commit_sha:
           type: string
         latest_commit_timestamp:
@@ -297,6 +306,8 @@ components:
         - unit
         - less_is_better
         - status
+        - change_percent
+        - change_machine
         - latest_result_id
         - latest_single_value_summary
         - latest_single_value_summary_type

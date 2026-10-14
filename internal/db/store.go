@@ -981,9 +981,15 @@ func benchmarkPageRows(ctx context.Context, q *Queries, p storage.BenchmarkListP
 		if err != nil {
 			return nil, err
 		}
-		var unit *string
+		var unit, changeMachine *string
+		changePercent := row.ChangePercent
 		if row.Unit != "" {
 			unit = &row.Unit
+		} else {
+			changePercent = nil
+		}
+		if changePercent != nil {
+			changeMachine = &row.ChangeMachine
 		}
 		out = append(out, storage.BenchmarkPageRow{
 			BenchmarkID:           row.BenchmarkID,
@@ -992,6 +998,8 @@ func benchmarkPageRows(ctx context.Context, q *Queries, p storage.BenchmarkListP
 			CaseTags:              row.CaseTags,
 			Unit:                  unit,
 			Status:                status,
+			ChangePercent:         changePercent,
+			ChangeMachine:         changeMachine,
 			MachineNames:          row.MachineNames,
 			PointCount:            row.PointCount,
 			PreviewTracks:         row.PreviewTracks,

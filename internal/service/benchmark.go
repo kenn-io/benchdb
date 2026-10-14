@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -36,6 +37,8 @@ type BenchmarkListItem struct {
 	Unit                  *string                 `json:"unit"`
 	LessIsBetter          *bool                   `json:"less_is_better"`
 	Status                string                  `json:"status" enum:"regressed,improved,stable,insufficient"`
+	ChangePercent         *float64                `json:"change_percent" doc:"How far the latest point on change_machine moved from its history window's mean, in percent of the mean; positive means a higher value. Null when the tracks share no unit or the mean is zero."`
+	ChangeMachine         *string                 `json:"change_machine" doc:"The machine whose track sets status and change_percent."`
 	LatestResultID        string                  `json:"latest_result_id"`
 	LatestSVS             *float64                `json:"latest_single_value_summary"`
 	LatestSVSType         *string                 `json:"latest_single_value_summary_type"`
@@ -150,7 +153,8 @@ func (r *Reader) ListBenchmarks(ctx context.Context, q BenchmarkQuery) (*Benchma
 		items = append(items, BenchmarkListItem{
 			BenchmarkID: row.BenchmarkID, Name: row.CaseName, Tags: tags,
 			Repository: row.Repository, Unit: row.Unit, LessIsBetter: lessIsBetterPtr(row.Unit),
-			Status:         row.Status,
+			Status:        row.Status,
+			ChangePercent: row.ChangePercent, ChangeMachine: row.ChangeMachine,
 			LatestResultID: row.LatestResultID, LatestSVS: latestSVS,
 			LatestSVSType: latestSVSType,
 			MachineNames:  row.MachineNames, LatestCommitSha: row.LatestCommitSha,
@@ -251,28 +255,44 @@ func trackPointTimestamps(members map[string][]storage.HistoryRow) []time.Time {
 	return timestamps
 }
 
-func benchmarkStatus(
+// statusOrder ranks statuses as the list orders them, worst first.
+var statusOrder = map[string]int{statusRegressed: 0, statusImproved: 1, statusStable: 2, statusInsufficient: 3}
+
+// trackVerdict scores a machine's track by its current segments: the worst
+// status among them, and the change of the segment that sets it, the largest
+// change when several share that status.
+func trackVerdict(
 	fingerprints []string,
 	members map[string][]storage.HistoryRow,
 	unit *string,
 	lessIsBetter *bool,
-) string {
+) seriesVerdict {
+	best := seriesVerdict{status: statusInsufficient}
 	if unit == nil || lessIsBetter == nil {
-		return statusInsufficient
+		return best
 	}
-	best := statusInsufficient
 	for _, segment := range currentSegments(fingerprints, members) {
-		status := seriesStatus(segment, unit, lessIsBetter)
-		if status == statusRegressed {
-			return statusRegressed
-		}
-		if status == statusImproved {
-			best = statusImproved
-		} else if status == statusStable && best == statusInsufficient {
-			best = statusStable
+		verdict := scoreSeries(segment, unit, lessIsBetter)
+		if worseVerdict(verdict, best) {
+			best = verdict
 		}
 	}
 	return best
+}
+
+func worseVerdict(a, b seriesVerdict) bool {
+	if rankA, rankB := statusOrder[a.status], statusOrder[b.status]; rankA != rankB {
+		return rankA < rankB
+	}
+	return changeSize(a.changePercent) > changeSize(b.changePercent)
+}
+
+// changeSize orders changes by magnitude; a missing change is smallest.
+func changeSize(change *float64) float64 {
+	if change == nil {
+		return -1
+	}
+	return math.Abs(*change)
 }
 
 // currentSegments returns the fingerprint segments that still describe their
@@ -366,7 +386,9 @@ func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) ([]storage.BenchmarkV
 		verdict.PointTimestamps = trackPointTimestamps(track.members)
 		verdict.PreviewPoints = preview
 		verdict.Unit = unit
-		verdict.Status = benchmarkStatus(track.fingerprints, track.members, unit, lessIsBetter)
+		scored := trackVerdict(track.fingerprints, track.members, unit, lessIsBetter)
+		verdict.Status = scored.status
+		verdict.ChangePercent = scored.changePercent
 		verdict.LatestResultID = track.latest.ID
 		verdict.LatestResultTimestamp = track.latest.Timestamp
 		verdict.LatestCommitSHA = track.latest.CommitSha
