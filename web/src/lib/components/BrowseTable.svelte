@@ -259,4 +259,22 @@
       white-space: normal;
     }
   }
+
+  /* On phones the change and machine wrap under the badge, so the status takes
+     a narrow column and the name and summary keep most of the width. */
+  @media (max-width: 600px) {
+    .browse-table tbody tr {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 8.5rem);
+    }
+
+    .status-cell {
+      display: flex;
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .status-cell :global(.benchmark-status) {
+      justify-content: flex-end;
+    }
+  }
 </style>
