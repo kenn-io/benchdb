@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BenchDB — continuous performance testing with context</title>
+    <title>BenchDB, a self-hosted benchmark results server</title>
     <meta
       name="description"
-      content="BenchDB turns benchmark results into comparable histories, fleet-aware trends, and CI decisions. Bring any benchmark harness; publish structured JSON."
+      content="BenchDB is a self-hosted server for benchmark results. Upload JSON from any harness with the benchdb CLI, track each benchmark on each machine, and get regression reports in CI."
     />
     <link rel="canonical" href="https://benchdb.io/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -14,7 +14,7 @@
     <meta property="og:title" content="BenchDB" />
     <meta
       property="og:description"
-      content="Continuous performance testing that keeps every result in context."
+      content="A self-hosted server that tracks benchmark history per machine and reports regressions in CI."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://benchdb.io/" />
@@ -67,27 +67,28 @@
         <div class="container hero-grid">
           <div class="hero-copy">
             <p class="eyebrow">BenchDB</p>
-            <h1>Continuous performance results, in context.</h1>
+            <h1>A self-hosted server for benchmark results.</h1>
             <p class="lede">
-              Store results from CI, scheduled machines, and local runs. Browse each
-              benchmark over time, compare machines and commits, and publish CI reports
-              through one API.
+              Your harness writes JSON and the <code>benchdb</code> CLI uploads it.
+              BenchDB keeps each benchmark's history on each machine, charts it in a
+              dashboard, and reports regressions on pull requests. It is built for teams
+              that benchmark every commit or release.
             </p>
             <div class="button-row">
               <a class="button primary" href="/docs/quickstart/">Get started</a>
               <a class="button secondary" href="/guide/">Read the guide</a>
             </div>
-            <p class="fine-print">Language-independent · Go service · PostgreSQL · MIT licensed</p>
+            <p class="fine-print">Any language that writes JSON · Go and PostgreSQL · MIT license</p>
           </div>
 
           <figure class="product-shot">
             <img
               src="/assets/benchmark-series.png"
-              alt="BenchDB showing one benchmark across two machines, with calendar-time trends, rolling means, uncertainty bands, and a detected regression"
+              alt="BenchDB trend chart for one benchmark on two machines, with rolling means, 2σ bands, and a step change detected at one commit"
               width="1378"
               height="565"
             />
-            <figcaption>Actual BenchDB interface with deterministic demo data.</figcaption>
+            <figcaption>The BenchDB dashboard with seeded demo data.</figcaption>
           </figure>
         </div>
       </section>
@@ -104,22 +105,22 @@
       <section class="section workflow">
         <div class="container">
           <p class="eyebrow">How it works</p>
-          <h2>Measure, publish, and inspect.</h2>
+          <h2>You run the benchmarks. BenchDB stores and compares the results.</h2>
           <div class="three-up">
             <article>
               <span class="step-number">01</span>
-              <h3>Run benchmarks anywhere</h3>
-              <p>Your harness owns execution. BenchDB accepts result files from CI, scheduled fleets, or local experiments without dictating the benchmark framework.</p>
+              <h3>Run your own harness</h3>
+              <p>BenchDB does not run benchmarks. Use any framework, on CI runners, dedicated machines, or a laptop, and write each result as JSON.</p>
             </article>
             <article>
               <span class="step-number">02</span>
-              <h3>Publish structured results</h3>
-              <p>The CLI sends measurements with run, commit, machine, unit, and benchmark identity. Publication can retry without repeating the measurement.</p>
+              <h3>Upload with the CLI</h3>
+              <p><code>benchdb results submit</code> sends each result with its run, commit, machine, and unit. If an upload fails, rerun it on the saved files instead of rerunning the benchmark.</p>
             </article>
             <article>
               <span class="step-number">03</span>
-              <h3>Decide with history</h3>
-              <p>Inspect trends across the fleet, compare results, and use history-aware CI reports to separate meaningful changes from ordinary noise.</p>
+              <h3>Read the trends and CI report</h3>
+              <p>The dashboard charts each benchmark per machine. <code>benchdb ci report</code> flags a result only when it falls outside the benchmark's recent range and moves more than 2% from the baseline.</p>
             </article>
           </div>
         </div>
@@ -129,19 +130,19 @@
         <div class="container context-grid">
           <div>
             <p class="eyebrow">Result history</p>
-            <h2>Trace a measurement to its context.</h2>
+            <h2>Every result keeps its commit, run, and machine.</h2>
             <p class="section-lede">
-              BenchDB keeps measurements connected to the benchmark case, run,
-              repository commit, machine, unit, and comparable history. Start with the
-              signal and move to detail without reconstructing context from CI logs.
+              Each result stores its benchmark case, run, commit, machine, unit, and raw
+              values. From a regression you can open the result, its run, and its history
+              without searching CI logs.
             </p>
-            <a class="text-link" href="/docs/browsing-and-comparing/">Explore the dashboard workflow →</a>
+            <a class="text-link" href="/docs/browsing-and-comparing/">Browse and compare results →</a>
           </div>
           <div class="context-stack">
-            <div class="context-row"><span class="context-icon">R</span><div><strong>Run</strong><small>Did the complete attempt publish, and did anything error?</small></div></div>
-            <div class="context-row"><span class="context-icon">#</span><div><strong>Result</strong><small>What exactly was measured, where, and with which raw values?</small></div></div>
-            <div class="context-row"><span class="context-icon">↗</span><div><strong>Series</strong><small>How does this measurement sit in calendar time across the fleet?</small></div></div>
-            <div class="context-row"><span class="context-icon">✓</span><div><strong>CI report</strong><small>Is the change stable, improved, regressed, or still insufficient?</small></div></div>
+            <div class="context-row"><span class="context-icon">R</span><div><strong>Run</strong><small>Did the whole run upload, and did any benchmark error?</small></div></div>
+            <div class="context-row"><span class="context-icon">#</span><div><strong>Result</strong><small>What was measured, on which machine, and what were the raw values?</small></div></div>
+            <div class="context-row"><span class="context-icon">↗</span><div><strong>Series</strong><small>How has this benchmark moved over time on each machine?</small></div></div>
+            <div class="context-row"><span class="context-icon">✓</span><div><strong>CI report</strong><small>Did the commit make each benchmark slower, faster, or neither?</small></div></div>
           </div>
         </div>
       </section>
@@ -151,10 +152,10 @@
           <p class="eyebrow">Interfaces</p>
           <h2>Use the browser, CLI, or API.</h2>
           <div class="four-up">
-            <article><span class="feature-mark">CLI</span><h3>Command-line client</h3><p>Submit files, create CI reports, compare results, list series, and export histories from one binary.</p></article>
-            <article><span class="feature-mark">API</span><h3>OpenAPI</h3><p>Use the HTTP contract directly or generate integrations in the language your systems already use.</p></article>
-            <article><span class="feature-mark">WEB</span><h3>Web interface</h3><p>Browse activity, trends, machines, results, and comparisons without reading raw payloads.</p></article>
-            <article><span class="feature-mark">ALERT</span><h3>Scheduled alerts</h3><p>Evaluate regression rules separately from delivery so monitoring fits your existing job system.</p></article>
+            <article><span class="feature-mark">CLI</span><h3>Command-line client</h3><p>Submit results, run CI reports, compare two results, list series, and export a history as CSV.</p></article>
+            <article><span class="feature-mark">API</span><h3>OpenAPI</h3><p>Call the HTTP API from any language or generate a client from the OpenAPI document. A Go client ships in the repository.</p></article>
+            <article><span class="feature-mark">WEB</span><h3>Dashboard</h3><p>Browse runs, benchmarks, per-machine trends, single results, and comparisons.</p></article>
+            <article><span class="feature-mark">ALERT</span><h3>Scheduled alerts</h3><p>Schedule <code>benchdb admin alerts evaluate</code> and <code>deliver</code> in your own job runner. Alerts go to webhooks, Slack, GitHub, or email.</p></article>
           </div>
         </div>
       </section>
@@ -163,12 +164,12 @@
         <div class="container audience-grid">
           <div class="audience-heading">
             <p class="eyebrow">Documentation</p>
-            <h2>Start with your role.</h2>
+            <h2>Where to start</h2>
           </div>
-          <a class="audience-card" href="/docs/quickstart/"><span>New to BenchDB</span><strong>Submit a first result</strong><small>Build the CLI, configure a token, publish JSON, and find the result.</small></a>
-          <a class="audience-card" href="/docs/ci-reporting/"><span>CI owner</span><strong>Gate on performance</strong><small>Match report selectors to result metadata and choose the right baseline.</small></a>
-          <a class="audience-card" href="/docs/agents/"><span>Agent or integrator</span><strong>Use the machine-readable contract</strong><small>Follow the integration sequence, invariants, CLI, and OpenAPI surfaces.</small></a>
-          <a class="audience-card" href="/docs/operations/"><span>Operator</span><strong>Run the service</strong><small>Deploy the Go server and PostgreSQL, migrate safely, and monitor health.</small></a>
+          <a class="audience-card" href="/docs/quickstart/"><span>New to BenchDB</span><strong>Submit a first result</strong><small>Build the CLI, set a token, upload one result, and find it in the dashboard.</small></a>
+          <a class="audience-card" href="/docs/ci-reporting/"><span>CI owner</span><strong>Report on pull requests</strong><small>Match the report's repository and commit to your results and pick a baseline.</small></a>
+          <a class="audience-card" href="/docs/agents/"><span>Agent or integrator</span><strong>Automate BenchDB</strong><small>The CLI and API contracts a script or coding agent needs, with Markdown copies of every page.</small></a>
+          <a class="audience-card" href="/docs/operations/"><span>Operator</span><strong>Run the service</strong><small>Deploy the server and PostgreSQL, run migrations, and monitor health and metrics.</small></a>
         </div>
       </section>
 
@@ -176,7 +177,7 @@
         <div class="container final-panel">
           <div>
             <p class="eyebrow">Quickstart</p>
-            <h2>Publish your first benchmark result.</h2>
+            <h2>Upload your first result.</h2>
           </div>
           <div class="button-row">
             <a class="button primary" href="/docs/quickstart/">Get started</a>
@@ -188,7 +189,7 @@
 
     <footer class="site-footer">
       <div class="container footer-inner">
-        <div><strong>BenchDB</strong><span>Continuous performance testing with context.</span></div>
+        <div><strong>BenchDB</strong><span>Self-hosted benchmark results server.</span></div>
         <nav aria-label="Footer navigation"><a href="/guide/">Guide</a><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/kenn-io/benchdb">GitHub</a><a href="https://discord.gg/nEB7VaAnU9">Discord</a></nav>
         <p>© 2026 <a href="https://kenn.io">Kenn Software LLC</a> · MIT License</p>
       </div>
