@@ -49,33 +49,44 @@ func mixedUnitMembers() []storage.HistoryRow {
 	return rows
 }
 
+// noisyBase is twelve in-band results around 1.0, enough history for a status.
+var noisyBase = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 0.99, 1.00, 1.01, 0.99, 1.00}
+
+// steadyBase is twelve results within 0.1% of 1.0; its mean is exactly 1.0.
+var steadyBase = []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000, 1.001, 0.999}
+
+// then returns base followed by the later results.
+func then(base []float64, later ...float64) []float64 {
+	return append(slices.Clone(base), later...)
+}
+
 func TestSeriesStatus(t *testing.T) {
 	libTrue := true
-	// Status scores the LATEST member against the PRECEDING members' distribution,
-	// so the latest is never in its own baseline.
+	status := func(svs []float64) string {
+		return seriesStatus(membersFromSVS(svs, "s"), new("s"), &libTrue)
+	}
+	// Status scores the latest member against the members before it, so the
+	// latest is never in its own baseline, and the member before the latest
+	// must agree.
+	assert.Equal(t, statusRegressed, status(then(noisyBase, 1.20, 1.20)), "a worsening that held")
+	assert.Equal(t, statusImproved, status(then(noisyBase, 0.80, 0.80)), "an improvement that held")
+	assert.Equal(t, statusStable, status(then(noisyBase, 1.005)))
+	// A single outlier, or one that came back, is not a change.
+	assert.Equal(t, statusStable, status(then(noisyBase, 1.20)), "one slow result")
+	assert.Equal(t, statusStable, status(then(noisyBase, 1.20, 1.00)), "a slow result that recovered")
+	assert.Equal(t, statusStable, status(then(noisyBase, 0.80, 1.20)), "moves in opposite directions")
 
-	// regressed: noisy in-band baseline, then a clear worsening jump (less-is-better).
-	assert.Equal(t, "regressed",
-		seriesStatus(membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s"), new("s"), &libTrue))
-	// improved: same baseline, a clear bettering drop.
-	assert.Equal(t, "improved",
-		seriesStatus(membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 0.80}, "s"), new("s"), &libTrue))
-	// stable: noisy baseline, latest within band.
-	assert.Equal(t, "stable",
-		seriesStatus(membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s"), new("s"), &libTrue))
-	// insufficient: a single point (no baseline) and a zero-variance baseline both
-	// give an uncomputable z (zero stddev).
-	assert.Equal(t, "insufficient", seriesStatus(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue))
-	assert.Equal(t, "insufficient", seriesStatus(membersFromSVS([]float64{1, 1, 1, 1, 1}, "s"), new("s"), &libTrue))
-	// mixed unit -> nil unit -> insufficient.
-	assert.Equal(t, "insufficient", seriesStatus(mixedUnitMembers(), nil, nil))
+	// Too little history, no baseline, or zero variance give no status.
+	assert.Equal(t, statusInsufficient, status(then(noisyBase[:minHistoryPoints-2], 1.20, 1.20)))
+	assert.Equal(t, statusInsufficient, status([]float64{1}))
+	assert.Equal(t, statusInsufficient, status(then([]float64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 1)))
+	assert.Equal(t, statusInsufficient, seriesStatus(mixedUnitMembers(), nil, nil))
 }
 
 func TestSeriesStatusNeedsMoreThanMinimumChange(t *testing.T) {
 	libTrue := true
-	steady := []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000}
 	status := func(latest float64) string {
-		return seriesStatus(membersFromSVS(append(slices.Clone(steady), latest), "s"), new("s"), &libTrue)
+		return seriesStatus(membersFromSVS(then(steadyBase, latest, latest), "s"), new("s"), &libTrue)
 	}
 	// Far outside a very steady band, but within 2% of the window mean.
 	assert.Equal(t, statusStable, status(1.015))
@@ -86,23 +97,22 @@ func TestSeriesStatusNeedsMoreThanMinimumChange(t *testing.T) {
 
 func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
 	libTrue := true
-	steady := []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000}
-	score := func(latest float64) seriesVerdict {
-		return scoreSeries(membersFromSVS(append(slices.Clone(steady), latest), "s"), new("s"), &libTrue)
+	score := func(svs []float64) seriesVerdict {
+		return scoreSeries(membersFromSVS(svs, "s"), new("s"), &libTrue)
 	}
 
-	regressed := score(1.03)
-	assert.Equal(t, statusRegressed, regressed.status)
-	require.NotNil(t, regressed.changePercent)
-	assert.InDelta(t, 3.0, *regressed.changePercent, 1e-9)
+	lone := score(then(steadyBase, 1.03))
+	assert.Equal(t, statusStable, lone.status, "one result is not yet a change")
+	require.NotNil(t, lone.changePercent)
+	assert.InDelta(t, 3.0, *lone.changePercent, 1e-9, "but its size is reported")
 
-	improved := score(0.97)
-	assert.Equal(t, statusImproved, improved.status)
+	held := score(then(steadyBase, 1.03, 1.03))
+	assert.Equal(t, statusRegressed, held.status)
+	heldMean := (12 + 1.03) / 13
+	assert.InDelta(t, (1.03-heldMean)/heldMean*100, *held.changePercent, 1e-9, "the latest result's change")
+
+	improved := score(then(steadyBase, 0.97))
 	assert.InDelta(t, -3.0, *improved.changePercent, 1e-9, "the sign follows the value, not the direction")
-
-	stable := score(1.015)
-	assert.Equal(t, statusStable, stable.status)
-	assert.InDelta(t, 1.5, *stable.changePercent, 1e-9, "a change below the minimum is still reported")
 
 	zeroMean := scoreSeries(membersFromSVS([]float64{-1, 1, -1, 1, 5}, "s"), new("s"), &libTrue)
 	assert.Nil(t, zeroMean.changePercent, "no percent of a zero mean")
@@ -113,22 +123,25 @@ func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
 }
 
 func TestTrackVerdictTakesTheChangeOfTheSegmentThatSetsStatus(t *testing.T) {
-	// The noisy stable segment moved further (+40%) than the steady regressed
+	// The noisy stable segment moved further (+38%) than the steady regressed
 	// one (+3%), but the regressed segment sets the status and so the change.
-	stable := machineSegment("stable-context", "m1", 0, []float64{1, 1.5, 0.5, 1, 1.5, 0.5, 1, 1.4})
-	regressed := machineSegment("regressed-context", "m1", 0, []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000, 1.03})
+	wide := []float64{1, 1.5, 0.5, 1, 1.5, 0.5, 1, 1.5, 0.5, 1, 1.5, 0.5}
+	stable := machineSegment("stable-context", "m1", 0, then(wide, 1.4, 1.4))
+	regressed := machineSegment("regressed-context", "m1", 0, then(steadyBase, 1.03, 1.03))
 	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(stable), regressed...))
 	verdict := trackVerdict([]string{"regressed-context", "stable-context"},
 		map[string][]storage.HistoryRow{"stable-context": stable, "regressed-context": regressed}, unit, lessIsBetter)
 
 	assert.Equal(t, statusRegressed, verdict.status)
 	require.NotNil(t, verdict.changePercent)
-	assert.InDelta(t, 3.0, *verdict.changePercent, 1e-9, "the regressed segment's change, not the stable one's")
+	heldMean := (12 + 1.03) / 13
+	assert.InDelta(t, (1.03-heldMean)/heldMean*100, *verdict.changePercent, 1e-9,
+		"the regressed segment's change, not the stable one's")
 }
 
 func TestBenchmarkStatusUsesWorstFleetSegment(t *testing.T) {
-	stable := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
-	regressed := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s")
+	stable := membersFromSVS(stableSVS, "s")
+	regressed := membersFromSVS(regressedSVS, "s")
 	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
 	assert.Equal(t, statusRegressed, trackVerdict(
 		[]string{"stable-machine", "regressed-machine"},
@@ -155,10 +168,11 @@ func machineSegment(
 }
 
 // A benchmark that got about 2x faster when its context changed: the old
-// fingerprint ends on a slow spike, and the new fingerprint is a tight cluster.
+// fingerprint ends on two slow results, and the new fingerprint is a tight
+// cluster.
 var (
 	preDropSVS = []float64{0.000269, 0.000274, 0.000271, 0.000275, 0.000276, 0.000266, 0.000265,
-		0.0003077}
+		0.000272, 0.000270, 0.000273, 0.000268, 0.000271, 0.0003077, 0.0003081}
 	postDropSVS = []float64{0.000141, 0.000118, 0.000133, 0.000126, 0.000138, 0.000121,
 		0.000125096, 0.000123903, 0.000131488, 0.000119475, 0.00012778, 0.000130395}
 )
@@ -178,8 +192,8 @@ func TestBenchmarkStatusIgnoresSupersededMachineSegment(t *testing.T) {
 }
 
 var (
-	stableSVS    = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}
-	regressedSVS = []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}
+	stableSVS    = then(noisyBase, 1.005, 1.00)
+	regressedSVS = then(noisyBase, 1.20, 1.20)
 )
 
 func TestBenchmarkStatusFollowsContextsMeasuredAtTheLatestCommit(t *testing.T) {
@@ -220,7 +234,7 @@ func TestBenchmarkStatusKeepsContextsMeasuredSideBySide(t *testing.T) {
 func TestBenchmarkStatusKeepsOtherMachinesSegments(t *testing.T) {
 	regressed := machineSegment("machine-a-fp", "machine-a", 0, regressedSVS)
 	// machine-b starts after machine-a's last commit; it must not supersede it.
-	stable := machineSegment("machine-b-fp", "machine-b", 10, stableSVS)
+	stable := machineSegment("machine-b-fp", "machine-b", len(regressedSVS), stableSVS)
 	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
 	assert.Equal(t, statusRegressed, trackVerdict(
 		[]string{"machine-a-fp", "machine-b-fp"},
@@ -316,7 +330,8 @@ func TestBenchmarkVerdictsStoreEachMachineTrack(t *testing.T) {
 	var preview []BenchmarkPreviewPoint
 	require.NoError(t, json.Unmarshal(m1Track.PreviewPoints, &preview))
 	require.Len(t, preview, benchmarkPreviewLen, "the preview spans both contexts, latest points only")
-	assert.Equal(t, *m1Old[0].CommitTimestamp, preview[0].CommitTimestamp)
+	firstPreviewed := len(preDropSVS) + len(postDropSVS) - benchmarkPreviewLen
+	assert.Equal(t, *m1Old[firstPreviewed].CommitTimestamp, preview[0].CommitTimestamp)
 	assert.InDelta(t, postDropSVS[len(postDropSVS)-1], preview[len(preview)-1].Value, 0)
 	assert.Equal(t, *m1New[len(m1New)-1].CommitTimestamp, m1Track.LatestCommitTimestamp)
 	assert.Equal(t, fmt.Sprintf("m1-new-%c", 'a'+len(postDropSVS)-1), m1Track.LatestResultID)

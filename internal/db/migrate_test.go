@@ -16,7 +16,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 11
+const latestMigrationVersion = 12
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -386,6 +386,7 @@ func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {
 		{"benchmark rule changed", 8, []string{"benchmark:old-bench"}},
 		{"benchmark previews gained result IDs", 9, []string{"benchmark:old-bench"}},
 		{"benchmark tracks gained a change", 10, []string{"benchmark:old-bench"}},
+		{"benchmark statuses need two results in a row", 11, []string{"benchmark:old-bench"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pool, ctx := dbtest.NewEmptyPool(t)
@@ -400,6 +401,7 @@ func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {
 				"000008_rescore_verdicts.up.sql",
 				"000009_rescore_benchmark_statuses.up.sql",
 				"000010_preview_result_ids.up.sql",
+				"000011_benchmark_change.up.sql",
 			}[:tc.from-1] {
 				migration, err := os.ReadFile("migrations/" + file)
 				require.NoError(t, err)

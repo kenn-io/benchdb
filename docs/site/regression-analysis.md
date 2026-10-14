@@ -40,8 +40,17 @@ contender's distance from its baseline result in standard deviations, and
 This applies to CI reports, comparisons, saved run reports, Runs page verdicts,
 and alerts. Benchmark statuses on the Benchmarks and trend pages compare a
 machine's latest point with its own history and have no separate baseline
-result. They count a change when the latest point is outside the history band
-and differs from the history window's mean by more than 2%.
+result. They count a change only when:
+
+- the history before the latest point has at least 10 results;
+- the latest point is outside the history band and differs from the history
+  window's mean by more than 2%; and
+- the point before it, scored against its own earlier history, moved the same
+  way.
+
+A single slow or fast result on a noisy benchmark therefore stays `stable`; a
+real step shows as `regressed` or `improved` from the second result after it.
+Too little history shows as `insufficient`.
 
 ## How Lookback Works
 
