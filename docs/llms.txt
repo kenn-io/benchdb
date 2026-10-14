@@ -1,43 +1,43 @@
 # BenchDB
 
-> BenchDB is a language-independent continuous benchmarking system. Benchmark
-> jobs publish structured JSON to a Go API backed by PostgreSQL. BenchDB groups
-> comparable measurements into histories and exposes them through a dashboard,
-> CLI, OpenAPI, and generated clients.
+> BenchDB is a self-hosted server for benchmark results. Benchmark jobs write
+> JSON results, and the `benchdb` CLI uploads them to a Go API backed by
+> PostgreSQL. BenchDB keeps each benchmark's history per machine and serves it
+> through a dashboard, the CLI, and an OpenAPI document.
 
-The Guide is a short product workflow. The Docs links below are comprehensive
-task-oriented references. Every rendered page at `/docs/<page>/` is also served
-as raw Markdown at `/docs/<page>.md`.
+The Guide follows one result from benchmark run to CI report. The Docs pages
+below are task references. Every rendered page at `/docs/<page>/` is also
+served as raw Markdown at `/docs/<page>.md`.
 
 ## Start here
 
-- [Documentation overview](https://benchdb.io/docs.md): Product model, supported surfaces, and audience map
-- [Quickstart](https://benchdb.io/docs/quickstart.md): Configure the CLI, submit one result, and find it in the dashboard
-- [Concepts](https://benchdb.io/docs/concepts.md): Results, series, runs, commits, comparisons, and health vocabulary
-- [Agent and automation guide](https://benchdb.io/docs/agents.md): Integration sequence, invariants, interfaces, and source-of-truth order
+- [Documentation overview](https://benchdb.io/docs.md): Which page answers which task, and the commands for each
+- [Quickstart](https://benchdb.io/docs/quickstart.md): Build the CLI, submit one result, and find it in the dashboard
+- [Concepts](https://benchdb.io/docs/concepts.md): Results, runs, benchmarks, series, history fingerprints, and statuses
+- [Agent and automation guide](https://benchdb.io/docs/agents.md): The order to integrate in, the rules that must hold, and where each fact is defined
 
 ## Publish and investigate
 
-- [Submitting results](https://benchdb.io/docs/submitting-results.md): Payload shape, file conventions, and retryable publication
-- [CI reporting](https://benchdb.io/docs/ci-reporting.md): CI selectors, baselines, GitHub publishing, statuses, and exit codes
-- [Browsing and comparing](https://benchdb.io/docs/browsing-and-comparing.md): Dashboard routes, trend inspection, run detail, exports, and comparisons
-- [Regression analysis](https://benchdb.io/docs/regression-analysis.md): Pairwise change, lookback z-scores, thresholds, and statuses
-- [Dashboard screenshots](https://benchdb.io/docs/dashboard-screenshots.md): Annotated views of the main dashboard workflows
+- [Submitting results](https://benchdb.io/docs/submitting-results.md): Result JSON fields, file layout, retries, and attachments
+- [CI reporting](https://benchdb.io/docs/ci-reporting.md): Run selection, baseline modes, statuses, exit codes, and GitHub publishing
+- [Browsing and comparing](https://benchdb.io/docs/browsing-and-comparing.md): Dashboard pages, URL parameters, trends, exports, and comparisons
+- [Regression analysis](https://benchdb.io/docs/regression-analysis.md): How BenchDB decides a benchmark regressed, for CI reports and for the Benchmarks page
+- [Dashboard screenshots](https://benchdb.io/docs/dashboard-screenshots.md): Captioned screenshots of each dashboard page
 
 ## Automate and operate
 
-- [Alerting](https://benchdb.io/docs/alerting.md): Scheduled regression evaluation and delivery
-- [API and SDK](https://benchdb.io/docs/api-and-sdk.md): OpenAPI and generated Go and TypeScript clients
-- [CLI reference](https://benchdb.io/docs/cli-reference.md): Supported command groups and option contracts
-- [Authentication and tokens](https://benchdb.io/docs/auth-and-tokens.md): OIDC users, reporter tokens, and token handling
-- [Operations](https://benchdb.io/docs/operations.md): Runtime configuration, containers, migrations, health, and deployment
-- [Upgrading](https://benchdb.io/docs/upgrading.md): Rebuild private experimental databases on the current baseline and preserve released migration history
-- [Production clone compatibility](https://benchdb.io/docs/prod-clone-compatibility.md): Compatibility constraints for cloned production data
-- [Storage roadmap](https://benchdb.io/docs/storage-roadmap.md): Current storage boundaries and planned direction
-- [Contributing](https://benchdb.io/docs/contributing.md): Fork pull requests, local development, and repository checks
+- [Alerting](https://benchdb.io/docs/alerting.md): Alert rules, scheduled evaluation, and delivery
+- [API and SDK](https://benchdb.io/docs/api-and-sdk.md): The OpenAPI document and the generated Go and TypeScript clients
+- [CLI reference](https://benchdb.io/docs/cli-reference.md): Every `benchdb` command, flag, and environment variable
+- [Authentication and tokens](https://benchdb.io/docs/auth-and-tokens.md): OIDC sign-in for people and reporter tokens for automation
+- [Operations](https://benchdb.io/docs/operations.md): Configuration, containers, migrations, health checks, and deployment
+- [Upgrading](https://benchdb.io/docs/upgrading.md): Rebuild experimental databases on the current baseline and keep released migration history
+- [Production clone compatibility](https://benchdb.io/docs/prod-clone-compatibility.md): Checking a release against a read-only copy of production data
+- [Storage roadmap](https://benchdb.io/docs/storage-roadmap.md): What the storage layer does today, what is decided, and what is proposed
+- [Contributing](https://benchdb.io/docs/contributing.md): Fork pull requests, local development, and the checks CI runs
 
 ## Other
 
-- [BenchDB home](https://benchdb.io/): Product overview
-- [Guide to BenchDB](https://benchdb.io/guide/): The path from benchmark process to performance decision
+- [BenchDB home](https://benchdb.io/): What BenchDB is and how to start
+- [Guide to BenchDB](https://benchdb.io/guide/): One result from benchmark run to CI report
 - [Source repository](https://github.com/kenn-io/benchdb): Source, issues, and releases
