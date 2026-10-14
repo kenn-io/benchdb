@@ -12,7 +12,7 @@ import {
   segmentSpans,
   stepIndices,
   toSeriesPoints,
-  toTableRows,
+  toTableRow,
   trendChartData,
   trendYRangeValues,
   windowAnchorDate,
@@ -265,37 +265,27 @@ describe("deviationText", () => {
   });
 });
 
-describe("toTableRows", () => {
+describe("toTableRow", () => {
   it("fills the deviation and flags from the engine stats", () => {
     const points = toSeriesPoints([
       sample({ zscorestats: zs({ residual: 0.25, rolling_stddev: 0.05 }) }),
       sample({ zscorestats: zs({ is_step: true, is_outlier: true }) }),
       sample({ zscorestats: null }),
     ]);
-    const rows = toTableRows(points, true);
+    const rows = points.map((point, index) => toTableRow(point, index, true));
     expect(rows[0]).toMatchObject({ commitHash: "abc1234", svs: 1.1, flags: "", deviation: "5.00σ worse" });
     expect(rows[1]!.flags).toBe("step · outlier");
     expect(rows[2]!.deviation).toBeNull();
   });
 
   it("flags begins-only distribution changes as step, matching the chart markers", () => {
-    const points = toSeriesPoints([
+    const [point] = toSeriesPoints([
       sample({ zscorestats: zs({ begins_distribution_change: true }) }),
     ]);
-    expect(toTableRows(points)[0]!.flags).toBe("step");
-  });
-
-  it("rebases index positionally for a windowed subset", () => {
-    const points = toSeriesPoints([
-      sample({ benchmark_result_id: "r1" }),
-      sample({ benchmark_result_id: "r2" }),
-      sample({ benchmark_result_id: "r3" }),
-    ]);
-    const rows = toTableRows(points.slice(1));
-    expect(rows.map((r) => r.index)).toEqual([0, 1]);
-    expect(rows[0]!.resultId).toBe("r2");
+    expect(toTableRow(point!, 0, null).flags).toBe("step");
   });
 });
+
 
 describe("pointTooltip", () => {
   it("keeps the keystone title format and adds engine lines", () => {

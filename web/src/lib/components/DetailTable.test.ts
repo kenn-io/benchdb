@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-import { toSeriesPoints, toTableRows } from "../series/transform";
+import { toSeriesPoints, toTableRow } from "../series/transform";
 import DetailTable from "./DetailTable.svelte";
 
 function swallowAnchorNavigation(e: Event) {
@@ -11,38 +11,35 @@ function swallowAnchorNavigation(e: Event) {
 beforeEach(() => document.addEventListener("click", swallowAnchorNavigation));
 afterEach(() => document.removeEventListener("click", swallowAnchorNavigation));
 
-const rows = toTableRows(
-  toSeriesPoints([
-    {
-      benchmark_result_id: "r1",
-      commit_hash: "abc1234",
-      commit_message: "tune",
-      commit_repository: "repo",
-      commit_timestamp: "2024-01-07T12:00:00Z",
-      data: null,
-      hardware_hash: "hw1",
-      mean: 1.1,
-      result_timestamp: "2024-01-07T13:00:00Z",
-      single_value_summary: 1.1,
-      single_value_summary_type: "min",
-      unit: "s",
-      run_tags: {},
-      info: {},
-      change_annotations: {},
-      zscorestats: {
-        begins_distribution_change: false,
-        is_outlier: true,
-        is_step: false,
-        residual: 0.2,
-        rolling_mean: 1.0,
-        rolling_mean_excluding_this_commit: 1.0,
-        rolling_stddev: 0.05,
-        segment_id: 0,
-      },
+const rows = toSeriesPoints([
+  {
+    benchmark_result_id: "r1",
+    commit_hash: "abc1234",
+    commit_message: "tune",
+    commit_repository: "repo",
+    commit_timestamp: "2024-01-07T12:00:00Z",
+    data: null,
+    hardware_hash: "hw1",
+    mean: 1.1,
+    result_timestamp: "2024-01-07T13:00:00Z",
+    single_value_summary: 1.1,
+    single_value_summary_type: "min",
+    unit: "s",
+    run_tags: {},
+    info: {},
+    change_annotations: {},
+    zscorestats: {
+      begins_distribution_change: false,
+      is_outlier: true,
+      is_step: false,
+      residual: 0.2,
+      rolling_mean: 1.0,
+      rolling_mean_excluding_this_commit: 1.0,
+      rolling_stddev: 0.05,
+      segment_id: 0,
     },
-  ]),
-  true,
-);
+  },
+]).map((point, index) => toTableRow(point, index, true));
 
 describe("DetailTable", () => {
   it("renders commit links, deviation from the rolling mean, and flags", () => {
