@@ -486,20 +486,18 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("option", { name: "m7-elsewhere" })).toBeInTheDocument();
   });
 
-  it("loads the machine list after the first page, so it reflects settled scoring", async () => {
-    const order: string[] = [];
-    GET.mockImplementation(async () => {
-      order.push("benchmarks");
-      return { status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } };
-    });
-    MACHINES.mockImplementation(async () => {
-      order.push("machines");
-      return { status: 200, data: { machines: ["m5", "m9-scored-just-now"] } };
-    });
+  it("loads the machine list only after the first page responds, so it reflects settled scoring", async () => {
+    let respond: (value: unknown) => void = () => {};
+    GET.mockReturnValueOnce(new Promise((resolve) => { respond = resolve; }));
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m9-scored-just-now"] } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
-    await screen.findByRole("link", { name: "demo" });
+    await waitFor(() => expect(GET).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(MACHINES, "no machine request while the page is still loading").not.toHaveBeenCalled();
 
-    await waitFor(() => expect(order).toEqual(["benchmarks", "machines"]));
+    respond({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    await screen.findByRole("link", { name: "demo" });
+    await waitFor(() => expect(MACHINES).toHaveBeenCalledTimes(1));
     await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
     expect(screen.getByRole("option", { name: "m9-scored-just-now" })).toBeInTheDocument();
   });
