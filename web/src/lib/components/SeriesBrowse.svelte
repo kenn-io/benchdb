@@ -307,8 +307,8 @@
     { value: "1y", label: "1 year" },
   ];
   const yAxisOptions: SelectDropdownOption[] = [
-    { value: "zero", label: "Zero baseline" },
-    { value: "observed", label: "Observed range" },
+    { value: "zero", label: "Start at zero" },
+    { value: "observed", label: "Fit to data" },
   ];
 
   function plural(n: number, word: string): string {
@@ -322,7 +322,7 @@
       <p class="eyebrow">{query.repository === "" ? "All projects" : repositoryLabel(query.repository)}</p>
       <h1>Benchmarks</h1>
     </div>
-    <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>Result explorer</a>
+    <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>All results</a>
   </header>
 
   {#if statusCounts !== null && (totalBenchmarks > 0 || query.status !== "")}
@@ -343,6 +343,10 @@
       {/each}
       {#if statusesPending}<span class="pending-note" role="status">Updating statuses…</span>{/if}
     </nav>
+    <p class="status-help">
+      A status compares each machine's latest two results with its history.
+      <a href="https://benchdb.io/docs/regression-analysis/" target="_blank" rel="noreferrer">How statuses work</a>
+    </p>
   {/if}
 
   <div class="panel browse-filters">
@@ -492,6 +496,11 @@
   .status-filter.insufficient .dot { background: var(--c-insufficient); }
   .filter-count {
     font-variant-numeric: tabular-nums;
+  }
+  .status-help {
+    margin: 0;
+    color: var(--c-text-muted);
+    font-size: 0.78rem;
   }
   .pending-note,
   .refresh-error {

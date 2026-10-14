@@ -195,7 +195,7 @@
     </section>
   {:else}
     <p class="summary-line" aria-label="Recent run summary">
-      <span class="summary-item">{plural(runs.length, "run")}</span>
+      <span class="summary-item">On this page: {plural(runs.length, "run")}</span>
       <span class="summary-item">{plural(totalResults, "result")}</span>
       {#if machineNames.length > 0}<span class="summary-item">{plural(machineNames.length, "machine")}</span>{/if}
       {#if totalErrors > 0}
