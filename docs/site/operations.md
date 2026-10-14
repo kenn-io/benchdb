@@ -1,80 +1,102 @@
 # Operations
 
-BenchDB runs as a Go server with an embedded Svelte application and a Postgres
-database.
+This page is for operators who deploy and run a BenchDB server. It covers
+server configuration, schema migrations, container and Kubernetes deployment,
+metrics, the background verdict worker, and the admin commands you run on a
+schedule. For upgrade and rollback steps, see [Upgrading](upgrading.md).
 
-## Runtime Contract
+BenchDB ships as one `benchdb` binary with the Svelte dashboard embedded. It
+stores everything in PostgreSQL.
 
-The server is configured through environment variables. Treat
-`internal/serverapp/app.go` and the `benchdb serve` command as the source of
-truth; this table is the public deployment summary.
+## Configuration
 
-| Variable | Required | Purpose |
+`benchdb serve` reads its configuration from environment variables at startup.
+An invalid or incomplete setting stops startup with an error that names it.
+Boolean settings turn on only for the exact string `true`.
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `BENCHDB_DB_URL` | yes | Postgres connection URL. `DATABASE_URL` is accepted only as a fallback when `BENCHDB_DB_URL` is unset. |
-| `BENCHDB_ADDR` | no | Listen address. Defaults to `:8080`. |
-| `BENCHDB_INTENDED_BASE_URL` | for OIDC or a path prefix | Public browser URL, including the optional path prefix, for routing, redirects, report links, and cookies. |
-| `BENCHDB_OIDC_ISSUER_URL` | for OIDC | OIDC issuer URL. If any OIDC variable is set, all OIDC variables and `BENCHDB_INTENDED_BASE_URL` must be set, with an explicit session key. |
-| `BENCHDB_OIDC_CLIENT_ID` | for OIDC | OIDC client id. |
-| `BENCHDB_OIDC_CLIENT_SECRET` | for OIDC | OIDC client secret. |
-| `BENCHDB_SESSION_SECRET` | for session auth | HMAC key for session and pending-login cookies. If set, it must be at least 32 characters. |
-| `BENCHDB_API_TOKEN` | optional | Static operator bearer token for break-glass writes. Prefer server-minted reporter tokens for normal automation. |
-| `BENCHDB_AUTH_DISABLED` | dev only | Set to `true` to disable write auth. Do not use in shared deployments. |
-| `GITHUB_API_TOKEN` | optional | Comma-separated GitHub token pool. Enables commit metadata fetch and asynchronous default-branch ancestry backfill. |
-| `BENCHDB_GITHUB_TIMEOUT` | optional | Go duration budget for in-request GitHub enrichment. Defaults to `5s`. |
-| `BENCHDB_INIT_SCHEMA` | dev only | Set to `true` to apply embedded numbered migrations. Do not point this at a production database. |
-| `BENCHDB_SEED` | dev only | Set to `true` to seed deterministic demo data. |
-| `BENCHDB_SEED_DEV_TOKEN` | dev/e2e only | Seeds a user-owned API token for local/e2e authentication. The server logs only the token prefix. |
+| `BENCHDB_DB_URL` | required | Postgres connection URL. |
+| `BENCHDB_ADDR` | `:8080` | Listen address. |
+| `BENCHDB_INTENDED_BASE_URL` | unset | Public browser URL, including any path prefix. BenchDB uses it for routing, redirects, report links, and cookies. Required for OIDC and for a [path prefix](#serve-behind-a-path-prefix). |
+| `BENCHDB_API_TOKEN` | unset | Static operator bearer token for break-glass writes. Use server-minted reporter tokens for normal automation. |
+| `BENCHDB_SESSION_SECRET` | unset | HMAC key for session and pending-login cookies. When set, it must be at least 32 characters, and a valid session cookie authenticates writes. |
+| `BENCHDB_OIDC_ISSUER_URL` | unset | OIDC issuer URL. Turns on browser login under `/api/auth`. |
+| `BENCHDB_OIDC_CLIENT_ID` | unset | OIDC client id. |
+| `BENCHDB_OIDC_CLIENT_SECRET` | unset | OIDC client secret. |
+| `GITHUB_API_TOKEN` | unset | Comma-separated pool of GitHub tokens. Turns on commit metadata fetch and asynchronous default-branch ancestry backfill. |
+| `BENCHDB_COMMIT_GITHUB_APP_ID` | unset | GitHub App ID. Set the three App settings instead of `GITHUB_API_TOKEN` to fetch commit metadata as a GitHub App. |
+| `BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID` | unset | GitHub App installation ID, a positive integer. |
+| `BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE` | unset | Path to the GitHub App private-key PEM file, at most 64 KiB. |
+| `BENCHDB_GITHUB_TIMEOUT` | `5s` | Go duration budget for GitHub enrichment inside a request. |
+| `BENCHDB_ARTIFACT_BUCKET` | unset | S3-compatible bucket for result attachments. [Attachment storage](submitting-results.md#attachment-storage) covers `BENCHDB_ARTIFACT_ENDPOINT`, `AWS_REGION`, and credentials. |
+| `BENCHDB_AUTH_DISABLED` | unset | Development only. `true` disables write auth. Do not use in shared deployments. |
+| `BENCHDB_INIT_SCHEMA` | unset | Development only. `true` applies the embedded migrations at startup. Do not point this at a production database. |
+| `BENCHDB_SEED` | unset | Development only. `true` seeds deterministic demo data. |
+| `BENCHDB_SEED_DEV_TOKEN` | unset | Development and e2e only. Creates a user-owned API token with this value for local authentication. The server logs only the token prefix. |
 
-`BENCHDB_DB_URL`, `BENCHDB_API_TOKEN`, `BENCHDB_SESSION_SECRET`, and
-`BENCHDB_OIDC_CLIENT_SECRET` also accept `_FILE` sources. Set either the inline
-value or the file path; setting both to nonempty values fails startup.
+Startup also enforces these rules:
 
-A selected source must succeed. An unreadable, nonregular, empty, oversized,
-or NUL-containing file fails startup. File reads allow a terminal LF or CRLF
-and preserve all other bytes; the 64 KiB limit includes the terminal newline.
-Mounted-secret symlinks are supported. Keep source paths and their parent
-directories under the deployer's control.
+- OIDC is all or nothing. If any `BENCHDB_OIDC_*` variable is set, all three
+  must be set, along with `BENCHDB_INTENDED_BASE_URL` and
+  `BENCHDB_SESSION_SECRET`.
+- GitHub commit metadata uses either `GITHUB_API_TOKEN` or all three
+  `BENCHDB_COMMIT_GITHUB_APP_*` settings, never both. With neither, BenchDB
+  builds commit rows from the result payload without calling GitHub. Those rows
+  have no message or author, and the result timestamp stands in for the commit
+  time.
+- `BENCHDB_INTENDED_BASE_URL` must be an absolute HTTP(S) URL with a clean,
+  unescaped path and no credentials, query, or fragment.
 
 `serve` and `migrate` use `DATABASE_URL` only when no `BENCHDB_DB_URL` source is
-selected. Database-backed admin commands require a `BENCHDB_DB_URL` source.
+set. The `benchdb admin` commands require a `BENCHDB_DB_URL` source and ignore
+`DATABASE_URL`.
 
-Reads are public by default. Writes accept server-minted API tokens, valid
-session cookies, or the static operator token when configured. Token management
-requires a user principal, so the static operator token cannot list, create, or
-revoke API tokens.
+### Secrets from files
 
-For CI reporters and shared automation, mint a reporter token from the server
-environment instead of sharing the static operator token:
+`BENCHDB_DB_URL`, `BENCHDB_API_TOKEN`, `BENCHDB_SESSION_SECRET`, and
+`BENCHDB_OIDC_CLIENT_SECRET` also accept a `_FILE` form, such as
+`BENCHDB_DB_URL_FILE=/run/secrets/db-url`. Set the inline value or the file
+path. Setting both to nonempty values fails startup.
 
-```bash
-benchdb admin tokens create \
-  --email ci@example.com \
-  --user-name "BenchDB CI Reporter" \
-  --token-name buildkite
-```
+A selected source must work. Startup fails if the file is unreadable, is not a
+regular file, is empty, is larger than 64 KiB, or contains a NUL byte. BenchDB
+strips one terminal LF or CRLF and keeps every other byte. The 64 KiB limit
+counts the terminal newline. Mounted-secret symlinks work. Keep source paths
+and their parent directories under the deployer's control.
 
-The command requires `BENCHDB_DB_URL`, creates the user row if absent, stores
-only the token hash and prefix, and prints the plaintext token once. Store that
-plaintext in the CI secret named `BENCHDB_TOKEN`.
-
-The container runs as UID/GID `65532:65532`; mounted secret files must be
-readable by that account. Provision and back up credentials through your
+The container runs as UID/GID `65532:65532`, so that account must be able to
+read mounted secret files. Provision and back up credentials through your
 deployment's secret store. Keep operator tokens and session signing keys stable
-across restarts and share the same values across replicas.
+across restarts, and give every replica the same values.
 
-Cookie `Secure` behavior follows `BENCHDB_INTENDED_BASE_URL`: loopback
-development hosts (`localhost`, `127.0.0.1`, `::1`) allow non-secure cookies;
-other hosts use secure cookies.
+### Authentication
+
+Benchmark data reads need no authentication. Writes accept server-minted API
+tokens, valid session cookies, or the static operator token when configured.
+Token management needs a user, so the static operator token cannot list,
+create, or revoke API tokens.
+
+For CI reporters and shared automation, mint a reporter token with
+`benchdb admin tokens create` instead of sharing the static operator token.
+The command needs `BENCHDB_DB_URL`, prints the token once, and stores only its
+hash and prefix. Put the printed value in the CI secret `BENCHDB_TOKEN`.
+[Authentication and tokens](auth-and-tokens.md) has the full
+command.
+
+Cookies carry the `Secure` attribute unless the host in
+`BENCHDB_INTENDED_BASE_URL` is `localhost`, `127.0.0.1`, or `::1`.
 
 ## Serve behind a path prefix
 
-Set `BENCHDB_INTENDED_BASE_URL=https://example.com/tools/bench` to serve the whole application under
-`/tools/bench/`. The same binary serves assets, browser navigation, API requests, downloads, login,
-and API documentation at that prefix. An unset URL or a URL without a path serves at `/`.
+Set `BENCHDB_INTENDED_BASE_URL=https://example.com/tools/bench` to serve the
+whole application under `/tools/bench/`. The same binary then serves assets,
+browser navigation, API requests, downloads, login, and API documentation at
+that prefix. An unset URL, or a URL without a path, serves at `/`. You do not
+need a separate frontend build for a different prefix.
 
-Forward the complete path to BenchDB; do not strip the prefix or redirect browsers to its internal
-HTTP listener. For example, with Caddy terminating HTTPS:
+Forward the complete path to BenchDB. Do not strip the prefix, and do not
+redirect browsers to the internal HTTP listener. With Caddy terminating HTTPS:
 
 ```caddyfile
 example.com {
@@ -84,72 +106,73 @@ example.com {
 }
 ```
 
-Configure CLI clients with `--server https://example.com/tools/bench`. Health and metrics endpoints
-also move to `/tools/bench/api/ping` and `/tools/bench/metrics`. Register the OIDC callback URL with
-the same prefix. The URL must have a clean, unescaped path with no credentials, query, or fragment.
-No separate frontend build is needed for a different prefix.
+Everything else moves under the prefix too:
 
-The Kubernetes deployment script derives probe, load-balancer health-check, metrics-deny,
-and ServiceMonitor paths from this URL. Use the script to render and apply these manifests.
+- Configure CLI clients with `--server https://example.com/tools/bench`.
+- Health and metrics move to `/tools/bench/api/ping` and `/tools/bench/metrics`.
+- Register the OIDC callback with the same prefix, such as
+  `https://example.com/tools/bench/api/auth/callback`.
+- The Kubernetes deploy script derives probe, load-balancer health-check,
+  metrics-deny, and ServiceMonitor paths from this URL. Render the manifests
+  with the script rather than by hand.
 
-Run the existing browser and CLI checks against a prefix with
-`BENCHDB_E2E_BASE_PATH=/tools/bench make e2e` (requires Docker).
+To run the browser and CLI end-to-end checks under a prefix, use
+`BENCHDB_E2E_BASE_PATH=/tools/bench make e2e`. It requires Docker.
 
+## Schema migrations
 
-## Local Development
+`benchdb migrate` applies the numbered SQL migrations embedded in the binary.
+Run it to completion before you start a new server version. `benchdb serve`
+does not migrate or check the schema version at startup unless
+`BENCHDB_INIT_SCHEMA=true`.
 
-Build binaries and the embedded SPA:
+`benchdb migrate` takes these steps in order:
 
-```bash
-make build
-```
+1. Connects with `BENCHDB_DB_URL` (or `DATABASE_URL`) and pings the database.
+2. Takes a PostgreSQL advisory lock. A second `migrate` waits for the first to
+   finish, so concurrent runs apply each migration once.
+3. Refuses a database that has BenchDB tables but no `schema_migrations`
+   ledger, with `existing experimental database must be exported and rebuilt
+   from the current BenchDB baseline`.
+   [Upgrading](upgrading.md#rebuild-a-database-from-a-pre-reset-build)
+   explains the rebuild. It also refuses a ledger without BenchDB tables.
+4. Refuses a ledger left dirty by a failed migration, with `database is in a
+   dirty migration state at version N`.
+5. Refuses a database that is newer than the binary, with `database schema
+   version N is newer than this binary (expects M); upgrade BenchDB`.
+6. Applies every pending migration in order and records each one in
+   `schema_migrations`. On an empty database it applies all of them.
+7. Checks that the database reached the binary's latest version and that key
+   columns, constraints, and indexes exist, then prints
+   `database schema is current`.
 
-Run Go tests:
+BenchDB has no command that runs down migrations. To undo an upgrade, restore
+the backup you took before migrating; see [Upgrading](upgrading.md).
 
-```bash
-make go-test
-```
+With `BENCHDB_INIT_SCHEMA=true`, `benchdb serve` runs the same migration before
+it starts listening. Use that for local development only.
 
-Run the generated-client and query-code drift gates:
+Some migrations re-queue stored run verdicts or benchmark statuses so the
+server recomputes them under new rules. See
+[Run verdicts and benchmark statuses](#run-verdicts-and-benchmark-statuses).
 
-```bash
-make codegen-check
-make sqlc-check
-```
+## Containers
 
-## Container Runtime
+`Dockerfile.server` builds the runtime image. It builds the Svelte app, embeds
+it in the `benchdb` binary at `/usr/local/bin/benchdb`, and runs
+`benchdb serve` on container port 8080. The same image runs schema upgrades
+with `benchdb migrate`; there is no separate migration image.
 
-Build and smoke-test the Go server container:
-
-```bash
-make server-container-smoke
-```
-
-The runtime image is `Dockerfile.server`. It builds the Svelte app, embeds it
-in the single `benchdb` binary, and runs `benchdb serve` on container port
-8080.
-
-Pass the commit being built as `--build-arg BENCHDB_REVISION=$(git rev-parse HEAD)`.
-The build context excludes `.git`, so without it the image does not know its
+Pass the commit being built as
+`--build-arg BENCHDB_REVISION=$(git rev-parse HEAD)`. The build context
+excludes `.git`, so without this argument the image does not know its
 revision. `GET /api/ping` reports the revision, and the dashboard shows its
 first seven characters at the bottom of the sidebar. The release workflow, the
 `make build-benchdb-container-image` target, and `scripts/go_deploy_runtime.sh`
-pass it already.
+already pass it.
 
-For local manual testing:
-
-```bash
-make server-container-up
-make server-container-down
-```
-
-`server-container-up` publishes `127.0.0.1:8080` by default. Override
-`DCOMP_BENCHDB_SERVER_HOST_PORT` if that port is already in use. The smoke
-target defaults to `127.0.0.1:18080` to avoid common local development
-conflicts; override `SERVER_CONTAINER_SMOKE_HOST_PORT` and
-`SERVER_CONTAINER_SMOKE_URL` together if needed.
-
-Use an exec-form health check in a container without a shell or wget:
+The image has no shell or wget. Use the built-in health command in an
+exec-form health check:
 
 ```yaml
 healthcheck:
@@ -159,27 +182,83 @@ healthcheck:
   retries: 10
 ```
 
-Include the configured path prefix in that container-local URL. `/api/ping`
-checks process liveness; migration-service completion gates startup separately.
+`benchdb health` calls `/api/ping` and prints `ok`. `--server` defaults to
+`http://127.0.0.1:8080` and must include any path prefix. `--timeout` defaults
+to `5s`. The command reads no database or auth settings. It fails on a non-200
+response, a body over 4 KiB, or a status other than `ok`.
 
-The same image also runs schema upgrades through `benchdb migrate`; there is no
-separate schema runtime.
+`/api/ping` checks only that the process is serving. It does not query
+Postgres, so probes built on it do not restart pods during database pressure.
+Gate server startup on the migration step separately.
+
+### Local container testing
+
+```bash
+make server-container-smoke
+make server-container-up
+make server-container-down
+```
+
+`server-container-smoke` builds the image, starts it with Postgres, checks
+`/api/ping`, `/metrics`, `/docs`, and `/`, then tears everything down. It
+listens on `127.0.0.1:18080`; override `SERVER_CONTAINER_SMOKE_HOST_PORT` and
+`SERVER_CONTAINER_SMOKE_URL` together if that port is taken.
+
+`server-container-up` publishes `127.0.0.1:8080`. Override
+`DCOMP_BENCHDB_SERVER_HOST_PORT` if that port is in use. Its compose file sets
+`BENCHDB_INIT_SCHEMA` and `BENCHDB_SEED` and disables write auth by default, so
+use it only on your own machine.
+
+The [contributing guide](contributing.md) lists the build, test,
+and code-generation commands for development.
+
+## Releases and CI
+
+Publishing a stable GitHub release in `kenn-io/benchdb` runs
+`.github/workflows/release.yml`. Drafts and prereleases do not publish.
+
+1. The workflow checks the tag. It must have the form `vMAJOR.MINOR.PATCH`,
+   with no leading zeroes and no prerelease suffix, and its commit must
+   already be merged into `origin/main`.
+2. It builds that exact commit from `Dockerfile.server` for `linux/amd64` and
+   `linux/arm64`.
+3. It publishes only `ghcr.io/kenn-io/benchdb:<tag>`, for example
+   `ghcr.io/kenn-io/benchdb:v1.2.3`.
+4. It records the immutable `ghcr.io/kenn-io/benchdb@sha256:...` reference in
+   the job summary. Pin deployments to that digest.
+
+The workflow does not create tags, publish prereleases, or migrate live
+installs. Pull requests that change image inputs or the workflow build both
+platforms without publishing. Run
+`python3 -B -m unittest scripts.test_release_image` to test tag validation
+locally.
+
+Before the first release reaches app-store packaging, an operator must
+publish the first stable GitHub release, make the GHCR package public in its
+package settings, and verify an unauthenticated pull by digest. New packages
+are private by default; see GitHub's
+[container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images).
+
+Continuous integration runs `.github/workflows/ci.yml`. Its jobs cover Go,
+web, docs, dashboard screenshots, code-generation drift, binary builds, the
+server container, deploy manifests, workflow linting, and end-to-end tests.
 
 ## Umbrel deployment
 
-For fresh installs, use Umbrel's native `exports.sh` to derive stable credentials
-from the installation seed. Give each secret a distinct identifier and keep those
-identifiers unchanged across upgrades:
+For a fresh install, derive stable credentials from the installation seed with
+Umbrel's `exports.sh`. Give each secret its own identifier, and never change
+those identifiers across upgrades:
 
 ```bash
 export APP_BENCHDB_POSTGRES_PASSWORD="$(derive_entropy "benchdb-postgres-password")"
 export APP_BENCHDB_API_TOKEN="$(derive_entropy "benchdb-api-token")"
 ```
 
-Compose can pass the password directly to Postgres and construct the connection
-URL directly for BenchDB. Hexadecimal derived passwords need no URL escaping.
-This example shows the application services; retain the app store's normal
-proxy/network settings and pin `APP_BENCHDB_IMAGE` to a published image digest:
+Compose passes the password to Postgres and builds BenchDB's connection URL
+from it. Derived passwords are hexadecimal, so they need no URL escaping. This
+example shows only the application services. Keep the app store's normal
+proxy and network settings, and pin `APP_BENCHDB_IMAGE` to a published image
+digest:
 
 ```yaml
 services:
@@ -222,194 +301,190 @@ services:
     restart: unless-stopped
 ```
 
-These services use the images' normal server/Postgres entrypoints and a direct
-migration command. Provision persistent database directories through the normal
-app package layout. BenchDB does not require a custom pre-start hook, shell
-entrypoint, generated `.env`, seeded config, or `BENCHDB_INIT_SCHEMA`/`BENCHDB_SEED`
-in production. For OIDC or a public path prefix, set `BENCHDB_INTENDED_BASE_URL`
-to the browser URL and use that prefix in the native health command.
+The server starts only after the `migrate` service exits successfully.
+Provision persistent database directories through the normal app package
+layout. Production needs no custom pre-start hook, shell entrypoint, generated
+`.env`, seeded config, `BENCHDB_INIT_SCHEMA`, or `BENCHDB_SEED`. For OIDC or a
+path prefix, set `BENCHDB_INTENDED_BASE_URL` to the browser URL and add the
+prefix to the health command's `--server` URL. You can also pass `_FILE`
+secrets from mounts that UID/GID `65532:65532` can read.
 
-Alternatively, pass explicit `_FILE` secrets from mounts readable by the
-container account, UID/GID `65532:65532`.
+An existing installation with randomly generated `.env` credentials must keep
+those values when it moves to the published image. Derived credentials differ
+from the existing ones, and changing the variable does not change the password
+of an initialized Postgres. To switch on purpose:
 
-Existing installations with randomly generated `.env` credentials must keep
-those values during the image cutover. Derived credentials differ from existing
-ones; changing the variable does not change an initialized Postgres password.
-To switch deliberately, take a recovery backup, change the Postgres role password,
-update all connection URLs and reporter secrets together, verify the new deployment,
-and retain the previous image and backup as the rollback path. Never delete the
-old credential file or rotate passwords implicitly during an app update.
+1. Take a recovery backup.
+2. Change the Postgres role password.
+3. Update every connection URL and reporter secret together.
+4. Verify the new deployment.
+5. Keep the previous image and the backup as the rollback path.
 
-## CI And Releases
+Never delete the old credential file or rotate passwords implicitly during an
+app update.
 
-Published stable GitHub releases trigger `.github/workflows/release.yml`. A release
-tag must be `vMAJOR.MINOR.PATCH`, with no leading zeroes or prerelease suffixes,
-and its actual commit must already be merged into `origin/main`. The workflow
-builds that exact commit with `Dockerfile.server` for Linux amd64 and arm64 and
-publishes only `ghcr.io/kenn-io/benchdb:<version>`; nothing else is published.
-The job summary records the immutable `ghcr.io/kenn-io/benchdb@sha256:...` reference;
-pin deployments to that digest. PRs that change image inputs or the release
-workflow build both platforms without publishing.
+## Kubernetes
 
-After merging the release workflow, an operator must publish the first stable
-GitHub release, make the GHCR package public in its package settings, and verify
-an unauthenticated pull by digest before updating app-store packaging. New
-packages default to private; see GitHub's
-[container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images).
-This workflow does not create tags, publish prereleases, or migrate live installs.
-Run `python3 -B -m unittest scripts.test_release_image` to verify tag selection.
-
-The active GitHub Actions CI workflow is `.github/workflows/ci.yml`. It runs the
-Go, web, generated clients, docs, codegen drift, container, deploy-manifest,
-and e2e gates for the new Go/Svelte implementation.
-
-Python package publishing is retired for the maintained release path. `benchadapt`,
-`benchclients`, `benchconnect`, `benchrun`, `benchalerts`,
-`legacy/benchdblegacy`, and the legacy Flask `benchdb/` app package have been
-deleted after their cutover decisions.
-
-OIDC CLI loopback login is safe across multiple server replicas. The server
-stores only a hash of the short-lived one-time loopback code in Postgres and
-marks it redeemed during `cli-exchange`, so the callback request and exchange
-request do not need sticky routing.
-
-The steady-state serving Deployment runs two replicas with a normal
-`RollingUpdate` strategy. If an installation is upgrading directly from an
-image that still used process-local CLI login codes, deploy one intermediate
-shared-store version at one replica with `strategy.type: Recreate` before
-scaling out. That one-time transition prevents old and new pods from splitting
-a single CLI login flow behind the Service.
-
-## Kubernetes Deploy Manifests
-
-Kubernetes deployments use one image, built from `Dockerfile.server`. The
-migration Job runs `benchdb migrate`; the serving Deployment runs
-`benchdb serve` with the embedded Svelte app on port 8080.
-
-The serving Deployment runs two replicas, uses `/api/ping` startup, liveness,
-and readiness probes, and the Service targets the `http` container port.
-`/api/ping` is a process-health endpoint rather than a database query, so
-liveness does not restart pods during transient database pressure. The
-migration Job must complete before the serving Deployment rolls forward.
-
-The Go server requires `BENCHDB_DB_URL`; the deploy manifest renderer can
-derive it from legacy `DB_*` fields for the transition period. Those `DB_*`
-fields are deploy inputs only: the server pod receives `BENCHDB_DB_URL`, not
-separate database username, password, host, port, or database-name variables.
-The runtime ConfigMap is intentionally limited to `BENCHDB_ADDR` and
-`BENCHDB_INTENDED_BASE_URL`.
-
-The reusable manifest-rendering helper lives in
-`scripts/go_deploy_runtime.sh` so deployment owners can source it from their
-own deployment pipeline.
+Kubernetes deployments use the one image built from `Dockerfile.server`. The
+templates live in `k8s/`, and `scripts/go_deploy_runtime.sh` renders and
+applies them. The script's deploy functions call `aws eks update-kubeconfig`
+and push to ECR. Other platforms can source the script and reuse its render
+functions.
 
 Set `BENCHDB_DEPLOY_VERSION` to the immutable commit SHA or release version
-being deployed before sourcing the helper. The helper refuses to render image
-specs without that value, so deployment automation cannot silently push or roll
-out mutable `dev` tags.
+before sourcing the script. Without it the script stops with an error before
+it renders any image spec, so automation cannot roll out a mutable `dev` tag.
 
-Password-era Flask variables such as `SECRET_KEY`, `REGISTRATION_KEY`,
-`APPLICATION_NAME`, `BENCHMARKS_DATA_PUBLIC`, `DISTRIBUTION_COMMITS`, and
-`SVS_TYPE` are not runtime pod environment variables in the Go server. OIDC is
-all-or-nothing: if any OIDC setting is present, the deploy must provide issuer,
-client id, client secret, `BENCHDB_INTENDED_BASE_URL`, and a
-`BENCHDB_SESSION_SECRET` at least 32 characters long.
+The script builds the pod's `BENCHDB_DB_URL` from the deploy inputs
+`DB_USERNAME`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and `DB_NAME`, which are all
+required. It URL-encodes the user, password, and database name and adds
+`sslmode=disable`. The pod receives only `BENCHDB_DB_URL`, not the separate
+fields. The runtime ConfigMap holds only `BENCHDB_ADDR` and `BENCHDB_INTENDED_BASE_URL`; everything else goes
+in the `benchdb-secret` Secret. When the GitHub App settings are present, the
+script stores the private key in a separate `benchdb-github-app-key` Secret and
+mounts it into the pod.
+
+The script also validates the configuration before it renders the Secret:
+
+- `BENCHDB_INTENDED_BASE_URL` must be an http(s) URL.
+- OIDC needs the issuer, client id, client secret, and a
+  `BENCHDB_SESSION_SECRET` of at least 32 characters.
+- GitHub App settings need all three values, a readable key file, and no
+  `GITHUB_API_TOKEN`.
+
+The Go server ignores Conbench's Flask-era variables, such as `SECRET_KEY`,
+`REGISTRATION_KEY`, `APPLICATION_NAME`, `BENCHMARKS_DATA_PUBLIC`,
+`DISTRIBUTION_COMMITS`, and `SVS_TYPE`.
+
+Run the functions in this order for a deploy:
+
+| Function | What it does |
+| --- | --- |
+| `build_and_push` | Builds the image with `BENCHDB_REVISION`, tags it with `BENCHDB_DEPLOY_VERSION`, and pushes it to ECR. |
+| `deploy_secrets_and_config` | Applies the Secret, the optional GitHub App key Secret, and the ConfigMap. |
+| `run_migrations` | Deletes any previous `benchdb-migration` Job, starts a new one running `benchdb migrate`, waits up to 24 hours for it to complete, prints its logs, and exits non-zero unless it succeeded. The Job has `backoffLimit: 0`, so a failed migration is not retried. |
+| `deploy` | Applies the Deployment and restarts it, then applies the Service, the ServiceMonitor when the cluster has its CRD, and the ingress on the clusters the script lists. Waits for the rollout. |
+| `rollback` | Runs `kubectl rollout undo` on the Deployment. It does not revert the schema. |
+
+Only run `deploy` after `run_migrations` succeeds.
+
+The Deployment runs two replicas with a `RollingUpdate` strategy,
+`minReadySeconds: 15`, and `progressDeadlineSeconds: 900`. Startup, liveness,
+and readiness probes all use `/api/ping` on the `http` container port, and the
+Service targets that port. The load balancer health check also uses
+`/api/ping`.
+
+Replicas need no sticky routing for OIDC CLI login. The server stores only a
+hash of the short-lived one-time loopback code in Postgres and marks it
+redeemed during `cli-exchange`, so the callback and the exchange can reach
+different pods.
 
 ## Metrics
 
-The Go server exposes Prometheus text metrics at `/metrics`. The endpoint is
-served outside the OpenAPI surface and is unauthenticated so Prometheus can
-scrape it through the Kubernetes Service. Production ingress blocks public
-`/metrics` requests with a fixed response; scrape through the cluster Service
-instead of the internet-facing load balancer.
+The server exposes Prometheus text metrics at `/metrics`. The endpoint sits
+outside the OpenAPI document and needs no authentication, so Prometheus can
+scrape it through the Kubernetes Service. The ingress template answers public
+`/metrics` requests with a fixed 404. Scrape through the cluster Service, not
+the internet-facing load balancer.
 
-Current first-party metrics are intentionally small:
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `benchdb_up` | gauge | Always `1` while the server responds. |
+| `benchdb_github_unknown_commits_total` | counter | Commit enrichments in this process that fell back to unknown GitHub metadata during ingestion. |
+| `benchdb_http_requests_total{method,route,status}` | counter | Requests by method, low-cardinality route, and status. Unexpected methods report as `OTHER`. |
+| `benchdb_http_request_duration_seconds{method,route,status}` | summary | Request latency, as `_count` and `_sum` series. |
 
-- `benchdb_up`: constant gauge set to `1` while the server is responding.
-- `benchdb_github_unknown_commits_total`: process-local counter of GitHub
-  commit enrichments that degraded to unknown metadata during result ingestion.
-- `benchdb_http_requests_total{method,route,status}`: request counter with
-  low-cardinality route and method labels. Unexpected methods are reported as
-  `OTHER`.
-- `benchdb_http_request_duration_seconds{method,route,status}`: summary with
-  `_count` and `_sum` series for request latency.
-
-`benchdb_github_unknown_commits_total` is not a database backlog size. It resets
-when the process restarts and only counts degradations observed by that process.
-Use it as an ingestion-health signal; use the repair command below to inspect
-and repair persisted unknown commit rows.
+`benchdb_github_unknown_commits_total` is not the size of a database backlog.
+It resets when the process restarts and counts only what that process saw. Use
+it as an ingestion-health signal, and use
+[`benchdb admin repair-commits`](#repair-unknown-commits) to find and fix the
+stored rows.
 
 The ServiceMonitor scrapes `/metrics` through the `benchdb-service-port`
-Service port when the cluster has the ServiceMonitor CRD. The legacy
-Flask/BMRT Grafana dashboard is retired rather than ported: it described cache
-and Flask request internals that do not exist in the Go runtime. New dashboard
-panels should be designed from the Go metrics above and from user-facing
-BenchDB workflows instead of preserving old panel names.
+Service port every 30 seconds. BenchDB ships only that ServiceMonitor. Your
+cluster's Prometheus and Grafana stack is yours to run, and the repository
+ships no Grafana dashboard. Build panels from the metrics above.
 
-The repository does not ship a kube-prometheus or Grafana stack generator.
-Cluster monitoring stacks are deployment-owned; BenchDB owns only the
-application `ServiceMonitor` that advertises how to scrape `/metrics`.
+## Run verdicts and benchmark statuses
 
-## Run Verdicts And Benchmark Statuses
-
-Every server process runs a background worker that stores each run's CI
+Every server process runs a background worker. It stores each run's CI
 attention verdict in `run_verdict` and each benchmark's status in
-`benchmark_verdict`, so the home page and the Benchmarks list can show, filter,
-and count them without evaluating history on page load. Each benchmark row also
-stores its history's commit times and latest chart points for the list. Database triggers queue
-work in `verdict_queue` when results are inserted, deleted, or re-annotated and
-when commits are inserted or repaired, including writes from admin commands.
-Workers claim queued keys with a lease, so several replicas can share the queue.
-A run that has results in several repositories gets one verdict per
-repository. A benchmark gets one row per machine. A server whose database
-connection is read-only serves stored verdicts but does not compute or queue
-new ones.
+`benchmark_verdict`. The Runs page, which is the dashboard home, and the
+Benchmarks list read these stored rows instead of scoring history on each page
+load. Each benchmark row also stores the commit times of its history and its
+latest chart points.
 
-- A run is evaluated once its results have stopped changing for 15 seconds.
+Database triggers add work to `verdict_queue` when results are inserted,
+deleted, or re-annotated, and when commits are inserted or repaired. Because
+the triggers live in the database, writes from admin commands queue work too.
+Workers claim queued keys with a two-minute lease, so several replicas can
+share the queue. A key that fails stays queued and is retried when its lease
+ends.
+
+- A run gets one verdict per repository it has results in.
+- A benchmark gets one row per machine.
+- The worker evaluates a run once its results have stopped changing for 15
+  seconds.
 - New default-branch results or commits in a repository re-queue that
-  repository's pull-request runs with results from the last 14 days.
-- Upgrading to the release that adds verdicts queues runs from the last 14
-  days; older runs are queued when a page first lists them.
-- A benchmark is scored within about a second after a default-branch result
-  for it is written or deleted, or after a commit that carries its results
+  repository's pull-request runs with results from the last 14 days. Older
+  runs keep their last verdict.
+- The Runs page queues any run it lists that has no stored verdict.
+- The worker scores a benchmark within about a second after a default-branch
+  result for it is written or deleted, or after a commit carrying its results
   joins or leaves the default branch.
-- Upgrading to the release that adds benchmark statuses queues every benchmark
-  with default-branch history. Until the worker scores a benchmark, the
-  Benchmarks list omits it.
-- Upgrading to the release that stores chart points re-queues every stored
-  benchmark. Until the worker recomputes one, the list shows it with no chart
-  and no points, and the page reads "Updating statuses…".
 
-Verdicts use the same rules as `benchdb ci report` with a fork-point baseline
-and default thresholds. A run tagged with a `base-sha` is compared against that
+A server whose database connection is read-only serves stored verdicts. It does
+not compute or queue new ones.
+
+Run verdicts use the rules of `benchdb ci report` with a fork-point baseline
+and default thresholds. A run tagged with `base-sha` is compared against that
 default-branch commit; see [baseline modes](ci-reporting.md#baseline-modes).
-Upgrading to the release that adopts the `base-sha` baseline, the
-move-from-baseline rule, and current-context benchmark statuses re-queues every
-stored run verdict and benchmark status. After an upgrade that changes CI report rules, re-queue
-existing verdicts so they are recomputed:
+Default-branch runs never need attention. A run whose report the server
+refuses to evaluate is marked as needing action.
+
+A benchmark status scores each machine's latest point against the points
+before it. A regression or improvement needs all of these:
+
+- a lookback z-score beyond 2 in that direction, which puts the point outside
+  the history band;
+- a change of more than 2% from the history window's mean;
+- at least 10 earlier results;
+- the result before the latest scored the same way.
+
+With too little history the status is insufficient.
+[Browsing and comparing](browsing-and-comparing.md) describes how the
+Benchmarks page shows these statuses.
+
+Migrations that change these rules or the stored columns re-queue every stored
+row they affect. Until the worker catches up, the Benchmarks list can omit a
+benchmark or show it without a chart, and the page reads "Updating statuses…".
+
+To recompute every stored run verdict by hand:
 
 ```sql
 SELECT enqueue_verdict('run', run_id) FROM (SELECT DISTINCT run_id FROM run_verdict ORDER BY run_id) runs;
 ```
 
-A benchmark status compares each machine's latest point with the points before
-it at the default z-score threshold. After an upgrade that changes that rule,
-re-queue every benchmark:
+To recompute every benchmark status:
 
 ```sql
 SELECT enqueue_verdict('benchmark', benchmark_id)
 FROM (SELECT DISTINCT benchmark_id FROM benchmark_verdict ORDER BY benchmark_id) benchmarks;
 ```
 
-## Unknown Commit Repair
+## Repair unknown commits
 
-When GitHub enrichment fails during ingestion, BenchDB still stores the
-benchmark result and a minimal commit row so writes do not fail because of a
-transient GitHub problem. Those rows have only SHA and repository metadata. They
-can make affected results absent from default-branch history, series, and CI
-lookback paths until the commit row is repaired.
+When GitHub enrichment fails during ingestion, BenchDB still stores the result
+and a minimal commit row, so a transient GitHub problem does not fail the
+write. That row has only the SHA and repository. Until it is repaired, the
+affected results can be missing from default-branch history, series, and CI
+lookback.
 
-Use the single `benchdb` binary to repair those rows in place:
+`benchdb admin repair-commits` fixes those rows in place. It needs
+`BENCHDB_DB_URL` and GitHub credentials, either `GITHUB_API_TOKEN` or the three
+`BENCHDB_COMMIT_GITHUB_APP_*` settings. It does not fall back to
+`DATABASE_URL`. Start with a dry run, which calls GitHub and reports what it
+would change without writing to the database:
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -418,9 +493,9 @@ export GITHUB_API_TOKEN="..."
 benchdb admin repair-commits --dry-run --format json
 ```
 
-Run the command against a production-clone first when changing flags or
-operating on a large backlog. The dry run calls GitHub and reports what would be
-updated without mutating the database. A typical workflow is:
+Run against a production clone first when you change flags or work through a
+large backlog. A typical pass scopes to one repository, previews, then
+applies:
 
 ```bash
 benchdb admin repair-commits \
@@ -435,7 +510,7 @@ benchdb admin repair-commits \
   --format json
 ```
 
-If the JSON output contains `next_cursor`, pass it to the next invocation:
+If the JSON output contains `next_cursor`, pass it to the next run:
 
 ```bash
 benchdb admin repair-commits \
@@ -445,131 +520,72 @@ benchdb admin repair-commits \
   --format json
 ```
 
-Use `--backfill` when repairing default-branch commits and you want BenchDB to
-enqueue ancestry backfill for earlier commits on that branch. `--backfill-timeout`
-controls how long the command waits for queued backfill work to drain before it
-returns. If the timeout is hit, the JSON summary sets `backfill_timed_out` and
-the command exits non-zero after printing the summary.
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--repository` | all | Repository URL to repair. Must match the cursor's repository. |
+| `--cursor` | none | Resume from a previous run's `next_cursor`. |
+| `--limit` | `100` | Maximum rows to inspect. |
+| `--dry-run` | off | Report repairs without updating rows. |
+| `--backfill` | off | Queue ancestry backfill for earlier commits when repairing default-branch commits. |
+| `--backfill-timeout` | `2m` | How long to wait for queued backfill to drain before returning. |
+| `--github-timeout` | `20s` | GitHub enrichment timeout. |
+| `--format` | `text` | `text` or `json`. |
 
-The command reads `BENCHDB_DB_URL` and `GITHUB_API_TOKEN`; it does not fall
-back to `DATABASE_URL`. It prints summaries to stdout and diagnostics to stderr,
-without printing the token or database URL. Repaired rows make existing
-benchmark results visible through history, series, and CI reporting without
-resubmitting benchmark payloads.
+The command prints its summary to stdout and diagnostics to stderr. It never
+prints the token or the database URL. It exits non-zero after printing the
+summary in two cases. One is a backfill that hits `--backfill-timeout`, which
+also sets `backfill_timed_out`. The other is a run where every GitHub attempt
+failed on authentication or quota.
 
-## Alert Evaluation
+Repaired rows make existing results appear in history, series, and CI reports.
+Nobody needs to resubmit benchmark payloads.
 
-Server-side alert rules are evaluated by the single `benchdb` binary. Run the
-command from trusted operations automation, such as a cron entry, Kubernetes
-CronJob, or CI scheduled job:
+## Scheduled alert jobs
+
+Alert rules run through two admin commands. Schedule both from trusted
+operations automation, such as cron, a Kubernetes CronJob, or a scheduled CI
+job:
 
 ```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_INTENDED_BASE_URL="https://benchdb.example"
-
 benchdb admin alerts evaluate --format json
+benchdb admin alerts deliver --channel webhook --format json
 ```
 
-The evaluator reads enabled alert rules, finds each rule's latest matching run,
-uses the CI report engine to classify it, and records open/resolve events when
-state changes. It prints summaries to stdout and diagnostics to stderr without
-printing the database URL.
+`evaluate` reads enabled alert rules, finds each rule's latest matching run,
+classifies it with the CI report engine, and records open and resolve events
+when the state changes. It needs `BENCHDB_DB_URL`. Set
+`BENCHDB_INTENDED_BASE_URL` too, so stored report URLs are absolute. It does
+not need `GITHUB_API_TOKEN`.
 
-`BENCHDB_INTENDED_BASE_URL` is optional for the command, but deployed
-environments should set it so stored report URLs are absolute. The command does
-not require `GITHUB_API_TOKEN`; it relies on commit metadata already stored with
-benchmark results.
+`deliver` sends stored events through one channel per run: `webhook` (the
+default), `slack`, `github-check`, `github-comment`, or `email`. It records
+each delivery in a durable outbox, so a rerun does not resend an event already
+delivered to the same channel and target. Run it after `evaluate` from the same
+scheduler. Run it on its own cadence too if a receiver is down and needs
+retries. Overlapping runs are safe, because each due delivery is claimed and
+leased before its request, so no event is sent twice.
 
-## Alert Delivery
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--limit` | `100` | Maximum deliveries to queue and attempt in one run. |
+| `--retry-after` | `5m` | Delay before retrying a failed delivery. Must be greater than `--timeout`; the CLI rejects anything shorter. |
+| `--timeout` | `10s` | Timeout for each delivery request. |
 
-Alert event delivery is also owned by the single `benchdb` binary. Generic
-webhook, Slack incoming-webhook, GitHub Check Run, and GitHub commit-comment
-channels, plus SMTP email, are backed by the durable alert-delivery outbox:
+GitHub Check and commit-comment delivery target one repository and queue only
+events from alert rules for that repository. Webhook, Slack, and email are
+generic channels that queue every stored alert event for the selected target.
+Both commands print summaries to stdout and diagnostics to stderr, without the
+database URL. [Alerting](alerting.md) documents each channel's environment
+variables, payloads, and token permissions.
 
-```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_ALERT_WEBHOOK_URL="https://hooks.example/benchdb"
+## Production-clone migration gate
 
-benchdb admin alerts deliver --format json
-```
+The repository keeps a temporary, local-only gate that checks the Go server,
+dashboard, and CLI against a read-only clone of an existing deployment. It is
+not a normal BenchDB workflow, and its CLI command is hidden. Run it only
+through `scripts/prod_clone_compat.sh`.
 
-For Slack, use the Slack channel and Slack-specific environment variable:
-
-```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_ALERT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
-
-benchdb admin alerts deliver --channel slack --format json
-```
-
-For GitHub Checks, use the repository-scoped channel and a token with
-`checks:write` access:
-
-```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_ALERT_GITHUB_REPOSITORY="https://github.com/org/repo"
-export GITHUB_TOKEN="..."
-
-benchdb admin alerts deliver --channel github-check --format json
-```
-
-For GitHub commit comments, use the same repository and token configuration:
-
-```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_ALERT_GITHUB_REPOSITORY="https://github.com/org/repo"
-export GITHUB_TOKEN="..."
-
-benchdb admin alerts deliver --channel github-comment --format json
-```
-
-For email delivery, configure SMTP and recipients:
-
-```bash
-export BENCHDB_DB_URL="postgres://..."
-export BENCHDB_ALERT_EMAIL_SMTP_ADDR="smtp.example:587"
-export BENCHDB_ALERT_EMAIL_FROM="BenchDB Alerts <alerts@example.com>"
-export BENCHDB_ALERT_EMAIL_TO="ops@example.com,perf@example.com"
-
-benchdb admin alerts deliver --channel email --format json
-```
-
-The command creates missing delivery rows for persisted alert events, attempts
-pending deliveries, and records delivered or failed state. Re-running it does
-not resend already delivered events for the same channel and target. Use
-`--limit` to bound one run, `--retry-after` to control failed-delivery retry
-delay, and `--timeout` to bound each delivery request. Run it after
-`benchdb admin alerts evaluate` from the same scheduler, or on its own cadence
-if the webhook receiver is down and needs retries. Overlapping runs are safe:
-each due delivery is claimed and leased atomically before its HTTP request, so
-no event is sent twice. Keep `--retry-after` greater than `--timeout`; the CLI
-rejects a shorter lease window.
-
-GitHub Check and commit-comment delivery target one repository and enqueue only
-alert events from matching alert rules. Webhook, Slack, and email delivery are
-generic channels that enqueue every stored alert event for the selected target.
-The canonical delivery model and current non-goals are documented in
-[Alerting](alerting.md).
-
-## Temporary Migration Validation Gate
-
-The repository keeps a temporary, local-only migration gate for read-only
-production-clone validation. It is not a normal BenchDB product workflow and
-is hidden from the public CLI surface. Use it only through
-`scripts/prod_clone_compat.sh` when validating an existing deployment during
-cutover planning.
-
-Do not commit private infrastructure details, sample identifiers, raw payloads,
-query plans, or server logs from these runs. The safety model and sanitized
-scale findings are documented in
-[Temporary Production-Clone Migration Gate](prod-clone-compatibility.md).
-
-## Cutover Notes
-
-Before deleting legacy runtime files, maintainers should verify:
-
-- every legacy surface is replaced, retired, preserved temporarily, or retained
-  as schema/reference material,
-- active CI, docs, packaging, Docker, Kubernetes, and release paths no longer
-  reference the deleted files,
-- Go/web/sdk/schema/e2e gates pass after deletion.
+Do not commit private infrastructure details, sample identifiers, raw
+payloads, query plans, or server logs from these runs.
+[Temporary production-clone migration gate](prod-clone-compatibility.md)
+documents the safety model and the sanitized findings.
