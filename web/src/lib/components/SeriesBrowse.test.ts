@@ -442,6 +442,33 @@ describe("SeriesBrowse", () => {
     }
   });
 
+  it("lists a machine whose benchmarks arrive after the machine list loaded", async () => {
+    vi.useFakeTimers();
+    try {
+      // Both machine lists lag the benchmark rows, so the filter must also
+      // take machines from the loaded rows.
+      MACHINES.mockResolvedValueOnce({ status: 200, data: { machines: [] } });
+      MACHINES.mockResolvedValueOnce({ status: 200, data: { machines: [] } });
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [], status_counts: { regressed: 0, improved: 0, stable: 0, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: null,
+      } });
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "demo", { machine_names: ["m9"] })], next_page_cursor: null,
+      } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument();
+
+      await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+      expect(screen.getByRole("option", { name: "m9" })).toBeInTheDocument();
+      expect(MACHINES, "the machine list reloads once scoring settles").toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drops a reload that finishes after more pages are loaded", async () => {
     vi.useFakeTimers();
     try {

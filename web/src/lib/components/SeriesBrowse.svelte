@@ -78,10 +78,13 @@
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table", sort: "", yAxis: "observed" }));
 
+  // Refetch when the project changes, and again when queued scoring settles,
+  // since a new machine's benchmarks appear only once they are scored.
   $effect(() => {
     const repository = query.repository;
-    let active = true;
     machines = null;
+    if (statusesPending) return;
+    let active = true;
     void client.listMachines(repository === "" ? {} : { repository }).then((res) => {
       if (active && res.status === 200) machines = res.data.machines;
     }).catch(() => {
@@ -288,7 +291,8 @@
     return `/series${formatBrowseQuery({ ...query, status })}`;
   }
   let machineOptions = $derived.by((): SelectDropdownOption[] => {
-    const names = new Set(machines ?? rows.flatMap((row) => row.machineNames));
+    // Loaded rows can name a machine the last machine list predates.
+    const names = new Set([...(machines ?? []), ...rows.flatMap((row) => row.machineNames)]);
     if (query.hardware !== "") names.add(query.hardware);
     return [
       { value: "", label: "All machines" },
