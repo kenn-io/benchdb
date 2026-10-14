@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shellQuote } from "../shell";
   import { appURL } from "../base-path";
   import {
     DateRangePicker,
@@ -214,7 +215,7 @@
   let exportCommand = $derived(
     exportResultID === null
       ? null
-      : `benchdb history export ${exportResultID} --server ${exportServerURL} --output history.csv`,
+      : `benchdb history export ${shellQuote(exportResultID)} --server ${shellQuote(exportServerURL)} --output history.csv`,
   );
 
   // Compare picks are page-local workflow state: the shareable artifact is the

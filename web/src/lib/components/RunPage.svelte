@@ -201,7 +201,7 @@
       <summary>
         <strong>Results</strong>
         <span>{plural(vm.loadedResults, "result")}{vm.nextCursor === null ? "" : "+"}</span>
-        {#if showErrors}<span class="alert">{plural(vm.loadedErrors, "error")}</span>{/if}
+        {#if showErrors}<span class="warning">{plural(vm.loadedErrors, "error")}</span>{/if}
       </summary>
       <table class="data-table stacked-table run-results-table">
         <thead>
@@ -334,8 +334,8 @@
     color: var(--c-text-muted);
     font-size: 0.8rem;
   }
-  .results-panel summary .alert {
-    color: var(--c-error);
+  .results-panel summary .warning {
+    color: var(--c-warn-text);
   }
   .results-panel .more {
     margin: 10px 12px 12px;

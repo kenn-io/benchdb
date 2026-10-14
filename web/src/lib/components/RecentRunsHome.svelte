@@ -12,6 +12,7 @@
 
   import { relativeTime } from "../format";
   import { repositoryLabel } from "../repository";
+  import SubmitResultsHint from "./SubmitResultsHint.svelte";
   import { DEFAULT_HOME_QUERY, formatHomeQuery, interceptNavClick, navigate, type HomeQuery } from "../router";
 
   let {
@@ -173,9 +174,13 @@
   {/if}
 
   {#if errorMsg}
-    <p class="error" role="alert">Failed to load recent runs: {errorMsg}</p>
+    <section class="panel state-panel error-panel" role="alert">
+      <h2>Failed to load runs</h2>
+      <p>{errorMsg}</p>
+      <button type="button" class="button-pill" onclick={() => void load()}>Retry</button>
+    </section>
   {:else if loading}
-    <p>Loading…</p>
+    <p role="status">Loading runs…</p>
   {:else if runs.length === 0}
     <section class="panel empty-panel">
       {#if query.attention}
@@ -185,6 +190,7 @@
       {:else}
         <h2>{query.q ? "No matching runs" : query.offset > 0 ? "No runs on this page" : "No runs yet"}</h2>
         {#if query.q}<p>Older commits match by full SHA or commit URL.</p>{/if}
+        {#if !query.q && query.offset === 0 && query.repository === ""}<SubmitResultsHint />{/if}
       {/if}
     </section>
   {:else}
@@ -193,7 +199,7 @@
       <span class="summary-item">{plural(totalResults, "result")}</span>
       {#if machineNames.length > 0}<span class="summary-item">{plural(machineNames.length, "machine")}</span>{/if}
       {#if totalErrors > 0}
-        <span class="summary-item alert">{plural(totalErrors, "error")}</span>
+        <span class="summary-item warning">{plural(totalErrors, "error")}</span>
       {/if}
       {#if attentionRuns === 0 && !query.attention && !verdictsPending}
         <span class="summary-item">Nothing needs attention</span>
@@ -222,7 +228,6 @@
                   <a
                     class="row-primary-link"
                     href={appURL(run.runHref)}
-                    aria-label={`Open run ${run.runId}`}
                     onclick={(e) => go(e, run.runHref)}
                   >{run.primaryLabel}</a>
                   <div class="meta-line">
@@ -264,7 +269,6 @@
                     <a
                       class="muted-detail batch-link"
                       href={appURL(run.latestBatchHref)}
-                      aria-label={`Open batch ${run.latestBatchId}`}
                       title={run.latestBatchId}
                       onclick={(e) => go(e, run.latestBatchHref!)}
                     >batch {run.displayLatestBatchId}{run.batchCount > 1 ? ` +${run.batchCount - 1}` : ""}</a>
@@ -315,14 +319,24 @@
 <style>
   .home-page {
     gap: 12px;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
   }
-  .home-page .table-panel {
-    flex: 0 1 auto;
-    min-height: 0;
-    overflow: auto;
+  .error-panel h2 {
+    color: var(--c-error);
+  }
+  /* Only a full table scrolls inside a fixed-height page. Below the stacking
+     breakpoint, rows become cards and the page itself scrolls, so touch and
+     zoomed views never get a scroll area nested in another. */
+  @media (min-width: 1121px) {
+    .home-page {
+      height: 100%;
+      min-height: 0;
+      max-height: 100%;
+    }
+    .home-page .table-panel {
+      flex: 0 1 auto;
+      min-height: 0;
+      overflow: auto;
+    }
   }
 
   .run-search {

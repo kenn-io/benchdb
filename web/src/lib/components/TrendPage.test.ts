@@ -404,6 +404,20 @@ describe("TrendPage", () => {
     expect(within(context).getByText(/pick both points to compare/i)).toBeInTheDocument();
   });
 
+  it("quotes a server URL the shell would split in the export command", async () => {
+    mockResultEntry([sample("r1", "2024-01-07T12:00:00Z"), sample("r2", "2024-01-08T12:00:00Z", 1.4)]);
+    render(TrendPage, {
+      props: { source: RESULT_SOURCE, query: ALL_TREND_QUERY, baseUrl: "https://benchdb.example/tools/bench&dev" },
+    });
+
+    await waitFor(() => screen.getByRole("link", { name: "sha-r2" }));
+    await fireEvent.click(screen.getByRole("link", { name: "sha-r2" }).closest("tr")!);
+
+    expect(screen.getByRole("region", { name: /history export/i })).toHaveTextContent(
+      "benchdb history export r2 --server 'https://benchdb.example/tools/bench&dev' --output history.csv",
+    );
+  });
+
   it("renders a selected-point inspector with compare and history export actions", async () => {
     mockResultEntry([
       sample("r1", "2024-01-07T12:00:00Z"),

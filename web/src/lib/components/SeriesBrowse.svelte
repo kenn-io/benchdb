@@ -28,6 +28,7 @@
   } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
   import BrowseTrendCard from "./BrowseTrendCard.svelte";
+  import SubmitResultsHint from "./SubmitResultsHint.svelte";
 
   let {
     query,
@@ -360,6 +361,7 @@
     <section class="panel state-panel error-panel" role="alert">
       <h2>Failed to load benchmarks</h2>
       <p>{errorMsg}</p>
+      <button type="button" class="button-pill" onclick={() => void load(parseBrowseQuery(filterQuery))}>Retry</button>
     </section>
   {:else if loading}
     <section class="panel state-panel loading-panel" aria-live="polite">
@@ -369,6 +371,7 @@
     <section class="panel state-panel empty-panel" aria-label="No matching benchmarks">
       <h2>{emptyHeading}</h2>
       {#if statusesPending}<p>New results are still being scored. This page updates when they finish.</p>{/if}
+      {#if !statusesPending && !hasFilters && activeStatusLabel === "" && query.repository === ""}<SubmitResultsHint />{/if}
     </section>
   {:else}
     {#if refreshError}

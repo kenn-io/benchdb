@@ -85,11 +85,11 @@ describe("RecentRunsHome", () => {
       "href",
       "/ci/report?run_ids=run-a&baseline=fork_point",
     );
-    expect(screen.getByRole("link", { name: "Open run run-a" })).toHaveAttribute("href", "/runs/run-a");
-    expect(screen.getAllByRole("link", { name: "Open batch batch-a" })[0]).toHaveAttribute(
-      "href",
-      "/batches/batch-a",
-    );
+    // Each link's accessible name is its visible text, so voice control and
+    // screen-reader link lists match what is on screen (WCAG 2.5.3).
+    const runLinks = screen.getAllByRole("link", { name: "Improve vector kernel dispatch" });
+    expect(runLinks.map((link) => link.getAttribute("href"))).toContain("/runs/run-a");
+    expect(screen.getAllByRole("link", { name: "batch batch-a" })[0]).toHaveAttribute("href", "/batches/batch-a");
     expect(screen.getAllByText("nightly", { selector: ".reason-chip" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "Open commit abcdef12 on GitHub" })[0]).toHaveAttribute(
       "href",
@@ -153,14 +153,13 @@ describe("RecentRunsHome", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
     expect(screen.getByText("66f230370652…ea96d29b")).toHaveAttribute("title", longRunID);
     expect(screen.getByText("batch 66f230370652…29b-1p")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: `Open run ${longRunID}` })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Improve vector kernel dispatch" })).toHaveAttribute(
       "href",
       `/runs/${longRunID}`,
     );
-    expect(screen.getByRole("link", { name: `Open batch ${longBatchID}` })).toHaveAttribute(
-      "href",
-      `/batches/${longBatchID}`,
-    );
+    const batchLink = screen.getByRole("link", { name: "batch 66f230370652…29b-1p" });
+    expect(batchLink).toHaveAttribute("href", `/batches/${longBatchID}`);
+    expect(batchLink).toHaveAttribute("title", longBatchID);
   });
 
   it("adds a project column only when runs span several projects", async () => {
@@ -336,8 +335,45 @@ describe("RecentRunsHome", () => {
   it("shows an error state", async () => {
     GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
     render(RecentRunsHome, { props: {} });
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load recent runs/i));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/failed to load runs/i));
     expect(screen.getByText(/statement timeout/i)).toBeInTheDocument();
+  });
+
+  it("retries a failed load", async () => {
+    GET.mockResolvedValueOnce({ data: { detail: "statement timeout" }, status: 400 });
+    render(RecentRunsHome, { props: {} });
+    const alert = await screen.findByRole("alert");
+
+    GET.mockResolvedValueOnce({ status: 200, data: { runs: [run()] } });
+    await fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByRole("link", { name: "Improve vector kernel dispatch" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("announces loading", () => {
+    GET.mockReturnValueOnce(new Promise(() => {}));
+    render(RecentRunsHome, { props: {} });
+    expect(screen.getByRole("status")).toHaveTextContent("Loading runs…");
+  });
+
+  it("shows how to submit results before any run exists", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { runs: [] } });
+    render(RecentRunsHome, { props: {} });
+    await screen.findByText("No runs yet");
+
+    expect(screen.getByText(`benchdb results submit "bench-results/*.json" --server ${window.location.origin}`))
+      .toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "How to format and submit results" }))
+      .toHaveAttribute("href", "https://benchdb.io/docs/submitting-results/");
+    expect(screen.getByRole("link", { name: "account" })).toHaveAttribute("href", "/account");
+  });
+
+  it("leaves the submit hint out when a search finds nothing", async () => {
+    GET.mockResolvedValueOnce({ status: 200, data: { runs: [] } });
+    render(RecentRunsHome, { props: { query: { ...DEFAULT_HOME_QUERY, q: "abcdef" } } });
+    await screen.findByText("No matching runs");
+    expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
   });
 });
 
