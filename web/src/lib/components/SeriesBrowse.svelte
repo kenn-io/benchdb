@@ -211,6 +211,25 @@
     }
   }
 
+  // Narrow screens hide the sortable column headers, so the same sorts are
+  // offered as one select.
+  const sortOptions: SelectDropdownOption[] = [
+    { value: "", label: "Status, regressions first" },
+    { value: "name:asc", label: "Name, A to Z" },
+    { value: "name:desc", label: "Name, Z to A" },
+    { value: "svs:asc", label: "Last value, low to high" },
+    { value: "svs:desc", label: "Last value, high to low" },
+    { value: "points:desc", label: "Most history" },
+    { value: "points:asc", label: "Least history" },
+    { value: "commit:desc", label: "Newest commit" },
+    { value: "commit:asc", label: "Oldest commit" },
+  ];
+
+  function setSort(value: string) {
+    const [key, dir] = value.split(":");
+    sort = value === "" ? null : { key: key as SortKey, dir: dir === "desc" ? "desc" : "asc" };
+  }
+
   function open(row: BrowseRow) {
     navigate(`/benchmarks/${row.benchmarkId}`);
   }
@@ -338,6 +357,16 @@
       <button type="button" class="button-pill secondary" onclick={() => navigate(clearedURL)}>Clear filters</button>
     {/if}
     <div class="view-controls">
+      {#if !chartView}
+        <div class="sort-select">
+          <SelectDropdown
+            value={sort === null ? "" : `${sort.key}:${sort.dir}`}
+            options={sortOptions}
+            title="Sort"
+            onchange={setSort}
+          />
+        </div>
+      {/if}
       {#if chartView}
         <div class="y-axis-select">
           <SelectDropdown
@@ -458,6 +487,12 @@
   .benchmark-search { width: min(320px, 100%); }
   .machine-select { min-width: 180px; }
   .y-axis-select { min-width: 150px; }
+  .sort-select { display: none; min-width: 190px; }
+  .sort-select :global(.kit-select-dropdown__trigger) { width: 100%; }
+  /* Column headers sort the full table; the select stands in once they hide. */
+  @media (max-width: 1120px) {
+    .sort-select { display: block; }
+  }
   .machine-select :global(.kit-select-dropdown__trigger),
   .y-axis-select :global(.kit-select-dropdown__trigger) { width: 100%; }
   .view-controls {

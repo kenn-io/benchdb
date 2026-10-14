@@ -29,3 +29,27 @@ test("browse lists the seeded series, searches, and opens its trend", async ({ p
   await page.goto(`${baseURL}/series?q=definitely-not-a-benchmark`);
   await expect(page.getByText("No benchmarks match these filters")).toBeVisible();
 });
+
+test("browse rows stay two lines on narrow screens, with a sort select", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${baseURL}/series`);
+  const row = page.locator("table.browse-table tbody tr", { hasText: "ingest-events-10m" });
+  await expect(row).toBeVisible();
+
+  // Value, history, and commit fold into one line under the name, and the
+  // status sits beside the name instead of in a labeled block of its own.
+  await expect(row.locator(".history-cell")).toBeHidden();
+  await expect(row.locator(".narrow-meta")).toContainText(/points · \d+ machines? · /);
+  const name = await row.locator(".row-primary-link").boundingBox();
+  const status = await row.locator(".status-cell").boundingBox();
+  expect(status!.x).toBeGreaterThan(name!.x + name!.width);
+  expect(Math.abs(status!.y - name!.y)).toBeLessThan(name!.height);
+
+  // The column headers that sort the table are hidden, so a select stands in.
+  await expect(page.getByRole("combobox", { name: /^sort:/i })).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(row.locator(".history-cell")).toBeVisible();
+  await expect(row.locator(".narrow-meta")).toBeHidden();
+  await expect(page.getByRole("combobox", { name: /^sort:/i })).toBeHidden();
+});

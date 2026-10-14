@@ -163,6 +163,22 @@ describe("SeriesBrowse", () => {
     expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
   });
 
+  it("sorts from the select that stands in for column headers on narrow screens", async () => {
+    GET.mockResolvedValue({ status: 200, data: {
+      benchmarks: [item("f1", "alpha", { point_count: 3 }), item("f2", "beta", { point_count: 9 })],
+      next_page_cursor: null,
+    } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "alpha" });
+    const names = () => screen.getAllByRole("link", { name: /^(alpha|beta)$/ }).map((link) => link.textContent);
+    expect(names()).toEqual(["alpha", "beta"]);
+
+    await fireEvent.click(screen.getByRole("combobox", { name: /sort: status, regressions first/i, hidden: true }));
+    await fireEvent.click(screen.getByRole("option", { name: "Most history", hidden: true }));
+    expect(names()).toEqual(["beta", "alpha"]);
+    expect(screen.getByRole("button", { name: "Sort by history" }).closest("th")).toHaveAttribute("aria-sort", "descending");
+  });
+
   it("retries a failed load", async () => {
     GET.mockResolvedValueOnce({ status: 500, data: { detail: "database unavailable" } });
     render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
