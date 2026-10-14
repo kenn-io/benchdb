@@ -53,6 +53,12 @@ const rows = toBrowseRows(
 );
 
 describe("BrowseTable", () => {
+  it("summarizes value, history, and commit under the name for narrow screens", () => {
+    const { container } = render(BrowseTable, { props: { rows } });
+    expect(container.querySelector(".narrow-meta")).toHaveTextContent("1.2 s · 8 points · 2 machines · a1b2c3d · ");
+    expect(container.querySelector(".narrow-meta .mono")).toHaveTextContent("a1b2c3d");
+  });
+
   it("keeps benchmark rows as table rows with one link to open them", () => {
     render(BrowseTable, { props: { rows } });
     const row = screen.getByRole("row", { name: /tpch-q1/ });
@@ -61,12 +67,12 @@ describe("BrowseTable", () => {
   });
 
   it("renders one row with identity, value, status, and trend link", () => {
-    render(BrowseTable, { props: { rows } });
+    const { container } = render(BrowseTable, { props: { rows } });
     expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/benchmarks/b1");
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
     expect(screen.getByText("1.2 s")).toBeInTheDocument();
     expect(screen.getByText("regressed")).toBeInTheDocument();
-    expect(screen.getByText(/a1b2c3d/)).toBeInTheDocument();
+    expect(container.querySelector(".commit-cell")).toHaveTextContent(/^a1b2c3d · /);
   });
 
   it("uses the shared data-table and stacked-table treatment", () => {

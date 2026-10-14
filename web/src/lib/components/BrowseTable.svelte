@@ -30,6 +30,14 @@
     return sort.dir === "asc" ? " ^" : " v";
   }
 
+  function machinesText(row: BrowseRow): string {
+    return `${row.machineNames.length} ${row.machineNames.length === 1 ? "machine" : "machines"}`;
+  }
+
+  function historyText(row: BrowseRow): string {
+    return `${row.pointCount} points · ${machinesText(row)}`;
+  }
+
   function ariaSort(key: SortKey | null): "ascending" | "descending" | undefined {
     if (key === null) return undefined;
     if (sort?.key !== key) return undefined;
@@ -87,15 +95,22 @@
                   onopen(row);
                 }}>{row.name}</a>
               {#if row.paramsText}<span class="metadata-line">{row.paramsText}</span>{/if}
+              <!-- Narrow screens hide the value, history, and commit columns and
+                   show this one line instead, so each row stays two lines. -->
+              <span class="narrow-meta">
+                {row.svsText} · {historyText(row)} · <span class="mono">{row.commitSha}</span> · {row.commitDateText}
+              </span>
             </span>
           </td>
           <td class="num-cell" data-label="last value"><MeasurementValue value={row.latestSVS} unit={row.unit} /></td>
           <td class="history-cell" data-label="history">
-            <span>{row.pointCount} points</span>
-            <span class="metadata-line">{row.machineNames.length} {row.machineNames.length === 1 ? "machine" : "machines"}</span>
+            <span class="history-stack">
+              <span>{row.pointCount} points</span>
+              <span class="metadata-line">{machinesText(row)}</span>
+            </span>
           </td>
           <td class="status-cell" data-label="status"><BenchmarkStatus {row} /></td>
-          <td class="muted commit-cell" data-label="last commit">{row.commitSha} · {row.commitDateText}</td>
+          <td class="muted commit-cell" data-label="last commit"><span class="mono">{row.commitSha}</span> · {row.commitDateText}</td>
         </tr>
       {/each}
     </tbody>
@@ -194,14 +209,53 @@
     color: var(--c-accent);
   }
 
+  .history-stack {
+    display: grid;
+    gap: 2px;
+  }
+
+  .narrow-meta {
+    display: none;
+  }
+
+  /* Below the stacked-table breakpoint each row is two parts: the name with a
+     one-line summary under it, and the status beside it. */
   @media (max-width: 1120px) {
     .browse-table {
       min-width: 0;
     }
 
-    .num-cell,
-    .status-cell,
-    .commit-cell {
+    .browse-table tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 0 12px;
+    }
+
+    .browse-table td {
+      display: block;
+      padding: 0;
+    }
+
+    .browse-table td::before {
+      content: none;
+    }
+
+    .browse-table .num-cell,
+    .browse-table .history-cell,
+    .browse-table .commit-cell {
+      display: none;
+    }
+
+    .narrow-meta {
+      display: block;
+      color: var(--c-text-muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+
+    .status-cell {
       white-space: normal;
     }
   }
