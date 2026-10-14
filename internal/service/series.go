@@ -108,7 +108,10 @@ func seriesUnit(members []storage.HistoryRow) *string {
 // Excluding the latest from its own baseline is essential: a worsening latest point
 // is itself a distribution step, so scoring it against a window that includes it
 // would null its residual and miss the regression. A mixed/unknown unit, a
-// too-short or zero-variance baseline, or an uncomputable z yields "insufficient".
+// baseline shorter than minHistoryPoints or with zero variance, or an
+// uncomputable z yields "insufficient". A regression or improvement also has to
+// hold for the member before the latest, scored the same way, so a single
+// outlier on a noisy benchmark does not flag it.
 func seriesStatus(members []storage.HistoryRow, unit *string, lessIsBetter *bool) string {
 	return scoreSeries(members, unit, lessIsBetter).status
 }
@@ -121,9 +124,25 @@ type seriesVerdict struct {
 	changePercent *float64
 }
 
+// minHistoryPoints is the fewest earlier members a status needs: a standard
+// deviation from a handful of points is too uncertain to call a change.
+const minHistoryPoints = 10
+
 // scoreSeries scores the latest member the way seriesStatus describes and
 // reports its change from the history window's mean.
 func scoreSeries(members []storage.HistoryRow, unit *string, lessIsBetter *bool) seriesVerdict {
+	verdict := scoreLatest(members, unit, lessIsBetter)
+	if verdict.status != statusRegressed && verdict.status != statusImproved {
+		return verdict
+	}
+	if previous := scoreLatest(members[:len(members)-1], unit, lessIsBetter); previous.status != verdict.status {
+		verdict.status = statusStable
+	}
+	return verdict
+}
+
+// scoreLatest scores only the latest member against the members before it.
+func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool) seriesVerdict {
 	insufficient := seriesVerdict{status: statusInsufficient}
 	if unit == nil || lessIsBetter == nil || len(members) < 2 {
 		return insufficient
@@ -153,6 +172,9 @@ func scoreSeries(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		if change := (latestSVS - *mean) / math.Abs(*mean) * 100; !math.IsInf(change, 0) && !math.IsNaN(change) {
 			verdict.changePercent = &change
 		}
+	}
+	if len(points) < minHistoryPoints {
+		return verdict
 	}
 	z := stats.ZScore(&latestSVS, *lessIsBetter, mean, stddev)
 	v := stats.LookbackZVerdict(z, stats.ZScoreThresholdDefault)

@@ -353,8 +353,8 @@ func TestBenchmarkStatusesFollowDefaultBranchHistory(t *testing.T) {
 	_, store, _, ctx := newIngester(t)
 	start := time.Now().UTC().Truncate(time.Second).Add(-24 * time.Hour)
 	provider := ciCommitProvider{}
-	baseline := []float64{10, 10.2, 9.9, 10.1, 9.8, 10, 10.1}
-	for i := range len(baseline) + 1 {
+	baseline := []float64{10, 10.2, 9.9, 10.1, 9.8, 10, 10.1, 9.9, 10, 10.2, 9.8, 10}
+	for i := range len(baseline) + 2 {
 		sha := fmt.Sprintf("c%d", i)
 		provider[sha] = ciCommitInfo(sha, nil, sha, start.Add(time.Duration(i)*time.Hour))
 	}
@@ -374,9 +374,16 @@ func TestBenchmarkStatusesFollowDefaultBranchHistory(t *testing.T) {
 	assert.Equal(t, service.BenchmarkStatusCounts{Stable: 1}, page.StatusCounts)
 	assert.False(t, page.StatusesPending)
 
-	slow := submitAt(t, ctx, ing, "main-slow", fmt.Sprintf("c%d", len(baseline)), 30, start.Add(time.Duration(len(baseline))*time.Hour))
+	submitAt(t, ctx, ing, "main-slow-1", fmt.Sprintf("c%d", len(baseline)), 30, start.Add(time.Duration(len(baseline))*time.Hour))
 	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
 	assert.True(t, page.StatusesPending, "the new result queued its benchmark")
+	drainVerdicts(t, ctx, store)
+	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
+	assert.Equal(t, "stable", page.Benchmarks[0].Status, "one slow result is not yet a regression")
+
+	slow := submitAt(t, ctx, ing, "main-slow-2", fmt.Sprintf("c%d", len(baseline)+1), 30,
+		start.Add(time.Duration(len(baseline)+1)*time.Hour))
+	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
 	assert.Equal(t, "stable", page.Benchmarks[0].Status, "the stored status shows until the recompute")
 
 	drainVerdicts(t, ctx, store)
@@ -391,5 +398,5 @@ func TestBenchmarkStatusesFollowDefaultBranchHistory(t *testing.T) {
 	drainVerdicts(t, ctx, store)
 	page = listBenchmarks(t, ctx, store, service.BenchmarkQuery{})
 	require.Len(t, page.Benchmarks, 1)
-	assert.Equal(t, "stable", page.Benchmarks[0].Status, "deleting the regression restores the status")
+	assert.Equal(t, "stable", page.Benchmarks[0].Status, "deleting the second slow result restores the status")
 }

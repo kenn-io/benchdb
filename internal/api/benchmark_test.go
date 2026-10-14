@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -154,10 +155,13 @@ func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
 
 func TestBenchmarkListPagesRegressionsFirstWithStatusCounts(t *testing.T) {
 	tapi, pool, ctx := seedAPI(t)
+	// Twelve in-band results give the history a status needs; the regression
+	// holds for the two latest results.
+	history := []float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 0.99, 1.00, 1.01, 0.99, 1.00}
 	series := map[string][]float64{
-		"a-steady":     {1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005},
+		"a-steady":     append(slices.Clone(history), 1.005),
 		"b-single":     {1},
-		"z-regressing": {1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20},
+		"z-regressing": append(slices.Clone(history), 1.20, 1.20),
 	}
 	for name, values := range series {
 		for i, value := range values {
