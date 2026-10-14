@@ -1,100 +1,117 @@
 # Concepts
 
-BenchDB stores benchmark results as structured JSON and groups them into
-history series that can be compared over time.
+This page defines the records BenchDB stores and the statuses it reports. Read
+it before you write a result payload or act on a regression.
 
 ## Result
 
-A result is one benchmark measurement payload. It contains:
+A result is one benchmark measurement. Its JSON payload holds:
 
-- a benchmark case name and tags,
-- a unit and observed data,
-- machine or cluster hardware metadata,
-- optional context and information tags,
-- optional error details,
-- run metadata such as `run_id`, `run_tags`, and `batch_id`,
-- GitHub metadata such as repository, commit, branch, and pull request number.
+- the benchmark case name and tags
+- a unit and the observed data
+- machine or cluster hardware metadata
+- optional `context` and `info` objects
+- optional error details
+- run metadata such as `run_id`, `run_tags`, and `batch_id`
+- GitHub metadata such as the repository, commit, branch, and pull request number
 
-The CLI write path accepts JSON files containing either one result object or an
-array of result objects.
+`benchdb results submit` accepts JSON files that hold one result object or an
+array of them. [Submitting results](submitting-results.md) has the full payload
+contract.
 
 ## Series
 
-A series is a stable history of comparable results. The server derives a history
-fingerprint from the benchmark case, context, hardware, and unit. The dashboard
-uses series pages for trend inspection and regression context.
+A series is the history of directly comparable results. BenchDB gives each
+result a history fingerprint computed from the benchmark case, the context, the
+hardware, and the repository URL. Results with the same fingerprint belong to
+one series. Changing any of those four values starts a new series.
 
-The history fingerprint is the product identity for a comparable benchmark
-stream. Project health and regression summaries count series, not raw result
-rows, so retries and multi-file submissions do not inflate the headline.
+## Benchmark
 
-## Runs And Batches
+A benchmark is one case in one repository, across every machine that ran it.
+The dashboard's Benchmarks page lists benchmarks. Each machine's series is a
+separate track on the benchmark's chart, because results from different
+hardware are not comparable. Status counts on that page count benchmarks, not
+result rows, so retried uploads and multi-file submissions do not inflate them.
 
-Runs and batches are submitted metadata. Use `run_id` to group one benchmark
-attempt, `run_tags` to attach workflow metadata, and `batch_id` when a
-benchmark suite needs a wider grouping across related runs.
+## Runs and batches
 
-To inspect a run or batch, filter benchmark results by `run_id` or `batch_id`.
-To compare a run against an inferred or explicit baseline, use a CI report with
-`run_ids` and, when needed, `baseline_run_ids`.
+The submitter sets run metadata on each result. `run_id` groups one benchmark
+attempt. `run_tags` holds workflow metadata. `batch_id` groups related runs,
+such as one suite split across several jobs.
 
-## Commit Metadata
+The dashboard has a page for each run at `/runs/<run_id>` and each batch at
+`/batches/<batch_id>`. `GET /api/benchmark-results` filters by `run_id` or
+`batch_id`.
 
-Commit metadata links a result to repository history. CI reports use repository
-plus commit SHA to find contender runs and then choose a baseline using parent,
-fork-point, or latest-default logic. Payloads must stamp the same commit SHA
-that the CI job later passes to `benchdb ci report`.
+## Commits and baselines
 
-When the contender and baseline runs are already known, CI reports can compare
-explicit run pairs through `run_ids` and `baseline_run_ids`. That mode uses the
-same comparison rows and status rules without asking the server to infer an
-ancestor baseline.
+Commit metadata links a result to repository history. `benchdb ci report` finds
+contender runs by repository URL and commit SHA, so each payload must carry the
+same commit SHA that the CI job later passes to `--commit`. The report then
+picks a baseline run with the `--baseline` selector (`fork_point`, `parent`, or
+`latest_default`).
 
-## Comparison
+When you already know both runs, pass `--run-ids` and `--baseline-run-ids`
+instead. The report uses the same comparison rows and status rules without
+searching commit ancestry. [CI reporting](ci-reporting.md) covers selectors and
+baseline modes.
 
-A comparison evaluates two compatible results. BenchDB reports:
+## Statuses
 
-- pairwise percent change,
-- lookback z-score analysis,
-- stable, improved, regressed, insufficient, errored, missing-baseline, or
-  not-comparable row statuses.
+BenchDB computes statuses in two places, with different rules.
 
-CI status is driven by lookback z-score regression behavior to reduce noisy
-pairwise-only false positives.
+### Series and benchmark status
 
-## Project Health Vocabulary
+The Benchmarks page, trend pages, `GET /api/series`, and `GET /api/benchmarks`
+report one of four statuses: `regressed`, `improved`, `stable`, or
+`insufficient`.
 
-The new dashboard treats regression state as current state, not as a one-time
-event. A regression is open while the latest comparable point for a series is
-outside the regression threshold. It closes when the series returns inside the
-threshold band, improves past the improvement threshold, or is explicitly
-re-baselined through a distribution-change annotation.
+BenchDB scores the latest result in a series against the results before it. A
+series is `regressed` or `improved` only when all of these hold:
 
-Health summaries use counts:
+- The series has at least 10 earlier results.
+- The latest result's lookback z-score is beyond 2 in the worse or better
+  direction.
+- The latest result differs from the history window's mean by more than 2%.
+- The result before the latest, scored the same way against its own earlier
+  results, got the same status.
 
-- `regressed`: latest comparable point is statistically worse,
-- `improved`: latest comparable point is statistically better,
-- `stable`: lookback analysis exists and is inside the threshold band,
-- `insufficient`: not enough history exists to decide,
-- `errored`: the latest relevant result has a benchmark error or cannot be
-  analyzed.
+Otherwise the series is `stable`. It is `insufficient` when it has fewer than
+10 earlier results, mixes units, or has no variation to score against.
 
-Regressions and improvements are never netted against each other. A project with
-ten regressions and ten improvements should not look healthy just because the
-counts cancel. Always read health counts with their denominator, for example
-`7 / 1,842 comparable series`, because the comparable universe changes as
-benchmarks are added, removed, or filtered.
+A benchmark takes the most severe status of its machine tracks, in the order
+`regressed`, `improved`, `stable`, `insufficient`. A benchmark whose tracks
+have different units is `insufficient`.
 
-`missing` is only meaningful when there is an expected set, such as a selected
-run or CI report. A historical fingerprint proves what has reported before; it
-does not prove what should have reported in the current run.
+Status always describes the latest result. A regression clears when a newer
+result scores `stable` or `improved`. To accept a new performance level, set
+`begins_distribution_change` in a result's `change_annotations`. The history
+window then starts at that result.
 
-Performance deltas are oriented so negative means worse and positive means
-better, regardless of whether the raw unit is `less_is_better`.
+### CI report and alert status
 
-## CLI-First Writes
+CI reports and alert rules compare each contender result with its baseline
+result. A row is `regressed` or `improved` when the lookback z-score passes its
+threshold (2 by default) and the contender also moved at least 3 standard
+deviations and more than 2% from its own baseline result. Report rows can also
+be `errored`, `missing_baseline`, or `not_comparable`.
 
-The Go CLI is the canonical write path. It handles token resolution, payload
-validation, multi-file submission, CI report rendering, and exit codes. Python
-code can still construct payloads, but it should hand them to the CLI rather
-than recreate the HTTP write client stack.
+[Regression analysis](regression-analysis.md) explains the calculations.
+[CI reporting](ci-reporting.md) explains how row statuses decide the report
+status and exit code.
+
+### Sign of a change
+
+Comparisons and CI reports sign percent changes and z-scores so that positive
+means better, whatever the unit's direction. On the Benchmarks page,
+`change_percent` is signed by value, so positive means the latest value is
+higher than the window mean.
+
+## Write results with the CLI
+
+Submit results with `benchdb results submit`. The CLI resolves the token,
+rejects payloads with unknown fields, expands quoted globs, submits many files
+in parallel, and returns a nonzero exit code on failure. Harnesses in other
+languages should write result JSON files and pass them to the CLI instead of
+calling the HTTP write API directly.
