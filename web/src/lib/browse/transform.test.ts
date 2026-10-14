@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BenchmarkListItem } from "../api/benchdb";
 import {
+  formatChange,
   formatDate,
   formatSVS,
   groupByRepository,
@@ -25,6 +26,8 @@ function item(over: Partial<BenchmarkListItem> = {}): BenchmarkListItem {
     unit: "s",
     less_is_better: true,
     status: "stable",
+    change_percent: null,
+    change_machine: null,
     latest_result_id: "r9",
     latest_single_value_summary: 1.23456,
     latest_single_value_summary_type: "min",
@@ -207,5 +210,20 @@ describe("trackSummary", () => {
 
   it("has nothing to say about a machine without points", () => {
     expect(trackSummary({ machineName: "m5", points: [] })).toBeNull();
+  });
+});
+
+describe("formatChange", () => {
+  it("signs a change and keeps one decimal below 100%", () => {
+    expect(formatChange(12.04)).toBe("+12.0%");
+    expect(formatChange(-3.25)).toBe("\u22123.3%");
+    expect(formatChange(150.4)).toBe("+150%");
+    expect(formatChange(-250)).toBe("\u2212250%");
+  });
+
+  it("drops the sign when the change rounds to zero", () => {
+    expect(formatChange(0)).toBe("0.0%");
+    expect(formatChange(0.04)).toBe("0.0%");
+    expect(formatChange(-0.04)).toBe("0.0%");
   });
 });

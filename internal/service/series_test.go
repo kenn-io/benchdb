@@ -84,16 +84,58 @@ func TestSeriesStatusNeedsMoreThanMinimumChange(t *testing.T) {
 	assert.Equal(t, statusImproved, status(0.97))
 }
 
+func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
+	libTrue := true
+	steady := []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000}
+	score := func(latest float64) seriesVerdict {
+		return scoreSeries(membersFromSVS(append(slices.Clone(steady), latest), "s"), new("s"), &libTrue)
+	}
+
+	regressed := score(1.03)
+	assert.Equal(t, statusRegressed, regressed.status)
+	require.NotNil(t, regressed.changePercent)
+	assert.InDelta(t, 3.0, *regressed.changePercent, 1e-9)
+
+	improved := score(0.97)
+	assert.Equal(t, statusImproved, improved.status)
+	assert.InDelta(t, -3.0, *improved.changePercent, 1e-9, "the sign follows the value, not the direction")
+
+	stable := score(1.015)
+	assert.Equal(t, statusStable, stable.status)
+	assert.InDelta(t, 1.5, *stable.changePercent, 1e-9, "a change below the minimum is still reported")
+
+	zeroMean := scoreSeries(membersFromSVS([]float64{-1, 1, -1, 1, 5}, "s"), new("s"), &libTrue)
+	assert.Nil(t, zeroMean.changePercent, "no percent of a zero mean")
+
+	overflow := scoreSeries(membersFromSVS([]float64{1e-300, 2e-300, 1e-300, 2e-300, 1e300}, "s"), new("s"), &libTrue)
+	assert.Nil(t, overflow.changePercent, "a change too large for a float64 is left out")
+	assert.Nil(t, scoreSeries(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue).changePercent)
+}
+
+func TestTrackVerdictTakesTheChangeOfTheSegmentThatSetsStatus(t *testing.T) {
+	// The noisy stable segment moved further (+40%) than the steady regressed
+	// one (+3%), but the regressed segment sets the status and so the change.
+	stable := machineSegment("stable-context", "m1", 0, []float64{1, 1.5, 0.5, 1, 1.5, 0.5, 1, 1.4})
+	regressed := machineSegment("regressed-context", "m1", 0, []float64{1.000, 1.001, 0.999, 1.000, 1.001, 0.999, 1.000, 1.03})
+	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(stable), regressed...))
+	verdict := trackVerdict([]string{"regressed-context", "stable-context"},
+		map[string][]storage.HistoryRow{"stable-context": stable, "regressed-context": regressed}, unit, lessIsBetter)
+
+	assert.Equal(t, statusRegressed, verdict.status)
+	require.NotNil(t, verdict.changePercent)
+	assert.InDelta(t, 3.0, *verdict.changePercent, 1e-9, "the regressed segment's change, not the stable one's")
+}
+
 func TestBenchmarkStatusUsesWorstFleetSegment(t *testing.T) {
 	stable := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.005}, "s")
 	regressed := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "s")
 	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
-	assert.Equal(t, statusRegressed, benchmarkStatus(
+	assert.Equal(t, statusRegressed, trackVerdict(
 		[]string{"stable-machine", "regressed-machine"},
 		map[string][]storage.HistoryRow{"stable-machine": stable, "regressed-machine": regressed},
 		unit,
 		lessIsBetter,
-	))
+	).status)
 }
 
 // machineSegment builds one fingerprint's members on machine, with commits one
@@ -132,7 +174,7 @@ func TestBenchmarkStatusIgnoresSupersededMachineSegment(t *testing.T) {
 	assert.Equal(t, statusRegressed, seriesStatus(old, unit, lessIsBetter))
 	assert.Equal(t, statusStable, seriesStatus(current, unit, lessIsBetter))
 	assert.Equal(t, statusStable,
-		benchmarkStatus([]string{"old-context", "new-context"}, members, unit, lessIsBetter))
+		trackVerdict([]string{"old-context", "new-context"}, members, unit, lessIsBetter).status)
 }
 
 var (
@@ -156,8 +198,8 @@ func TestBenchmarkStatusFollowsContextsMeasuredAtTheLatestCommit(t *testing.T) {
 			old := machineSegment("old-context", "m1", 0, regressedSVS)
 			current := machineSegment("new-context", "m1", tt.newStart, stableSVS)
 			unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(old), current...))
-			assert.Equal(t, tt.want, benchmarkStatus([]string{"old-context", "new-context"},
-				map[string][]storage.HistoryRow{"old-context": old, "new-context": current}, unit, lessIsBetter))
+			assert.Equal(t, tt.want, trackVerdict([]string{"old-context", "new-context"},
+				map[string][]storage.HistoryRow{"old-context": old, "new-context": current}, unit, lessIsBetter).status)
 		})
 	}
 }
@@ -167,12 +209,12 @@ func TestBenchmarkStatusKeepsContextsMeasuredSideBySide(t *testing.T) {
 	// Both contexts are measured at every commit, including the latest.
 	regressed := machineSegment("context-b", "m1", 0, regressedSVS)
 	unit, lessIsBetter := seriesIdentityUnit(append(slices.Clone(stable), regressed...))
-	assert.Equal(t, statusRegressed, benchmarkStatus(
+	assert.Equal(t, statusRegressed, trackVerdict(
 		[]string{"context-a", "context-b"},
 		map[string][]storage.HistoryRow{"context-a": stable, "context-b": regressed},
 		unit,
 		lessIsBetter,
-	))
+	).status)
 }
 
 func TestBenchmarkStatusKeepsOtherMachinesSegments(t *testing.T) {
@@ -180,12 +222,12 @@ func TestBenchmarkStatusKeepsOtherMachinesSegments(t *testing.T) {
 	// machine-b starts after machine-a's last commit; it must not supersede it.
 	stable := machineSegment("machine-b-fp", "machine-b", 10, stableSVS)
 	unit, lessIsBetter := seriesIdentityUnit(append(stable, regressed...))
-	assert.Equal(t, statusRegressed, benchmarkStatus(
+	assert.Equal(t, statusRegressed, trackVerdict(
 		[]string{"machine-a-fp", "machine-b-fp"},
 		map[string][]storage.HistoryRow{"machine-a-fp": regressed, "machine-b-fp": stable},
 		unit,
 		lessIsBetter,
-	))
+	).status)
 }
 
 func TestBenchmarkStatusRejectsMixedFleetUnits(t *testing.T) {
@@ -193,12 +235,12 @@ func TestBenchmarkStatusRejectsMixedFleetUnits(t *testing.T) {
 	nanoseconds := membersFromSVS([]float64{1.00, 1.01, 0.99, 1.00, 1.02, 0.98, 1.01, 1.20}, "ns")
 	unit, lessIsBetter := benchmarkIdentityUnit([]string{"ns", "s"})
 
-	assert.Equal(t, statusInsufficient, benchmarkStatus(
+	assert.Equal(t, statusInsufficient, trackVerdict(
 		[]string{"seconds-machine", "nanoseconds-machine"},
 		map[string][]storage.HistoryRow{"seconds-machine": seconds, "nanoseconds-machine": nanoseconds},
 		unit,
 		lessIsBetter,
-	))
+	).status)
 }
 
 func TestSeriesUnit(t *testing.T) {

@@ -3,7 +3,7 @@
   import type { BrowseRow, SortKey, SortSpec } from "../browse/transform";
   import { interceptNavClick } from "../router";
   import MeasurementValue from "./MeasurementValue.svelte";
-  import StatusBadge from "./StatusBadge.svelte";
+  import BenchmarkStatus from "./BenchmarkStatus.svelte";
 
   let {
     rows,
@@ -94,7 +94,7 @@
             <span>{row.pointCount} points</span>
             <span class="metadata-line">{row.machineNames.length} {row.machineNames.length === 1 ? "machine" : "machines"}</span>
           </td>
-          <td class="status-cell" data-label="status"><StatusBadge status={row.status} /></td>
+          <td class="status-cell" data-label="status"><BenchmarkStatus {row} /></td>
           <td class="muted commit-cell" data-label="last commit">{row.commitSha} · {row.commitDateText}</td>
         </tr>
       {/each}
@@ -112,7 +112,7 @@
   }
 
   .benchmark-col {
-    width: 31%;
+    width: 26%;
   }
 
   .value-col {
@@ -124,7 +124,7 @@
   }
 
   .status-col {
-    width: 7%;
+    width: 12%;
   }
 
   .commit-col {

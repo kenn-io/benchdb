@@ -64,7 +64,9 @@ type RunVerdict struct {
 // default-branch history. Unit is nil unless the track has one unit with a
 // known direction. PointTimestamps holds the commit time of every history
 // point, oldest first; PreviewPoints is the JSON array of its latest chart
-// points.
+// points. ChangePercent is the latest point's change from its history
+// window's mean, in percent of the mean, from the segment that sets Status;
+// nil when that mean is zero or cannot be computed.
 type BenchmarkVerdict struct {
 	BenchmarkID           string
 	MachineName           string
@@ -74,6 +76,7 @@ type BenchmarkVerdict struct {
 	PreviewPoints         []byte
 	Unit                  *string
 	Status                string
+	ChangePercent         *float64
 	LatestResultID        string
 	LatestResultTimestamp time.Time
 	LatestCommitSHA       string

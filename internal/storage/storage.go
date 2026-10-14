@@ -764,6 +764,8 @@ type BenchmarkCursor struct {
 // when the tracks do not share one), and the latest result across tracks.
 // PointCount counts the tracks' history points inside the active window.
 // PreviewTracks is the JSON array of each track's stored preview, by machine.
+// ChangePercent and ChangeMachine come from the track that sets Status, and
+// are nil when the tracks do not share a unit or that track has no change.
 type BenchmarkPageRow struct {
 	BenchmarkID           string
 	Repository            string
@@ -771,6 +773,8 @@ type BenchmarkPageRow struct {
 	CaseTags              []byte
 	Unit                  *string
 	Status                string
+	ChangePercent         *float64
+	ChangeMachine         *string
 	MachineNames          []string
 	PointCount            int64
 	PreviewTracks         []byte

@@ -29,7 +29,11 @@ shown, each project gets its own section.
 Each benchmark's status compares its latest default-branch result with the
 history before it, on each machine. A change counts as a regression or
 improvement only when it is outside the history band and more than 2% from the
-history mean; see [Regression analysis](regression-analysis.md). When a machine's measurement context
+history mean; see [Regression analysis](regression-analysis.md). Next to the
+status, the list shows that change in percent of the history mean, such as
+`+12.0%`, from the machine that set the status; when a benchmark runs on several
+machines, the list names that machine. The API returns it as `change_percent`
+and `change_machine`. When a machine's measurement context
 changes, such as a new toolchain or workload version, only the contexts measured
 at that machine's latest commit count; an old context that overlapped the
 switchover no longer decides the status. With every machine shown, the benchmark

@@ -6,7 +6,10 @@
 -- 3 insufficient) is the worst across its tracks, or insufficient when the
 -- tracks do not share one unit. Pages run in status order, regressions first,
 -- then by name. Point counts cover the tracks' history points inside the
--- active window, and previews hold each track's stored latest points.
+-- active window, and previews hold each track's stored latest points. The
+-- change is the stored change of the track that sets the benchmark's status,
+-- the largest one when several tracks share that status; callers drop it when
+-- the tracks do not share one unit.
 -- CountBenchmarkStatuses applies the same scope.
 WITH scoped AS (
   SELECT
@@ -16,6 +19,7 @@ WITH scoped AS (
     v.point_timestamps,
     v.preview_points,
     v.unit,
+    v.change_percent,
     v.latest_result_id,
     v.latest_result_timestamp,
     v.latest_commit_sha,
@@ -76,6 +80,8 @@ SELECT
   p.unit,
   p.status_rank,
   p.machine_names,
+  d.change_percent,
+  d.machine_name AS change_machine,
   (
     SELECT coalesce(sum(CASE
       WHEN sqlc.narg('active_since')::timestamp IS NULL AND sqlc.narg('active_until')::timestamp IS NULL
@@ -105,6 +111,13 @@ SELECT
   coalesce(br.data, ARRAY[]::numeric[])::numeric[] AS latest_data
 FROM page p
 JOIN latest l ON l.benchmark_id = p.benchmark_id
+LEFT JOIN LATERAL (
+  SELECT s.change_percent, s.machine_name
+  FROM scoped s
+  WHERE s.benchmark_id = p.benchmark_id
+  ORDER BY s.status_rank, abs(s.change_percent) DESC NULLS LAST, s.machine_name
+  LIMIT 1
+) d ON true
 LEFT JOIN benchmark_result br ON br.id = l.latest_result_id
 ORDER BY p.status_rank, p.case_name, p.benchmark_id;
 

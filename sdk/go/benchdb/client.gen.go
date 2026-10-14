@@ -4545,7 +4545,13 @@ func (b BenchmarkHistory) Validate() error {
 }
 
 type BenchmarkListItem struct {
-	BenchmarkID                  string                  `json:"benchmark_id" validate:"required"`
+	BenchmarkID string `json:"benchmark_id" validate:"required"`
+
+	// ChangeMachine The machine whose track sets status and change_percent.
+	ChangeMachine *string `json:"change_machine,omitempty" validate:"required"`
+
+	// ChangePercent How far the latest point on change_machine moved from its history window's mean, in percent of the mean; positive means a higher value. Null when the tracks share no unit or the mean is zero.
+	ChangePercent                *float64                `json:"change_percent,omitempty"`
 	LatestCommitSha              string                  `json:"latest_commit_sha" validate:"required"`
 	LatestCommitTimestamp        time.Time               `json:"latest_commit_timestamp" validate:"required"`
 	LatestResultID               string                  `json:"latest_result_id" validate:"required"`
@@ -4567,6 +4573,11 @@ func (b BenchmarkListItem) Validate() error {
 	var errors runtime.ValidationErrors
 	if err := typesValidator.Var(b.BenchmarkID, "required"); err != nil {
 		errors = errors.Append("BenchmarkID", err)
+	}
+	if b.ChangeMachine != nil {
+		if err := typesValidator.Var(b.ChangeMachine, "required"); err != nil {
+			errors = errors.Append("ChangeMachine", err)
+		}
 	}
 	if err := typesValidator.Var(b.LatestCommitSha, "required"); err != nil {
 		errors = errors.Append("LatestCommitSha", err)

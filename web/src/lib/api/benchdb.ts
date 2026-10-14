@@ -227,6 +227,16 @@ export interface BenchmarkPreviewTrack {
 
 export interface BenchmarkListItem {
   benchmark_id: string;
+  /**
+     * The machine whose track sets status and change_percent.
+     * @nullable
+     */
+  change_machine: string | null;
+  /**
+     * How far the latest point on change_machine moved from its history window's mean, in percent of the mean; positive means a higher value. Null when the tracks share no unit or the mean is zero.
+     * @nullable
+     */
+  change_percent: number | null;
   latest_commit_sha: string;
   latest_commit_timestamp: string;
   latest_result_id: string;
