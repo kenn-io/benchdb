@@ -89,6 +89,15 @@ export type BrowseWindow = "all" | "30d" | "3mo" | "1y";
 /** BrowseStatus filters the benchmark list by stored status; "" lists all. */
 export type BrowseStatus = "" | "regressed" | "improved" | "stable" | "insufficient";
 
+/** BrowseSort orders the loaded rows by a column and direction; "" keeps the
+ * server's order, regressions first. */
+export type BrowseSort =
+  | ""
+  | "name-asc" | "name-desc"
+  | "svs-asc" | "svs-desc"
+  | "points-asc" | "points-desc"
+  | "commit-asc" | "commit-desc";
+
 export interface BrowseQuery {
   q: string;
   hardware: string;
@@ -96,6 +105,9 @@ export interface BrowseQuery {
   window: BrowseWindow;
   status: BrowseStatus;
   view: "table" | "charts";
+  /** View preferences: they reorder or rescale loaded rows without a refetch. */
+  sort: BrowseSort;
+  yAxis: "observed" | "zero";
 }
 
 export interface BrowseRoute {
@@ -290,6 +302,8 @@ export const DEFAULT_BROWSE_QUERY: BrowseQuery = {
   window: "all",
   status: "",
   view: "table",
+  sort: "",
+  yAxis: "observed",
 };
 export const DEFAULT_HOME_QUERY: HomeQuery = { repository: "", q: "", offset: 0, attention: false };
 export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
@@ -302,6 +316,9 @@ export const DEFAULT_RESULT_LIST_QUERY: ResultListQuery = {
 
 const BROWSE_WINDOWS: readonly BrowseWindow[] = ["all", "30d", "3mo", "1y"];
 const BROWSE_STATUSES: readonly BrowseStatus[] = ["regressed", "improved", "stable", "insufficient"];
+const BROWSE_SORTS: readonly BrowseSort[] = [
+  "name-asc", "name-desc", "svs-asc", "svs-desc", "points-asc", "points-desc", "commit-asc", "commit-desc",
+];
 
 export function parseHomeQuery(search: string): HomeQuery {
   const params = new URLSearchParams(search);
@@ -330,6 +347,7 @@ export function parseBrowseQuery(search: string): BrowseQuery {
   const params = new URLSearchParams(search);
   const window = params.get("window");
   const status = params.get("status");
+  const sort = params.get("sort");
   return {
     q: params.get("q") ?? "",
     hardware: params.get("hardware") ?? "",
@@ -337,6 +355,8 @@ export function parseBrowseQuery(search: string): BrowseQuery {
     window: BROWSE_WINDOWS.includes(window as BrowseWindow) ? (window as BrowseWindow) : "all",
     status: BROWSE_STATUSES.includes(status as BrowseStatus) ? (status as BrowseStatus) : "",
     view: params.get("view") === "charts" ? "charts" : "table",
+    sort: BROWSE_SORTS.includes(sort as BrowseSort) ? (sort as BrowseSort) : "",
+    yAxis: params.get("y") === "zero" ? "zero" : "observed",
   };
 }
 
@@ -350,6 +370,8 @@ export function formatBrowseQuery(query: BrowseQuery): string {
   if (query.window !== "all") params.set("window", query.window);
   if (query.status !== "") params.set("status", query.status);
   if (query.view === "charts") params.set("view", "charts");
+  if (query.sort !== "") params.set("sort", query.sort);
+  if (query.yAxis === "zero") params.set("y", "zero");
   const s = params.toString();
   return s === "" ? "" : `?${s}`;
 }

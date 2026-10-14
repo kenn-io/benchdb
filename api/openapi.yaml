@@ -1508,6 +1508,26 @@ components:
       required:
         - name
       type: object
+    MachineList:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/MachineList.json
+          format: uri
+          readOnly: true
+          type: string
+        machines:
+          description: Machine names with benchmark history, sorted by name.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - machines
+      type: object
     MeOutputBody:
       additionalProperties: false
       properties:
@@ -3405,6 +3425,31 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Get the history series for a benchmark result
+  /api/machines:
+    get:
+      operationId: list-machines
+      parameters:
+        - description: Filter by repository URL.
+          explode: false
+          in: query
+          name: repository
+          schema:
+            description: Filter by repository URL.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineList"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List machines with benchmark history
   /api/ping:
     get:
       operationId: ping

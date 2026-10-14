@@ -24,6 +24,7 @@
     interceptNavClick,
     navigate,
     type BrowseQuery,
+    type BrowseSort,
     type BrowseWindow,
   } from "../router";
   import BrowseTable from "./BrowseTable.svelte";
@@ -53,19 +54,42 @@
   let errorMsg = $state<string | null>(null);
   let moreErrorMsg = $state<string | null>(null);
   let refreshError = $state<string | null>(null);
-  let sort = $state<SortSpec | null>(null);
+  // Sort and y-axis live in the URL, so a shared link keeps them.
+  const sort = $derived.by((): SortSpec | null => {
+    if (query.sort === "") return null;
+    const [key, dir] = query.sort.split("-");
+    return { key: key as SortKey, dir: dir === "desc" ? "desc" : "asc" };
+  });
+  const zeroBased = $derived(query.yAxis === "zero");
+  // Every machine with history in the selected project, not just those on the
+  // loaded pages.
+  let machines = $state<{ repository: string; names: string[] } | null>(null);
   let searchFilter = $state("");
   const chartView = $derived(query.view === "charts");
-  // Clearing filters keeps the project and the view.
+  // Clearing filters keeps the project and the view preferences.
   const clearedURL = $derived(
-    `/series${formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, repository: query.repository, view: query.view })}`,
+    `/series${formatBrowseQuery({
+      ...DEFAULT_BROWSE_QUERY, repository: query.repository, view: query.view, sort: query.sort, yAxis: query.yAxis,
+    })}`,
   );
   const hasFilters = $derived(
     query.q !== "" || query.hardware !== "" || query.window !== "all" || query.status !== "",
   );
   // View-only navigation keeps the loaded rows and pagination cursor.
-  const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table" }));
-  let zeroBased = $state(false);
+  const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table", sort: "", yAxis: "observed" }));
+
+  // The machine list reloads after each first-page load or refresh, so it
+  // follows the same scoring the rows do, and is kept with its project so
+  // another project's list is never shown. A failed reload keeps the last list.
+  let machinesToken = 0;
+  function loadMachines(repository: string) {
+    const token = ++machinesToken;
+    void client.listMachines(repository === "" ? {} : { repository }).then((res) => {
+      if (token === machinesToken && res.status === 200) machines = { repository, names: res.data.machines ?? [] };
+    }).catch(() => {
+      // The loaded rows' machines still fill the filter.
+    });
+  }
   const timeRange = $derived.by(() => {
     const now = new Date();
     const since = windowStartIso(query.window, now);
@@ -121,6 +145,7 @@
       const page = await listSeries(client, q);
       if (token !== reqToken) return;
       showPage(page);
+      loadMachines(q.repository);
       scheduleRefresh(q);
     } catch (err) {
       if (token !== reqToken) return;
@@ -145,6 +170,7 @@
       const page = await listSeries(client, q);
       if (token !== reqToken || morePagesLoaded) return;
       showPage(page);
+      loadMachines(q.repository);
       refreshError = null;
     } catch (err) {
       if (token !== reqToken) return;
@@ -203,11 +229,11 @@
 
   function toggleSort(key: SortKey) {
     if (sort?.key !== key) {
-      sort = { key, dir: "asc" };
+      setFilter({ sort: `${key}-asc` });
     } else if (sort.dir === "asc") {
-      sort = { key, dir: "desc" };
+      setFilter({ sort: `${key}-desc` });
     } else {
-      sort = null;
+      setFilter({ sort: "" });
     }
   }
 
@@ -215,20 +241,15 @@
   // offered as one select.
   const sortOptions: SelectDropdownOption[] = [
     { value: "", label: "Status, regressions first" },
-    { value: "name:asc", label: "Name, A to Z" },
-    { value: "name:desc", label: "Name, Z to A" },
-    { value: "svs:asc", label: "Last value, low to high" },
-    { value: "svs:desc", label: "Last value, high to low" },
-    { value: "points:desc", label: "Most history" },
-    { value: "points:asc", label: "Least history" },
-    { value: "commit:desc", label: "Newest commit" },
-    { value: "commit:asc", label: "Oldest commit" },
+    { value: "name-asc", label: "Name, A to Z" },
+    { value: "name-desc", label: "Name, Z to A" },
+    { value: "svs-asc", label: "Last value, low to high" },
+    { value: "svs-desc", label: "Last value, high to low" },
+    { value: "points-desc", label: "Most history" },
+    { value: "points-asc", label: "Least history" },
+    { value: "commit-desc", label: "Newest commit" },
+    { value: "commit-asc", label: "Oldest commit" },
   ];
-
-  function setSort(value: string) {
-    const [key, dir] = value.split(":");
-    sort = value === "" ? null : { key: key as SortKey, dir: dir === "desc" ? "desc" : "asc" };
-  }
 
   function open(row: BrowseRow) {
     navigate(`/benchmarks/${row.benchmarkId}`);
@@ -270,7 +291,9 @@
     return `/series${formatBrowseQuery({ ...query, status })}`;
   }
   let machineOptions = $derived.by((): SelectDropdownOption[] => {
-    const names = new Set(rows.flatMap((row) => row.machineNames));
+    // Loaded rows can name a machine the last machine list predates.
+    const listed = machines?.repository === query.repository ? machines.names : [];
+    const names = new Set([...listed, ...rows.flatMap((row) => row.machineNames)]);
     if (query.hardware !== "") names.add(query.hardware);
     return [
       { value: "", label: "All machines" },
@@ -360,20 +383,20 @@
       {#if !chartView}
         <div class="sort-select">
           <SelectDropdown
-            value={sort === null ? "" : `${sort.key}:${sort.dir}`}
+            value={query.sort}
             options={sortOptions}
             title="Sort"
-            onchange={setSort}
+            onchange={(value) => setFilter({ sort: value as BrowseSort })}
           />
         </div>
       {/if}
       {#if chartView}
         <div class="y-axis-select">
           <SelectDropdown
-            value={zeroBased ? "zero" : "observed"}
+            value={query.yAxis}
             options={yAxisOptions}
             title="Y-axis"
-            onchange={(value) => (zeroBased = value === "zero")}
+            onchange={(value) => setFilter({ yAxis: value === "zero" ? "zero" : "observed" })}
           />
         </div>
       {/if}

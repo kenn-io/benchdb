@@ -7,12 +7,16 @@ import { DEFAULT_BROWSE_QUERY, parseBrowseQuery } from "../router";
 import SeriesBrowse from "./SeriesBrowse.svelte";
 
 const GET = vi.fn();
+// The machine filter's own request, answered apart from GET so tests that queue
+// benchmark pages and count calls are unaffected.
+const MACHINES = vi.fn();
 
 type Status = "regressed" | "improved" | "stable" | "insufficient";
 
 // The fake server counts the page's own rows unless a test sets the
 // whole-scope status counts itself.
 async function serve(...args: unknown[]) {
+  if (args[0] === "/api/machines") return MACHINES(...args);
   const res = await GET(...args);
   const data = res?.data as { benchmarks?: { status: Status }[] | null; status_counts?: unknown } | undefined;
   if (data === undefined || data === null || !("benchmarks" in data) || data.status_counts !== undefined) return res;
@@ -54,6 +58,8 @@ const item = (fp: string, name: string, overrides: Record<string, unknown> = {})
 });
 
 beforeEach(() => {
+  MACHINES.mockReset();
+  MACHINES.mockResolvedValue({ status: 200, data: { machines: [] } });
   GET.mockReset();
   window.history.replaceState(null, "", "/");
 });
@@ -168,14 +174,18 @@ describe("SeriesBrowse", () => {
       benchmarks: [item("f1", "alpha", { point_count: 3 }), item("f2", "beta", { point_count: 9 })],
       next_page_cursor: null,
     } });
-    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    window.history.replaceState(null, "", "/series");
+    const { rerender } = render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
     await screen.findByRole("link", { name: "alpha" });
     const names = () => screen.getAllByRole("link", { name: /^(alpha|beta)$/ }).map((link) => link.textContent);
     expect(names()).toEqual(["alpha", "beta"]);
 
     await fireEvent.click(screen.getByRole("combobox", { name: /sort: status, regressions first/i, hidden: true }));
     await fireEvent.click(screen.getByRole("option", { name: "Most history", hidden: true }));
+    expect(window.location.search).toBe("?sort=points-desc");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
     expect(names()).toEqual(["beta", "alpha"]);
+    expect(GET).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Sort by history" }).closest("th")).toHaveAttribute("aria-sort", "descending");
   });
 
@@ -241,7 +251,21 @@ describe("SeriesBrowse", () => {
     }
   });
 
+  it("offers every machine in the project, not only those on loaded rows", async () => {
+    GET.mockResolvedValue({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m9-not-on-this-page"] } });
+    render(SeriesBrowse, { props: { query: { ...DEFAULT_BROWSE_QUERY, repository: "https://github.com/benchdb/demo" } } });
+    await screen.findByRole("link", { name: "demo" });
+
+    expect(MACHINES).toHaveBeenCalledWith("/api/machines", expect.objectContaining({
+      params: { repository: "https://github.com/benchdb/demo" },
+    }));
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m9-not-on-this-page" })).toBeInTheDocument();
+  });
+
   it("preserves charts while changing search and machine filters", async () => {
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5"] } });
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     window.history.replaceState(null, "", "/series?view=charts");
     const { rerender } = render(SeriesBrowse, { props: { query: parseBrowseQuery(window.location.search) } });
@@ -299,13 +323,15 @@ describe("SeriesBrowse", () => {
     const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
     await fireEvent.click(yAxis);
     await fireEvent.click(screen.getByRole("option", { name: /zero baseline/i }));
+    expect(window.location.search).toBe("?view=charts&y=zero");
+    await rerender({ query: parseBrowseQuery(window.location.search) });
     expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await screen.findByRole("button", { name: /^open trend second\b/i });
     expect(GET.mock.calls[1]![1].params.cursor).toBe("cur2");
     await fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    expect(window.location.search).toBe("");
+    expect(window.location.search).toBe("?y=zero");
     await rerender({ query: parseBrowseQuery(window.location.search) });
     expect(within(screen.getByRole("table")).getByRole("link", { name: "second" })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Charts" }));
@@ -315,7 +341,7 @@ describe("SeriesBrowse", () => {
     expect(GET).toHaveBeenCalledTimes(2);
   });
 
-  it("clears filters but keeps the project and view", async () => {
+  it("clears filters but keeps the project, view, sort, and y-axis", async () => {
     GET.mockResolvedValue({ status: 200,  data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
     render(SeriesBrowse, {
       props: {
@@ -326,13 +352,16 @@ describe("SeriesBrowse", () => {
           window: "30d",
           status: "regressed",
           view: "charts",
+          sort: "name-desc",
+          yAxis: "zero",
         },
       },
     });
     await waitFor(() => screen.getByRole("link", { name: "demo" }));
     await fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
     expect(window.location.pathname).toBe("/series");
-    expect(window.location.search).toBe("?repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fdemo&view=charts");
+    expect(window.location.search)
+      .toBe("?repository=https%3A%2F%2Fgithub.com%2Fbenchdb%2Fdemo&view=charts&sort=name-desc&y=zero");
   });
 
   it("offers no clear button when only the project is set", async () => {
@@ -411,6 +440,81 @@ describe("SeriesBrowse", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("lists a machine whose benchmarks arrive after the machine list loaded", async () => {
+    vi.useFakeTimers();
+    try {
+      // Both machine lists lag the benchmark rows, so the filter must also
+      // take machines from the loaded rows.
+      MACHINES.mockResolvedValueOnce({ status: 200, data: { machines: [] } });
+      MACHINES.mockResolvedValueOnce({ status: 200, data: { machines: [] } });
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [], status_counts: { regressed: 0, improved: 0, stable: 0, insufficient: 0 },
+        statuses_pending: true, next_page_cursor: null,
+      } });
+      GET.mockResolvedValueOnce({ status: 200, data: {
+        benchmarks: [item("f1", "demo", { machine_names: ["m9"] })], next_page_cursor: null,
+      } });
+      render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument();
+
+      await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+      expect(screen.getByRole("option", { name: "m9" })).toBeInTheDocument();
+      expect(MACHINES, "the machine list reloads once scoring settles").toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the machine list while scoring is pending and more pages load", async () => {
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m7-elsewhere"] } });
+    GET.mockResolvedValueOnce({ status: 200, data: {
+      benchmarks: [item("f1", "demo")], status_counts: { regressed: 0, improved: 0, stable: 1, insufficient: 0 },
+      statuses_pending: true, next_page_cursor: "cur2",
+    } });
+    GET.mockResolvedValueOnce({ status: 200, data: { benchmarks: [item("f2", "second")], next_page_cursor: null } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "demo" });
+    // Loading another page stops the pending-status reloads.
+    await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByRole("link", { name: "second" });
+
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m7-elsewhere" })).toBeInTheDocument();
+  });
+
+  it("loads the machine list only after the first page responds, so it reflects settled scoring", async () => {
+    let respond: (value: unknown) => void = () => {};
+    GET.mockReturnValueOnce(new Promise((resolve) => { respond = resolve; }));
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m9-scored-just-now"] } });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await waitFor(() => expect(GET).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(MACHINES, "no machine request while the page is still loading").not.toHaveBeenCalled();
+
+    respond({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    await screen.findByRole("link", { name: "demo" });
+    await waitFor(() => expect(MACHINES).toHaveBeenCalledTimes(1));
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m9-scored-just-now" })).toBeInTheDocument();
+  });
+
+  it("keeps the machine list without reloading it when only the sort changes", async () => {
+    GET.mockResolvedValue({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m9-far"] } });
+    window.history.replaceState(null, "", "/series");
+    const { rerender } = render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "demo" });
+    await waitFor(() => expect(MACHINES).toHaveBeenCalledTimes(1));
+
+    await rerender({ query: { ...DEFAULT_BROWSE_QUERY, sort: "name-desc", yAxis: "zero" } });
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m9-far" })).toBeInTheDocument();
+    expect(MACHINES).toHaveBeenCalledTimes(1);
+    expect(GET).toHaveBeenCalledTimes(1);
   });
 
   it("drops a reload that finishes after more pages are loaded", async () => {
