@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_BROWSE_QUERY,
   DEFAULT_TREND_QUERY,
   formatBrowseQuery,
   formatCompareQuery,
@@ -79,27 +80,33 @@ describe("browse route", () => {
   it("matches /series as browse with default query", () => {
     expect(matchRoute("/series")).toEqual({
       name: "browse",
-      query: { q: "", hardware: "", repository: "", window: "all", status: "", view: "table" },
+      query: DEFAULT_BROWSE_QUERY,
     });
   });
 
   it("parses filters from the search string", () => {
-    expect(matchRoute("/series", "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo&status=regressed&view=charts")).toEqual({
+    expect(matchRoute("/series",
+      "?q=tpch&hardware=m5&repository=https%3A%2F%2Fgithub.com%2Fo%2Fr&window=3mo&status=regressed&view=charts&sort=svs-desc&y=zero",
+    )).toEqual({
       name: "browse",
-      query: { q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo", status: "regressed", view: "charts" },
+      query: {
+        q: "tpch", hardware: "m5", repository: "https://github.com/o/r", window: "3mo", status: "regressed",
+        view: "charts", sort: "svs-desc", yAxis: "zero",
+      },
     });
   });
 
   it("is total over junk search strings", () => {
-    expect(parseBrowseQuery("?window=bogus&status=bogus&view=bogus&unknown=x")).toEqual({
-      q: "", hardware: "", repository: "", window: "all", status: "", view: "table",
-    });
+    expect(parseBrowseQuery("?window=bogus&status=bogus&view=bogus&sort=bogus&y=bogus&unknown=x"))
+      .toEqual(DEFAULT_BROWSE_QUERY);
   });
 
   it("formats the canonical search string omitting defaults", () => {
-    expect(formatBrowseQuery({ q: "", hardware: "", repository: "", window: "all", status: "", view: "table" })).toBe("");
-    expect(formatBrowseQuery({ q: "tpch", hardware: "", repository: "", window: "30d", status: "improved", view: "charts" }))
+    expect(formatBrowseQuery(DEFAULT_BROWSE_QUERY)).toBe("");
+    expect(formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, q: "tpch", window: "30d", status: "improved", view: "charts" }))
       .toBe("?q=tpch&window=30d&status=improved&view=charts");
+    expect(formatBrowseQuery({ ...DEFAULT_BROWSE_QUERY, sort: "points-desc", yAxis: "zero" }))
+      .toBe("?sort=points-desc&y=zero");
   });
 
   it("round-trips parse(format(q))", () => {
@@ -110,6 +117,8 @@ describe("browse route", () => {
       window: "1y" as const,
       status: "insufficient" as const,
       view: "charts" as const,
+      sort: "commit-desc" as const,
+      yAxis: "zero" as const,
     };
     expect(parseBrowseQuery(formatBrowseQuery(q))).toEqual(q);
   });

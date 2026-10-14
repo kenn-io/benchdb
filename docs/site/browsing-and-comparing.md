@@ -26,6 +26,14 @@ benchmarks come first, then improved ones, then stable ones, then those with
 too little history, each sorted by name, across every page. With all projects
 shown, each project gets its own section.
 
+The machine filter lists every machine with benchmark history in the selected
+project, from `GET /api/machines?repository=<url>`, not only the machines on
+loaded rows. The URL carries the filters and the view preferences, so a shared
+link opens the same view: `q`, `hardware`, `window`, `status`, `view=charts`,
+`sort` (such as `points-desc`), and `y=zero` for a zero-based chart axis.
+Sorting and the axis apply to loaded rows without reloading them. Clear filters
+keeps the project, view, sort, and axis.
+
 Each benchmark's status compares its latest default-branch result with the
 history before it, on each machine. A change counts as a regression or
 improvement only when it is outside the history band, more than 2% from the
