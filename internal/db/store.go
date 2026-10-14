@@ -831,6 +831,12 @@ func (s *Store) SelectRepositories(ctx context.Context) ([]storage.RepositoryRow
 	return out, nil
 }
 
+// SelectBenchmarkMachines returns the machines with a stored benchmark track,
+// by name, within repository when it is not nil.
+func (s *Store) SelectBenchmarkMachines(ctx context.Context, repository *string) ([]string, error) {
+	return s.q.SelectBenchmarkMachines(ctx, repository)
+}
+
 // SelectSeriesPage returns the filtered, cursor-paginated series list: one row
 // per history fingerprint with its newest-commit member and point count.
 func (s *Store) SelectSeriesPage(ctx context.Context, p storage.SeriesListParams) ([]storage.SeriesPageRow, error) {

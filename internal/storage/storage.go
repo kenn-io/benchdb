@@ -72,6 +72,9 @@ type Store interface {
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)
 	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)
+	// SelectBenchmarkMachines returns the machines with a stored benchmark
+	// track, by name, within repository when it is not nil.
+	SelectBenchmarkMachines(ctx context.Context, repository *string) ([]string, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
 	// SelectBenchmarkList reads a benchmark page, its scope's status counts,

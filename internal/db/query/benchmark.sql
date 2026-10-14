@@ -148,3 +148,11 @@ SELECT b.status_rank, count(*)::bigint AS benchmarks
 FROM benchmark b
 GROUP BY b.status_rank
 ORDER BY b.status_rank;
+
+-- name: SelectBenchmarkMachines :many
+-- Machines with a stored benchmark track, by name, optionally within one
+-- repository: exactly the machines the benchmark list can filter to.
+SELECT DISTINCT v.machine_name
+FROM benchmark_verdict v
+WHERE sqlc.narg('repository')::text IS NULL OR v.repository = sqlc.narg('repository')::text
+ORDER BY v.machine_name;

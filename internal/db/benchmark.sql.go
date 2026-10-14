@@ -80,6 +80,35 @@ func (q *Queries) CountBenchmarkStatuses(ctx context.Context, arg CountBenchmark
 	return items, nil
 }
 
+const selectBenchmarkMachines = `-- name: SelectBenchmarkMachines :many
+SELECT DISTINCT v.machine_name
+FROM benchmark_verdict v
+WHERE $1::text IS NULL OR v.repository = $1::text
+ORDER BY v.machine_name
+`
+
+// Machines with a stored benchmark track, by name, optionally within one
+// repository: exactly the machines the benchmark list can filter to.
+func (q *Queries) SelectBenchmarkMachines(ctx context.Context, repository *string) ([]string, error) {
+	rows, err := q.db.Query(ctx, selectBenchmarkMachines, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var machine_name string
+		if err := rows.Scan(&machine_name); err != nil {
+			return nil, err
+		}
+		items = append(items, machine_name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectBenchmarkPage = `-- name: SelectBenchmarkPage :many
 WITH scoped AS (
   SELECT

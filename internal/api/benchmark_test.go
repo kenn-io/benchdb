@@ -207,3 +207,25 @@ func TestBenchmarkListPagesRegressionsFirstWithStatusCounts(t *testing.T) {
 		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, "%s: %s", bad, resp.Body.String())
 	}
 }
+
+func TestListMachinesOffersEveryMachineWithBenchmarkHistory(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	const other = "https://github.com/org/other"
+	seedResult(t, tapi, seedOpts{name: "a", machine: "m7", sha: "c1", ts: day(0), data: []float64{1}})
+	seedResult(t, tapi, seedOpts{name: "b", machine: "m5", sha: "c2", ts: day(1), data: []float64{1}})
+	seedResult(t, tapi, seedOpts{name: "c", machine: "arm-1", sha: "c3", ts: day(2), data: []float64{1}, repo: other})
+	drainVerdicts(t, ctx, pool)
+
+	machines := func(query string) []string {
+		t.Helper()
+		resp := tapi.Get("/api/machines" + query)
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		var list service.MachineList
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &list))
+		return list.Machines
+	}
+
+	assert.Equal(t, []string{"arm-1", "m5", "m7"}, machines(""), "every machine, by name")
+	assert.Equal(t, []string{"arm-1"}, machines("?repository="+url.QueryEscape(other)))
+	assert.Equal(t, []string{}, machines("?repository="+url.QueryEscape("https://github.com/org/none")))
+}

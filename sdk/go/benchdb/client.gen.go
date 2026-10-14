@@ -1258,6 +1258,50 @@ func (o *GetHistoryForResultRequestOptions) GetHeader() (map[string]string, erro
 	return nil, nil
 }
 
+// ListMachinesRequestOptions is the options needed to make a request to ListMachines.
+type ListMachinesRequestOptions struct {
+	Query *ListMachinesQuery
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *ListMachinesRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.Query != nil {
+		if v, ok := any(o.Query).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Query", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *ListMachinesRequestOptions) GetPathParams() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetQuery returns the query params as a map.
+func (o *ListMachinesRequestOptions) GetQuery() (map[string]any, error) {
+	return runtime.AsMap[any](o.Query)
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *ListMachinesRequestOptions) GetBody() any {
+	return nil
+}
+
+// GetHeader returns the headers as a map.
+func (o *ListMachinesRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
 // SubmitResultRequestOptions is the options needed to make a request to SubmitResult.
 type SubmitResultRequestOptions struct {
 	Body   *SubmitResultBody
@@ -1599,6 +1643,7 @@ type ClientInterface interface {
 	CompareBenchmarkResultsWithResponse(ctx context.Context, options *CompareBenchmarkResultsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CompareBenchmarkResultsResp, error)
 	GetHistoryWithResponse(ctx context.Context, options *GetHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryResp, error)
 	GetHistoryForResultWithResponse(ctx context.Context, options *GetHistoryForResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryForResultResp, error)
+	ListMachinesWithResponse(ctx context.Context, options *ListMachinesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListMachinesResp, error)
 	PingWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*PingResp, error)
 	ListRepositoriesWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*ListRepositoriesResp, error)
 	SubmitResultWithResponse(ctx context.Context, options *SubmitResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SubmitResultResp, error)
@@ -2938,6 +2983,55 @@ func (c *Client) GetHistoryForResultWithResponse(ctx context.Context, options *G
 	}
 }
 
+// ListMachines List machines with benchmark history
+func (c *Client) ListMachinesWithResponse(ctx context.Context, options *ListMachinesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListMachinesResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/machines",
+		Method:     "GET",
+		Options:    options,
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/machines")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &ListMachinesResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(ListMachinesResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListMachinesResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
 // Ping Liveness check
 func (c *Client) PingWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*PingResp, error) {
 	var err error
@@ -3936,6 +4030,11 @@ func (g GetHistoryQuery) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(g))
 }
 
+type ListMachinesQuery struct {
+	// Repository Filter by repository URL.
+	Repository *string `json:"repository,omitempty"`
+}
+
 type ListRecentRunsQuery struct {
 	// Q Find runs by a commit SHA or any part of a commit URL (case-insensitive).
 	Q *string `json:"q,omitempty" validate:"omitempty,max=2048"`
@@ -4086,6 +4185,10 @@ type GetHistoryErrorResponse = ErrorModel
 type GetHistoryForResultResponse = HistorySeries
 
 type GetHistoryForResultErrorResponse = ErrorModel
+
+type ListMachinesResponse = MachineList
+
+type ListMachinesErrorResponse = ErrorModel
 
 type PingResponse = HealthOutputBody
 
@@ -4324,6 +4427,13 @@ type GetHistoryForResultResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *GetHistoryForResultResponse
+}
+
+type ListMachinesResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *ListMachinesResponse
 }
 
 type PingResp struct {
@@ -5584,6 +5694,18 @@ type MachineInfo struct {
 }
 
 func (m MachineInfo) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(m))
+}
+
+type MachineList struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+
+	// Machines Machine names with benchmark history, sorted by name.
+	Machines []string `json:"machines,omitempty" validate:"required"`
+}
+
+func (m MachineList) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(m))
 }
 

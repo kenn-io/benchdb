@@ -40,6 +40,24 @@ type ListRepositoriesOutput struct {
 	Body service.RepositoryList
 }
 
+// ListMachinesInput scopes the machine list to one repository.
+type ListMachinesInput struct {
+	Repository string `query:"repository" doc:"Filter by repository URL."`
+}
+
+// ListMachinesOutput carries the machine list.
+type ListMachinesOutput struct {
+	Body service.MachineList
+}
+
+func (h *ReadHandler) getMachines(ctx context.Context, in *ListMachinesInput) (*ListMachinesOutput, error) {
+	list, err := h.reader.ListMachines(ctx, in.Repository)
+	if err != nil {
+		return nil, mapReadError(err)
+	}
+	return &ListMachinesOutput{Body: *list}, nil
+}
+
 func (h *ReadHandler) getRepositories(ctx context.Context, _ *struct{}) (*ListRepositoriesOutput, error) {
 	list, err := h.reader.ListRepositories(ctx)
 	if err != nil {
