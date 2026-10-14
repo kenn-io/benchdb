@@ -81,7 +81,7 @@ For CI reporters and shared automation, mint a reporter token with
 `benchdb admin tokens create` instead of sharing the static operator token.
 The command needs `BENCHDB_DB_URL`, prints the token once, and stores only its
 hash and prefix. Put the printed value in the CI secret `BENCHDB_TOKEN`.
-[Authentication and tokens](auth-and-tokens.md#automation) has the full
+[Authentication and tokens](auth-and-tokens.md) has the full
 command.
 
 Cookies carry the `Secure` attribute unless the host in
@@ -209,7 +209,7 @@ listens on `127.0.0.1:18080`; override `SERVER_CONTAINER_SMOKE_HOST_PORT` and
 `BENCHDB_INIT_SCHEMA` and `BENCHDB_SEED` and disables write auth by default, so
 use it only on your own machine.
 
-The [contributing guide](contributing.md#core-commands) lists the build, test,
+The [contributing guide](contributing.md) lists the build, test,
 and code-generation commands for development.
 
 ## Releases and CI
