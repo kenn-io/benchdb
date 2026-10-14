@@ -486,6 +486,39 @@ describe("SeriesBrowse", () => {
     expect(screen.getByRole("option", { name: "m7-elsewhere" })).toBeInTheDocument();
   });
 
+  it("loads the machine list after the first page, so it reflects settled scoring", async () => {
+    const order: string[] = [];
+    GET.mockImplementation(async () => {
+      order.push("benchmarks");
+      return { status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } };
+    });
+    MACHINES.mockImplementation(async () => {
+      order.push("machines");
+      return { status: 200, data: { machines: ["m5", "m9-scored-just-now"] } };
+    });
+    render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "demo" });
+
+    await waitFor(() => expect(order).toEqual(["benchmarks", "machines"]));
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m9-scored-just-now" })).toBeInTheDocument();
+  });
+
+  it("keeps the machine list without reloading it when only the sort changes", async () => {
+    GET.mockResolvedValue({ status: 200, data: { benchmarks: [item("f1", "demo")], next_page_cursor: null } });
+    MACHINES.mockResolvedValue({ status: 200, data: { machines: ["m5", "m9-far"] } });
+    window.history.replaceState(null, "", "/series");
+    const { rerender } = render(SeriesBrowse, { props: { query: DEFAULT_BROWSE_QUERY } });
+    await screen.findByRole("link", { name: "demo" });
+    await waitFor(() => expect(MACHINES).toHaveBeenCalledTimes(1));
+
+    await rerender({ query: { ...DEFAULT_BROWSE_QUERY, sort: "name-desc", yAxis: "zero" } });
+    await fireEvent.click(screen.getByRole("combobox", { name: /machine: all machines/i }));
+    expect(screen.getByRole("option", { name: "m9-far" })).toBeInTheDocument();
+    expect(MACHINES).toHaveBeenCalledTimes(1);
+    expect(GET).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a reload that finishes after more pages are loaded", async () => {
     vi.useFakeTimers();
     try {

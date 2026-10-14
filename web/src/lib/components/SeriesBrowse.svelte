@@ -2,7 +2,7 @@
   import { appURL } from "../base-path";
   import { SearchInput } from "@kenn-io/kit-ui/search-input";
   import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries, type BrowsePage, type BrowseStatusCounts } from "../browse/loader";
@@ -63,7 +63,7 @@
   const zeroBased = $derived(query.yAxis === "zero");
   // Every machine with history in the selected project, not just those on the
   // loaded pages.
-  let machines = $state<string[] | null>(null);
+  let machines = $state<{ repository: string; names: string[] } | null>(null);
   let searchFilter = $state("");
   const chartView = $derived(query.view === "charts");
   // Clearing filters keeps the project and the view preferences.
@@ -78,31 +78,18 @@
   // View-only navigation keeps the loaded rows and pagination cursor.
   const filterQuery = $derived(formatBrowseQuery({ ...query, view: "table", sort: "", yAxis: "observed" }));
 
-  // The machine list loads with each project, independently of scoring, and
-  // reloads once queued scoring settles, since a new machine's benchmarks
-  // appear only after they are scored. A reload keeps the current options.
+  // The machine list reloads after each first-page load or refresh, so it
+  // follows the same scoring the rows do, and is kept with its project so
+  // another project's list is never shown. A failed reload keeps the last list.
   let machinesToken = 0;
   function loadMachines(repository: string) {
     const token = ++machinesToken;
     void client.listMachines(repository === "" ? {} : { repository }).then((res) => {
-      if (token === machinesToken && res.status === 200) machines = res.data.machines;
+      if (token === machinesToken && res.status === 200) machines = { repository, names: res.data.machines ?? [] };
     }).catch(() => {
       // The loaded rows' machines still fill the filter.
     });
   }
-
-  $effect(() => {
-    const repository = query.repository;
-    machines = null;
-    loadMachines(repository);
-  });
-
-  let scoringWasPending = false;
-  $effect(() => {
-    const pending = statusesPending;
-    if (scoringWasPending && !pending) loadMachines(untrack(() => query.repository));
-    scoringWasPending = pending;
-  });
   const timeRange = $derived.by(() => {
     const now = new Date();
     const since = windowStartIso(query.window, now);
@@ -158,6 +145,7 @@
       const page = await listSeries(client, q);
       if (token !== reqToken) return;
       showPage(page);
+      loadMachines(q.repository);
       scheduleRefresh(q);
     } catch (err) {
       if (token !== reqToken) return;
@@ -182,6 +170,7 @@
       const page = await listSeries(client, q);
       if (token !== reqToken || morePagesLoaded) return;
       showPage(page);
+      loadMachines(q.repository);
       refreshError = null;
     } catch (err) {
       if (token !== reqToken) return;
@@ -303,7 +292,8 @@
   }
   let machineOptions = $derived.by((): SelectDropdownOption[] => {
     // Loaded rows can name a machine the last machine list predates.
-    const names = new Set([...(machines ?? []), ...rows.flatMap((row) => row.machineNames)]);
+    const listed = machines?.repository === query.repository ? machines.names : [];
+    const names = new Set([...listed, ...rows.flatMap((row) => row.machineNames)]);
     if (query.hardware !== "") names.add(query.hardware);
     return [
       { value: "", label: "All machines" },
