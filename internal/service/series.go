@@ -148,8 +148,11 @@ func scoreSeries(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
 	verdict := seriesVerdict{status: statusInsufficient}
 	if mean != nil && *mean != 0 {
-		change := (latestSVS - *mean) / math.Abs(*mean) * 100
-		verdict.changePercent = &change
+		// Finite values can still overflow, as with a huge latest point over a
+		// tiny mean; an infinite change cannot be stored or sent as JSON.
+		if change := (latestSVS - *mean) / math.Abs(*mean) * 100; !math.IsInf(change, 0) && !math.IsNaN(change) {
+			verdict.changePercent = &change
+		}
 	}
 	z := stats.ZScore(&latestSVS, *lessIsBetter, mean, stddev)
 	v := stats.LookbackZVerdict(z, stats.ZScoreThresholdDefault)

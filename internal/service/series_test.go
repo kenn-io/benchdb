@@ -106,6 +106,9 @@ func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
 
 	zeroMean := scoreSeries(membersFromSVS([]float64{-1, 1, -1, 1, 5}, "s"), new("s"), &libTrue)
 	assert.Nil(t, zeroMean.changePercent, "no percent of a zero mean")
+
+	overflow := scoreSeries(membersFromSVS([]float64{1e-300, 2e-300, 1e-300, 2e-300, 1e300}, "s"), new("s"), &libTrue)
+	assert.Nil(t, overflow.changePercent, "a change too large for a float64 is left out")
 	assert.Nil(t, scoreSeries(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue).changePercent)
 }
 

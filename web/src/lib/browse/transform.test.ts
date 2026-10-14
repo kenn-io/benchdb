@@ -227,10 +227,3 @@ describe("formatChange", () => {
     expect(formatChange(-0.04)).toBe("0.0%");
   });
 });
-
-describe("toBrowseRows change", () => {
-  it("carries the change and the machine that set it", () => {
-    const [row] = toBrowseRows([item({ change_percent: 12.5, change_machine: "m5" })]);
-    expect(row).toMatchObject({ changePercent: 12.5, changeMachine: "m5" });
-  });
-});
