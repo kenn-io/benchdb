@@ -1,193 +1,217 @@
-# Storage Roadmap
+# Storage roadmap
 
-The current new BenchDB server runs on the frozen legacy Postgres schema. That
-keeps migration risk low: existing deployments can restore their current
-database and validate the Go/Svelte implementation against real data before any
-storage-model change.
+This page is for maintainers and operators who plan for large result volumes.
+It describes how BenchDB stores data today and the proposed path toward a
+separate analytical store for benchmark results.
 
-The frozen schema is not the long-term end state. Production-derived testing
-has already shown that the largest deployments are in the 100M-result-row class,
-with almost all data volume concentrated in the append-heavy
-`benchmark_result` table. That table behaves like an analytical fact table, not
-like small mutable application metadata.
+Only [Current storage](#current-storage) describes built behavior. The
+[chosen direction](#chosen-direction) is a recorded decision, and most of it is
+not built. Every section after it is a proposal. No analytical store, export,
+or replica exists in the code today.
 
-## Current Evidence
+## Current storage
 
-Sanitized production-clone findings are recorded in the
-[temporary production-clone migration gate](prod-clone-compatibility.md). The
-important shape is:
+Status: implemented.
 
-- `benchmark_result` dominates storage size and row count,
-- small dimension tables such as commit, case, hardware, context, and info are
-  tiny by comparison,
-- targeted result, history, compare, and CI report paths are viable when they
-  avoid broad fact-table browsing,
-- broad series discovery and default browse paths are the visible cost center,
-- row caps and narrower queries are useful UI guards, but they do not eliminate
-  the need for a future fact-model decision.
+BenchDB keeps all of its data in one PostgreSQL database. `benchmark_result`
+holds one row per submitted result. Small tables hold the values that results
+share: `case`, `commit`, `context`, `hardware`, and `info`. Baseline migration
+`000001_initial_schema` defines these tables along with users, API tokens,
+CLI login codes, and alerting tables.
 
-## Decision
+Later migrations add tables but do not change the result tables. They add
+result artifacts, saved CI run reports, the verdict queue, and stored run and
+benchmark statuses.
 
-Use a staged combination, not a single large storage rewrite.
+The stored statuses keep the Runs and Benchmarks pages from scoring history on
+every page load:
 
-1. Keep the frozen legacy Postgres schema as the write source of truth through
-   migration and initial cutover. This lets existing deployments restore their
-   current database and run the new Go/Svelte application without rewriting
-   benchmark payloads or migrating historical IDs.
-2. Keep using bounded SQL and targeted indexes for product paths that must work
-   against existing deployments today. The Phase 5c browse/search hardening is
-   the model: constrain visible rows, avoid broad fact-table enrichment, and
-   keep targeted result, history, compare, and CI report reads fast.
-3. Do not rebuild the legacy Flask/BMRT cache model as the long-term answer.
-   Also do not start by adding broad materialized cache tables for every
-   dashboard view. Those approaches improve individual screens but keep the
-   100M-row analytical fact table inside the transactional database. Stored
-   verdicts (`run_verdict`, `benchmark_verdict`) are not such a cache: they
-   hold one row per run or per benchmark and machine, computed from the facts,
-   and are candidates to move to the analytical replica with other rollups. A
-   benchmark row also keeps its history's commit times and latest chart points,
-   so the Benchmarks list reads no history; its size grows with that machine's
-   history length, not with the result table.
-4. Prove a read-only columnar analytical replica before any primary fact-store
-   switch. The first candidate is DuckDB reading Parquet, with DuckLake as the
-   catalog layer to test after plain Parquet establishes a lower-bound baseline.
-5. Move only read-heavy service interfaces to the analytical replica after
-   measured correctness, latency, and operations gates pass. Writes remain
-   Postgres-backed until result identity, atomic metadata/fact linkage,
+- `run_verdict` holds one row per run.
+- `benchmark_verdict` holds one row per benchmark and machine. Each row also
+  keeps the commit time of every history point and the latest chart points,
+  so the Benchmarks list reads no history. A row grows with that machine's
+  history length, not with the size of `benchmark_result`.
+- Triggers on `benchmark_result` and `commit` add work to `verdict_queue`. A
+  worker in `benchdb serve` recomputes the affected rows. The worker does not
+  run when the database connection is read-only.
+
+The service layer reads and writes through the `Store` interface in
+`internal/storage`. `internal/db` is the PostgreSQL implementation, and it is
+the only one.
+
+### What production-sized data showed
+
+[Production-clone runs](prod-clone-compatibility.md#recorded-evidence) found:
+
+- The largest deployment had about 100M result rows. `benchmark_result` used
+  120.2 GB, and the other tables were small by comparison.
+- Reads by result, history, compare, and CI report were fast when they avoided
+  broad scans of `benchmark_result`.
+- Broad series discovery and default browse were the slowest paths.
+- Row caps and narrower queries cut the visible slowness. Default browse still
+  took about 4 seconds. These fixes do not settle how results should be stored
+  long term.
+
+`benchmark_result` behaves like an analytical fact table. It is large and
+append-heavy, unlike the small tables around it. The proposals below follow
+from that.
+
+## Chosen direction
+
+Status: decided. Steps 1 and 2 describe current practice. Steps 3 to 6 are
+not built.
+
+Change storage in stages instead of one large rewrite:
+
+1. Keep PostgreSQL as the source of truth for writes. Existing data moves into
+   the current baseline with its result IDs unchanged. See
+   [Upgrading BenchDB](upgrading.md).
+2. Keep product reads fast with bounded SQL and targeted indexes. Limit the
+   rows a page shows, do not enrich lists from the whole result table, and keep
+   result, history, compare, and CI report reads targeted.
+3. Do not rebuild the old Flask cache model, and do not add a materialized
+   cache table for every dashboard view. Both speed up single pages but keep
+   the 100M-row fact table in the transactional database. The stored statuses
+   above are not such a cache. They are small rollups computed from results,
+   and they could move to an analytical replica along with other rollups.
+4. Prove a read-only columnar replica before changing the primary store. Test
+   DuckDB over plain Parquet first to get a baseline, then DuckLake as the
+   catalog.
+5. Move only read-heavy service interfaces to the replica, and only after
+   correctness, latency, and operations gates pass. Writes stay in PostgreSQL
+   until result identity, linking metadata rows to fact rows atomically,
    recovery, deletes, and rollback are designed and tested.
-6. Keep the public API, CLI, Go client, and JSON payload contract stable while
-   the storage backend changes behind service interfaces.
+6. Keep the public API, CLI, Go client, and JSON payloads unchanged while
+   storage changes behind the service layer.
 
-This decision makes the next storage work a proof, not a production cutover.
-Smart SQL remains the compatibility path. DuckLake/Parquet is the first
-scale-out read experiment. A Postgres fact-model rewrite is deferred until the
-columnar proof shows whether changing the primary database is still necessary.
+The next storage work is therefore a proof, not a production cutover. A
+rewrite of the PostgreSQL fact model waits until the columnar proof shows
+whether changing the primary database is still needed.
 
-## Target Shape
+## Target layout
 
-The target split, if the proof succeeds, is:
+Status: proposal. Applies only if the proof succeeds.
 
-- Postgres for transactional application metadata: users, sessions, API
-  tokens, auth configuration, expected benchmark inventory, alerting
-  configuration, ingestion receipts, job state, schema metadata, and canonical
-  result identity.
-- A columnar analytical fact store for high-volume benchmark facts, histories,
-  comparison inputs, project-health rollups, broad discovery, and possibly
-  regression snapshots.
+- PostgreSQL holds transactional data: users, sessions, API tokens, auth
+  settings, expected benchmark inventory, alert settings, ingestion receipts,
+  job state, schema metadata, and canonical result identity.
+- A columnar store holds benchmark facts, histories, comparison inputs,
+  project-health rollups, broad discovery, and possibly regression snapshots.
 
-DuckLake-backed Parquet queried through DuckDB is the first cataloged candidate
-to test. It offers column projection, partition pruning, file-level statistics,
-and a SQL catalog without requiring Spark, Hive, or distributed services.
+The first candidate is Parquet files cataloged by DuckLake and queried with
+DuckDB. It gives column projection, partition pruning, file-level statistics,
+and a SQL catalog without Spark, Hive, or other distributed services.
 
-## Migration Path
+## Rollout for existing deployments
 
-Existing deployments should be able to move in stages:
+Status: proposal. Steps 1 to 4 are possible today. Steps 5 to 7 need the
+replica.
 
-1. Restore the existing production Postgres database into a test environment.
-2. Run the new Go server and Svelte app against the frozen schema.
-3. Validate read compatibility with the production-clone harness and browser
-   probes.
-4. Point benchmark submitters at the new `benchdb` CLI without changing the
-   result JSON contract.
+1. Restore the production PostgreSQL database into a test environment and
+   rebuild it from the current baseline, as described in
+   [Upgrading BenchDB](upgrading.md).
+2. Run the Go server and Svelte dashboard against it.
+3. Check read compatibility with the
+   [production-clone gate](prod-clone-compatibility.md) and browser probes.
+4. Point benchmark submitters at the `benchdb` CLI. The result JSON does not
+   change.
 5. Add the analytical replica as an optional read-side component.
-6. Shadow selected read paths against both Postgres and the replica.
-7. Switch individual read-heavy interfaces only after shadow reads match and
-   rollback is a configuration change.
+6. Run selected reads against both PostgreSQL and the replica and compare the
+   results.
+7. Switch a read-heavy interface only after those reads match and rollback is
+   a configuration change.
 
-The analytical replica is additive. If it fails, BenchDB falls back to
-Postgres reads. Result IDs, repository names, run identifiers, API responses,
-and submitted payloads must not change because a deployment enables the replica.
+The replica is additive. If it fails, BenchDB reads from PostgreSQL. Turning
+it on must not change result IDs, repository names, run IDs, API responses, or
+submitted payloads.
 
-## First Proof
+## First proof
 
-The first storage experiment should be read-only:
+Status: proposal.
 
-1. Export `benchmark_result` and small dimensions from a production-clone
-   Postgres database to Parquet.
-2. Partition facts by year and month of result timestamp.
-3. Query plain Parquet with DuckDB to establish a lower-bound read baseline.
-4. Register the same files through DuckLake and repeat the workload.
-5. Compare current Postgres, plain Parquet, monthly DuckLake, and monthly plus
-   bucketed fingerprint partitioning if needed.
-6. Record only sanitized aggregate findings in the production-clone
-   compatibility documentation; raw clone artifacts stay ignored under `var/`.
+The first experiment is read-only:
 
-Start with monthly partitioning. A 100M-row, multi-year corpus gives roughly
-dozens of monthly partitions, not thousands of daily partitions. Daily
-partitioning risks small files and excessive metadata before there is evidence
-that it helps.
+1. Export `benchmark_result` and the small tables from a production clone to
+   Parquet.
+2. Partition results by year and month of the result timestamp.
+3. Query plain Parquet with DuckDB to set a baseline.
+4. Register the same files with DuckLake and repeat the workload.
+5. Compare PostgreSQL, plain Parquet, monthly DuckLake, and, if needed,
+   monthly partitions with bucketed fingerprint partitions.
+6. Record only sanitized aggregate numbers on the
+   [production-clone page](prod-clone-compatibility.md#record-new-evidence).
+   Raw clone artifacts stay in the ignored `var/` directory.
 
-Candidate physical orderings inside monthly files:
+Start with monthly partitions. A 100M-row corpus that spans several years
+makes dozens of monthly partitions. Daily partitions would make thousands of
+small files and more metadata, with no evidence yet that they help.
 
-- `timestamp, history_fingerprint, run_id`,
-- `history_fingerprint, timestamp`,
-- `repository, history_fingerprint, timestamp`.
+Sort orders to test inside each monthly file:
 
-## Query Families To Benchmark
+- `timestamp, history_fingerprint, run_id`
+- `history_fingerprint, timestamp`
+- `repository, history_fingerprint, timestamp`
 
-Benchmark the product workflows, not synthetic full scans:
+### Queries to measure
 
-- single-series history filtered by history fingerprint and ordered by commit
-  timestamp,
-- project attention rollups filtered by repository and recent time window,
+Measure the queries the product runs, not synthetic full scans:
+
+- one series' history, filtered by history fingerprint and ordered by commit
+  time,
+- project attention rollups, filtered by repository and a recent time window,
 - compare-since-baseline queries grouped by history fingerprint,
-- recent run/result browsing filtered by `run_id`, `batch_id`, run reason, and
-  timestamp,
+- recent run and result browsing, filtered by `run_id`, `batch_id`, run reason,
+  and timestamp,
 - export, append, and compaction throughput.
 
-Measure storage size, cold and warm latency, CPU time, bytes read, files
-scanned versus skipped, memory use, concurrent reader behavior, export
-throughput, and operational complexity.
+For each, record storage size, cold and warm latency, CPU time, bytes read,
+files scanned and skipped, memory use, behavior with concurrent readers, and
+the operational work involved.
 
-## Proof Gates
+### Gates before production use
 
-The analytical replica is not production-ready until these gates pass against a
-production-derived clone:
+The replica is not ready for production until all of these hold on a
+production clone:
 
-- Correctness: result identity, history rows, compare inputs, CI report rows,
-  regression verdicts, and pagination boundaries match the Postgres-backed
-  implementation for the sampled workload.
-- Performance: broad discovery, default browse, rollups, and long histories are
-  materially faster than Postgres, while targeted result/detail/compare/CI paths
-  do not regress.
-- Freshness: expected ingestion-to-query lag is measured and documented.
-- Reconciliation: exports and incremental refreshes can detect missing,
-  duplicated, or stale facts.
-- Operations: storage size, compaction, backup/restore, observability,
-  concurrent readers, and failure recovery are understood well enough to run.
-- Cost: storage, export compute, refresh compute, and operator work are lower
-  than continuing to scale broad analytical reads inside the transactional
-  Postgres database.
-- Cutover: each read-heavy service can run in shadow mode and fall back to
-  Postgres without changing public API behavior.
+| Gate | Requirement |
+| --- | --- |
+| Correctness | Result identity, history rows, compare inputs, CI report rows, regression statuses, and page boundaries match PostgreSQL for the sampled workload. |
+| Performance | Broad discovery, default browse, rollups, and long histories are clearly faster than PostgreSQL. Result, detail, compare, and CI report reads are no slower. |
+| Freshness | The lag from ingestion to query is measured and documented. |
+| Reconciliation | Exports and incremental refreshes detect missing, duplicated, or stale facts. |
+| Operations | Storage size, compaction, backup and restore, monitoring, concurrent readers, and failure recovery are understood well enough to run in production. |
+| Cost | Storage, export and refresh compute, and operator time cost less than scaling broad reads inside PostgreSQL. |
+| Cutover | Each read-heavy service can run against both stores, compare results, and fall back to PostgreSQL without changing public API behavior. |
 
-## Service Boundary
+## Service boundary
 
-The public API should not expose the physical storage choice. Keep storage
-behind service interfaces such as:
+Status: partly built.
 
-- `ResultWriter`,
-- `HistoryReader`,
-- `CompareReader`,
-- `ProjectHealthReader`,
-- `RunBrowser`.
+The public API does not expose where data is stored. Today the service layer
+uses one `Store` interface with one PostgreSQL implementation. The proposal
+is to split reads into narrower interfaces, for example:
 
-The current implementation can keep all interfaces Postgres-backed. A
-prototype can replace only read-heavy interfaces first while ingestion remains
-Postgres-backed until read-side wins are proven.
+- `ResultWriter`
+- `HistoryReader`
+- `CompareReader`
+- `ProjectHealthReader`
+- `RunBrowser`
 
-## Questions Before A Primary Fact Store
+None of these exist yet. A prototype would point only the read-heavy
+interfaces at the replica and keep ingestion on PostgreSQL until the reads
+prove faster.
 
-Before moving writes away from the current Postgres fact table, answer:
+## Open questions before moving writes
 
-- what lag is acceptable between a submitted result and analytical visibility,
-- where result IDs are generated,
-- how partial writes are recovered,
-- how metadata rows and fact rows are connected atomically,
-- whether alerts can tolerate eventual consistency,
-- how snapshots and rollback work after bad ingests,
-- how rare deletes or compliance removals are applied.
+Answer these before moving writes off the PostgreSQL fact table:
 
-The next production cutover decision should come from measured
-production-clone workloads. Do not replace the storage model just to match an
-architectural preference.
+- How long may a submitted result take to appear in analytical reads?
+- Where are result IDs generated?
+- How are partial writes recovered?
+- How are metadata rows and fact rows linked atomically?
+- Can alerts tolerate eventual consistency?
+- How do snapshots and rollback work after a bad ingest?
+- How are rare deletes and compliance removals applied?
+
+Decide on any production cutover from measured production-clone workloads, not
+from a preference for one architecture.
