@@ -17,6 +17,9 @@ export interface BrowseRow {
   svsText: string;
   pointCount: number;
   status: SeriesStatus;
+  /** The latest point's change from its history mean, in percent, on changeMachine. */
+  changePercent: number | null;
+  changeMachine: string | null;
   commitSha: string;
   commitTimestampMs: number;
   commitDateText: string;
@@ -73,6 +76,8 @@ export function toBrowseRows(items: BenchmarkListItem[], locale?: string): Brows
       svsText: formatMeasurement(svs, item.unit),
       pointCount: item.point_count,
       status: item.status,
+      changePercent: item.change_percent,
+      changeMachine: item.change_machine,
       commitSha: item.latest_commit_sha.slice(0, 7),
       commitTimestampMs: Date.parse(item.latest_commit_timestamp),
       commitDateText: formatDate(item.latest_commit_timestamp, locale),
@@ -241,4 +246,13 @@ export function trackSummary(track: BrowsePreviewTrack): string | null {
   const unit = latest.unit;
   return `${track.machineName}: latest ${formatMeasurement(latest.value, unit)}, ` +
     `${track.points.length} results from ${formatMeasurement(min, unit)} to ${formatMeasurement(max, unit)}`;
+}
+
+/** formatChange renders a percent change with its sign, such as "+12.0%" or
+ * "−3.2%", to one decimal below 100% and whole percents above. */
+export function formatChange(percent: number): string {
+  const digits = Math.abs(percent) >= 100 ? 0 : 1;
+  const size = Math.abs(percent).toFixed(digits);
+  if (Number(size) === 0) return `${size}%`;
+  return `${percent > 0 ? "+" : "\u2212"}${size}%`;
 }

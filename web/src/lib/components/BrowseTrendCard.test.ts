@@ -22,6 +22,8 @@ const row: BrowseRow = {
   svsText: "12 s",
   pointCount: 3,
   status: "stable",
+  changePercent: null,
+  changeMachine: null,
   commitSha: "abc1234",
   commitTimestampMs: Date.parse("2024-01-11T00:00:00Z"),
   commitDateText: "Jan 11, 2024",

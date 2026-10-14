@@ -23,7 +23,7 @@
   } from "../series/chart-geometry";
   import { resolvedTheme } from "../theme.svelte";
   import MeasurementValue from "./MeasurementValue.svelte";
-  import StatusBadge from "./StatusBadge.svelte";
+  import BenchmarkStatus from "./BenchmarkStatus.svelte";
 
   let {
     row,
@@ -198,7 +198,7 @@
       }}>{row.name}</a>
       {#if row.paramsText}<span>{row.paramsText}</span>{/if}
     </div>
-    <StatusBadge status={row.status} />
+    <BenchmarkStatus {row} />
   </header>
 
   <button type="button" class="chart-button" aria-label={chartSummary()} onclick={() => onopen?.(row)}
