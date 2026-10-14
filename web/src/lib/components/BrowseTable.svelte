@@ -98,7 +98,8 @@
               <!-- Narrow screens hide the value, history, and commit columns and
                    show this one line instead, so each row stays two lines. -->
               <span class="narrow-meta">
-                {row.svsText} · {historyText(row)} · <span class="mono">{row.commitSha}</span> · {row.commitDateText}
+                <MeasurementValue value={row.latestSVS} unit={row.unit} /> · {historyText(row)} ·
+                <span class="mono">{row.commitSha}</span> · {row.commitDateText}
               </span>
             </span>
           </td>

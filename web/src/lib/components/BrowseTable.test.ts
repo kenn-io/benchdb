@@ -53,11 +53,22 @@ const rows = toBrowseRows(
 );
 
 describe("BrowseTable", () => {
-  it("summarizes value, history, and commit under the name for narrow screens", () => {
-    const { container } = render(BrowseTable, { props: { rows } });
-    expect(container.querySelector(".narrow-meta")).toHaveTextContent("1.2 s · 8 points · 2 machines · a1b2c3d · ");
-    expect(container.querySelector(".narrow-meta .mono")).toHaveTextContent("a1b2c3d");
+  it("summarizes value, history, and commit under the name for narrow screens", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const onopen = vi.fn();
+    const { container } = render(BrowseTable, { props: { rows, onopen } });
+    const summary = container.querySelector<HTMLElement>(".narrow-meta")!;
+    expect(summary).toHaveTextContent(/1\.2 s\s*· 8 points · 2 machines · a1b2c3d · /);
+    expect(summary.querySelector(".mono")).toHaveTextContent("a1b2c3d");
+
+    // The summary's value keeps the exact-value copy action, and copying does
+    // not open the benchmark.
+    await fireEvent.click(within(summary).getByRole("button", { name: /exact value 1\.2/ }));
+    expect(writeText).toHaveBeenCalledWith("1.2");
+    expect(onopen).not.toHaveBeenCalled();
   });
+
 
   it("keeps benchmark rows as table rows with one link to open them", () => {
     render(BrowseTable, { props: { rows } });
@@ -70,7 +81,7 @@ describe("BrowseTable", () => {
     const { container } = render(BrowseTable, { props: { rows } });
     expect(screen.getByRole("link", { name: "tpch-q1" })).toHaveAttribute("href", "/benchmarks/b1");
     expect(screen.getByText("scale=sf10")).toBeInTheDocument();
-    expect(screen.getByText("1.2 s")).toBeInTheDocument();
+    expect(container.querySelector(".num-cell")).toHaveTextContent("1.2 s");
     expect(screen.getByText("regressed")).toBeInTheDocument();
     expect(container.querySelector(".commit-cell")).toHaveTextContent(/^a1b2c3d · /);
   });
