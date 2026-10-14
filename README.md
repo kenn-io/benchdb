@@ -1,87 +1,69 @@
 # BenchDB
 
-BenchDB is a self-hosted results system for continuous performance testing.
-Bring any benchmark harness, submit structured JSON, and get comparable
-histories, fleet-aware trends, and CI regression reports.
+BenchDB is a self-hosted server for benchmark results. Your benchmark harness
+writes JSON, the `benchdb` CLI uploads it, and BenchDB keeps the history of
+each benchmark on each machine. The dashboard shows trends and comparisons, and
+`benchdb ci report` tells a pull request whether it made a benchmark slower.
 
-Learn how it works at [benchdb.io](https://benchdb.io/) or start with the
-[quickstart](https://benchdb.io/docs/quickstart/).
+BenchDB works with benchmarks in any language that can write JSON. It does not
+run or schedule benchmarks.
 
-## Why BenchDB?
+Start with the [quickstart](https://benchdb.io/docs/quickstart/), or read the
+[documentation](https://benchdb.io/docs/) for the full reference.
 
-A benchmark result is more than a timestamp and a number. To decide whether a
-change helped or hurt, you also need to know:
+## What a result records
 
-- what code and benchmark produced the measurement;
-- which machine and environment ran it;
-- which other results are genuinely comparable; and
-- whether the change is meaningful relative to recent variation.
+A benchmark number alone cannot tell you whether a change helped. Each BenchDB
+result also records the commit, the run, the machine, the unit, and the raw
+observations. BenchDB groups results that share a benchmark case, context,
+machine, and repository into one series. It scores each new result against that
+series' history. CI reports also compare it with the matching result from a
+baseline run.
+[Concepts](docs/site/concepts.md) defines these terms and the status rules.
 
-BenchDB stores that context with each result. It groups comparable results into
-histories, keeps machine-specific statistical trends distinct, and connects CI
-decisions to the underlying measurements. Raw observations, units, errors,
-runs, batches, commits, and machine metadata remain available when you need to
-investigate.
+## When to use it
 
-BenchDB does not run or schedule benchmarks. Your existing harness owns the
-workload; BenchDB accepts, organizes, compares, and presents its results.
+BenchDB fits teams that benchmark every commit or release, run benchmarks on
+more than one machine, and want CI to flag regressions. If an upload fails,
+rerun `benchdb results submit` on the saved files. The benchmark itself does
+not have to run again.
 
-## Why not just Grafana?
+You probably do not need it for a one-off timing on your laptop. It is not a
+general metrics, logs, or tracing system.
+
+## BenchDB and Grafana
 
 [Grafana time-series panels](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/time-series/)
-are excellent for querying and visualizing timestamped metrics from many data
-sources. That makes Grafana a natural home for service health and machine
-telemetry. It can also display benchmark measurements when you build the
-storage model, queries, dashboards, and comparison rules yourself; Grafana's
+plot timestamped metrics from many data sources, which suits service health and
+machine telemetry. Grafana can plot benchmark numbers too, but you build the
+storage model, queries, and comparison rules yourself. Grafana's
 [k6 integration](https://grafana.com/docs/k6/latest/results-output/grafana-dashboards/)
-is one example of that approach.
+is one example.
 
-BenchDB provides the benchmark-specific layer: structured results, commit and
-run identity, comparable-series rules, machine-aware histories, baseline
-selection, regression classification, and CI reports. Use Grafana when your
-main question is “what is this system doing over time?” Use BenchDB when it is
-“did this code change performance, and what evidence supports that answer?”
-The two tools can be used together.
+BenchDB has those benchmark rules built in. It tracks commit and run identity,
+keeps machines apart, selects a baseline, classifies regressions, and writes CI
+reports. Use Grafana to ask what a system is doing over time. Use BenchDB to ask
+whether a code change made a benchmark slower. You can run both.
 
-## Is BenchDB a good fit?
+## What is in this repository
 
-BenchDB is designed for teams that:
+- the Go server and `benchdb` CLI, built into one binary
+- the Svelte dashboard, embedded in that binary
+- the PostgreSQL schema and migrations
+- the OpenAPI document and a generated Go client under `sdk/go/benchdb`
 
-- benchmark commits or releases repeatedly;
-- compare results across a fleet without pretending different machines are
-  interchangeable;
-- need benchmark history and regression decisions in CI;
-- want failed publication to be retryable without rerunning expensive work; or
-- have benchmarks in multiple languages that can emit JSON.
-
-It is probably unnecessary for a one-off local timing exercise. It is also not
-a general metrics, logs, or traces platform, and it will not schedule or execute
-your benchmark workloads.
-
-## What is included?
-
-- a Go server and CLI;
-- a PostgreSQL result store;
-- an API and generated Go client;
-- a web dashboard for results, histories, fleet trends, and comparisons; and
-- CI reporting with pairwise and recent-history regression analysis.
-
-The Go module is `go.kenn.io/benchdb`. The server embeds the Svelte web app, so
-the resulting `bin/benchdb` executable contains both the service and CLI.
-
-```sh
-make build
-./bin/benchdb serve
-./bin/benchdb results submit results.json --server https://example.com
-```
+The Go module is `go.kenn.io/benchdb`. `make build` needs Go and Bun and writes
+`bin/benchdb`. `make dev` needs Docker and starts a local server with demo data
+at `http://localhost:8080`. The [quickstart](docs/site/quickstart.md) shows
+both.
 
 ## Contributing
 
 Contributions are welcome, including pull requests from forks. Push a feature
-branch to your fork and open a pull request against `kenn-io/benchdb`'s `main`
-branch. You do not need write access to this repository.
+branch to your fork and open a pull request against the `main` branch of
+`kenn-io/benchdb`. You do not need write access to this repository.
 
-See the [contributing guide](docs/site/contributing.md) for the fork workflow,
+The [contributing guide](docs/site/contributing.md) covers the fork workflow,
 local checks, and documentation builds. Coding agents should also read
 [AGENTS.md](AGENTS.md).
 
@@ -92,10 +74,11 @@ change before the first stable release.
 
 ## Origin
 
-BenchDB began as an independent fork of the Go rewrite developed on
-[Conbench](https://github.com/conbench/conbench)'s `experimental-v2` branch. We
-are grateful to the Conbench contributors for that foundation and for the
-project's original vision of language-independent continuous benchmarking.
+BenchDB began as an independent fork of the Go rewrite on the
+`experimental-v2` branch of [Conbench](https://github.com/conbench/conbench).
+We thank the Conbench contributors for that code and for the project's original
+idea of language-independent continuous benchmarking.
 
-BenchDB is now developed independently for a different product direction. See
-[NOTICE.md](NOTICE.md) and [LICENSE](LICENSE) for attribution and license terms.
+BenchDB is now developed independently and has a different product direction.
+See [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE) for attribution and license
+terms.

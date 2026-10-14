@@ -1,62 +1,44 @@
 # BenchDB documentation
 
-BenchDB is a continuous benchmarking system for teams that need performance
-data to be easy to publish, inspect, compare, and act on. This reference is
-organized around what you are trying to do, whether you are a person using the
-dashboard, an automation author publishing results, or an operator running the
-service.
+BenchDB stores benchmark results and tells you which benchmarks got slower or
+faster. Your harness writes result JSON, the `benchdb` CLI uploads it, and the
+server groups comparable results into series and scores each new result
+against its history. These pages are for people who read the dashboard, people
+who publish results from CI, and people who run the server.
 
-Benchmark projects send BenchDB structured result JSON. BenchDB stores those
-results, groups comparable measurements into history series, and helps people
-answer the questions that matter during development:
+## Start here
 
-- what just ran,
-- whether the run published the expected measurements,
-- which benchmark series changed,
-- whether a change is statistically meaningful,
-- where to inspect the raw result, history, commit, and machine context.
-
-The main surfaces are:
-
-- a dashboard for browsing runs, results, series, trends, comparisons, and CI
-  reports,
-- the `benchdb` CLI for submitting results and generating CI diagnostics,
-- OpenAPI and generated Go and TypeScript clients for automation,
-- server-minted reporter tokens for CI and scripts,
-- server-side alert rules for scheduled regression monitoring.
-
-## Choose your path
-
-| You want to… | Start here |
+| You want to | Read |
 | --- | --- |
-| Send your first benchmark result | [Quickstart](quickstart.md) |
-| Add BenchDB to an existing harness | [Submitting results](submitting-results.md) |
-| Make performance part of pull request CI | [CI reporting](ci-reporting.md) |
-| Find a regression or compare runs | [Browsing and comparing](browsing-and-comparing.md) |
-| Integrate BenchDB from an agent or script | [Agent and automation guide](agents.md) |
-| Deploy and maintain a server | [Operations](operations.md) |
+| Send your first result | [Quickstart](quickstart.md) |
+| Understand results, series, and statuses | [Concepts](concepts.md) |
+| Publish results from an existing harness | [Submitting results](submitting-results.md) |
+| Add a performance report to pull request CI | [CI reporting](ci-reporting.md) |
+| Find a regression or compare two results | [Browsing and comparing](browsing-and-comparing.md) |
+| Learn how BenchDB decides a change is real | [Regression analysis](regression-analysis.md) |
+| Get alerts from scheduled benchmark runs | [Alerting](alerting.md) |
+| Call BenchDB from a script or coding agent | [Agent and automation guide](agents.md) |
+| Look up a CLI command or flag | [CLI reference](cli-reference.md) |
+| Deploy and run a server | [Operations](operations.md) |
 
-The short [Guide to BenchDB](https://benchdb.io/guide/) follows one
-benchmark result through the whole system. The
-[product page](https://benchdb.io/) is the quickest overview for someone
-deciding whether BenchDB fits their team.
+The [guide](https://benchdb.io/guide/) follows one result from the benchmark
+run to a CI report on a single page.
 
-## Supported surfaces
+## Tools and access
 
-| Need | Supported path |
+| Task | Use |
 | --- | --- |
-| Submit benchmark results | `benchdb results submit` |
-| Generate a PR or CI diagnostic | `benchdb ci report` |
-| Manage scheduled regression alerts | server-side alert rules plus `benchdb admin alerts evaluate` and `benchdb admin alerts deliver` |
-| Browse trends and comparisons | Svelte dashboard |
-| Read/query from automation | OpenAPI or the generated Go client |
-| Authenticate humans | OIDC session login |
-| Authenticate automation | Server-minted reporter tokens |
+| Submit results | `benchdb results submit` |
+| Report on a commit or pull request in CI | `benchdb ci report` |
+| Evaluate and send scheduled alerts | Alert rules, `benchdb admin alerts evaluate`, and `benchdb admin alerts deliver` |
+| Browse trends and comparisons | The web dashboard |
+| Read data from code | The HTTP API ([OpenAPI](api-and-sdk.md)) or the generated Go client |
+| Sign in as a person | OIDC login in the dashboard or `benchdb auth login` |
+| Authenticate CI and scripts | Reporter tokens minted on the server |
 
-## Machine-readable documentation
+## Markdown for agents
 
-Every rendered reference page has a raw Markdown twin. Replace the trailing
-slash in a docs URL with `.md`, or start at
-[`/llms.txt`](https://benchdb.io/llms.txt) for a complete index. The
-[agent and automation guide](agents.md) gives coding agents the shortest
-reliable path through the product contracts.
+Every docs page has a raw Markdown copy. Replace the trailing slash in a docs
+URL with `.md`, or start at [`/llms.txt`](https://benchdb.io/llms.txt) for the
+full index. The [agent and automation guide](agents.md) lists the API and CLI
+contracts an agent needs.
