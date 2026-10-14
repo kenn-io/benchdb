@@ -13,59 +13,59 @@ show the navigation drawer closed.
 
 | View | Route captured | Purpose |
 | --- | --- | --- |
-| Benchmark runs | `/` | Start from recent benchmark activity and jump into report, result, or series workflows. |
-| Series browse | `/series?q=ingest-events-10m` | Browse benchmark families, filters, status, and production-shaped identifiers. |
-| Trend detail | `/benchmarks/:benchmark_id?range=all` | Inspect fleet history, charted trends, and sample rows for one benchmark. |
-| Result detail | `/results/:id` | Inspect one benchmark result, measurement, metadata, and read-only actions. |
-| Results list | `/results?run_id=...` | Browse submitted benchmark results, filter by run or batch, and jump into detail or trends. |
-| Run detail | `/runs/:run_id` | Compare one run with its baseline, then open its result rows, batches, and series links. |
-| Batch detail | `/batches/:batch_id` | Inspect one batch_id across runs, CI reports, result rows, and series links. |
-| Compare | `/compare?baseline=:id&contender=:id` | Compare two results with pairwise and lookback diagnostics. |
-| CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review PR/CI regression status, coverage gaps, filters, and row verdicts. |
-| Account | `/account` | Reach session identity, login, API token management, and alert-rule management surfaces. |
+| Runs | `/` | See recent runs and which ones need attention, then open a run, its CI report, or its results. |
+| Benchmarks | `/series?q=ingest-events-10m` | Find benchmarks by name, filter by machine, time window, and status, and see each one's latest change. |
+| Benchmark trend | `/benchmarks/:benchmark_id?range=all` | Follow one benchmark over time on each machine, with outliers, steps, and its results table. |
+| Result | `/results/:id` | See one result's measurements and metadata, and where it sits in its benchmark's history. |
+| Results list | `/results?run_id=...` | List submitted results, filter by run or batch, and open a result or its trend. |
+| Run | `/runs/:run_id` | See one run's comparison with its baseline and open its results, batches, and trends. |
+| Batch | `/batches/:batch_id` | See one batch_id across runs, with its CI reports, results, and trends. |
+| Compare | `/compare?baseline=:id&contender=:id` | Compare two results as a percent change and against the baseline's history. |
+| CI report | `/ci/report?repository=...&commit_sha=...&run_ids=...` | Review a commit's CI verdict, its missing baselines, and the verdict for each benchmark. |
+| Account | `/account` | See who is signed in, and manage API tokens and alert rules. |
 
 The manifest at `web/docs-screenshots/screenshots.json` lists the same
 screenshots. `make docs-screenshots-check` fails when this page and the
 manifest disagree on a screenshot, title, route, or purpose.
 
-## Benchmark runs
+## Runs
 
 The Runs page lists the demo runs with their commits, result counts, and
 verdicts. On a phone, the table stacks each run's details into one block.
 
-![Benchmark runs dashboard](assets/screenshots/dashboard-home-desktop.png)
+![Runs dashboard](assets/screenshots/dashboard-home-desktop.png)
 
-![Benchmark runs mobile dashboard](assets/screenshots/dashboard-home-mobile.png)
+![Runs mobile dashboard](assets/screenshots/dashboard-home-mobile.png)
 
-## Series browse
+## Benchmarks
 
 The Benchmarks page, searched for `ingest-events-10m`, shows each matching
 benchmark's last value, history, status, and last commit. On a phone, each row
 shortens to two lines.
 
-![Series browse desktop](assets/screenshots/dashboard-series-desktop.png)
+![Benchmarks desktop](assets/screenshots/dashboard-series-desktop.png)
 
-![Series browse mobile](assets/screenshots/dashboard-series-mobile.png)
+![Benchmarks mobile](assets/screenshots/dashboard-series-mobile.png)
 
-## Trend detail
+## Benchmark trend
 
 The trend page for `ingest-events-10m` shows its whole history on two machines,
 `runner-arm64` and `runner-x86-64`, with one chart line per machine and the
 results table below.
 
-![Trend detail desktop](assets/screenshots/dashboard-trend-desktop.png)
+![Benchmark trend desktop](assets/screenshots/dashboard-trend-desktop.png)
 
-![Trend detail mobile](assets/screenshots/dashboard-trend-mobile.png)
+![Benchmark trend mobile](assets/screenshots/dashboard-trend-mobile.png)
 
-## Result detail
+## Result
 
 The result page shows the latest `ingest-events-10m` result, its comparison with
 the previous point, and its series chart. The capture is signed out, so the
 page has no **Manage** section.
 
-![Result detail](assets/screenshots/dashboard-result-desktop.png)
+![Result](assets/screenshots/dashboard-result-desktop.png)
 
-![Result detail mobile](assets/screenshots/dashboard-result-mobile.png)
+![Result mobile](assets/screenshots/dashboard-result-mobile.png)
 
 ## Results list
 
@@ -76,22 +76,22 @@ filter.
 
 ![Results list mobile dashboard](assets/screenshots/dashboard-results-mobile.png)
 
-## Run detail
+## Run
 
 The run page opens with the run's CI report summary and a link to the full
 report.
 
-![Run detail dashboard](assets/screenshots/dashboard-run-desktop.png)
+![Run dashboard](assets/screenshots/dashboard-run-desktop.png)
 
-![Run detail mobile dashboard](assets/screenshots/dashboard-run-mobile.png)
+![Run mobile dashboard](assets/screenshots/dashboard-run-mobile.png)
 
-## Batch detail
+## Batch
 
 The batch page lists the batch's runs, then its results.
 
-![Batch detail dashboard](assets/screenshots/dashboard-batch-desktop.png)
+![Batch dashboard](assets/screenshots/dashboard-batch-desktop.png)
 
-![Batch detail mobile dashboard](assets/screenshots/dashboard-batch-mobile.png)
+![Batch mobile dashboard](assets/screenshots/dashboard-batch-mobile.png)
 
 ## Compare
 

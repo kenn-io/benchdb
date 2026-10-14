@@ -276,7 +276,7 @@
           id="compare-benchmark-search"
           class="text-input"
           type="search"
-          placeholder="Search benchmarks by name, tag, or context"
+          placeholder="Search benchmarks by name or tag"
           autocomplete="off"
           spellcheck="false"
           value={benchmarkQuery}
