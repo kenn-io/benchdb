@@ -382,13 +382,31 @@ Run the functions in this order for a deploy:
 Stop the old pods before migrating, and deploy only if the migration
 succeeded. Old pods would otherwise take re-queued statuses from the
 migration and score them with the old rules; see
-[Upgrading](upgrading.md). Because `run_migrations` ends with `exit`, run it in
-a subshell so the shell that sourced the script survives:
+[Upgrading](upgrading.md). Run the steps from a script that stops at the
+first failure. Because `run_migrations` ends with `exit`, call it in a
+subshell:
 
 ```bash
+#!/usr/bin/env bash
+set -eo pipefail
+source scripts/go_deploy_runtime.sh
+
 deploy_secrets_and_config   # also points kubectl at the cluster and namespace
 kubectl scale deployment/benchdb-deployment --replicas=0
-( run_migrations ) && deploy
+
+# Wait up to 10 minutes until no server pod is left. Migration Job pods do
+# not carry the app=benchdb label.
+for _ in $(seq 120); do
+  [ -z "$(kubectl get pods -l app=benchdb -o name)" ] && break
+  sleep 5
+done
+if [ -n "$(kubectl get pods -l app=benchdb -o name)" ]; then
+  echo "old server pods are still running; not migrating" >&2
+  exit 1
+fi
+
+( run_migrations )
+deploy
 ```
 
 `deploy` restores the Deployment's two replicas, because
