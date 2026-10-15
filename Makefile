@@ -39,7 +39,7 @@ docs-screenshot-assets:
 build-docs: check-zensical-version docs-link-check docs-assets docs-screenshot-assets
 
 .PHONY: build-docs-ci
-build-docs-ci: check-zensical-version docs-link-check docs-screenshots-check
+build-docs-ci: check-zensical-version docs-link-check docs-screenshots-check docs-assets
 
 build-docs build-docs-ci:
 	rm -rf site
