@@ -170,6 +170,18 @@ own capacity; neither maintenance connection borrows from ingest's pool. The
 metadata connection never acquires the owner's maintenance or publication lock.
 Recording an intent must not commit the transaction that will publish the batch.
 
+These reservations count only Go connections. DuckDB's PostgreSQL extension
+opens its own connections for each reader and builder, including parallel
+scanners; `database/sql` pool limits do not bound them. The deployment budget
+must include the application pool, reader guards, both maintenance connections,
+each DuckDB handle's extension pool and any overflow, cancellation connections,
+and operator headroom. Count all processes, including admin readers, against
+PostgreSQL `max_connections` and any proxy's pinned-session capacity. Configure
+and verify extension-pool bounds on the packaged version, then measure peak
+backend sessions with concurrent reads, maintenance, and cancellation. Do not
+treat the extension's default `force` acquisition mode as a hard connection cap.
+See [DuckDB's PostgreSQL connection pool](https://duckdb.org/docs/current/core_extensions/postgres/connection_pool).
+
 ### File selection before remote reads
 
 Remote storage must not ship with the current default view over every fact
@@ -327,6 +339,36 @@ entire cycle. Holding a
 snapshot across network uploads delays vacuum's reclamation of old row versions;
 measure transaction age and account for that PostgreSQL cost.
 See [PostgreSQL timeout semantics](https://www.postgresql.org/docs/17/runtime-config-client.html#RUNTIME-CONFIG-CLIENT-STATEMENT).
+
+### Analytical read deadline
+
+`BENCHDB_ANALYTICAL_READ_TIMEOUT` is a positive Go duration, default `2m`.
+Reject explicit zero, negative, or invalid values. `Engine.Read` derives its
+deadline on entry, using the earlier of this limit and the caller's deadline.
+The budget includes reader-slot and coordination waits, shared-lock acquisition,
+snapshot setup, catalog/cache work, DuckDB execution, PostgreSQL scans, remote
+fact reads and retries, and transaction completion. It applies to every caller,
+including admin reads and report finalization, not just HTTP requests.
+
+Pass the bounded context into the read callback and through Store helpers;
+callbacks must not keep using an unbounded outer context. Nested reads in a
+pinned report snapshot inherit the original deadline without resetting it.
+On expiry, interrupt DuckDB and its PostgreSQL scanners and stop remote work.
+Join that work and roll back before releasing the reclamation guard or reusing
+the reader. Return a deadline error and never save a partial report. Bound
+remote request timeouts and retries so a stalled transport cannot make
+cancellation wait indefinitely; exercise this with the packaged extensions.
+PostgreSQL-only operations retain their existing policy, and maintenance uses
+its own bounded units rather than the interactive read limit.
+
+This deliberately changes the DSN-rewrite comment in `engine.go`, which
+currently promises to preserve statement timeouts. Update
+`TestRunReadOnlyDatabaseSettings` to preserve its read-only guarantee and test
+the new archive timeout policy. Its current startup-only check does not prove
+query cancellation. Application-deadline behavior must pass before disabling
+PostgreSQL statement timeouts on analytical connections.
+
+### Session affinity checks
 
 A second connection must observe a held test lock across a commit and its
 release. A changed backend PID or lost lock fails the check, but a passing
@@ -561,6 +603,14 @@ Acceptance includes:
   initialization and application-deadline cancellation, including DuckDB's
   snapshot connections. Exhaust reader capacity while recording upload intents
   to verify the second reserved maintenance connection can still progress.
+- Expire analytical reads while queued, executing DuckDB SQL, blocked in
+  PostgreSQL, and waiting on remote catalog/fact responses. Verify the default
+  deadline, a configured override, an earlier caller deadline, and a nested
+  finalization that cannot extend the budget. Check that cleanup and a later
+  reader progress after cancellation, no partial report is saved, and a
+  concurrent metadata read or ingest is not held behind the analytical queue.
+  Measure all PostgreSQL backend sessions under concurrent reader, scanner,
+  maintenance, and cancellation load, including proxy pinning where used.
 - Repeatedly merge and rewrite files whose IDs span lookup partitions. Verify
   unchanged lookup objects and segment counts, direct logical-ID resolution,
   deduplicated fact reads, deletion handling, and old-snapshot reads during
