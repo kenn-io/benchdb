@@ -34,6 +34,7 @@ served as raw Markdown at `/docs/<page>.md`.
 - [Upgrading](https://benchdb.io/docs/upgrading.md): Back up, migrate, roll out, and roll back, plus rebuilding databases from before the schema reset
 - [Production clone compatibility](https://benchdb.io/docs/prod-clone-compatibility.md): Checking a release against a read-only copy of production data
 - [Storage roadmap](https://benchdb.io/docs/storage-roadmap.md): What the storage layer does today, what is decided, and what is proposed
+- [Remote archive design](https://benchdb.io/docs/remote-archive-design.md): Proposed local/S3/GCS storage, the Kit boundary, publication, cleanup, and archive transfer; not yet implemented
 - [Contributing](https://benchdb.io/docs/contributing.md): Fork pull requests, local development, and the checks CI runs
 
 ## Other

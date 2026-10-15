@@ -6,6 +6,8 @@ through embedded DuckDB. The server owns export, publication, compaction, and
 file cleanup. Operators configure `BENCHDB_DATA_DIR` on one local persistent
 volume. S3 archive storage and multiple serving replicas are future work.
 S3 artifact storage remains separate from the measurement archive.
+The [remote archive design](remote-archive-design.md) describes the proposed
+Kit boundary, S3/GCS support, coordination, and migration requirements.
 
 This page describes the implemented storage model and its measured limits.
 The earlier plan for an optional analytical replica is superseded: archived

@@ -37,6 +37,7 @@ nav = [
     "upgrading.md",
     "prod-clone-compatibility.md",
     "storage-roadmap.md",
+    "remote-archive-design.md",
     "contributing.md",
   ] },
 ]
