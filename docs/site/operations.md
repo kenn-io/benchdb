@@ -395,12 +395,14 @@ deploy_secrets_and_config   # also points kubectl at the cluster and namespace
 kubectl scale deployment/benchdb-deployment --replicas=0
 
 # Wait up to 10 minutes until no server pod is left. Migration Job pods do
-# not carry the app=benchdb label.
+# not carry the app=benchdb label. Each listing is its own assignment, so a
+# failed kubectl call stops the script instead of reading as "no pods".
 for _ in $(seq 120); do
-  [ -z "$(kubectl get pods -l app=benchdb -o name)" ] && break
+  pods="$(kubectl get pods -l app=benchdb -o name)"
+  [ -z "$pods" ] && break
   sleep 5
 done
-if [ -n "$(kubectl get pods -l app=benchdb -o name)" ]; then
+if [ -n "$pods" ]; then
   echo "old server pods are still running; not migrating" >&2
   exit 1
 fi
