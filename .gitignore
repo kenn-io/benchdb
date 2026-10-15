@@ -62,3 +62,5 @@ coverage.out
 
 # Vercel creates a local deployment credential when linking the project.
 /.env.local
+.vercel
+.env*
