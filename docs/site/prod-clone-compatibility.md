@@ -1,36 +1,43 @@
-# Temporary Production-Clone Migration Gate
+# Temporary production-clone migration gate
 
-Use this temporary migration gate with a production-derived Postgres clone to
-prove that the Go server, Svelte dashboard, and CLI can read an
-existing BenchDB deployment before any storage-model change. The gate is
-local-only and read-only. It is for migration confidence and sanitized scale
-evidence, not for normal BenchDB product workflow or committed deployment
-infrastructure.
+This page is for maintainers who need to check that BenchDB can read a copy of
+an existing production database without writing to it. It covers the safety
+checks, how to prepare a clone, how to run the gate, and the evidence recorded
+from earlier runs.
 
-Do not commit passwords, tokens, `.pgpass` entries, service credentials,
-private hostnames, private IP addresses, raw production-derived payloads, query
-plans with identifiers, or raw server logs.
+The gate is temporary and exists only for migration work. It runs on your
+machine against a restored PostgreSQL clone. It is not part of the normal
+BenchDB workflow, and the repository does not deploy it.
 
-## What The Harness Proves
+Never commit passwords, tokens, `.pgpass` entries, service credentials,
+private hostnames, private IP addresses, raw production-derived payloads,
+query plans with identifiers, or raw server logs from these runs.
 
-The compatibility harness checks the frozen legacy schema through the new
-runtime:
+## What the gate checks
 
-- the server starts against the restored database,
-- read APIs return valid data for series, results, history, compare, and CI
-  report paths,
-- the CLI can read the same server with `results get`, `series list`, and
+`scripts/prod_clone_compat.sh` builds BenchDB, starts `benchdb serve` against
+the clone with a read-only connection, and then checks that:
+
+- the server starts and answers `/api/ping`,
+- the read API returns valid data for the series list, result list, result
+  detail, history by result, history by fingerprint, result compare, and CI
+  report,
+- the CLI reads the same server with `results get`, `series list`, and
   `compare`,
-- writable table counts do not change,
-- server logs do not contain blocked-write or read-only transaction errors.
+- row counts in the checked tables are the same before and after the run,
+- the server log contains no blocked-write messages.
 
-Row-count checks catch writes that succeed. Log scanning catches write attempts
-that the read-only role or `default_transaction_read_only` blocks. Both checks
-are required for the no-write claim.
+The row counts catch writes that succeeded. The log scan catches writes that
+the read-only role or `default_transaction_read_only` blocked. You need both to
+claim the run wrote nothing.
 
-## Required Safety Boundary
+The script drives a hidden `prod-clone` command group under `admin` in the
+main `benchdb` binary. General CLI help does not list it, and it is not a
+supported user workflow.
 
-Run the acceptance check with a dedicated read-only database role:
+## Safety conditions
+
+Set these variables before every run:
 
 ```bash
 export BENCHDB_PROD_CLONE_DB_URL='postgresql://<read-only-role>@<clone-host>:<port>/<clone-database>'
@@ -38,64 +45,96 @@ export BENCHDB_PROD_CLONE_CONFIRM=read-only
 export BENCHDB_PROD_CLONE_READONLY_ROLE='<read-only-role>'
 ```
 
-`BENCHDB_PROD_CLONE_CONFIRM` must be exactly `read-only`. Any other value stops
-the harness.
+The gate stops before it connects unless:
 
-`BENCHDB_PROD_CLONE_READONLY_ROLE` must name the dedicated database role used
-by the acceptance run. The harness also sets read-only connection options, but
-the database role is the non-bypassable boundary.
+- `BENCHDB_PROD_CLONE_DB_URL` is set, uses the `postgres` or `postgresql`
+  scheme, and names a host and a database,
+- `BENCHDB_PROD_CLONE_CONFIRM` is exactly `read-only`,
+- `BENCHDB_PROD_CLONE_READONLY_ROLE` is set. The only exception is a
+  development dry run, described below.
 
-If the connected server reports an address different from the URL host, use a
-deployment-local allowlist:
+Preflight then connects and fails unless every one of these holds:
+
+- The connected database has the name in the URL.
+- The address the server reports matches the URL host. When
+  `BENCHDB_PROD_CLONE_EXPECTED_HOSTS` is set, it must match one of those
+  entries instead.
+- The server port matches the URL port, or 5432 when the URL has none.
+- The connected role is `BENCHDB_PROD_CLONE_READONLY_ROLE`.
+- The connected role is not the development role. That role is `benchdb_dev`
+  unless `BENCHDB_PROD_CLONE_DEVELOPMENT_ROLE` names another.
+- The role has no `INSERT`, `UPDATE`, `DELETE`, or `TRUNCATE` privilege on
+  any checked table.
+- The role is not a superuser.
+- `default_transaction_read_only` is on.
+- These tables exist: `benchmark_result`, `case`, `context`, `info`,
+  `hardware`, `commit`, `user`, `run_verdict`, `verdict_queue`, and
+  `benchmark_verdict`.
+
+`api_token` is optional. When it exists, preflight checks its privileges and
+counts its rows. The row-count comparison covers every checked table except
+`benchmark_result`, which preflight checks for privileges only.
+
+The harness also sets read-only connection options. The database role is
+still the boundary that cannot be bypassed, so do not run the gate with a role
+that can write.
+
+If the server reports an address that differs from the URL host, list both:
 
 ```bash
 export BENCHDB_PROD_CLONE_EXPECTED_HOSTS='<clone-host>,<server-reported-address>'
 ```
 
-Keep that value outside committed documentation when it contains private
-infrastructure names or addresses.
+Keep that value out of committed files when it names private hosts or
+addresses.
 
-## Child Server Environment
+### Development dry run
 
-The harness owns the child server environment. It sets:
+`BENCHDB_PROD_CLONE_ALLOW_DEV_ROLE=true` lets the development role pass
+preflight while the dedicated read-only role is being set up. A dry run skips
+the expected-role and write-privilege checks. It never counts as an acceptance
+run, and the report fails it.
 
-- `BENCHDB_DB_URL` to a scrubbed read-only connection URL,
-- `BENCHDB_ADDR` to the local listen address.
+## The server the gate starts
 
-It must not inherit write-path, auth, session, seed, OIDC, GitHub token, or
-fallback database variables from the caller. In particular, unset
-`DATABASE_URL` for the child process so `BENCHDB_DB_URL` is the only database
-target.
+The script starts `benchdb serve` with an empty environment plus three
+variables:
 
-The restored legacy clone may not have rewrite-only tables such as `api_token`.
-The harness treats legacy read-path tables as required and includes optional
-rewrite tables in privilege and count checks only when they exist.
+| Variable | Value |
+| --- | --- |
+| `PATH` | Copied from your shell |
+| `BENCHDB_DB_URL` | The clone URL without its password or query string, plus the options below |
+| `BENCHDB_ADDR` | `127.0.0.1:<port>`, where the port is `BENCHDB_PROD_CLONE_PORT` or 18080 |
 
-The validation script uses a hidden CLI helper inside the main `benchdb`
-binary. This helper is temporary and migration-only. It stays callable so
-`scripts/prod_clone_compat.sh` and migration agents can run the gate, but it is
-not listed in general CLI help and is not documented as a supported user
-workflow. The repository does not build or ship a separate production-clone
-executable.
+The server therefore inherits no auth, session, seed, OIDC, GitHub token, or
+`DATABASE_URL` setting from your shell. The connection URL sets
+`default_transaction_read_only=on`, `statement_timeout=30s`,
+`lock_timeout=2s`, `idle_in_transaction_session_timeout=30s`, and
+`application_name=benchdb-admin-prod-clone-compat`.
 
-## Preparing The Clone
+The script stops if the port already serves a BenchDB API. On a read-only
+connection the server does not compute run verdicts or benchmark statuses. It
+serves only the rows already stored.
 
-The gate checks the restored database through the current server, which reads
-tables that the numbered migrations add, such as `run_verdict`. Apply the
-migrations to the clone with a writable role before the read-only run:
+## Prepare the clone
+
+`benchdb migrate` refuses a database that has `benchmark_result` but no
+`schema_migrations` table. Rebuild a restored copy from the current baseline
+first, as described in [Upgrading BenchDB](upgrading.md). Use a writable role
+for that step:
 
 ```bash
 BENCHDB_DB_URL='postgresql://<writable-role>@<clone-host>:<port>/<clone-database>' \
   ./bin/benchdb migrate
 ```
 
-Preflight refuses a clone that lacks the `run_verdict`, `verdict_queue`, and
-`benchmark_verdict` tables, and includes them in its privilege and row-count
-checks.
+Then give the dedicated read-only role `SELECT` on the tables and no write
+privilege. Preflight rejects a role that can write.
 
-## Running The Gate
+## Run the gate
 
-From the repository root:
+The script needs `jq`, `curl`, and `uv`, plus the Go and Bun toolchains for
+`make build`. From the repository root:
 
 ```bash
 BENCHDB_PROD_CLONE_DB_URL='postgresql://<read-only-role>@<clone-host>:<port>/<clone-database>' \
@@ -104,45 +143,62 @@ BENCHDB_PROD_CLONE_READONLY_ROLE='<read-only-role>' \
 scripts/prod_clone_compat.sh --profile
 ```
 
-The script writes local artifacts under:
+`--profile` adds serial HTTP timings, SQL timings, `EXPLAIN` plans, and
+relation sizes, and makes the report require them. On failure the script
+prints the last 80 lines of the server log and the report path.
 
-```text
-var/prod-clone-compat/
-```
-
-Those artifacts are ignored by git. They may contain deployment-local paths,
-sample identifiers, fingerprints, query plans, and server logs. Delete them
-after extracting sanitized aggregate evidence:
+The script writes artifacts to `var/prod-clone-compat/`, or to
+`BENCHDB_PROD_CLONE_OUT_DIR` when set. Git ignores that directory. The files
+can hold deployment paths, sample identifiers, fingerprints, query plans, and
+server logs. Delete them after you copy out sanitized aggregate numbers:
 
 ```bash
 rm -rf var/prod-clone-compat/
 ```
 
-## Sanitized Findings
+### Expected warnings
 
-The latest profiled compatibility gate passed against a production-derived
-legacy Postgres clone in the 100M-result-row class.
+Sample selection is best effort. These warnings do not fail the gate:
+
+- an optional candidate-source query hit the statement timeout,
+- optional sample metadata hit the statement timeout,
+- an optional category, such as errored results, mixed units, or high-volume
+  series, is missing from the sample manifest.
+
+With these warnings the run still shows compatibility and the cost of
+targeted reads. It does not show that every historical data shape was sampled.
+
+## Recorded evidence
+
+The numbers below come from runs made before the repository history starts on
+2026-08-27. They describe the server and dashboard of that time. Later changes,
+such as stored run verdicts and benchmark statuses, have not been measured on
+a clone.
+
+### Compatibility result
+
+The profiled gate passed against a production-derived Postgres clone with
+about 100M result rows:
 
 - Preflight was valid and acceptance-eligible before and after the run.
-- API read probes passed for series list, benchmark result list/detail, history
-  by result, history by fingerprint, benchmark-result compare, and CI report.
-- CLI read probes passed for `results get`, `series list`, and `compare`.
-- Writable-table row-count comparison reported no changes.
-- Server log scanning found zero blocked-write findings.
+- The API probes passed for every route listed under
+  [What the gate checks](#what-the-gate-checks).
+- The CLI probes passed for `results get`, `series list`, and `compare`.
+- Row counts did not change.
+- The log scan found no blocked writes.
 
-The largest relation observed was `public.benchmark_result`:
+One table held almost all of the data:
 
 | Relation | Total | Heap | Indexes |
 | --- | ---: | ---: | ---: |
 | `public.benchmark_result` | 120.2 GB | 78.8 GB | 36.3 GB |
 
-This confirms that the result table behaves like an analytical fact table. The
-small dimension tables are not the source of the production-scale pressure.
+The dimension tables were small by comparison.
 
-## Read-Path Timings
+### First timings
 
-Initial HTTP profiling with small page sizes showed targeted reads were viable
-and unfiltered series browsing was the visible cost center:
+HTTP probes with small page sizes. Targeted reads were fast. The unfiltered
+series list was the slowest call:
 
 | Read path | HTTP timing |
 | --- | ---: |
@@ -154,24 +210,34 @@ and unfiltered series browsing was the visible cost center:
 | `/api/benchmark-results?earliest_timestamp=...&page_size=5` | 6-10 ms |
 | `/api/compare/benchmark-results?...` | 60-72 ms |
 
-A later browser probe used the web UI's normal page sizes and exposed DOM and
-layout pressure:
+A browser probe at the dashboard's normal page sizes found slow pages caused
+by DOM size and layout:
 
 | Browser path | Desktop timing | Mobile timing | Notes |
 | --- | ---: | ---: | --- |
-| Default browse | 43.9 s | 29.4 s | Web UI requested 50 series rows |
+| Default browse | 43.9 s | 29.4 s | Requested 50 series rows |
 | Result detail | 0.6 s | 0.6 s | Loaded normally |
-| Trend by result/fingerprint | 2.9-3.2 s | 2.9 s | Rendered full history table |
+| Trend by result or fingerprint | 2.9-3.2 s | 2.9 s | Rendered the full history table |
 | Compare | 0.7-0.9 s | 0.7 s | Loaded normally |
 | CI report | 5.2 s | 3.5 s | Rendered thousands of rows |
 
-The browser evidence drove row caps, chunked rendering, and mobile table layout
-hardening in the Svelte app.
+These results led to row caps, chunked rendering, and a mobile table layout
+in the dashboard.
 
-## Post-Hardening Evidence
+### After the first fixes
 
-After bounded search/member-enrichment changes and UI row caps, the clone-backed
-loopback run returned:
+Four causes were fixed:
+
+- broad `q` search scanned commits and results before applying the case
+  filter,
+- default browse aggregated the latest result per fingerprint across the
+  whole result table,
+- list rows loaded full histories to draw status and sparklines,
+- the profiler measured an old unbounded query instead of the one the product
+  runs.
+
+With bounded search, bounded row enrichment, and dashboard row caps, the
+clone returned:
 
 | Read path | Status | Timing |
 | --- | ---: | ---: |
@@ -184,26 +250,26 @@ loopback run returned:
 | `/api/series?q=<broad>&page_size=10` | 200 | 4.6 s cold, 2.8 s warm |
 | `/api/ci/report?commit_sha=<sha>&repository=<repo>&run_ids=<run>` | 200 | 0.36-0.39 s |
 
-The recent-runs SQL profile measured 395 ms for page size 25 and 238 ms for
-page size 100. The plans used a bounded newest-result candidate scan over
-`benchmark_result_timestamp_index`, then exact `run_id` aggregation through
-`benchmark_result_run_id_index`. This confirms the v2 dashboard path avoids the
-legacy Flask landing-page query shape that depended on 14-day predicates and
-stale partial-index behavior.
+The recent-runs SQL took 395 ms at page size 25 and 238 ms at page size 100.
+Its plan scanned a bounded set of the newest results through
+`benchmark_result_timestamp_index`, then aggregated by `run_id` through
+`benchmark_result_run_id_index`. It no longer depends on the 14-day predicate
+and partial index that the old Flask landing page used.
 
-The matching browser probe measured `/api/ci/report` at about 0.39 s for a
-6.9 MB payload and the mobile CI report page at about 1.4 s after rendering the
-initial 200 of 4,568 comparison rows.
+The browser probe loaded `/api/ci/report` in about 0.39 s for a 6.9 MB
+payload. The mobile CI report page rendered its first 200 of 4,568 comparison
+rows in about 1.4 s.
 
-A follow-up correctness review caught that sampling resultless recent commits
-could produce sparse series pages. The first exact latest-per-fingerprint fix
-restored correctness but timed out on the clone because it had to materialize
-and sort the eligible result history. The current default browse path instead
-starts from a bounded window of recent default-branch commits that actually have
-non-errored benchmark results. Exact lookup remains the job of search,
-fingerprint, run, history, and CI-report routes.
+### Default browse after the correctness fix
 
-The follow-up clone smoke measured:
+A review found that sampling recent commits without results could leave the
+series page sparse. An exact latest-per-fingerprint query fixed that but timed
+out on the clone, because it sorted the whole eligible history. Default browse
+now starts from a bounded window of recent default-branch commits that have
+non-errored results. Search, fingerprint, run, history, and CI report routes
+handle exact lookups.
+
+The follow-up run measured:
 
 | Read path | Status | Timing |
 | --- | ---: | ---: |
@@ -213,63 +279,29 @@ The follow-up clone smoke measured:
 | `/api/series?hardware=<hardware>&page_size=5` | 200 | 6.1 s |
 | `/api/benchmark-results?run_id=<run>&page_size=1` | 200 | 40 ms |
 
-The matching browser smoke loaded `/series` with the Svelte loader's 25-row
-page on desktop and mobile in about 4.1-4.2 s, with no console errors or
-document-level horizontal overflow. This is still a browse cost center, but it
-keeps the visible product path below the read timeout on the current schema.
+In a browser, `/series` loaded its 25-row page in about 4.1-4.2 s on desktop
+and mobile, with no console errors and no page-wide horizontal scroll. Browse
+is still the slowest page, but it stays under the read timeout.
 
-The root causes addressed were:
+### What this means for storage
 
-- broad `q` search planning as a default-commit/result scan with case filtering
-  applied too late,
-- default browse planning as a global latest-per-fingerprint aggregation on the
-  result fact table,
-- list-row status and sparkline enrichment loading full histories for every
-  visible series,
-- the compatibility profiler measuring an obsolete unbounded diagnostic query
-  instead of the bounded product query.
+Targeted reads by result, history, compare, and CI report stay fast on
+Postgres. Broad browsing across `benchmark_result` is the cost. The
+[storage roadmap](storage-roadmap.md) uses this evidence and describes the
+proposed next steps.
 
-## Expected Warnings
+## Record new evidence
 
-Best-effort sample selection can still warn without failing the compatibility
-gate:
+Add only sanitized aggregate numbers to this page. Raw artifacts stay under
+the ignored `var/` directory unless someone reviews and scrubs them.
 
-- optional candidate-source queries may hit the statement timeout,
-- optional sample metadata may hit the statement timeout,
-- optional categories such as errored results, mixed units, or high-volume
-  series may be absent from the sample manifest.
-
-These warnings mean the evidence is strongest for compatibility and targeted
-read cost. They are not proof that every historical data shape has been sampled.
-
-## Storage Implications
-
-Production-clone testing supports the staged storage roadmap:
-
-- keep the frozen Postgres schema as the migration source of truth,
-- keep targeted result, history, compare, and CI report paths bounded and fast,
-- avoid building new product surfaces around broad fact-table browsing,
-- use clone-derived evidence to decide whether and how to introduce a columnar
-  analytical read replica.
-
-The current conclusion is not that Postgres can remain the only analytical
-store forever. The conclusion is that existing deployments can validate the new
-runtime first, then evaluate a storage split from measured production-shaped
-workloads.
-
-## Recording Future Evidence
-
-Record only sanitized aggregate findings in this documentation. Raw clone
-artifacts stay under ignored `var/` paths unless they have been separately
-reviewed and scrubbed.
-
-Useful durable evidence includes:
+Useful numbers to record:
 
 - row-count and relation-size classes,
-- request status and timing bands,
-- whether row-count and blocked-write log-scan gates passed,
-- browser DOM and layout aggregates,
-- query-family conclusions that affect the storage roadmap.
+- request status and timing ranges,
+- whether the row-count and log-scan checks passed,
+- browser DOM and layout totals,
+- conclusions about query families that affect the storage roadmap.
 
-Do not record sample result IDs, history fingerprints, private repository URLs,
-private infrastructure details, credentials, or raw query plans.
+Do not record sample result IDs, history fingerprints, private repository
+URLs, private infrastructure details, credentials, or raw query plans.

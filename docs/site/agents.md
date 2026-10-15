@@ -1,92 +1,98 @@
-# Agent And Automation Guide
+# Agent and automation guide
 
-This page is the shortest reliable entry point for an agent or script that
-needs to submit, inspect, or operate BenchDB. Read
-[`/llms.txt`](https://benchdb.io/llms.txt) for an index of every
-machine-readable documentation page.
+This page is the starting point for an agent or script that submits results
+to BenchDB, reads them back, or operates a server. It covers the integration
+steps, the data rules to keep, and which interface to use for each task.
+[`/llms.txt`](https://benchdb.io/llms.txt) indexes every machine-readable
+documentation page.
 
 ## Contributing to BenchDB
 
-Contributions from forks are welcome. Read the repository's `AGENTS.md` and the
+Read the repository's `AGENTS.md` and the
 [contributing guide](contributing.md#submit-a-pull-request-from-a-fork) before
-changing BenchDB itself. Push a feature branch to the contributor's fork and
-open a pull request against `kenn-io/benchdb`'s `main` branch; upstream write
-access is not required. Inspect remote URLs before pushing, and direct BenchDB
-issues and pull requests to `kenn-io/benchdb`.
+you change BenchDB itself. Push a feature branch to your fork and open a pull
+request against the `main` branch of `kenn-io/benchdb`. You do not need write
+access to the upstream repository. Check `git remote -v` before you push. File
+BenchDB issues and pull requests in `kenn-io/benchdb`.
 
-## Mental model
+## How BenchDB works
 
-BenchDB receives structured benchmark result JSON, stores each result with its
-run, commit, and machine context, and groups comparable results into histories.
-People use the dashboard to inspect those histories. Automation uses the CLI or
-OpenAPI to publish results, produce CI reports, and export data.
+A client sends benchmark results as JSON. BenchDB stores each result with its
+run, commit, and machine, and groups comparable results into a history. People
+read those histories in the dashboard. Automation uses the CLI or the HTTP API
+to publish results, build CI reports, and export data.
 
-Do not make benchmark execution depend on result publication. Write results to
-files first, then submit those files. A publication retry should not rerun an
-expensive benchmark.
+Keep running a benchmark separate from publishing it. Write results to files
+first, then submit the files. Then a failed upload can be retried without
+running an expensive benchmark again.
 
-## Integration sequence
+## Integration steps
 
-1. Obtain the BenchDB server URL and a reporter token from the operator.
-2. Run the benchmark and write one result object, or an array of result objects,
-   to JSON.
-3. Include stable benchmark tags plus the current run, repository, commit, and
-   machine identity.
+1. Get the BenchDB server URL and a reporter token from the operator.
+2. Run the benchmark and write one result object, or an array of result
+   objects, to a JSON file.
+3. In each result, include stable benchmark tags and the run, repository,
+   commit, and machine.
 4. Submit the files with `benchdb results submit`.
-5. In CI, run `benchdb ci report` against the same repository, commit, and run
-   identifiers.
-6. Preserve the submission response and report output as job artifacts.
+5. In CI, run `benchdb ci report` with the same repository, commit, and run
+   IDs.
+6. Keep the submit output and the report as job artifacts.
 
-Start with [Submitting results](submitting-results.md) for the payload shape and
-[CI reporting](ci-reporting.md) for selectors and exit codes.
+[Submitting results](submitting-results.md) has the payload shape.
+[CI reporting](ci-reporting.md) has the report selectors and exit codes.
 
-## Contracts agents should preserve
+## Rules to keep
 
-- `github.repository` and `github.commit` in submitted results must match the
-  values passed to `benchdb ci report`.
-- `run_id` identifies one benchmark attempt. Reuse it across result files from
-  that attempt; do not reuse it for later attempts.
-- Benchmark tags identify the case being measured. Machine identity describes
-  where it ran. Keep those concepts separate.
-- Units and comparison direction are data contracts. Do not relabel or combine
-  unlike measurements to make a chart look continuous.
-- Keep tokens in `BENCHDB_TOKEN` or the CLI credential store. Never write them
+- `github.repository` and `github.commit` in each result must match the
+  `--repository` and `--commit` you pass to `benchdb ci report`.
+- `run_id` names one benchmark attempt. Use the same value for every result
+  file from that attempt, and a new value for the next attempt.
+- Benchmark tags say what was measured. Machine information says where it ran.
+  Do not mix the two.
+- Units and the better direction are part of the data. Do not relabel or merge
+  different measurements to make a chart look continuous.
+- Keep tokens in `BENCHDB_TOKEN` or the CLI credentials file. Never write them
   into payloads, logs, command output, or source control.
-- Treat result submission as retryable publication. Preserve the benchmark
-  output so a network failure can be retried without measuring again.
+- Keep benchmark output until submission succeeds, so a network failure can be
+  retried without measuring again. If a result sets `submission_key`, sending
+  the same payload again returns the original result. Sending different
+  content with the same key returns `409`.
 
-## Supported interfaces
+## Which interface to use
 
 | Task | Interface |
 | --- | --- |
-| Submit JSON result files | `benchdb results submit` |
-| Generate CI diagnostics | `benchdb ci report` |
+| Submit result files | `benchdb results submit` |
+| Fetch one result | `benchdb results get` |
+| Build a CI report | `benchdb ci report` |
 | List series | `benchdb series list` |
-| Compare two result IDs | `benchdb compare` |
-| Export one result's history | `benchdb history export` |
-| Discover HTTP operations | `/openapi.yaml` or `/docs` on the server |
-| Generate typed integrations | OpenAPI, generated Go client, generated TypeScript client |
+| Compare two results | `benchdb compare` |
+| Export one result's history as CSV | `benchdb history export` |
+| Find regressed benchmarks and the machine and size of each change | `GET /api/benchmarks?status=regressed`, fields `change_machine` and `change_percent` |
+| List machines with benchmark history | `GET /api/machines`, optionally with `?repository=` |
+| Discover every HTTP operation | `/openapi.yaml` or `/docs` on the server |
+| Build a typed integration | The OpenAPI document or the generated Go or TypeScript client |
 
-Use the [CLI reference](cli-reference.md) for command options and
-[API and SDK](api-and-sdk.md) for HTTP and generated-client details.
+The [CLI reference](cli-reference.md) lists every command's flags.
+[API and SDK](api-and-sdk.md) lists every endpoint and the generated clients.
 
-## Source-of-truth order
+## When sources disagree
 
-When documentation and a deployed server appear to disagree, inspect in this
+If the documentation and a deployed server seem to disagree, check in this
 order:
 
-1. the deployed server's `/openapi.yaml` for its HTTP contract,
-2. the installed command's `--help` output for the CLI contract,
-3. these versioned docs for workflows and operating guidance,
-4. the repository source for implementation detail.
+1. the server's `/openapi.yaml` for the HTTP contract
+2. the installed CLI's `--help` output for commands and flags
+3. these docs for workflows and operating guidance
+4. the repository source for implementation detail
 
-Report the version mismatch instead of guessing an undocumented compatibility
-path.
+Report the version mismatch. Do not guess at an undocumented workaround.
 
 ## Operator tasks
 
-Agents performing deployment work should start with [Operations](operations.md)
-and [Authentication and tokens](auth-and-tokens.md). Schema changes are applied
-with `benchdb migrate`; the server itself does not own production migration
-orchestration. Alert evaluation and delivery are separate jobs described in
+For deployment work, start with [Operations](operations.md) and
+[Authentication and tokens](auth-and-tokens.md). Apply schema changes with
+`benchdb migrate`. The server applies migrations itself only when
+`BENCHDB_INIT_SCHEMA=true`, which is for development. Alert
+evaluation and delivery are separate scheduled jobs, described in
 [Alerting](alerting.md).

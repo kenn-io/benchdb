@@ -1,10 +1,11 @@
-# Submitting Results
+# Submitting results
 
-The supported write path is:
+This page is for benchmark authors and CI owners who publish results to
+BenchDB. It covers the result JSON, the `benchdb results submit` command,
+retries, history exclusion, and diagnostic file attachments.
 
-1. benchmark code emits BenchDB-compatible JSON payload files,
-1. each file contains either one result object or an array of result objects,
-1. the Go `benchdb` CLI submits those files with bounded concurrency.
+Your harness writes JSON files. Each file holds one result object or an array of
+result objects. The `benchdb` CLI then submits the files over HTTP:
 
 ```bash
 benchdb results submit "bench-results/*.json" \
@@ -12,14 +13,15 @@ benchdb results submit "bench-results/*.json" \
   --jobs 16
 ```
 
-If `BENCHDB_TOKEN` is set, no `--token` flag is needed. Prefer the environment
-variable in CI and shared scripts; use `--token` only when you need an explicit
-local override.
+Quote globs so the CLI expands them. Set `BENCHDB_TOKEN` in CI and shared
+scripts instead of passing `--token`, which puts the token on the command line.
+[Authentication and tokens](auth-and-tokens.md) gives the full resolution order
+and explains how operators mint reporter tokens.
 
-## Required Shape
+## Required fields
 
-At minimum, a measured result needs tags, context, commit context, run identity,
-a timestamp, hardware metadata, and stats:
+This example has every required field, plus the optional `run_reason` and
+`run_tags`:
 
 ```json
 {
@@ -38,109 +40,42 @@ a timestamp, hardware metadata, and stats:
 }
 ```
 
-Useful production payloads should also include:
+The server enforces these rules:
 
-- rich `tags`: benchmark dimensions that define the time series,
-- rich `context`: toolchain, language, runtime, and other comparison context,
-- `run_reason`: `pull request`, `nightly`, `manual`, or similar,
-- `run_tags`: CI system, suite, shard, language, benchmark family,
-- `run_tags.base-sha`: for a pull-request run that measures the pull request
-  merged onto the default branch, the full SHA of the default-branch commit it
-  was merged onto. CI reports and Runs page verdicts compare such a run against
-  that commit instead of the fork point
-  ([baseline modes](ci-reporting.md#baseline-modes)),
-- `batch_id`: optional grouping across related runs,
-- `github.repository` and `github.commit`: required for commit-wide CI reports,
-- `github.pr_number` or `github.branch`: useful for display and audit.
+- `tags.name` must be a non-empty value.
+- `github.repository` is required. `github.commit` is optional, but a result
+  without it is stored with no commit. It never enters history, and CI reports
+  cannot find a baseline for it.
+- Send exactly one of `machine_info` or `cluster_info`.
+- Send `stats` for a measurement or an `error` object for a failed benchmark.
+  `"error": null` is rejected.
 
-To retain a result for comparisons without including it in continuous history,
-submit `"change_annotations": {"exclude_from_history": true}`. This excludes the
-result from history samples, series and benchmark summaries, and lookback
-distributions. The result keeps its fingerprint and remains available through
-result/run reads and explicit comparisons. `run_reason` is descriptive metadata
-and does not control history membership.
+The CLI also rejects fields the API does not define, so a misspelled field
+fails the submission instead of being dropped.
 
-The annotation accepts booleans only. Omit it or set it to `false` for normal
-history membership. The existing result update endpoint can change the flag;
-setting it to `null` removes it and restores normal membership. Changes take
-effect on subsequent reads. No measurements are deleted.
+## Optional fields
 
-## Diagnostic artifacts
+These fields make results easier to compare and audit:
 
-Submit the benchmark result first, then upload attachments as raw bytes. File
-contents never enter the result JSON or PostgreSQL. Each upload returns an
-attachment ID, its name, kind, media type, size, and SHA-256 checksum.
+| Field | Use |
+| --- | --- |
+| `tags` | Every benchmark dimension that defines the time series, such as row count or codec. |
+| `context` | Toolchain, language, runtime, and other settings that must match for two results to be compared. |
+| `run_reason` | `pull request`, `nightly`, `manual`, or similar. When two baseline runs cover the same benchmarks, CI reports prefer the one with the same reason. It does not control history membership. |
+| `run_tags` | CI system, suite, shard, language, or benchmark family. |
+| `run_tags.base-sha` | For a pull-request run that measures the pull request merged onto the default branch, the full 40-character lowercase SHA of the default-branch commit it was merged onto. CI reports and Runs page verdicts then compare against that commit instead of the fork point. See [baseline modes](ci-reporting.md#baseline-modes). |
+| `batch_id` | Groups related runs. |
+| `github.pr_number` | Pull request number. BenchDB uses it to look up the branch through the GitHub API. |
+| `github.branch` | Branch in `org:branch` form, for non-default-branch runs outside pull requests. It takes precedence over `pr_number`. |
+| `submission_key` | Retry key, up to 255 characters. See [Retries](#retries). |
+| `optional_benchmark_info.tolerance` | Minimum change worth reporting. See [Regression analysis](regression-analysis.md). |
 
-```bash
-curl --fail-with-body --request POST \
-  --header "Authorization: Bearer $BENCHDB_API_TOKEN" \
-  --header 'Content-Type: application/vnd.google.pprof' \
-  --data-binary @cpu.pprof \
-  "$BENCHDB_URL/api/benchmark-results/$RESULT_ID/artifacts?name=cpu.pprof&kind=cpu-profile"
-```
+`benchdb ci report --repository ... --commit ...` finds runs through
+`github.repository` and `github.commit`, so set both for CI reporting.
 
-BenchDB imposes no attachment size or count limit. Uploads and downloads stream
-through the server; a gigabyte profile does not require a gigabyte request
-buffer. Send `Content-Length` when the size is known so the storage client can
-choose smaller multipart buffers; unknown-length streams use larger buffers.
-Storage-provider limits and any reverse-proxy limits still apply.
-Names can contain uppercase letters, spaces, Unicode, and punctuation. Use URL
-encoding for query parameters. Repeated filenames are allowed because each
-attachment has its own ID. Kinds are descriptive labels, not an allowlist; any
-valid MIME media type is accepted. Empty files are accepted too.
+## Submitting many results
 
-Result details and comparisons include attachment metadata. Download the bytes
-with `GET /api/benchmark-results/{id}/artifacts/{artifact_id}`. Downloads return
-the declared media type, filename, content length, and checksum as the ETag.
-Use `go tool pprof` to open pprof files. The publisher must remove private data
-before uploading. Downloads have the same read access as benchmark results.
-
-Delete an unwanted file with
-`DELETE /api/benchmark-results/{id}/artifacts/{artifact_id}` using the same write
-authentication as result submission. The result page also provides a Delete
-button for users with write access. Deleting an attachment removes its link immediately and queues byte removal if
-storage is temporarily unavailable. It keeps measurements,
-history, and comparisons. Deleting a result removes all its attachment links
-and queues the stored files for deletion. The server retries queued object
-removals at startup and once a minute, including after a storage outage.
-
-Attachments are independent of submission replay checks, series fingerprints,
-statistics, and gates. Retrying result submission does not recreate a deleted
-attachment. Each successful upload creates a new attachment, so callers should
-check result metadata before retrying an upload whose response was lost.
-Collect profiles separately when profiling would affect measurements.
-
-### Attachment storage
-
-Configure an existing S3-compatible bucket with `BENCHDB_ARTIFACT_BUCKET`.
-`BENCHDB_ARTIFACT_ENDPOINT` selects the provider origin and defaults to
-`https://s3.amazonaws.com`. `AWS_REGION` selects the region. Credentials come
-from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional
-`AWS_SESSION_TOKEN`, or the runtime IAM credentials. The server does not create
-the bucket. Without a configured bucket, benchmark operations continue and
-attachment operations return 503.
-
-PostgreSQL stores attachment metadata and object keys. The bucket stores bytes
-under `artifacts/`, independently of database backups and capacity. Keep the
-bucket configuration stable for an existing database; changing providers
-requires copying those keys before switching the endpoint.
-
-Use bucket lifecycle rules to transition objects into colder storage classes.
-Classes with immediate retrieval keep download links usable. Archive classes
-that require restoration must be restored through the storage provider before
-download; BenchDB does not automate archive restoration. On versioned buckets,
-configure expiration of noncurrent versions if deletions must reclaim bytes.
-Also configure cleanup of incomplete multipart uploads.
-
-Metadata is published only after an upload completes. A process crash between
-object upload and metadata insertion can leave an unreferenced object. Use a
-bucket inventory compared with `result_artifact.object_key` to identify such
-objects, allowing active uploads to finish before removing them. Database and
-bucket backups must be coordinated if deleted attachments need recovery.
-
-## Multi-Result Submission
-
-Object-per-file output is still a good default:
+One file per result works well:
 
 ```text
 bench-results/
@@ -149,19 +84,140 @@ bench-results/
   result-0003.json
 ```
 
-Array files are also accepted, which is useful for benchmark harnesses that
-already produce one JSON document containing many cases. When more than one
-result is submitted, stdout is JSON Lines with per-result success or error
-state; array entries include an `index` field. Use `--jobs` to control the
-maximum number of concurrent HTTP submissions. The default is suitable for small
-CI jobs; larger benchmark suites should set it explicitly after measuring their
-server and database capacity.
+Array files also work, which suits harnesses that already write one JSON
+document with many cases. An array must contain at least one result.
 
-## Existing Python Result Builders
+`--jobs` sets the maximum number of concurrent HTTP submissions, and defaults
+to 8. For large suites, raise it after you check what your server and database
+can handle.
 
-Existing Python code can keep using local helpers or existing result objects to
-construct payload dictionaries during migration. The supported change is to
-replace the old post step with the Go CLI:
+The output depends on how many results the command submits:
+
+- One result prints one JSON object with `id` and `history_fingerprint`.
+- More than one prints one JSON line per result with `file`, `ok`, and either
+  `id` and `history_fingerprint` or `error`. Results from array files also
+  carry their `index`.
+
+If you pass several files and one fails to parse, the CLI prints an error line
+for it and still submits the others. The command exits `1` if any result failed
+and `2` for usage errors, such as a missing `--server` or a glob that matched no
+files.
+
+## Retries
+
+Set `submission_key` to make a submission safe to retry. If BenchDB already
+has a result with that key and the same payload, it returns the existing result
+instead of storing a duplicate. The same key with a different payload returns
+HTTP 409.
+
+Keep benchmark execution separate from publication. Then a failed upload can be
+retried without measuring again.
+
+## Excluding a result from history
+
+To keep a result for comparisons but leave it out of continuous history, submit:
+
+```json
+"change_annotations": {"exclude_from_history": true}
+```
+
+BenchDB then leaves the result out of history samples, series and benchmark
+summaries, and lookback distributions. The result keeps its fingerprint. Result
+and run reads and explicit comparisons still return it.
+
+The value must be a boolean or null. Omit it or set it to `false` for normal
+history membership. To change it later, send
+`PUT /api/benchmark-results/{id}` with a `change_annotations` object. Setting
+`exclude_from_history` to `null` removes the key and restores normal
+membership. The change applies to later reads and deletes no measurements.
+
+## Diagnostic attachments
+
+Attach profiles, logs, and other diagnostic files to a result after you submit
+it. Upload each file as the raw request body:
+
+```bash
+curl --fail-with-body --request POST \
+  --header "Authorization: Bearer $BENCHDB_TOKEN" \
+  --header 'Content-Type: application/vnd.google.pprof' \
+  --data-binary @cpu.pprof \
+  "$BENCHDB_SERVER_URL/api/benchmark-results/$RESULT_ID/artifacts?name=cpu.pprof&kind=cpu-profile"
+```
+
+The response holds the attachment ID, name, kind, media type, size, and SHA-256
+checksum. File contents go to object storage, never into the result JSON or
+PostgreSQL.
+
+Upload rules:
+
+- `name` is required. It may contain uppercase letters, spaces, Unicode, and
+  punctuation. URL-encode it in the query string. Two attachments may share a
+  name because each has its own ID.
+- `kind` is a free-form label and defaults to `diagnostics`.
+- `Content-Type` must be a valid MIME type and defaults to
+  `application/octet-stream`.
+- Empty files are accepted.
+- Uploads need the same write authentication as result submission.
+
+BenchDB sets no size or count limit. Uploads and downloads stream through the
+server, so a 1 GB profile does not need a 1 GB buffer. Send `Content-Length`
+when you know the size; the storage client then picks smaller multipart buffers.
+Your storage provider and any reverse proxy may still impose limits.
+
+Result details and comparisons list each result's attachments. Download one
+with `GET /api/benchmark-results/{id}/artifacts/{artifact_id}`. The response
+carries the stored media type, the filename, the content length, and the
+checksum as its ETag. Downloads have the same read access as benchmark results.
+Open pprof files with `go tool pprof`. Remove private data before you upload,
+because BenchDB does not inspect file contents.
+
+Delete an attachment with
+`DELETE /api/benchmark-results/{id}/artifacts/{artifact_id}`, using write
+authentication. Users with write access also get a Delete button on the result
+page. The link disappears at once. If storage is unavailable, BenchDB queues the
+bytes for removal. Measurements, history, and comparisons are unchanged.
+Deleting a result removes all of its attachment links and queues their files.
+The server retries queued removals at startup and once a minute.
+
+Attachments do not affect submission retries, series fingerprints, statistics,
+or CI gates. Retrying a result submission does not bring back a deleted
+attachment. Every successful upload creates a new attachment, so if an upload
+response is lost, check the result's attachment list before you upload again.
+Collect profiles in a separate run when profiling would distort the
+measurements.
+
+### Attachment storage
+
+Attachments need an existing S3-compatible bucket. BenchDB does not create it.
+
+| Setting | Meaning |
+| --- | --- |
+| `BENCHDB_ARTIFACT_BUCKET` | Bucket name. Without it, attachment endpoints return HTTP 503 and everything else works. |
+| `BENCHDB_ARTIFACT_ENDPOINT` | Provider origin. Defaults to `https://s3.amazonaws.com`. |
+| `AWS_REGION` | Bucket region. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Static credentials. The session token is optional. Without these, BenchDB uses the runtime IAM credentials. |
+
+PostgreSQL stores attachment metadata and object keys. The bucket stores the
+bytes under `artifacts/`, outside database backups and capacity. Keep the
+bucket configuration stable for an existing database. To change providers, copy
+the objects under those keys before you switch the endpoint.
+
+Use bucket lifecycle rules to move objects to colder storage classes. Classes
+with immediate retrieval keep downloads working. Archive classes that need a
+restore step must be restored through the provider before download; BenchDB
+does not do this. On a versioned bucket, expire noncurrent versions if deletes
+should free space. Also configure cleanup of incomplete multipart uploads.
+
+BenchDB records metadata only after an upload completes. If the server crashes
+between storing the object and recording it, the object has no reference. To
+find such objects, compare a bucket inventory with `result_artifact.object_key`,
+and let active uploads finish before you remove anything. If you need to
+recover deleted attachments, coordinate database and bucket backups.
+
+## Building payloads in Python
+
+Python code that already builds result objects can keep doing so. Replace the
+old post step with the CLI:
 
 ```python
 payload = result.to_publishable_dict()
@@ -172,5 +228,4 @@ payload["github"] = {
 }
 ```
 
-Then write `payload` as JSON and submit with the CLI. Keep benchmark execution
-separate from result publication so retries do not repeat measurements.
+Write `payload` to a JSON file and submit it with `benchdb results submit`.

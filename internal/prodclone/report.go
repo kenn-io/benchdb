@@ -36,8 +36,6 @@ type reportArtifacts struct {
 	haveAPIProbes    bool
 	cliProbes        CompatibilityProbeArtifact
 	haveCLIProbes    bool
-	sdkProbes        CompatibilityProbeArtifact
-	haveSDKProbes    bool
 	logScan          LogScanArtifact
 	haveLogScan      bool
 	countComparison  CountComparison
@@ -111,10 +109,6 @@ func loadReportArtifacts(outDir string) (reportArtifacts, error) {
 		return reportArtifacts{}, err
 	}
 	artifacts.haveCLIProbes, err = readOptionalJSON(filepath.Join(outDir, "cli-probes.json"), &artifacts.cliProbes)
-	if err != nil {
-		return reportArtifacts{}, err
-	}
-	artifacts.haveSDKProbes, err = readOptionalJSON(filepath.Join(outDir, "sdk-smoke.json"), &artifacts.sdkProbes)
 	if err != nil {
 		return reportArtifacts{}, err
 	}
@@ -239,7 +233,7 @@ func renderCompatibilitySection(b *strings.Builder, artifacts reportArtifacts) {
 	b.WriteString("## Compatibility Results\n\n")
 	probes := combinedProbeResults(artifacts)
 	if len(probes) == 0 {
-		b.WriteString("No API, CLI, or SDK probe artifacts found.\n\n")
+		b.WriteString("No API or CLI probe artifacts found.\n\n")
 		return
 	}
 
@@ -404,7 +398,6 @@ func reportValidationIssues(artifacts reportArtifacts, opts ReportValidationOpti
 	}
 	issues = append(issues, probeArtifactIssues("API", artifacts.haveAPIProbes, artifacts.apiProbes, expectedAPIProbeNames(artifacts))...)
 	issues = append(issues, probeArtifactIssues("CLI", artifacts.haveCLIProbes, artifacts.cliProbes, expectedCLIProbeNames(artifacts))...)
-	issues = append(issues, probeArtifactIssues("SDK", artifacts.haveSDKProbes, artifacts.sdkProbes, []string{"pytest sdk smoke"})...)
 	if artifacts.haveLogScan {
 		if !artifacts.logScan.Passed || len(artifacts.logScan.Findings) > 0 {
 			issues = append(issues, "Investigate blocked write attempts before Phase 5")
@@ -470,9 +463,6 @@ func missingMandatoryArtifacts(artifacts reportArtifacts) []string {
 	if !artifacts.haveCLIProbes {
 		missing = append(missing, "cli-probes.json")
 	}
-	if !artifacts.haveSDKProbes {
-		missing = append(missing, "sdk-smoke.json")
-	}
 	if !artifacts.haveLogScan {
 		missing = append(missing, "log-scan.json")
 	}
@@ -500,11 +490,11 @@ func probeArtifactIssues(surface string, haveArtifact bool, artifact Compatibili
 		issues = append(issues, "Collect non-empty "+surface+" probe evidence before Phase 5")
 	}
 	if !artifact.Passed {
-		issues = append(issues, "Investigate failed API, CLI, or SDK compatibility probes")
+		issues = append(issues, "Investigate failed API or CLI compatibility probes")
 	}
 	for _, probe := range artifact.Probes {
 		if !probe.Passed {
-			issues = append(issues, "Investigate failed API, CLI, or SDK compatibility probes")
+			issues = append(issues, "Investigate failed API or CLI compatibility probes")
 			break
 		}
 	}
@@ -707,9 +697,6 @@ func combinedProbeResults(artifacts reportArtifacts) []CompatibilityProbeResult 
 	}
 	if artifacts.haveCLIProbes {
 		probes = append(probes, withDefaultSurface(artifacts.cliProbes.Probes, "CLI")...)
-	}
-	if artifacts.haveSDKProbes {
-		probes = append(probes, withDefaultSurface(artifacts.sdkProbes.Probes, "SDK")...)
 	}
 	return probes
 }

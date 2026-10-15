@@ -12,63 +12,63 @@
   "screenshots": [
     {
       "id": "home",
-      "title": "Benchmark runs",
+      "title": "Runs",
       "path": "/",
-      "purpose": "Start from recent benchmark activity and jump into report, result, or series workflows."
+      "purpose": "See recent runs and which ones need attention, then open a run, its CI report, or its results."
     },
     {
       "id": "series",
-      "title": "Series browse",
+      "title": "Benchmarks",
       "path": "/series?q=ingest-events-10m",
-      "purpose": "Browse benchmark families, filters, status, and production-shaped identifiers."
+      "purpose": "Find benchmarks by name, filter by machine, time window, and status, and see each one's latest change."
     },
     {
       "id": "trend",
-      "title": "Trend detail",
+      "title": "Benchmark trend",
       "path": "/benchmarks/:benchmark_id?range=all",
-      "purpose": "Inspect fleet history, charted trends, and sample rows for one benchmark."
+      "purpose": "Follow one benchmark over time on each machine, with outliers, steps, and its results table."
     },
     {
       "id": "result",
-      "title": "Result detail",
+      "title": "Result",
       "path": "/results/:id",
-      "purpose": "Inspect one benchmark result, measurement, metadata, and read-only actions."
+      "purpose": "See one result's measurements and metadata, and where it sits in its benchmark's history."
     },
     {
       "id": "results",
       "title": "Results list",
       "path": "/results?run_id=...",
-      "purpose": "Browse submitted benchmark results, filter by run or batch, and jump into detail or trends."
+      "purpose": "List submitted results, filter by run or batch, and open a result or its trend."
     },
     {
       "id": "run",
-      "title": "Run detail",
+      "title": "Run",
       "path": "/runs/:run_id",
-      "purpose": "Compare one run with its baseline, then open its result rows, batches, and series links."
+      "purpose": "See one run's comparison with its baseline and open its results, batches, and trends."
     },
     {
       "id": "batch",
-      "title": "Batch detail",
+      "title": "Batch",
       "path": "/batches/:batch_id",
-      "purpose": "Inspect one batch_id across runs, CI reports, result rows, and series links."
+      "purpose": "See one batch_id across runs, with its CI reports, results, and trends."
     },
     {
       "id": "compare",
       "title": "Compare",
       "path": "/compare?baseline=:id&contender=:id",
-      "purpose": "Compare two results with pairwise and lookback diagnostics."
+      "purpose": "Compare two results as a percent change and against the baseline's history."
     },
     {
       "id": "ci-report",
       "title": "CI report",
       "path": "/ci/report?repository=...&commit_sha=...&run_ids=...",
-      "purpose": "Review PR/CI regression status, coverage gaps, filters, and row verdicts."
+      "purpose": "Review a commit's CI verdict, its missing baselines, and the verdict for each benchmark."
     },
     {
       "id": "account",
       "title": "Account",
       "path": "/account",
-      "purpose": "Reach session identity, login, API token management, and alert-rule management surfaces."
+      "purpose": "See who is signed in, and manage API tokens and alert rules."
     }
   ]
 }

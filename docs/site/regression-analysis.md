@@ -1,142 +1,184 @@
-# Regression Analysis
+# Regression analysis
 
-BenchDB uses history-aware analysis to avoid treating every pairwise change as
-a CI failure.
+This page explains how BenchDB decides that a benchmark regressed or improved.
+Read it to understand the statuses on the Benchmarks page, CI reports,
+comparisons, and alerts, and to tune thresholds and tolerances.
 
-## Pairwise Change
+BenchDB looks at a benchmark's history before it calls a change. One slow run
+on a noisy benchmark should not fail a pull request, and a real slowdown should
+not hide inside a wide spread of results.
 
-Pairwise analysis compares a baseline result and contender result directly. It
-is easy to understand and useful for display, but it can be noisy when a
-benchmark has natural variance.
+## Pairwise change and lookback z-score
 
-## Lookback Z-Score
+BenchDB scores a result in two ways.
 
-Lookback analysis compares the contender against recent historical behavior for
-the same series. A result is more meaningful when it deviates from the history
-distribution, not just from one selected baseline value.
+Pairwise change is the percent difference between a contender result and one
+baseline result. It shows how big a change is. It never makes a CI report fail
+on its own, because one baseline value can itself be an outlier. The default
+pairwise threshold is 5%. A baseline value of zero has no pairwise change.
 
-CI report status uses lookback z-score regression verdicts as the primary
-failure signal. Pairwise analysis is still shown in report rows as useful
-context.
+The lookback z-score compares a value with the history of the same series. It
+is the value's distance from the rolling mean, measured in rolling standard
+deviations. BenchDB flips the sign for units where lower is better, so a
+positive z-score always means better performance and a negative z-score means
+worse. The default threshold is 2. A z-score below `-2` points to a regression,
+and a z-score above `2` points to an improvement. Exactly `-2` or `2` does not
+cross the threshold.
 
-## The contender must move from its own baseline
+A lookback z-score alone does not set a status. The rules below add further
+conditions, and they differ between benchmark statuses and comparisons.
 
-Being outside the history band is not enough on its own. A comparison counts as
-a regression or improvement only when the contender also:
+## How the history is calculated
 
-- is at least **3 standard deviations** of the history window away from its own
-  baseline result, in the same direction, and
-- differs from that baseline result by **more than 2%** of the baseline value;
-  any change from a zero baseline is large enough.
+Each result is reduced to one number, its single value summary (SVS). The SVS
+is the best iteration. That is the minimum for units where lower is better
+and the maximum otherwise.
 
-A contender that matches its baseline did not cause the difference: an earlier
-default-branch commit already carried it, for example when the default branch
-stepped to a new level after the pull request forked. And across the dozens of
-benchmarks in a typical run, a change of a percent or two outside a very steady
-history is usually noise. Each lookback result reports `baseline_z_score`, the
-contender's distance from its baseline result in standard deviations, and
-`baseline_z_threshold`, so a report shows why a change did or did not count.
+A series is the default-branch history of one history fingerprint. Results
+share a fingerprint when they have the same case, context, hardware, and
+repository. Results with an error payload are not part of the history.
 
-This applies to CI reports, comparisons, saved run reports, Runs page verdicts,
-and alerts. Benchmark statuses on the Benchmarks and trend pages compare a
-machine's latest point with its own history and have no separate baseline
-result. They count a change only when:
+The rolling window is the last 100 distinct commit timestamps, not the last 100
+rows and not a span of time. Results that share a commit timestamp share one
+window position, so retries and multi-machine runs do not shrink the window by
+submitting more rows.
 
-- the history before the latest point has at least 10 results;
-- the latest point is outside the history band and differs from the history
-  window's mean by more than 2%; and
-- the point before it, scored against its own earlier history, moved the same
-  way.
+- The rolling mean is the mean of the values in the window. Marking a result
+  with `begins_distribution_change` restarts the rolling mean at that commit.
+- The rolling standard deviation is the sample standard deviation (`ddof=1`)
+  of each point's distance from the mean of the commits before it, over the
+  same window.
+- A window with one value has no standard deviation, so it has no z-score. A
+  window with zero spread also has no z-score. JSON output uses `null` for a
+  statistic that does not exist.
 
-A single slow or fast result on a noisy benchmark therefore stays `stable`; a
-real step shows as `regressed` or `improved` from the second result after it.
-Too little history shows as `insufficient`.
+BenchDB also flags steps and outliers. It takes the change between each pair of
+neighboring points, drops the top and bottom 5% of those changes, and computes
+their rolling mean and standard deviation. A change more than 5 standard
+deviations from that mean is a step. A point that jumps away and is followed at
+once by a jump back is an outlier instead. Outliers are left out of the rolling
+mean and standard deviation. Trend pages show both flags.
 
-## How Lookback Works
+These calculations match Conbench's original pandas implementation.
 
-The analysis starts from the single value summary, or SVS, for each result. SVS
-is the measured value on the submitted unit. BenchDB applies the unit's
-`less_is_better` setting to the published lookback z-score, so positive z-scores
-mean better performance and negative z-scores mean worse performance.
+## Benchmark statuses
 
-Rolling history is calculated per history fingerprint. The window is the last
-N distinct commit timestamps, not the last N result rows and not a wall-clock
-interval. Commits with the same timestamp share one dense-rank window. This
-keeps retries and multi-machine runs from changing the statistical window just
-because they submitted more rows.
+The Benchmarks page and `GET /api/benchmarks` give each benchmark a status:
+`regressed`, `improved`, `stable`, or `insufficient`. There is no baseline
+result here. BenchDB scores each machine's latest default-branch result against
+that machine's earlier results in the same series.
 
-BenchDB ports the legacy pandas behavior intentionally:
+A machine's latest result counts as a regression or improvement only when all
+of these hold:
 
-- rolling mean and standard deviation skip NaN values,
-- standard deviation is sample standard deviation (`ddof=1`),
-- a one-point window has no standard deviation and therefore no z-score,
-- outlier and distribution-shift detection use clipped SVS differences before
-  rolling statistics are calculated,
-- JSON output uses `null` where the old pandas path produced NaN.
+- At least 10 earlier results exist. With fewer, the status is `insufficient`.
+- The latest result's lookback z-score crosses the threshold of 2.
+- The latest result differs from the history window's mean by more than 2% of
+  that mean.
+- The result before it, scored the same way against its own earlier results,
+  points the same way.
 
-The raw intermediate z-score is `(SVS - rolling_mean) / rolling_stddev` when all
-inputs are present and standard deviation is non-zero. For `less_is_better`
-units, BenchDB sign-normalizes that value before emitting it and applying
-thresholds. Otherwise the row is `insufficient`.
+The last rule means a flagged change needs at least 12 results. A single slow
+or fast result on a noisy benchmark stays `stable`. A real step shows as
+`regressed` or `improved` from the second result after it. The 2% floor keeps a
+tiny shift on a very steady benchmark from being flagged.
 
-## Thresholds
+The status is also `insufficient` when the history has no spread or when the
+results do not share one known unit.
 
-Both pairwise percent change and lookback z-score use strict thresholds. The
-default lookback threshold is **2 standard deviations**: a z-score below `-2`
-is a regression and a score above `2` is an improvement. Exactly `-2` or `2`
-does not cross the threshold. This applies to CI reports, comparisons, and
-series verdicts. Comparisons also need the move from their own baseline
-described above. Automatic distribution-shift detection remains separate.
+A benchmark that runs on several machines takes the worst machine's status, in
+this order: `regressed`, `improved`, `stable`, `insufficient`. When a machine's
+context or hardware changes, a new series starts on that machine. Only the
+series measured at the machine's latest commit count toward its status.
 
-The previous default of 5 could classify a slowdown more than four standard
-deviations above the trailing trend as stable. The default is now more sensitive;
-existing measurements need no migration or resubmission. Explicit `threshold_z`
-API parameters and `benchdb ci report --threshold-z` overrides still take
-precedence. The comparison page also exposes this control.
+`GET /api/benchmarks` returns `change_percent` and `change_machine` for each
+benchmark. `change_percent` is how far the latest result moved from the history
+window's mean, in percent of that mean. It is positive when the value went up,
+whatever the unit's direction. `change_machine` names the machine whose result
+set the status. When several machines share the worst status, it is the one
+with the largest change.
 
-These scores describe deviations from historical performance, not a guarantee
-that a code change caused the slowdown. A one-standard-deviation breach alone
-is not the default incident threshold. For automated incident handling, confirm
-the measurement and keep the selected threshold visible. `stable` means within
-that threshold, not identical performance or proof that no slowdown exists.
+The benchmark status threshold is fixed at 2. The overrides below do not change
+it.
 
-Pairwise percent change is useful for magnitude and quick inspection, but it
-does not make a CI report fail by itself. That avoids failing a new or noisy
-benchmark before enough history exists for the lookback model.
+## Comparison verdicts
 
-## Row Statuses
+Comparisons score a contender result against a baseline result. They drive
+CI reports, the compare page, saved run reports, Runs page verdicts, and
+alerts.
+
+The history for a comparison is the series' default-branch history up to and
+including the baseline result's commit. A comparison counts as a regression or
+improvement only when all of these hold:
+
+- The contender's lookback z-score against that history crosses the threshold.
+- The contender is at least 3 standard deviations of the history window away
+  from the baseline result, in the same direction.
+- The contender differs from the baseline result by more than 2% of the
+  baseline value. Any change from a zero baseline is large enough.
+- The change is larger than the practical tolerance described below.
+
+The baseline rule exists because a contender that matches its baseline did not
+cause the difference. An earlier default-branch commit already carried it, for
+example when the default branch stepped to a new level after the pull request
+forked. Across the dozens of benchmarks in a typical run, a change of a percent
+or two outside a very steady history is usually noise.
+
+Each lookback result reports `baseline_z_score`, the contender's distance from
+its baseline result in standard deviations, and `baseline_z_threshold`. These
+fields show why a change did or did not count.
+
+A comparison row's status follows from its lookback analysis:
 
 | Status | Meaning |
 | --- | --- |
-| `regressed` | Lookback analysis indicates a regression, and the contender is at least 3σ and more than 2% worse than its baseline. |
-| `improved` | Lookback analysis indicates an improvement, and the contender is at least 3σ and more than 2% better than its baseline. |
-| `stable` | Enough history exists and no regression or improvement is indicated. |
-| `insufficient` | Not enough history exists for z-score analysis. |
-| `errored` | The benchmark result itself contains an error payload. |
-| `missing_baseline` | No comparable baseline result was found. |
-| `not_comparable` | Results differ in a way that prevents comparison. |
+| `regressed` | The lookback z-score is below the negative threshold and every other condition above holds. |
+| `improved` | The lookback z-score is above the threshold and every other condition above holds. |
+| `stable` | A lookback z-score exists, but the conditions for a regression or improvement do not all hold. |
+| `insufficient` | No lookback z-score exists. The baseline has no commit, the history is empty or mixes units, or the history has fewer than two values or no spread. |
 
-`skipped` CI reports are not failures. They mean every contender had a matching
-baseline, but no row had enough history for z-score analysis. Missing baseline
-coverage is `action_required`, not `skipped` or `success`.
+CI reports also use `errored`, `missing_baseline`, and `not_comparable` rows.
+[CI reporting](ci-reporting.md) explains those rows and how rows set the report
+status.
 
-## Minimum meaningful changes in run reports
+## Thresholds
 
-Run reports and result comparisons require a change to clear both the existing
-statistical threshold and a practical tolerance. This applies equally to
-improvements and regressions. Values remain visible when a change is suppressed.
-The series/history views retain their raw historical diagnostics.
+You can change the comparison thresholds in these places:
 
-The practical floor is `max(absolute, abs(reference) * relative_percent / 100)`.
-Changes exactly at the floor are within tolerance. Pairwise analysis uses the
-selected baseline as its reference; lookback analysis uses its historical mean.
-Each analysis returns `tolerance` with the reference, signed measured-minus-reference
-`delta`, effective floors, `minimum_change`, and `within_tolerance`. Delta is in
-measurement units, without the performance-direction sign reversal used by the
-existing percentage and z-score fields. Missing history remains `insufficient`.
+| Setting | Default | Where to change it |
+| --- | --- | --- |
+| Lookback z-score | `2` | `threshold_z` on `GET /api/compare/benchmark-results` and `GET /api/ci/report`, `benchdb ci report --threshold-z`, `threshold_z` on alert rules, and **threshold σ** on the compare page |
+| Pairwise percent change | `5` | `threshold` on the same endpoints, `benchdb ci report --threshold`, `threshold` on alert rules, and **threshold %** on the compare page |
 
-Publishers configure each benchmark through the contender result's existing
-`optional_benchmark_info` object:
+Saved run reports and Runs page verdicts use the defaults.
+
+These scores describe how far a result is from its history. They do not prove
+that a code change caused a slowdown. Before automated incident handling acts
+on a regression, confirm the measurement and record the threshold you used.
+`stable` means the result is within the threshold. It does not mean the
+performance is identical.
+
+## Practical tolerance
+
+Comparisons also require a change to be larger than a practical floor. This
+applies to regressions and improvements alike. The values stay visible when a
+change is held back. Benchmark statuses and trend pages do not use tolerances.
+
+The floor is `max(absolute, abs(reference) * relative_percent / 100)`. A change
+exactly at the floor is within tolerance. Pairwise analysis uses the baseline
+value as its reference. Lookback analysis uses the history window's mean.
+
+Each analysis returns a `tolerance` object with these fields:
+
+- `reference`
+- `delta`, the measured value minus the reference, in the result's unit. It is
+  not sign-flipped for the unit's direction.
+- `absolute` and `relative_percent`, the floors in effect
+- `minimum_change`
+- `within_tolerance`
+- `metric_kind`
+
+Publishers set the policy in the contender result's `optional_benchmark_info`:
 
 ```json
 {
@@ -159,21 +201,22 @@ Publishers configure each benchmark through the contender result's existing
 | `allocation` | `B` | 0 | 0% |
 | `unspecified` | Any supported unit | 0 | 0% |
 
-Without a metric kind, `s` and `ns` use `duration`; other units use `unspecified`.
-Byte measurements are not assumed to be peak memory, and names are not parsed to
-infer metric kinds. Publishers must identify peak memory or live heap explicitly.
-Microbenchmark publishers must select `microbenchmark` or supply a smaller floor.
-Large iteration/sample counts never automatically disable tolerances.
+Without a metric kind, `s` and `ns` results use `duration` and other units use
+`unspecified`. BenchDB does not guess a metric kind from benchmark names, and it
+does not treat byte results as peak memory. Mark peak memory or live heap
+explicitly. Microbenchmark publishers must choose `microbenchmark` or set a
+smaller floor, because the `duration` default holds back any change smaller
+than 30 ms.
 
-Both floors are optional, finite, non-negative numbers. Omitted or null floors
-inherit the metric default; explicit zero disables that floor. Absolute values
-are in the submitted unit, so 30 ms is `0.03` for `s` and `30000000` for `ns`.
-The metric kind and overrides must accompany every contender submission that
-needs them. These settings describe reporting policy, not proof of CPU or GC noise.
+Both floors are optional, finite, non-negative numbers. An omitted or `null`
+floor uses the metric default. An explicit `0` turns that floor off. Absolute
+floors are in the submitted unit, so 30 ms is `0.03` for `s` and `30000000` for
+`ns`. Submission fails when the policy is invalid, for example an unknown
+`metric_kind` or a memory kind on a non-byte unit.
 
-No schema migration or new table is required. The policy uses the existing
-JSONB metadata column, participates in submission idempotency, and does not change
-the history fingerprint. Existing duration results receive the default floor
-when compared; existing byte results retain their previous behavior. Stored
-report evaluations are not backfilled; refresh or reevaluate them to use this
-policy. Changing policy does not rewrite measurements or historical distributions.
+The policy travels with each contender result. Include it in every submission
+that needs it. It counts toward submission idempotency but not toward the
+history fingerprint, so changing it does not start a new series. Saved run
+reports keep the verdicts computed when the run was finalized. A tolerance only
+changes how results are reported. It does not change stored measurements or
+history.

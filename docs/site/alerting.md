@@ -1,59 +1,61 @@
 # Alerting
 
-Server-side alerting is the long-running counterpart to `benchdb ci report`.
-It stores alert rules in BenchDB, evaluates them against recent submitted runs,
-and records state-transition events when a regression opens or resolves.
+This page explains BenchDB's scheduled alerts. It covers alert rules, how
+`benchdb admin alerts evaluate` opens and resolves them, and how
+`benchdb admin alerts deliver` sends the resulting events. It is for operators
+who schedule these jobs and for users who manage rules.
 
-This replaces `benchalerts` as a maintained BenchDB responsibility. The old
-Python alert orchestration package is not kept as a compatibility layer.
+Alerts run the same per-run comparison as `benchdb ci report`, on a schedule
+instead of inside a CI job. BenchDB stores the rules, the state of each rule,
+and an event each time a rule opens or resolves. For synchronous pull request
+checks, use [CI reporting](ci-reporting.md) instead.
 
-## Model
+## Alert rules
 
-An alert rule belongs to one authenticated BenchDB user and contains:
+Each rule belongs to one user. You set these fields when you create or update a
+rule:
 
-- a repository URL,
-- a baseline selector: `fork_point`, `parent`, or `latest_default`,
-- pairwise and lookback z-score thresholds,
-- an optional `run_reason` filter,
-- an enabled flag,
-- the current state: `inactive` or `open`.
+| Field | Required | Default | Rules |
+| --- | --- | --- | --- |
+| `name` | yes | | Must not be blank. |
+| `repository` | yes | | Repository URL. BenchDB normalizes it. |
+| `baseline` | no | `fork_point` | `fork_point`, `parent`, or `latest_default`. |
+| `threshold` | no | `5` | Pairwise percent-change threshold. Must be greater than zero. |
+| `threshold_z` | no | `2` | Lookback z-score threshold. Must be greater than zero. |
+| `run_reason` | no | none | Only consider results with this run reason. A blank value means no filter. |
+| `enabled` | no | `true` | The evaluator skips disabled rules. |
 
-The evaluator finds the latest matching run for the rule, runs the same CI
-report comparison engine used by `benchdb ci report`, and then updates state:
+BenchDB also returns `id`, `user_id`, `state` (`inactive` or `open`),
+`created_at`, `updated_at`, and `last_evaluated_at`. An invalid field returns
+`422`.
 
-| Report status | Inactive rule | Open rule |
-| --- | --- | --- |
-| `failure` | create an `opened` event and mark open | leave open |
-| `success` | leave inactive | create a `resolved` event and mark inactive |
-| `skipped` or `action_required` | leave unchanged | leave unchanged |
+If an update changes `repository`, `baseline`, `threshold`, `threshold_z`, or
+`run_reason`, BenchDB sets the rule back to `inactive` and clears
+`last_evaluated_at`. Changing only `name` or `enabled` keeps the state.
 
-Alert events store the CI report status, status reason, repository snapshot,
-run id, commit SHA, report URL, and report summary JSON so operators can inspect
-why the state changed.
+Signed-in users can create rules, see their state, delete rules, and view
+recent events on the `/account` page.
 
-The web app includes an `/account` surface for authenticated users to create
-rules, inspect rule state, delete rules, and drill into recent events. This is
-the human dashboard; the evaluator and scripted management still live in the
-single `benchdb` binary and authenticated API.
+## Alert rule API
 
-## API
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/alert-rules` | Create a rule. Returns `201`. |
+| `GET /api/alert-rules` | List your rules. |
+| `GET /api/alert-rules/{id}` | Get one rule. |
+| `PUT /api/alert-rules/{id}` | Replace a rule's fields. |
+| `DELETE /api/alert-rules/{id}` | Delete a rule. Returns `204`. |
+| `GET /api/alert-rules/{id}/events` | List a rule's events. `limit` defaults to `50` and must be 1 to 500. |
 
-Alert rules are managed through authenticated user APIs:
-
-- `POST /api/alert-rules`
-- `GET /api/alert-rules`
-- `GET /api/alert-rules/{id}`
-- `PUT /api/alert-rules/{id}`
-- `DELETE /api/alert-rules/{id}`
-- `GET /api/alert-rules/{id}/events`
-
-These endpoints require a user principal from a session or user-owned API token.
-The static operator token is not enough because rules are user-owned. Unknown
-rule ids and rules owned by another user both return `404`.
+These endpoints need an API token or session cookie that belongs to a user.
+Without a credential they return `401`. The static operator token gets `403`,
+because rules belong to users. An unknown rule id and another user's rule both
+return `404`. See [Authentication and tokens](auth-and-tokens.md) for the full
+set of checks.
 
 ## Evaluation
 
-Run the evaluator from the single `benchdb` binary:
+Run the evaluator from a scheduler such as cron or a Kubernetes CronJob:
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -62,27 +64,52 @@ export BENCHDB_INTENDED_BASE_URL="https://benchdb.example"
 benchdb admin alerts evaluate --format json
 ```
 
-The command evaluates all enabled rules. It prints the summary to stdout and
-diagnostics to stderr. It does not require `GITHUB_API_TOKEN`; it uses commit
-metadata already present in the database.
+For each enabled rule, the evaluator:
 
-Use a scheduler such as cron, Kubernetes CronJob, or your deployment platform's
-job runner to call the command. Start against a production clone when changing
-cadence or rule volume.
+1. Finds the newest result in the rule's repository, limited to the rule's
+   `run_reason` when set. If there is none, it counts the rule as
+   `no_candidate`.
+2. Builds a CI report for that result's run and commit, with the rule's
+   baseline and thresholds.
+3. Leaves out contender rows marked as the start of a distribution change. If
+   that leaves no rows, the report status becomes `skipped`.
+4. Updates the rule from the report status:
 
-`BENCHDB_INTENDED_BASE_URL` is optional for evaluation, but set it in deployed
-environments so generated report URLs are absolute and useful from logs or
-notification systems.
+| Report status | Rule is `inactive` | Rule is `open` |
+| --- | --- | --- |
+| `failure` | Record an `opened` event and set the rule to `open`. | No change. |
+| `success` | No change. | Record a `resolved` event and set the rule to `inactive`. |
+| `skipped` or `action_required` | No change. | No change. |
 
-## Delivery Channels
+A report is `failure` when at least one row is a lookback regression. That
+requires the contender to be outside the history band, at least 3 standard
+deviations from its own baseline result, more than 2% away from it, and
+larger than the practical tolerance (30 ms by default for timings).
+[Regression analysis](regression-analysis.md) explains the rule.
 
-BenchDB can deliver stored alert events to operator-configured generic webhook,
-Slack incoming-webhook, GitHub Check Run, GitHub commit-comment, or SMTP email
-targets. Delivery is server-owned and uses a durable outbox keyed by alert
-event, channel, and target, so rerunning the command does not resend events that
-were already marked delivered.
+If a rule is disabled, or its repository, baseline, thresholds, or run reason
+change while the evaluator runs, the evaluator leaves that rule alone on that
+pass.
 
-Run delivery from operations automation after evaluation:
+Each event stores the report status, status reason, repository, run id, commit
+SHA, report URL, and report summary JSON.
+
+The command prints a summary to stdout with the counts `rules`,
+`evaluated`, `opened`, `resolved`, `unchanged`, `skipped`, `no_candidate`, and
+`failed`. It prints a warning to stderr for each rule that failed, and exits
+`1` if any rule failed.
+
+The evaluator uses commit metadata already in the database, so it does not
+need `GITHUB_API_TOKEN`. `BENCHDB_INTENDED_BASE_URL` is optional. Set it in
+deployed environments so report URLs are absolute. GitHub Checks and Slack
+messages include a report link only when the URL is absolute.
+
+Test cadence or rule-count changes against a production clone first.
+
+## Delivery
+
+`benchdb admin alerts deliver` sends stored alert events to one channel and
+target per run. Run it after evaluation:
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -91,20 +118,35 @@ export BENCHDB_ALERT_WEBHOOK_URL="https://hooks.example/benchdb"
 benchdb admin alerts deliver --format json
 ```
 
-The command creates missing delivery rows for stored alert events, attempts
-pending deliveries for the selected channel, marks successes as `delivered`,
-and records failed attempts with `last_error`, `last_attempt_at`, and
-`next_attempt_at`. Use `--limit`, `--retry-after`, and `--timeout` to bound each
-run. The command does not print the database URL or target URL in summaries.
+Each run does the following for its channel and target:
 
-Due deliveries are claimed atomically (`FOR UPDATE SKIP LOCKED`) and leased via
-`next_attempt_at` before any delivery request, so overlapping runs never send
-the same delivery twice. A run that crashes mid-send leaves the row re-eligible
-once its lease passes, governed by `--retry-after`. Set `--retry-after` greater
-than `--timeout`; the CLI enforces this so a delivery request cannot outlive its
-lease.
+1. Creates a pending delivery row for each event that has none yet, up to
+   `--limit`.
+2. Claims due rows one at a time with `FOR UPDATE SKIP LOCKED`, and sets
+   `next_attempt_at` to now plus `--retry-after` before sending.
+3. Marks a successful send as `delivered`.
+4. Records a failed send with `last_error`, `last_attempt_at`, and
+   `next_attempt_at`.
 
-The webhook receives JSON with the delivery id, channel, and alert event:
+Delivery rows are unique per event, channel, and target. Rerunning the command
+never resends a delivered event. Overlapping runs never claim the same row. If
+a run crashes mid-send, the row becomes due again after `--retry-after`. The
+CLI requires `--retry-after` to be greater than `--timeout` so a send cannot
+outlast its claim.
+
+The summary on stdout has `enqueued`, `attempted`, `delivered`, and `failed`
+counts. It never includes the database URL or target URL. Each failed send
+prints a warning to stderr, and the command exits `1` if any send failed.
+
+See the [CLI reference](cli-reference.md#benchdb-admin-alerts-deliver) for all
+flags, defaults, and environment variables.
+
+### Webhook
+
+The webhook channel is the default. It sends a `POST` with
+`Content-Type: application/json` and `User-Agent: benchdb-alert-delivery`. Any
+status outside 2xx counts as a failed send. The body has the delivery id,
+channel, and alert event:
 
 ```json
 {
@@ -115,19 +157,18 @@ The webhook receives JSON with the delivery id, channel, and alert event:
     "rule_id": "018f...",
     "kind": "opened",
     "status": "failure",
-    "status_reason": "regressions detected",
+    "status_reason": "lookback regression detected",
     "run_id": "run-123",
     "commit_sha": "abcdef",
     "repository": "https://github.com/org/repo",
-    "report_url": "https://benchdb.example/ci/report?run_ids=run-123",
+    "report_url": "https://benchdb.example/ci/report?baseline=fork_point&commit_sha=abcdef&repository=https%3A%2F%2Fgithub.com%2Forg%2Frepo&run_ids=run-123",
     "summary": {"regressions": 1},
     "created_at": "2026-06-19T00:00:00Z"
   }
 }
 ```
 
-For Slack, set the Slack channel and use the Slack-specific URL flag or
-environment variable:
+### Slack
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -136,12 +177,10 @@ export BENCHDB_ALERT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
 benchdb admin alerts deliver --channel slack --format json
 ```
 
-Slack deliveries use the same outbox, retry, and idempotency semantics, but the
-HTTP request body is a native Slack message with fallback `text` and Block Kit
-sections linking to the BenchDB report.
+Slack delivery posts to an incoming webhook. The message has fallback `text`
+and Block Kit sections with the status, the reason, and a link to the report.
 
-For GitHub Checks, set the repository target and provide a token with
-`checks:write` access to that repository:
+### GitHub Check Runs
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -151,18 +190,19 @@ export GITHUB_TOKEN="..."
 benchdb admin alerts deliver --channel github-check --format json
 ```
 
-GitHub Check delivery creates a completed Check Run on the alert event's commit.
-`failure` reports become failing checks, `success` reports become successful
-checks, and skipped/action-required states become neutral checks. The GitHub
-Check target is a repository URL, not a webhook URL: BenchDB only enqueues alert
-events whose alert rule repository matches the target repository, so one
-repository's alert events are not posted into another repository. Use
-`BENCHDB_ALERT_GITHUB_TOKEN` when you want a delivery-specific token; the CLI
-also accepts GitHub Actions' `GITHUB_TOKEN` and the existing `GITHUB_API_TOKEN`
-fallback.
+The token needs `checks:write` on the repository. The CLI reads
+`--github-token`, then `BENCHDB_ALERT_GITHUB_TOKEN`, `GITHUB_TOKEN`, and
+`GITHUB_API_TOKEN`.
 
-For GitHub commit comments, use the same repository target and token model with
-`contents:write` access:
+BenchDB creates a completed Check Run named `BenchDB alert` on the event's
+commit. A `failure` report becomes a failing check, `success` a passing check,
+and any other status a neutral check.
+
+The target is a repository URL, not a webhook. BenchDB only queues events
+whose rule repository matches the target, so one repository's alerts never
+appear on another repository.
+
+### GitHub commit comments
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -172,12 +212,11 @@ export GITHUB_TOKEN="..."
 benchdb admin alerts deliver --channel github-comment --format json
 ```
 
-GitHub comment delivery posts a commit comment on the alert event's commit SHA.
-It uses the same repository-scoped outbox behavior as GitHub Checks, so one
-repository's alert events are not posted into another repository.
+This channel posts a comment on the event's commit. It uses the same
+repository target, token lookup, and repository matching as Check Runs. The
+token needs `contents:write` on the repository.
 
-For email, configure an SMTP server, a sender address, and one or more
-recipients:
+### Email
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
@@ -191,18 +230,17 @@ benchdb admin alerts deliver --channel email --format json
 ```
 
 `BENCHDB_ALERT_EMAIL_USERNAME` and `BENCHDB_ALERT_EMAIL_PASSWORD` are
-optional, but must be set together when the SMTP server requires authentication.
-The durable outbox target is the normalized recipient list, not the SMTP server
-or password, so retries are idempotent for each alert event and recipient set.
-Email delivery sends plain-text messages with the report URL, repository,
-commit, run, rule, and alert event details.
+optional, but you must set both or neither. BenchDB uses STARTTLS when the
+server offers it. If you set credentials, the server must support SMTP AUTH.
 
-## Channel Roadmap
+The delivery target is the normalized recipient list, with duplicates removed.
+The SMTP server and password are not part of the target, so retries stay
+unique per event and recipient set. Each message is plain text with the
+status, kind, reason, report URL, repository, commit, run, rule, and event id.
 
-Additional notification systems should be added as server-owned delivery
-channels over the same persisted alert events and delivery outbox, not by
-keeping or rebuilding `benchalerts`. Each channel should record idempotent
-delivery state and test against stored alert events rather than direct CI job
-callbacks.
+## Adding a channel
 
-Do not resurrect `benchalerts` as a maintained Python client package.
+`benchalerts`, the Python alert package, is retired and BenchDB does not
+support it. A new notification system belongs in BenchDB as another delivery
+channel. It should read the stored alert events, use the same delivery outbox,
+and record its own delivery state.

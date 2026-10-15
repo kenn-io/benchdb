@@ -67,7 +67,6 @@ func TestMissingMandatoryReportArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, missing, "api-probes.json")
 	assert.Contains(t, missing, "cli-probes.json")
-	assert.Contains(t, missing, "sdk-smoke.json")
 	assert.Contains(t, missing, "counts-before.json")
 	assert.Contains(t, missing, "counts-after.json")
 	assert.NotContains(t, missing, "preflight.json")
@@ -99,10 +98,6 @@ func TestReportValidationIssuesRejectSemanticallyEmptyArtifacts(t *testing.T) {
 		Passed: true,
 		Probes: []CompatibilityProbeResult{},
 	})
-	writeReportJSON(t, filepath.Join(dir, "sdk-smoke.json"), CompatibilityProbeArtifact{
-		Passed: true,
-		Probes: []CompatibilityProbeResult{},
-	})
 	writeReportJSON(t, filepath.Join(dir, "log-scan.json"), LogScanArtifact{
 		Passed: false,
 	})
@@ -121,7 +116,6 @@ func TestReportValidationIssuesRejectSemanticallyEmptyArtifacts(t *testing.T) {
 	assert.Contains(t, joined, "non-empty API probe evidence")
 	assert.Contains(t, joined, "missing ListSeries")
 	assert.Contains(t, joined, "non-empty CLI probe evidence")
-	assert.Contains(t, joined, "non-empty SDK probe evidence")
 	assert.Contains(t, joined, "blocked write attempts")
 	assert.Contains(t, joined, "count-delta evidence")
 	assert.Contains(t, joined, "before-count evidence")
