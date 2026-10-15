@@ -34,7 +34,10 @@ The extraction starts from Kit v0.35.1's `packstore/s3store`, including
 `Inventory`'s pagination and separation of recognized keys from unknown objects.
 BenchDB supplies its own key recognition and deletion policy. That Kit release
 has no GCS backend; BenchDB currently pins v0.32.0. The new package and GCS client
-must ship in Kit before BenchDB updates its dependency.
+must ship in Kit before BenchDB updates its dependency. Make the dependency
+bump a separate reviewable change before archive integration. Review the
+intervening v0.33–v0.35 changes and the new release, inspect the module-graph
+diff, and run BenchDB's required checks against that version.
 
 The abstraction is a small object API. Local rename, hard-link, and lock
 operations are not requirements imposed on cloud buckets. Do not expose
@@ -99,7 +102,11 @@ ETag is not a portable content checksum.
 - GCS resumable uploads compare the stored generation's size and
   provider-computed CRC32C with the local source. This does not assume the XML
   resumable protocol rejects a bad client checksum before storing the object.
-  A mismatch prevents manifest publication.
+  A mismatch prevents manifest publication. Close the failed publication cycle
+  and mark its intents abandoned after its transaction resolves. Any stored
+  object enters orphan retention; retry with a new key, without overwriting the
+  bad object. A server-rejected S3 checksum normally leaves no completed object,
+  but an uncertain outcome still requires inspecting the key.
 - An endpoint without a verified provider-checksum path requires a full
   readback and SHA-256 comparison. That cost is reported separately. An
   uncertain upload outcome requires the same verification of the exact key.
@@ -147,16 +154,21 @@ may expire those uploads, but must not expire published archive objects.
    containing their keys, byte counts, checksums, and provider revisions.
 4. One PostgreSQL transaction publishes their manifest and dependencies and
    removes the exported rows. Compaction publishes replacements and records
-   retired objects in the same transaction. It also switches lookup-catalog
-   references and consumes the upload intents. Version-matched overlay deletion
+   retired objects in the same transaction. It retargets logical file IDs;
+   new exports and lookup-segment merges also publish their catalog references.
+   Publication consumes the upload intents. Version-matched overlay deletion
    continues to preserve edits made during compaction.
 5. Readers pin the PostgreSQL manifest, metadata, overlays, and hot facts to
    one analytical snapshot. That manifest supplies exact object URLs; queries
    do not discover files by listing or globbing the bucket.
 
-Upload intents use a short, separate PostgreSQL transaction while the
-maintenance-owner session and export snapshot remain open. Recording an intent
-must not prematurely commit the transaction that will publish the batch.
+Upload intents use a short transaction on the reserved archive-metadata
+connection while the maintenance-owner session and export snapshot remain
+open. The writer reserves two coordination-pool connections: one for ownership
+and publication, one for intent and progress records. Reader guards have their
+own capacity; neither maintenance connection borrows from ingest's pool. The
+metadata connection never acquires the owner's maintenance or publication lock.
+Recording an intent must not commit the transaction that will publish the batch.
 
 ### File selection before remote reads
 
@@ -173,27 +185,54 @@ including during report finalization. Empty candidates still query hot rows.
 
 | Query | Candidate selection required before opening facts |
 | --- | --- |
-| Result by ID, detail, comparison, or mutation lookup | Exact result-ID lookup catalog, including a negative lookup without opening archived facts. |
+| Result by ID, detail, comparison, or mutation lookup | Result-ID lookup catalog; unknown IDs need no archived fact reads. |
 | Run detail, full run result IDs, CI rows/counts, report contenders and baselines, run verdict subjects | Run-to-file lookup catalog; union the files for all requested runs. |
-| Runs or verdict subjects for a commit | Existing `archive_file_commit` membership, indexed by commit ID; restrict run discovery to those files' summaries. |
+| Runs or verdict subjects for a commit | Existing `archive_file_commit` membership, with a new index starting with `commit_id`; restrict run discovery to those files' summaries. |
 | Series history and lookback analysis | Fingerprint-to-file lookup catalog; apply eligibility and overlays from the pinned snapshot. |
 | Recent runs, series browsing, latest alert candidate | Summary catalogs select the page or candidate runs, then the corresponding lookup catalogs select facts. |
 | Submission keys and metadata-only queries | PostgreSQL directly, without acquiring an analytical reader. Finalization keeps metadata in its pinned snapshot. |
 
 Add immutable Parquet lookup catalogs mapping result IDs, run IDs, and history
-fingerprints to fact keys. Partition their lookup keys, sort within each
-partition, and record the partition boundaries and object references in a
-small PostgreSQL directory. A point lookup opens only its partition's catalog
-objects. Do not put a new row for every archived result in PostgreSQL.
+fingerprints to stable logical file IDs. Partition their lookup keys, sort
+within each partition, and record the partition boundaries and object
+references in a small PostgreSQL directory. A point lookup opens only its
+partition's catalog objects. Do not put a new row for every archived result in
+PostgreSQL.
 
-Publish incremental catalog segments with each maintenance batch. Cap the
+Assign one logical file ID to each fact file at initial export or backfill.
+A new `archive_file_location` table maps each logical ID directly to its current
+physical `archive_path`, or to `NULL` for an empty output. Index the physical path
+as well as the logical primary key so compaction can find every affected mapping.
+There are no redirect chains. Readers resolve IDs in their pinned snapshot and
+deduplicate physical paths before opening facts.
+
+Compaction keeps these logical IDs. Rewriting a file retargets all its mappings
+to the replacement; merging files retargets all their mappings to one output.
+An entirely deleted output marks those mappings empty. The first release keeps
+the current compaction shape: merge whole files within one month, or rewrite
+one file for mutations; do not split an input across multiple outputs. Physical
+keys remain immutable and never get reused. For example, merging files for
+logical IDs A and B changes their two mappings to C; rewriting C changes both
+to D. The lookup Parquet objects stay unchanged in both operations. Old snapshots
+see the old mappings and retained objects.
+
+Mappings remain while lookup catalogs reference their logical IDs, including
+empty mappings. Their PostgreSQL cost grows with initial export files, not
+measurement rows or rewrite generations. Compaction updates one row per
+affected logical ID, which can be more than one per input physical file after
+merges. Deleted IDs and obsolete run/series membership may still select a
+candidate file; final fact predicates and overlays determine the result.
+
+Publish incremental lookup segments for new exports. Cap the
 number of segments per partition and merge or split affected partitions before
 exceeding that bound. This avoids rewriting the entire result-ID index on each
 batch and prevents lookup requests growing with the number of past batches.
 Choose partition sizes and the segment cap from the large-history measurements;
 both request amplification and rewrite bytes are release criteria. Keep
 membership for ineligible rows so commit repairs and annotations cannot hide
-files from lookup. Compaction replaces memberships atomically with the facts.
+files from lookup. Fact compaction and summary refresh do not consume lookup
+segment capacity or rewrite lookup catalogs. They update physical manifests,
+logical mappings, summaries, and commit dependencies atomically as applicable.
 
 Summary browsing may scan many small catalog objects, especially with a cold
 cache or broad filters. That cost must be measured separately from fact reads.
@@ -267,16 +306,34 @@ coordination route. Session pooling is supported. [RDS Proxy pins sessions
 using advisory locks](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html);
 operators must budget those pinned connections and account for proxy timeouts.
 
-Startup checks the coordinator's dataset identity, permission to acquire and
-release session locks, and effective `idle_session_timeout`. Set that timeout
-to zero on coordination sessions and reject startup if that cannot be applied.
+Startup checks the coordinator's dataset identity and permission to acquire
+and release session locks. Before taking locks or opening transactions, set
+and verify `statement_timeout`, `lock_timeout`, `idle_session_timeout`, and
+`idle_in_transaction_session_timeout` to zero on archive coordination, owner,
+and metadata sessions. Also set `transaction_timeout` to zero where supported
+(PostgreSQL 17 and later); do not send that setting to older servers. Apply
+the same timeout policy to the PostgreSQL snapshot connections opened by
+DuckDB. Every newly opened archive connection must receive it, including
+settings inherited through URL parameters or `options`.
+
+Reject archive startup if required settings cannot be applied or verified.
+These overrides are confined to archive connections; preserve other connection
+settings, including read-only mode. Application deadlines must bound lock
+acquisition, SQL operations, and each maintenance unit including its uploads.
+On expiry, cancel work, roll back open transactions, and resolve uncertain
+publication outcomes under the existing protocol. Release the snapshots.
+A backlog drain uses successive bounded units, not one transaction for the
+entire cycle. Holding a
+snapshot across network uploads delays vacuum's reclamation of old row versions;
+measure transaction age and account for that PostgreSQL cost.
+See [PostgreSQL timeout semantics](https://www.postgresql.org/docs/17/runtime-config-client.html#RUNTIME-CONFIG-CLIENT-STATEMENT).
+
 A second connection must observe a held test lock across a commit and its
 release. A changed backend PID or lost lock fails the check, but a passing
 probe cannot prove that an unknown proxy will preserve affinity forever.
 Deployment documentation must require an operator-verified direct or
 session-affine route; do not claim automatic pooler detection. Use bounded
 heartbeats outside publication transactions to detect lost guard sessions.
-See [PostgreSQL session timeouts](https://www.postgresql.org/docs/15/runtime-config-client.html#GUC-IDLE-SESSION-TIMEOUT).
 
 ### Lock protocol
 
@@ -330,6 +387,18 @@ BenchDB cannot infer it from a database connection. Until a positive duration
 is configured, physical reclamation is paused and the Storage page says so;
 queries and export continue. The policy applies to local archives too.
 
+For local upgrades, the release must add a prominent note to
+[Upgrading](upgrading.md) and update deployment examples before shipping.
+Operators choose retention from their backup policy and budget space for the
+retired files before upgrading. With retention unset, every server startup and
+maintenance cycle emits a warning naming `BENCHDB_ARCHIVE_RETENTION`, explaining
+that reclamation is paused and disk usage can grow. The API exposes the reason,
+and `/metrics` exports `benchdb_storage_reclamation_paused` as 1 while paused,
+0 otherwise. Document an alert on that gauge remaining 1 for 15 minutes,
+alongside local free-space alerts. Verify that configuring retention and
+restarting clears the warning state and resumes cleanup subject to the recorded
+retention deadlines.
+
 PostgreSQL records retired keys atomically with a manifest change. The retention
 clock starts when maintenance first observes that committed retirement. It
 does not start at object creation, or at the start of a transaction that could
@@ -369,11 +438,14 @@ The durable schedule and last maintenance result move from `maintenance.json`
 to a small PostgreSQL record so replacing a remote server's scratch directory
 does not reset the schedule. The first upgraded local writer imports the
 existing schedule once without shortening its wait. A later migration adds
-storage identity, checksums/revisions, lookup-catalog references, upload intents,
-retirement/orphan deadlines, retention policy, and maintenance state. Migration
-13 remains unchanged. Existing local files acquire checksum receipts during
-verified transfer or rewrite, not a blocking schema migration. Catalog backfill
-runs as resumable maintenance before remote transfer is enabled.
+storage identity, checksums/revisions, lookup-catalog references,
+`archive_file_location` and its logical-ID and physical-path indexes, upload
+intents, retirement/orphan deadlines, retention policy, and maintenance state.
+It also adds an index on `archive_file_commit(commit_id)`; the existing primary
+key is `(archive_path, commit_id)` and does not provide that access path.
+Migration 13 remains unchanged. Existing local files acquire checksum receipts
+during verified transfer or rewrite, not a blocking schema migration. Catalog
+backfill runs as resumable maintenance before remote transfer is enabled.
 
 The Storage page, `/api/storage`, and `/metrics` distinguish:
 
@@ -483,6 +555,20 @@ Acceptance includes:
   readers during cleanup, session loss, idle timeouts, and cancelled lock waits.
   Exercise direct PostgreSQL and supported session pooling; demonstrate why a
   transaction pooler cannot satisfy the coordination contract.
+- Start with nonzero inherited values for each applicable database timeout on
+  PostgreSQL 15 and 17 or later. Exercise blocked lock acquisition and an upload
+  longer than the inherited idle/transaction limits; verify archive connection
+  initialization and application-deadline cancellation, including DuckDB's
+  snapshot connections. Exhaust reader capacity while recording upload intents
+  to verify the second reserved maintenance connection can still progress.
+- Repeatedly merge and rewrite files whose IDs span lookup partitions. Verify
+  unchanged lookup objects and segment counts, direct logical-ID resolution,
+  deduplicated fact reads, deletion handling, and old-snapshot reads during
+  publication. Include a fully deleted output and subsequent export into the
+  same run or series.
+- Upgrade an existing local archive with retention unset. Observe the startup
+  warning and paused-reclamation metric; configure retention, restart, and
+  verify its deadlines, warning state, and eventual reclamation.
 - Exercise credential expiry/renewal, GCS HMAC rotation, provider checksum
   mismatch, conditional upload conflicts, pinned cache eviction, full scratch
   space, and interrupted transfer/cutover.
@@ -501,7 +587,8 @@ history and verify that selected fact requests do not increase.
 
 Measure export, compaction, commit-repair refresh, and lookup-catalog merges
 separately: upload/download bytes, verification readbacks, peak scratch, index
-size, rewritten catalog bytes, and retained bytes across the backup window.
+size, rewritten catalog bytes, logical mapping rows and updates, transaction
+age, and retained bytes across the backup window.
 Compare cold catalog browsing as well as point lookups; moving a scan from
 facts to thousands of catalog objects is not enough. The existing local
 measurements do not predict cloud latency or request charges. Cloud rollout
