@@ -20,6 +20,7 @@
     deviationText,
     flagsText,
     type SeriesPoint,
+    toTableRow,
     type TableRow,
     windowAnchorDate,
     windowPoints,
@@ -324,23 +325,9 @@
       .flatMap((track) => track.segments.flatMap((segment) =>
         segment.points.map((point) => ({ point, machineName: track.machineName }))))
       .sort((a, b) => a.point.chartMs - b.point.chartMs)
-      .flatMap(({ point, machineName }, index) => {
-        if (!pointMatchesFilter(point, filter)) return [];
-        return [
-          {
-            index,
-            resultId: point.resultId,
-            commitHash: point.commitHash,
-            commitMessage: point.commitMessage,
-            chartMs: point.chartMs,
-            svs: point.svs,
-            unit: point.unit,
-            deviation: deviationText(point.stats.z, vm?.identity.lessIsBetter ?? null),
-            flags: flagsText(point.stats),
-            machineName,
-          },
-        ];
-      })
+      .flatMap(({ point, machineName }, index) => pointMatchesFilter(point, filter)
+        ? [toTableRow(point, index, vm?.identity.lessIsBetter ?? null, machineName)]
+        : [])
       .sort((a, b) => b.chartMs - a.chartMs || b.resultId.localeCompare(a.resultId));
   }
 

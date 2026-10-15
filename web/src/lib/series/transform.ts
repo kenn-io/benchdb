@@ -119,22 +119,27 @@ export function flagsText(stats: PointStats): string {
   return flags.join(" · ");
 }
 
-/** toTableRows assigns index positionally within the GIVEN array: the page
- * passes the windowed points, so a row click selects within the same array the
- * chart renders — a full-series index would pick the wrong point after range
- * filtering. */
-export function toTableRows(points: SeriesPoint[], lessIsBetter: boolean | null = null): TableRow[] {
-  return points.map((p, index) => ({
+/** toTableRow describes one point for the results table. index is the
+ * point's position in the array the chart renders, so selecting a row selects
+ * the same point on the chart even after range filtering. */
+export function toTableRow(
+  point: SeriesPoint,
+  index: number,
+  lessIsBetter: boolean | null,
+  machineName?: string,
+): TableRow {
+  return {
     index,
-    resultId: p.resultId,
-    commitHash: p.commitHash,
-    commitMessage: p.commitMessage,
-    chartMs: p.chartMs,
-    svs: p.svs,
-    unit: p.unit,
-    deviation: deviationText(p.stats.z, lessIsBetter),
-    flags: flagsText(p.stats),
-  }));
+    resultId: point.resultId,
+    commitHash: point.commitHash,
+    commitMessage: point.commitMessage,
+    chartMs: point.chartMs,
+    svs: point.svs,
+    unit: point.unit,
+    deviation: deviationText(point.stats.z, lessIsBetter),
+    flags: flagsText(point.stats),
+    ...(machineName === undefined ? {} : { machineName }),
+  };
 }
 
 export function chartTimeExtent(points: SeriesPoint[]): { min: number; max: number } | null {
