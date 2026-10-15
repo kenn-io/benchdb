@@ -250,6 +250,30 @@ func (s *Store) DeleteAlertRule(ctx context.Context, id, userID string) error {
 	return nil
 }
 
+// WithAlertRuleLock runs sync in one transaction that holds a lock on the
+// owner's alert rules, so overlapping syncs for one owner run one at a time
+// and a failed sync changes nothing.
+func (s *Store) WithAlertRuleLock(ctx context.Context, ownerID string, sync func(*Store) error) error {
+	beginner, ok := s.q.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return errors.New("alert rule sync requires transaction support")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "alert-rules:"+ownerID); err != nil {
+		return err
+	}
+	if err := sync(NewStore(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) UpdateAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.UpdateAlertRuleEvaluationParams,

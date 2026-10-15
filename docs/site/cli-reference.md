@@ -322,6 +322,24 @@ least one usable token, or all of `BENCHDB_COMMIT_GITHUB_APP_ID`,
 `BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID`, and
 `BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE`. Setting both is an error.
 
+### `benchdb admin alerts sync`
+
+Make one account's alert rules match a JSON file:
+
+```bash
+benchdb admin alerts sync --email alerts@example.com --file rules.json
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--email` | none, required | Email of the account that owns the rules. Must be a single plain address. |
+| `--file` | none, required | JSON file of the form `{"rules": [...]}`. Unknown fields are an error. |
+| `--user-name` | the email | Display name if the command creates the account. |
+
+The command prints one JSON line with `user_id`, `email`, `created`, `updated`,
+`deleted`, and `unchanged`. See [Rules from a file](alerting.md#rules-from-a-file)
+for the file format and what the command deletes.
+
 ### `benchdb admin alerts evaluate`
 
 Evaluate every enabled alert rule:

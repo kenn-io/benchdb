@@ -36,6 +36,42 @@ If an update changes `repository`, `baseline`, `threshold`, `threshold_z`, or
 Signed-in users can create rules, see their state, delete rules, and view
 recent events on the `/account` page.
 
+## Rules from a file
+
+Operators can keep one account's rules in a file and sync them on every
+scheduled run:
+
+```bash
+benchdb admin alerts sync --email alerts@example.com --file rules.json
+```
+
+```json
+{
+  "rules": [
+    {
+      "name": "lib main",
+      "repository": "https://github.com/example/lib",
+      "baseline": "parent",
+      "run_reason": "commit"
+    }
+  ]
+}
+```
+
+Each entry takes the [rule fields](#alert-rules). The command matches rules by
+`name`. It creates missing rules, updates changed ones, and deletes the
+account's rules that the file does not list. When the account has several rules
+with one name, it keeps the oldest and deletes the rest. It creates the account
+if it does not exist. Use an account whose rules come only from the file,
+because rules added through the API or `/account` page are deleted on the next
+sync.
+
+The command checks every entry before it changes anything. An invalid field or
+a repeated `name` in the file fails the whole file. Each sync runs in one
+transaction that locks the account's rules, so overlapping syncs run one at a
+time and a failed sync changes nothing. Updates follow the API's state rule: a
+rule changed in an evaluated field returns to `inactive`.
+
 ## Alert rule API
 
 | Method and path | Purpose |
