@@ -357,22 +357,30 @@ func TestReadDeadlineBudgets(t *testing.T) {
 // A canceled transaction can finish on database/sql's rollback goroutine.
 // Read must join that completion before returning its guard and reader.
 func TestReadDeadlineRollbackCompletion(t *testing.T) {
-	e, _, _ := deadlineEngine(t)
-	pending := 0
+	e, _, pool := deadlineEngine(t)
 	for range 100 {
 		parent, cancel := context.WithCancel(context.Background())
-		readErr := e.Read(parent, func(ctx context.Context, _ *ReadSnapshot) error {
+		readErr := e.Read(parent, func(ctx context.Context, snapshot *ReadSnapshot) error {
+			var n int
+			if err := snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n FROM pg_advisory_xact_lock(74, 1)')`).Scan(&n); err != nil {
+				return err
+			}
+			var available bool
+			if err := pool.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(74, 1)`).Scan(&available); err != nil {
+				return err
+			}
+			assert.False(t, available, "the analytical transaction must hold the lock before cancellation")
 			cancel()
 			runtime.Gosched() // Let the real automatic rollback contend with cleanup.
 			return ctx.Err()
 		})
 		cancel()
 		require.ErrorIs(t, readErr, context.Canceled)
-		handle := <-e.readers
-		if handle.Stats().InUse != 0 {
-			pending++
-		}
-		e.readers <- handle
+		// Pool counters can still include a closing connection after rollback.
+		// Check the transaction's actual resource lifetime instead.
+		var available bool
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT pg_try_advisory_xact_lock(74, 1)`).Scan(&available))
+		require.True(t, available, "Read returned before its PostgreSQL transaction released the lock")
 		guard := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
 		acquired, err := guard.TryLock()
 		require.NoError(t, err)
@@ -386,5 +394,4 @@ func TestReadDeadlineRollbackCompletion(t *testing.T) {
 		})
 		require.NoError(t, nextReadErr)
 	}
-	assert.Zero(t, pending, "Read returned before its SQL connection was released")
 }
