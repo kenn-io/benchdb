@@ -23,14 +23,23 @@ import (
 	"go.kenn.io/benchdb/internal/commit"
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/service"
+	"go.kenn.io/benchdb/internal/storage"
 	"go.kenn.io/benchdb/web"
 )
+
+// Store supplies the analytical reads and metadata operations served by HTTP.
+type Store interface {
+	storage.Store
+	storage.ArtifactStore
+	api.TokenAdminStore
+	api.AlertRuleStore
+}
 
 // New builds the HTTP handler: a huma API over net/http with the write, read,
 // and health endpoints registered, using the given commit provider for
 // ingestion (GitHub-backed in production when GITHUB_API_TOKEN is set,
 // LocalProvider otherwise).
-func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
+func New(store Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
 	return newHandler(store, authn, provider, authHandler, web.DistFS(), artifacts, publicBaseURL...)
 }
 
@@ -44,7 +53,7 @@ func New(store *db.Store, authn *auth.Authenticator, provider commit.Provider, a
 // than huma's 405/Allow, because the catch-all matches every method. Restoring
 // 405 would mean nested muxes that hard-code huma's doc routes; the single mux
 // is the deliberate trade-off. The catch-all never serves HTML for /api paths.
-func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, assets fs.FS, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
+func newHandler(store Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, assets fs.FS, artifacts *service.Artifacts, publicBaseURL ...string) http.Handler {
 	publicURL, err := url.Parse(firstString(publicBaseURL))
 	if err != nil {
 		panic(fmt.Errorf("invalid public base URL: %w", err)) // Validated by serverapp before startup.
@@ -57,6 +66,7 @@ func newHandler(store *db.Store, authn *auth.Authenticator, provider commit.Prov
 	config.SchemasPath = basePath + config.SchemasPath
 	register(huma.NewGroup(humago.New(mux, config), basePath), store, authn, provider, authHandler, artifacts, firstString(publicBaseURL))
 	metrics := newMetricsRecorder(provider)
+	metrics.storage, _ = store.(api.StorageStatusReader)
 	mux.HandleFunc(basePath+"/metrics", metrics.serveMetrics)
 	mux.Handle(basePath+"/", http.StripPrefix(basePath, spaHandler(assets, basePath)))
 	return instrumentHTTP(mux, metrics, basePath)
@@ -181,7 +191,7 @@ func humaConfig() huma.Config {
 // register wires the write, read, and health operations onto a huma API. New
 // and OpenAPISpec share it so the served routes and the emitted spec cannot
 // drift.
-func register(humaAPI huma.API, store *db.Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL string) {
+func register(humaAPI huma.API, store Store, authn *auth.Authenticator, provider commit.Provider, authHandler *api.AuthHandler, artifacts *service.Artifacts, publicBaseURL string) {
 	reader := service.NewReader(store)
 	if artifacts == nil {
 		artifacts = service.NewArtifacts(store, nil)
@@ -192,6 +202,8 @@ func register(humaAPI huma.API, store *db.Store, authn *auth.Authenticator, prov
 	api.NewCIReportHandler(service.NewCIReporter(store, publicBaseURL)).Register(humaAPI)
 	api.NewRunReportHandler(service.NewRunReports(store, publicBaseURL), authn).Register(humaAPI)
 	api.RegisterHealth(humaAPI)
+	statusReader, _ := store.(api.StorageStatusReader)
+	api.RegisterStorage(humaAPI, statusReader)
 	authHandler.Register(humaAPI)
 	api.NewTokenHandler(store, authn).Register(humaAPI)
 	api.NewAlertHandler(store, authn).Register(humaAPI)

@@ -49,13 +49,23 @@ whether a code change made a benchmark slower. You can run both.
 
 - the Go server and `benchdb` CLI, built into one binary
 - the Svelte dashboard, embedded in that binary
+- PostgreSQL metadata and recent results, with older results in managed Parquet files
 - the PostgreSQL schema and migrations
 - the OpenAPI document and a generated Go client under `sdk/go/benchdb`
 
-The Go module is `go.kenn.io/benchdb`. `make build` needs Go and Bun and writes
-`bin/benchdb`. `make dev` needs Docker and starts a local server with demo data
-at `http://localhost:8080`. The [quickstart](docs/site/quickstart.md) shows
-both.
+The Go module is `go.kenn.io/benchdb`. `make build` needs Go, Bun, and a C/C++
+compiler and writes `bin/benchdb`. Go builds use `CGO_ENABLED=1`.
+`make dev` needs Docker and starts a local server with demo data at
+`http://localhost:8080`. The [quickstart](docs/site/quickstart.md) shows both.
+
+The server requires a PostgreSQL URL in `BENCHDB_DB_URL` and a persistent local
+archive directory in `BENCHDB_DATA_DIR`. `make build` downloads the matching
+DuckDB PostgreSQL extension into `.cache/duckdb/extensions`; set
+`BENCHDB_DUCKDB_EXTENSION_DIR` to that directory when running `bin/benchdb`.
+`make dev` sets up its own archive and extensions under `var/dev-data`.
+Back up the archive together with PostgreSQL. See the
+[operations guide](docs/site/operations.md) for deployment and recovery
+instructions.
 
 ## Contributing
 

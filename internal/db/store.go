@@ -633,7 +633,7 @@ func (s *Store) InsertBenchmarkResult(ctx context.Context, p storage.InsertBench
 	dbp := toInsertBenchmarkResultParams(p)
 	dbp.ID = id
 
-	tx, err := s.lockRun(ctx, p.RunID)
+	tx, err := s.LockRun(ctx, p.RunID)
 	if err != nil {
 		return "", err
 	}
@@ -658,7 +658,7 @@ func (s *Store) InsertBenchmarkResult(ctx context.Context, p storage.InsertBench
 	}
 	inserted, err := New(tx).InsertBenchmarkResult(ctx, dbp)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.ConstraintName == "benchmark_result_submission_key_index" {
+	if errors.As(err, &pgErr) && (pgErr.ConstraintName == "benchmark_result_submission_key_index" || pgErr.ConstraintName == "result_submission_pkey") {
 		return "", storage.ErrConflict
 	}
 	if err != nil {
@@ -669,41 +669,17 @@ func (s *Store) InsertBenchmarkResult(ctx context.Context, p storage.InsertBench
 
 // GetBenchmarkResultBySubmissionKey returns the replay identity for a client key.
 func (s *Store) GetBenchmarkResultBySubmissionKey(ctx context.Context, key string) (storage.SubmissionResult, error) {
-	row, err := s.q.GetBenchmarkResultBySubmissionKey(ctx, &key)
+	row, err := s.q.GetBenchmarkResultBySubmissionKey(ctx, key)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storage.SubmissionResult{}, storage.ErrNotFound
 		}
 		return storage.SubmissionResult{}, err
 	}
-	if row.SubmissionPayloadSha256 == nil {
-		return storage.SubmissionResult{}, errors.New("idempotent result is missing its payload hash")
-	}
 	return storage.SubmissionResult{
 		ID: row.ID, RunID: row.RunID, HistoryFingerprint: row.HistoryFingerprint,
-		PayloadSHA256: *row.SubmissionPayloadSha256,
+		PayloadSHA256: row.PayloadSha256,
 	}, nil
-}
-
-// UpdateBenchmarkResultChangeAnnotations replaces the change_annotations
-// column; the service computes the merged object. Missing row -> ErrNotFound.
-func (s *Store) UpdateBenchmarkResultChangeAnnotations(ctx context.Context, id string, changeAnnotations []byte) error {
-	_, err := s.q.UpdateBenchmarkResultChangeAnnotations(ctx, UpdateBenchmarkResultChangeAnnotationsParams{
-		ID: id, ChangeAnnotations: changeAnnotations,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storage.ErrNotFound
-	}
-	return err
-}
-
-// DeleteBenchmarkResult hard-deletes one result row. Missing row -> ErrNotFound.
-func (s *Store) DeleteBenchmarkResult(ctx context.Context, id string) error {
-	_, err := s.q.DeleteBenchmarkResult(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storage.ErrNotFound
-	}
-	return err
 }
 
 // GetBenchmarkResultByID returns the stored result row, or storage.ErrNotFound
@@ -804,7 +780,28 @@ func (s *Store) SelectBenchmarkResults(ctx context.Context, p storage.ListResult
 
 // SelectRecentRuns returns grouped run summaries for the landing page.
 func (s *Store) SelectRecentRuns(ctx context.Context, p storage.RecentRunsParams) ([]storage.RecentRunRow, error) {
-	rows, err := s.q.SelectRecentRuns(ctx, SelectRecentRunsParams{
+	beginner, ok := s.q.db.(interface {
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	})
+	if !ok {
+		return nil, errors.New("recent runs requires transaction support")
+	}
+	// Discovery and aggregation must see the same results as batches advance.
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	var runIDs []string
+	if p.Search == "" && !p.NeedsAttention {
+		runIDs, err = recentRunIDs(ctx, q, p)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rows, err := q.SelectRecentRuns(ctx, SelectRecentRunsParams{
+		RecentRunIds:   runIDs,
 		Search:         p.Search,
 		OffsetCount:    p.Offset,
 		PageSize:       p.PageSize,
@@ -814,7 +811,49 @@ func (s *Store) SelectRecentRuns(ctx context.Context, p storage.RecentRunsParams
 	if err != nil {
 		return nil, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 	return recentRunRowsFromRows(rows), nil
+}
+
+// RecentRunCandidateBatchSize bounds each discovery read and its scale profile.
+const RecentRunCandidateBatchSize = int32(4096)
+
+// recentRunIDs stops after finding the requested page of distinct runs. Only
+// one set of seen IDs survives between batches, so deep pages use linear space.
+func recentRunIDs(ctx context.Context, q *Queries, p storage.RecentRunsParams) ([]string, error) {
+	params := SelectRecentRunCandidatesParams{Repository: p.Repository, BatchSize: RecentRunCandidateBatchSize}
+	seen := make(map[string]bool)
+	var ids []string
+	skipped := int32(0)
+	for int32(len(ids)) < p.PageSize {
+		rows, err := q.SelectRecentRunCandidates(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("find recent runs: %w", err)
+		}
+		for _, row := range rows {
+			if seen[row.RunID] {
+				continue
+			}
+			seen[row.RunID] = true
+			if skipped < p.Offset {
+				skipped++
+				continue
+			}
+			ids = append(ids, row.RunID)
+			if int32(len(ids)) == p.PageSize {
+				return ids, nil
+			}
+		}
+		if len(rows) < int(RecentRunCandidateBatchSize) {
+			break
+		}
+		last := rows[len(rows)-1]
+		params.CursorTimestamp = &last.Timestamp
+		params.CursorRunID = &last.RunID
+	}
+	return ids, nil
 }
 
 // SelectRepositories returns every repository with benchmark commits, most

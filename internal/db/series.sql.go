@@ -63,7 +63,7 @@ members AS MATERIALIZED (
     FROM (
       SELECT id, history_fingerprint, "timestamp", unit, mean, data,
              change_annotations, hardware_id, commit_id
-      FROM benchmark_result
+      FROM benchmark_result_local
       WHERE error IS NULL
         AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
         AND history_fingerprint = req.fingerprint
@@ -184,7 +184,7 @@ WITH recent_commit_seed AS MATERIALIZED (
     AND ($3::timestamp IS NULL OR c."timestamp" < $3::timestamp)
     AND EXISTS (
       SELECT 1
-      FROM benchmark_result br
+      FROM benchmark_result_local br
       WHERE br.commit_id = c.id
         AND br.error IS NULL
         AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -225,7 +225,7 @@ recent_commit AS MATERIALIZED (
     )
     AND EXISTS (
       SELECT 1
-      FROM benchmark_result br
+      FROM benchmark_result_local br
       WHERE br.commit_id = c.id
         AND br.error IS NULL
         AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -247,7 +247,7 @@ members AS MATERIALIZED (
     br.unit, br.data, br.case_id, br.context_id, br.hardware_id,
     br.commit_repo_url, rc.commit_sha, rc.commit_timestamp
   FROM recent_commit rc
-  JOIN benchmark_result br ON br.commit_id = rc.id
+  JOIN benchmark_result_local br ON br.commit_id = rc.id
   JOIN hardware hw ON hw.id = br.hardware_id
   WHERE br.error IS NULL
     AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -257,7 +257,7 @@ members AS MATERIALIZED (
       $3::timestamp IS NULL
       OR NOT EXISTS (
         SELECT 1
-        FROM benchmark_result newer
+        FROM benchmark_result_local newer
         JOIN commit newer_c ON newer_c.id = newer.commit_id
         WHERE newer.history_fingerprint = br.history_fingerprint
           AND newer.error IS NULL
@@ -321,7 +321,7 @@ page AS MATERIALIZED (
 ),
 counts AS (
   SELECT br.history_fingerprint, count(*)::bigint AS point_count
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
@@ -442,7 +442,7 @@ WITH members AS MATERIALIZED (
     br.history_fingerprint, br.id, br."timestamp" AS result_timestamp,
     br.unit, br.data, br.case_id, br.context_id, br.hardware_id,
     br.commit_repo_url, c.sha AS commit_sha, c."timestamp" AS commit_timestamp
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN commit c ON c.id = br.commit_id
   WHERE br.error IS NULL
     AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -490,7 +490,7 @@ page AS MATERIALIZED (
 ),
 counts AS (
   SELECT br.history_fingerprint, count(*)::bigint AS point_count
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
@@ -610,7 +610,7 @@ members AS MATERIALIZED (
   CROSS JOIN LATERAL (
     SELECT history_fingerprint, id, "timestamp", unit, data,
            case_id, context_id, hardware_id, commit_repo_url, commit_id
-    FROM benchmark_result
+    FROM benchmark_result_local
     WHERE case_id = mc.id
       AND error IS NULL
       AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -658,7 +658,7 @@ page AS MATERIALIZED (
 ),
 counts AS (
   SELECT br.history_fingerprint, count(*)::bigint AS point_count
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL
@@ -805,7 +805,7 @@ members AS MATERIALIZED (
     br.unit, br.data, br.case_id, br.context_id, br.hardware_id,
     br.commit_repo_url, rc.commit_sha, rc.commit_timestamp
   FROM recent_commit rc
-  JOIN benchmark_result br ON br.commit_id = rc.id
+  JOIN benchmark_result_local br ON br.commit_id = rc.id
   JOIN matched_case mc ON mc.id = br.case_id
   JOIN hardware hw ON hw.id = br.hardware_id
   WHERE br.error IS NULL
@@ -817,7 +817,7 @@ members AS MATERIALIZED (
       $3::timestamp IS NULL
       OR NOT EXISTS (
         SELECT 1
-        FROM benchmark_result newer
+        FROM benchmark_result_local newer
         JOIN commit newer_c ON newer_c.id = newer.commit_id
         WHERE newer.history_fingerprint = br.history_fingerprint
           AND newer.error IS NULL
@@ -862,7 +862,7 @@ page AS MATERIALIZED (
 ),
 counts AS (
   SELECT br.history_fingerprint, count(*)::bigint AS point_count
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN commit c ON c.id = br.commit_id
   JOIN page p ON p.history_fingerprint = br.history_fingerprint
   WHERE br.error IS NULL

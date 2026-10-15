@@ -55,14 +55,27 @@ set of checks.
 
 ## Evaluation
 
-Run the evaluator from a scheduler such as cron or a Kubernetes CronJob:
+Schedule evaluation on the server host, using the server's archive directory:
 
 ```bash
 export BENCHDB_DB_URL="postgres://..."
 export BENCHDB_INTENDED_BASE_URL="https://benchdb.example"
+export BENCHDB_DATA_DIR="/var/lib/benchdb"
 
 benchdb admin alerts evaluate --format json
 ```
+
+Evaluation needs the server's archive volume and matching DuckDB extensions,
+as well as its database. A job with only database access cannot read archived
+history. On Kubernetes, schedule execution inside the server pod:
+
+```bash
+kubectl exec deployment/benchdb-deployment -- benchdb admin alerts evaluate --format json
+```
+
+On a host, cron can use the server's directory and environment. Initialization
+has a 30-second deadline and can proceed during archive export. Each evaluator
+process has its own DuckDB budget; account for it alongside the server.
 
 For each enabled rule, the evaluator:
 

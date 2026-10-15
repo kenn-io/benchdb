@@ -48,3 +48,13 @@ sql:
               type: "float64"
               pointer: true
               slice: true
+          - column: "benchmark_result_local.data"
+            go_type:
+              type: "float64"
+              pointer: true
+              slice: true
+          - column: "benchmark_result_local.times"
+            go_type:
+              type: "float64"
+              pointer: true
+              slice: true

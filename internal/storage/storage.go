@@ -827,26 +827,27 @@ type CIReportCommitRow struct {
 // and optional commit metadata. The service compares rows by run_id and
 // history_fingerprint, decodes JSON, and computes single value summaries.
 type CIReportResultRow struct {
-	ResultID           string
-	RunID              string
-	ResultTimestamp    time.Time
-	HistoryFingerprint string
-	CaseName           string
-	CaseTags           []byte
-	ContextTags        []byte
-	InfoTags           []byte
-	HardwareID         string
-	HardwareType       string
-	HardwareName       string
-	HardwareHash       string
-	CommitID           *string
-	CommitSha          *string
-	CommitRepository   *string
-	CommitParent       *string
-	CommitForkPointSha *string
-	CommitTimestamp    *time.Time
-	Unit               *string
-	Data               []*float64
-	Error              []byte
-	ChangeAnnotations  []byte
+	OptionalBenchmarkInfo []byte
+	ResultID              string
+	RunID                 string
+	ResultTimestamp       time.Time
+	HistoryFingerprint    string
+	CaseName              string
+	CaseTags              []byte
+	ContextTags           []byte
+	InfoTags              []byte
+	HardwareID            string
+	HardwareType          string
+	HardwareName          string
+	HardwareHash          string
+	CommitID              *string
+	CommitSha             *string
+	CommitRepository      *string
+	CommitParent          *string
+	CommitForkPointSha    *string
+	CommitTimestamp       *time.Time
+	Unit                  *string
+	Data                  []*float64
+	Error                 []byte
+	ChangeAnnotations     []byte
 }

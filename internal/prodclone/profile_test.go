@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -69,8 +70,8 @@ func TestRunProfileCollectsHTTPSQLPlansAndRelationSizes(t *testing.T) {
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "CIReportByCommitRun cold")
 	assert.Contains(t, profileHTTPNames(result.HTTPTimings), "CIReportByCommitRun warm-1")
 	assert.NotEmpty(t, result.SQLTimings)
-	assert.Contains(t, profileSQLNames(result.SQLTimings), "RecentRunsPage25")
-	assert.Contains(t, profileSQLNames(result.SQLTimings), "RecentRunsPage100")
+	assert.Contains(t, profileSQLNames(result.SQLTimings), "RecentRunCandidates")
+	assert.Contains(t, profileSQLNames(result.SQLTimings), "RecentRunSummaries")
 	assert.Contains(t, profileSQLNames(result.SQLTimings), "SeriesBrowseDefaultPage5")
 	assert.Contains(t, profileSQLNames(result.SQLTimings), "SeriesBrowseDefaultPage50")
 	assert.Contains(t, profileSQLNames(result.SQLTimings), "SeriesMembersForPage50")
@@ -293,20 +294,19 @@ func (r *fakeRows) RawValues() [][]byte {
 	return nil
 }
 
+func (r *fakeRows) TypeMap() *pgtype.Map { return pgtype.NewMap() }
+
 func (r *fakeRows) Conn() *pgx.Conn {
 	return nil
 }
 
-func TestRecentRunsProfilerMatchesEndpointSelection(t *testing.T) {
+func TestRecentRunSearchProfilerMatchesEndpointSelection(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	store := db.NewStore(pool)
 	summary, err := seed.Run(ctx, store)
 	require.NoError(t, err)
 	ref := summary.ProductSmoke.CIRegressionCommitSHA[:6]
 	expected := map[string]storage.RecentRunsParams{
-		"RecentRunsPage25":         {PageSize: 26},
-		"RecentRunsPage100":        {PageSize: 101},
-		"RecentRunsPage2":          {PageSize: 26, Offset: 25},
 		"RecentRunsSearchOffset0":  {PageSize: 26, Search: ref},
 		"RecentRunsSearchOffset25": {PageSize: 26, Search: ref, Offset: 25},
 	}

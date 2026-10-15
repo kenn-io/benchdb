@@ -1,12 +1,11 @@
 -- name: ClaimVerdictQueue :many
 -- Claim settled keys with a lease so concurrent servers never process the same
 -- key at once and a crashed worker's keys become claimable again. Benchmark
--- keys need no settling: a result changes only its own benchmark, and keys
--- re-enqueued between ticks already coalesce.
+-- and commit keys need no settling; re-enqueues between ticks coalesce.
 WITH ready AS (
   SELECT q.kind, q.key
   FROM verdict_queue q
-  WHERE (q.enqueued_at <= sqlc.arg('settled_before')::timestamptz OR q.kind = 'benchmark')
+  WHERE (q.enqueued_at <= sqlc.arg('settled_before')::timestamptz OR q.kind IN ('benchmark', 'commit'))
     AND (q.claimed_until IS NULL OR q.claimed_until < clock_timestamp())
   ORDER BY q.enqueued_at
   LIMIT sqlc.arg('batch_size')
@@ -48,7 +47,7 @@ SELECT enqueue_missing_run_verdicts(sqlc.arg('run_ids')::text[]);
 -- Runs whose attention can change when default-branch history in the
 -- repository changes. Default-branch runs never need attention.
 SELECT DISTINCT br.run_id
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.commit_repo_url = sqlc.arg('repository')
   AND br."timestamp" >= sqlc.arg('since')::timestamp
@@ -63,7 +62,7 @@ SELECT DISTINCT ON (br.commit_repo_url)
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
   br."timestamp" AS last_result_at,
   br.id AS last_result_id
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = sqlc.arg('run_id')
 ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC;
@@ -108,6 +107,7 @@ SELECT
     OR (NOT v.default_branch AND EXISTS (
       SELECT 1 FROM verdict_queue q WHERE q.kind = 'repository' AND q.key = v.repository
     ))
+    OR EXISTS (SELECT 1 FROM verdict_queue q JOIN commit c ON c.id = q.key WHERE q.kind = 'commit' AND c.repository = v.repository)
   )::boolean AS pending
 FROM run_verdict v
 WHERE v.run_id = ANY(sqlc.arg('run_ids')::text[]);
@@ -121,9 +121,13 @@ SELECT EXISTS (
   WHERE sqlc.narg('repository')::text IS NULL
     OR (q.kind = 'repository' AND q.key = sqlc.narg('repository')::text)
     OR (q.kind = 'run' AND EXISTS (
-      SELECT 1 FROM benchmark_result br
-      WHERE br.run_id = q.key AND br.commit_repo_url = sqlc.narg('repository')::text
+      SELECT 1 FROM run_membership m
+      WHERE m.run_id = q.key AND m.repository = sqlc.narg('repository')::text
+      UNION ALL
+      SELECT 1 FROM run_verdict v
+      WHERE v.run_id = q.key AND v.repository = sqlc.narg('repository')::text
     ))
+    OR (q.kind = 'commit' AND EXISTS (SELECT 1 FROM commit c WHERE c.id = q.key AND c.repository = sqlc.narg('repository')::text))
 )::boolean;
 
 -- name: CountAttentionRuns :one
@@ -142,7 +146,7 @@ WHERE v.needs_attention
 
 -- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
-  benchmark_id, machine_name, repository, case_id, point_timestamps, preview_points, unit,
+  benchmark_id, machine_name, repository, case_id, point_count, preview_points, unit,
   status, change_percent, latest_result_id, latest_result_timestamp,
   latest_commit_sha, latest_commit_timestamp, computed_at
 )
@@ -151,7 +155,7 @@ VALUES (
   sqlc.arg('machine_name'),
   sqlc.arg('repository'),
   sqlc.arg('case_id'),
-  sqlc.arg('point_timestamps')::timestamp[],
+  sqlc.arg('point_count')::bigint,
   sqlc.arg('preview_points')::jsonb,
   sqlc.narg('unit'),
   sqlc.arg('status'),
@@ -165,7 +169,7 @@ VALUES (
 ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
   repository = EXCLUDED.repository,
   case_id = EXCLUDED.case_id,
-  point_timestamps = EXCLUDED.point_timestamps,
+  point_count = EXCLUDED.point_count,
   preview_points = EXCLUDED.preview_points,
   unit = EXCLUDED.unit,
   status = EXCLUDED.status,
@@ -184,13 +188,12 @@ WHERE benchmark_id = sqlc.arg('benchmark_id') AND NOT (machine_name = ANY(sqlc.a
 -- name: BenchmarkVerdictsPending :one
 -- Whether a queued recompute can change a benchmark within the repository
 -- filter, so the list can refresh until statuses settle. A queued benchmark
--- belongs to the repository of its stored rows, which outlive its last
--- result, or of its listable results. Each queued key is looked up on its own
--- so the results lookup uses the partial benchmark_id index instead of
--- scanning every result.
+-- belongs to the repository of its stored verdicts, which outlive its last
+-- result, or its compact membership record. Commit repairs stay pending until
+-- the worker expands them into benchmark keys.
 SELECT coalesce((
   sqlc.narg('repository')::text IS NULL
-  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'benchmark')
+  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind IN ('benchmark', 'commit'))
 ) OR EXISTS (
   SELECT 1
   FROM verdict_queue q
@@ -200,11 +203,17 @@ SELECT coalesce((
     WHERE v.benchmark_id = q.key AND v.repository = sqlc.narg('repository')::text
     UNION ALL
     SELECT 1
-    FROM benchmark_result br
-    WHERE br.benchmark_id = q.key
-      AND br.error IS NULL
-      AND br.commit_repo_url = sqlc.narg('repository')::text
+    FROM benchmark_membership m
+    WHERE m.benchmark_id = q.key
+      AND m.nonerror_count > 0
+      AND m.repository = sqlc.narg('repository')::text
     LIMIT 1
   ) owned
   WHERE q.kind = 'benchmark'
-), false)::boolean AS pending;
+) OR EXISTS (SELECT 1 FROM verdict_queue q JOIN commit c ON c.id = q.key WHERE q.kind = 'commit' AND c.repository = sqlc.narg('repository')::text), false)::boolean AS pending;
+
+-- name: SelectCommitVerdictSubjects :many
+SELECT DISTINCT run_id, benchmark_id, commit_repo_url AS repository
+FROM benchmark_result_local
+WHERE commit_id = $1
+ORDER BY run_id, benchmark_id, commit_repo_url;

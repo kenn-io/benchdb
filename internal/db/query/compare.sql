@@ -12,6 +12,6 @@ SELECT
   br.optional_benchmark_info,
   br.commit_id,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.id = $1;

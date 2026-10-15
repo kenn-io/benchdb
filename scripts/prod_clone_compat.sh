@@ -29,6 +29,12 @@ Required environment:
   BENCHDB_PROD_CLONE_DB_URL=postgresql://<read-only-role>@<clone-host>:<port>/<clone-database>
   BENCHDB_PROD_CLONE_CONFIRM=read-only
   BENCHDB_PROD_CLONE_READONLY_ROLE=<read-only-role>
+  BENCHDB_PROD_CLONE_DATA_DIR=<persistent-directory-for-the-migrated-clone>
+
+The clone must have the current schema and its matching managed archive.
+The harness does not migrate the database or substitute a hot-only result store.
+Sample selection and SQL diagnostics still read PostgreSQL directly and omit
+archived measurements. This harness does not validate complete archived history.
 
 Development dry run:
   BENCHDB_PROD_CLONE_ALLOW_DEV_ROLE=true permits the documented development
@@ -38,6 +44,7 @@ Optional environment:
   BENCHDB_PROD_CLONE_EXPECTED_HOSTS=<clone-host>,<server-reported-address>
   BENCHDB_PROD_CLONE_PORT=18080
   BENCHDB_PROD_CLONE_OUT_DIR=var/prod-clone-compat
+  BENCHDB_DUCKDB_EXTENSION_DIR=<prepared-extension-directory>
 
 Options:
   --profile   collect serial HTTP timings, SQL timings, EXPLAIN plans, and relation sizes
@@ -263,6 +270,7 @@ for arg in "$@"; do
 done
 
 [ -n "${BENCHDB_PROD_CLONE_DB_URL:-}" ] || die "BENCHDB_PROD_CLONE_DB_URL must be set"
+[ -d "${BENCHDB_PROD_CLONE_DATA_DIR:-}" ] || die "BENCHDB_PROD_CLONE_DATA_DIR must name the migrated clone's existing archive directory"
 [ "${BENCHDB_PROD_CLONE_CONFIRM:-}" = "read-only" ] || die "BENCHDB_PROD_CLONE_CONFIRM must equal read-only"
 if [ "${BENCHDB_PROD_CLONE_ALLOW_DEV_ROLE:-}" != "true" ] && [ -z "${BENCHDB_PROD_CLONE_READONLY_ROLE:-}" ]; then
 	die "BENCHDB_PROD_CLONE_READONLY_ROLE must be set unless BENCHDB_PROD_CLONE_ALLOW_DEV_ROLE=true"
@@ -298,6 +306,8 @@ prepare_private_file "$SERVER_LOG"
 env -i \
 	PATH="${PATH:-/usr/bin:/bin}" \
 	BENCHDB_DB_URL="$SAFE_DB_URL" \
+	BENCHDB_DATA_DIR="$BENCHDB_PROD_CLONE_DATA_DIR" \
+	BENCHDB_DUCKDB_EXTENSION_DIR="${BENCHDB_DUCKDB_EXTENSION_DIR:-$ROOT/.cache/duckdb/extensions}" \
 	BENCHDB_ADDR="$ADDR" \
 	./bin/benchdb serve >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"

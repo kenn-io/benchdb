@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -35,11 +34,15 @@ func (s *Store) GetResultArtifact(ctx context.Context, resultID string, id uuid.
 }
 
 func (s *Store) InsertResultArtifact(ctx context.Context, a storage.ArtifactRecord) error {
-	err := s.q.InsertResultArtifact(ctx, InsertResultArtifactParams{ID: a.ID, ResultID: a.ResultID, Name: a.Name, Kind: a.Kind, MediaType: a.MediaType, Sha256: a.SHA256, SizeBytes: a.SizeBytes, ObjectKey: a.ObjectKey})
-	if e, ok := errors.AsType[*pgconn.PgError](err); ok && e.Code == "23503" {
-		return storage.ErrNotFound
-	}
-	return err
+	return s.withResultRun(ctx, a.ResultID, func(tx pgx.Tx, _ storage.BenchmarkResult) error {
+		return InsertResultArtifact(ctx, tx, a)
+	})
+}
+
+// InsertResultArtifact records an uploaded object after the caller has locked
+// and revalidated its logical result. Physical fact rows may already be archived.
+func InsertResultArtifact(ctx context.Context, tx pgx.Tx, a storage.ArtifactRecord) error {
+	return New(tx).InsertResultArtifact(ctx, InsertResultArtifactParams{ID: a.ID, ResultID: a.ResultID, Name: a.Name, Kind: a.Kind, MediaType: a.MediaType, Sha256: a.SHA256, SizeBytes: a.SizeBytes, ObjectKey: a.ObjectKey})
 }
 
 func (s *Store) DeleteResultArtifact(ctx context.Context, resultID string, id uuid.UUID) (string, error) {

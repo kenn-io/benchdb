@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -75,4 +76,22 @@ func SeedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 		id, fmt.Sprintf("user%d@example.com", n), fmt.Sprintf("Test User %d", n))
 	require.NoError(t, err, "seed user")
 	return id
+}
+
+// UpdateResultFixture creates deliberately invalid or specially ordered facts
+// for read-path tests. The transaction restores the immutability trigger before
+// any caller can use the fixture, including when setup fails.
+func UpdateResultFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, statement string, args ...any) pgconn.CommandTag {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `ALTER TABLE benchmark_result DISABLE TRIGGER benchmark_result_immutable`)
+	require.NoError(t, err)
+	tag, err := tx.Exec(ctx, statement, args...)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ALTER TABLE benchmark_result ENABLE TRIGGER benchmark_result_immutable`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	return tag
 }

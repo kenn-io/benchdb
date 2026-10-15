@@ -10,9 +10,9 @@ import (
 	"go.kenn.io/benchdb/internal/storage"
 )
 
-// lockRun serializes finalization with result insertion across server processes.
+// LockRun serializes finalization and logical result changes across server processes.
 // The transaction owns the lock, including when a request is canceled.
-func (s *Store) lockRun(ctx context.Context, runID string) (pgx.Tx, error) {
+func (s *Store) LockRun(ctx context.Context, runID string) (pgx.Tx, error) {
 	beginner, ok := s.q.db.(interface {
 		Begin(context.Context) (pgx.Tx, error)
 	})
@@ -31,7 +31,7 @@ func (s *Store) lockRun(ctx context.Context, runID string) (pgx.Tx, error) {
 }
 
 func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs []string, build func(storage.Store) (storage.RunReport, error)) (storage.RunReport, error) {
-	tx, err := s.lockRun(ctx, runID)
+	tx, err := s.LockRun(ctx, runID)
 	if err != nil {
 		return storage.RunReport{}, err
 	}
@@ -47,8 +47,8 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if !errors.Is(err, storage.ErrNotFound) {
 		return storage.RunReport{}, err
 	}
-	// Keep every manifest result available to analysis until the report commits.
-	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result WHERE run_id = $1 FOR SHARE`, runID)
+	// All logical result writers take the run lock, so this manifest remains stable.
+	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result_local WHERE run_id = $1`, runID)
 	if err != nil {
 		return storage.RunReport{}, err
 	}

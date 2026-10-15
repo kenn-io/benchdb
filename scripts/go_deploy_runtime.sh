@@ -10,6 +10,11 @@ if [[ -z "${BENCHDB_DEPLOY_VERSION:-}" ]]; then
 fi
 export BENCHDB_SERVER_IMAGE_SPEC="${DOCKER_REGISTRY}/${BENCHDB_SERVER_IMAGE_NAME}:${BENCHDB_DEPLOY_VERSION}"
 export BENCHDB_ADDR="${BENCHDB_ADDR:-:8080}"
+# Bound DuckDB independently of the Kubernetes node's CPU count. Leave room
+# within the pod's 2500Mi request for Go and allocations outside DuckDB buffers.
+export BENCHDB_DUCKDB_THREADS="${BENCHDB_DUCKDB_THREADS:-2}"
+export BENCHDB_DUCKDB_MEMORY_MB="${BENCHDB_DUCKDB_MEMORY_MB:-1024}"
+export BENCHDB_DUCKDB_READERS="${BENCHDB_DUCKDB_READERS:-1}"
 
 # This script assumes that secrets have been injected via environment before
 # executing this logic. That is, secrets are available here as values of a
@@ -312,10 +317,15 @@ import sys
 keys = [
     "BENCHDB_ADDR",
     "BENCHDB_INTENDED_BASE_URL",
+    "BENCHDB_DUCKDB_THREADS",
+    "BENCHDB_DUCKDB_MEMORY_MB",
+    "BENCHDB_DUCKDB_READERS",
 ]
 missing = [key for key in keys if os.environ.get(key, "") == ""]
 if missing:
     raise SystemExit(f"missing or empty ConfigMap values: {', '.join(missing)}")
+if os.environ.get("BENCHDB_MAINTENANCE_INTERVAL"):
+    keys.append("BENCHDB_MAINTENANCE_INTERVAL")
 
 json.dump(
     {
@@ -336,12 +346,10 @@ render_deployment_manifest() {
   if github_app_commit_auth_configured; then
     validate_github_app_commit_auth || return 1
     github_app_volume_mounts='
-        volumeMounts:
           - name: benchdb-github-app-key
             mountPath: /var/run/secrets/benchdb-github-app
             readOnly: true'
     github_app_volumes='
-      volumes:
         - name: benchdb-github-app-key
           secret:
             secretName: benchdb-github-app-key'
@@ -411,21 +419,42 @@ deploy_secrets_and_config() {
   render_config_manifest | kubectl apply -f - || return 1
 }
 
+stop_serving() {
+  aws eks --region us-east-2 update-kubeconfig --name "${EKS_CLUSTER}" || return 1
+  kubectl config set-context --current --namespace="${NAMESPACE}" || return 1
+  kubectl get persistentvolumeclaim benchdb-data >/dev/null || return 1
+
+  local deployment
+  deployment="$(kubectl get deployment benchdb-deployment --ignore-not-found -o name)" || return 1
+  if [[ -n "$deployment" ]]; then
+    kubectl scale "$deployment" --replicas=0 || return 1
+    kubectl rollout status "$deployment" --timeout=120s || return 1
+    local pods
+    local -a pod_names
+    pods="$(kubectl get pods -l app=benchdb -o name)" || return 1
+    if [[ -n "$pods" ]]; then
+      mapfile -t pod_names <<< "$pods"
+      kubectl wait --for=delete "${pod_names[@]}" --timeout=120s || return 1
+    fi
+  fi
+}
+
 run_migrations() {
   set -x
 
-  aws eks --region us-east-2 update-kubeconfig --name "${EKS_CLUSTER}"
-  kubectl config set-context --current --namespace="${NAMESPACE}"
+  # Old binaries must not keep prepared statements against tables renamed by
+  # the storage migration. Keep serving stopped if migration fails.
+  stop_serving || return 1
 
   render_migration_manifest > _jobspec || return 1
 
   # Delete job first -- why is that important?
-  kubectl delete --ignore-not-found=true -f _jobspec
-  kubectl apply -f _jobspec
+  kubectl delete --ignore-not-found=true -f _jobspec || return 1
+  kubectl apply -f _jobspec || return 1
 
   # Note(JP): we give this 24 hours of time. Why? For those heavy migration
   # jobs that really take so long? Interesting.
-  kubectl wait --for=condition=complete --timeout=86400s job/benchdb-migration
+  kubectl wait --for=condition=complete --timeout=86400s job/benchdb-migration || return 1
 
   # Get job's stdout/err. This parses this line of text to get to the pod name:
   #
@@ -452,6 +481,7 @@ deploy() {
   kubectl config set-context --current --namespace="${NAMESPACE}"
 
   # (Re-)apply deployment using the image tagged by BENCHDB_DEPLOY_VERSION.
+  kubectl get persistentvolumeclaim benchdb-data >/dev/null || return 1
   render_deployment_manifest | kubectl apply -f - || return 1
   kubectl rollout restart deployment/benchdb-deployment || return 1
   kubectl apply -f k8s/benchdb-service.yml || return 1
@@ -477,9 +507,11 @@ deploy() {
 
 rollback() {
   set -x
-  aws eks --region us-east-2 update-kubeconfig --name "${EKS_CLUSTER}"
-  kubectl config set-context --current --namespace="${NAMESPACE}"
-  kubectl rollout undo deployment.v1.apps/benchdb-deployment
+  aws eks --region us-east-2 update-kubeconfig --name "${EKS_CLUSTER}" || return 1
+  kubectl config set-context --current --namespace="${NAMESPACE}" || return 1
+  # Restore matching database and archive backups before undoing a migration.
+  kubectl rollout undo deployment.v1.apps/benchdb-deployment || return 1
+  kubectl scale deployment/benchdb-deployment --replicas=1 || return 1
   kubectl rollout status deployment/benchdb-deployment
 }
 

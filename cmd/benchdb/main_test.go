@@ -673,6 +673,13 @@ func TestAdminAlertsEvaluateUsageAndConfigErrors(t *testing.T) {
 }
 
 func TestAdminAlertsEvaluateRunnerConfigAndJSONOutput(t *testing.T) {
+	dataDir := t.TempDir()
+	extensionDir := t.TempDir()
+	t.Setenv("BENCHDB_DATA_DIR", dataDir)
+	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", extensionDir)
+	t.Setenv("BENCHDB_DUCKDB_THREADS", "12")
+	t.Setenv("BENCHDB_DUCKDB_MEMORY_MB", "2048")
+	t.Setenv("BENCHDB_DUCKDB_READERS", "3")
 	var got adminAlertsEvaluateConfig
 	runAdminAlertsEvaluate = func(
 		_ context.Context,
@@ -703,6 +710,11 @@ func TestAdminAlertsEvaluateRunnerConfigAndJSONOutput(t *testing.T) {
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())
 	assert.Equal(t, "postgres://user:pass@db/benchdb", got.DatabaseURL)
 	assert.Equal(t, "https://benchdb.example", got.PublicBaseURL)
+	assert.Equal(t, dataDir, got.Archive.Dir)
+	assert.Equal(t, extensionDir, got.Archive.ExtensionDir)
+	assert.Equal(t, 12, got.Archive.Threads)
+	assert.Equal(t, 2048, got.Archive.MemoryLimitMB)
+	assert.Equal(t, 3, got.Archive.Readers)
 	assert.Equal(t, "json", got.Format)
 	assert.Empty(t, stderr.String())
 	assert.NotContains(t, stdout.String(), "user:pass")
@@ -723,6 +735,7 @@ func TestAdminAlertsEvaluateRunnerConfigAndJSONOutput(t *testing.T) {
 }
 
 func TestAdminAlertsEvaluatePrintsSummaryWhenRunnerReturnsError(t *testing.T) {
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
 	runAdminAlertsEvaluate = func(
 		context.Context,
 		adminAlertsEvaluateConfig,
@@ -748,6 +761,16 @@ func TestAdminAlertsEvaluatePrintsSummaryWhenRunnerReturnsError(t *testing.T) {
 	assert.Contains(t, stdout.String(), `"failed": 1`)
 	assert.Contains(t, stdout.String(), "rule-1")
 	assert.Contains(t, stderr.String(), "one or more alert rules failed to evaluate")
+}
+
+func TestAdminAlertsEvaluateRequiresArchiveDirectory(t *testing.T) {
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_DATA_DIR", "")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "alerts", "evaluate"}, &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "BENCHDB_DATA_DIR")
 }
 
 func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {

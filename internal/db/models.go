@@ -67,11 +67,117 @@ type ApiToken struct {
 	RevokedAt   *time.Time
 }
 
+type ArchiveDataset struct {
+	Singleton bool
+	ID        uuid.UUID
+}
+
+type ArchiveFile struct {
+	Path           string
+	PartitionMonth pgtype.Date
+	RowCount       int64
+	ByteSize       int64
+	RunsPath       string
+	RunsBytes      int64
+	SeriesPath     string
+	SeriesBytes    int64
+	CreatedAt      pgtype.Timestamptz
+}
+
+type ArchiveFileCommit struct {
+	ArchivePath     string
+	CommitID        string
+	CommitTimestamp *time.Time
+	OnDefaultBranch bool
+}
+
 type ArtifactGarbage struct {
 	ObjectKey string
 }
 
+type BenchmarkMembership struct {
+	BenchmarkID   string
+	Repository    string
+	CaseID        string
+	ResultCount   int64
+	NonerrorCount int64
+}
+
 type BenchmarkResult struct {
+	ID                      string
+	CaseID                  string
+	ContextID               string
+	RunID                   string
+	Unit                    *string
+	TimeUnit                *string
+	BatchID                 *string
+	Timestamp               time.Time
+	Iterations              *int32
+	Min                     *float64
+	Max                     *float64
+	Mean                    *float64
+	Median                  *float64
+	Stdev                   *float64
+	Q1                      *float64
+	Q3                      *float64
+	Iqr                     *float64
+	InfoID                  string
+	Error                   []byte
+	Data                    []*float64
+	Times                   []*float64
+	Validation              []byte
+	OptionalBenchmarkInfo   []byte
+	ChangeAnnotations       []byte
+	RunTags                 []byte
+	RunReason               *string
+	CommitID                *string
+	HardwareID              string
+	CommitRepoUrl           string
+	HistoryFingerprint      string
+	ArrivedAt               pgtype.Timestamptz
+	SubmissionKey           *string
+	SubmissionPayloadSha256 *string
+	BenchmarkID             string
+}
+
+type BenchmarkResultBacklog struct {
+	ID                      string
+	CaseID                  string
+	ContextID               string
+	RunID                   string
+	Unit                    *string
+	TimeUnit                *string
+	BatchID                 *string
+	Timestamp               time.Time
+	Iterations              *int32
+	Min                     *float64
+	Max                     *float64
+	Mean                    *float64
+	Median                  *float64
+	Stdev                   *float64
+	Q1                      *float64
+	Q3                      *float64
+	Iqr                     *float64
+	InfoID                  string
+	Error                   []byte
+	Data                    []float64
+	Times                   []float64
+	Validation              []byte
+	OptionalBenchmarkInfo   []byte
+	ChangeAnnotations       []byte
+	RunTags                 []byte
+	RunReason               *string
+	CommitID                *string
+	HardwareID              string
+	CommitRepoUrl           string
+	HistoryFingerprint      string
+	SubmissionKey           *string
+	SubmissionPayloadSha256 *string
+	BenchmarkID             string
+	ArrivedAt               pgtype.Timestamptz
+}
+
+type BenchmarkResultLocal struct {
 	ID                      string
 	CaseID                  string
 	ContextID               string
@@ -107,6 +213,44 @@ type BenchmarkResult struct {
 	BenchmarkID             string
 }
 
+type BenchmarkResultNumeric struct {
+	ID                      string
+	CaseID                  string
+	ContextID               string
+	RunID                   string
+	Unit                    *string
+	TimeUnit                *string
+	BatchID                 *string
+	Timestamp               time.Time
+	Iterations              *int32
+	Min                     float64
+	Max                     float64
+	Mean                    float64
+	Median                  float64
+	Stdev                   float64
+	Q1                      float64
+	Q3                      float64
+	Iqr                     float64
+	InfoID                  string
+	Error                   string
+	Data                    []float64
+	Times                   []float64
+	Validation              string
+	OptionalBenchmarkInfo   string
+	ChangeAnnotations       string
+	RunTags                 string
+	RunReason               *string
+	CommitID                *string
+	HardwareID              string
+	CommitRepoUrl           string
+	HistoryFingerprint      string
+	SubmissionKey           *string
+	SubmissionPayloadSha256 *string
+	BenchmarkID             string
+	ArrivedAt               pgtype.Timestamptz
+	SourceTable             string
+}
+
 type BenchmarkVerdict struct {
 	BenchmarkID           string
 	MachineName           string
@@ -119,9 +263,9 @@ type BenchmarkVerdict struct {
 	LatestCommitSha       string
 	LatestCommitTimestamp time.Time
 	ComputedAt            pgtype.Timestamptz
-	PointTimestamps       []time.Time
 	PreviewPoints         []byte
 	ChangePercent         *float64
+	PointCount            int64
 }
 
 type Case struct {
@@ -203,6 +347,30 @@ type ResultArtifact struct {
 	Sha256    string
 	SizeBytes int64
 	ObjectKey string
+}
+
+type ResultMutation struct {
+	ResultID           string
+	RunID              string
+	HistoryFingerprint string
+	Version            int64
+	PartitionMonth     pgtype.Date
+	Annotations        []byte
+	Deleted            bool
+}
+
+type ResultSubmission struct {
+	SubmissionKey      string
+	ResultID           string
+	RunID              string
+	HistoryFingerprint string
+	PayloadSha256      string
+}
+
+type RunMembership struct {
+	RunID       string
+	Repository  string
+	ResultCount int64
 }
 
 type RunVerdict struct {

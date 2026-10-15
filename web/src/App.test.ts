@@ -20,6 +20,17 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  it("opens storage from the sidebar and names the page", async () => {
+    render(App);
+
+    await fireEvent.click(screen.getByRole("link", { name: "Storage" }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Storage" })).toBeInTheDocument());
+    expect(window.location.pathname).toBe("/storage");
+    expect(document.title).toBe("Storage · BenchDB");
+    expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("names the document after the current page", async () => {
     render(App);
     expect(document.title).toBe("Not found · BenchDB");

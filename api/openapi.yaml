@@ -1528,6 +1528,69 @@ components:
       required:
         - machines
       type: object
+    MaintenanceStatus:
+      additionalProperties: false
+      properties:
+        compacted_files:
+          format: int64
+          type: integer
+        enabled:
+          type: boolean
+        error:
+          description: Public maintenance failure summary, without filesystem paths or connection details.
+          type: string
+        exported_rows:
+          format: int64
+          type: integer
+        interval_seconds:
+          format: double
+          type: number
+        last_finished_at:
+          format: date-time
+          type: string
+        last_started_at:
+          format: date-time
+          type: string
+        last_success_at:
+          format: date-time
+          type: string
+        next_run_at:
+          format: date-time
+          type: string
+        phase:
+          enum:
+            - idle
+            - export
+            - compact
+            - catalogs
+            - cleanup
+            - schedule
+          type: string
+        refreshed_catalogs:
+          description: Fact files whose catalog pair was refreshed in this cycle.
+          format: int64
+          type: integer
+        removed_files:
+          format: int64
+          type: integer
+        state:
+          enum:
+            - scheduled
+            - running
+            - failed
+            - interrupted
+            - disabled
+          type: string
+      required:
+        - enabled
+        - state
+        - interval_seconds
+        - phase
+        - exported_rows
+        - compacted_files
+        - refreshed_catalogs
+        - removed_files
+      type: object
     MeOutputBody:
       additionalProperties: false
       properties:
@@ -2200,6 +2263,78 @@ components:
           type: string
       required:
         - data
+      type: object
+    StorageStatus:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/StorageStatus.json
+          format: uri
+          readOnly: true
+          type: string
+        archived_rows:
+          description: Rows in published archive files, before pending deletions are applied.
+          format: int64
+          type: integer
+        catalog_bytes:
+          format: int64
+          type: integer
+        catalog_files:
+          format: int64
+          type: integer
+        maintenance:
+          $ref: "#/components/schemas/MaintenanceStatus"
+        parquet_bytes:
+          format: int64
+          type: integer
+        parquet_files:
+          format: int64
+          type: integer
+        pending_mutations:
+          format: int64
+          type: integer
+        pending_rows_estimate:
+          description: PostgreSQL estimate of rows awaiting archival; statistics may lag ingestion and maintenance.
+          format: int64
+          type: integer
+        postgres_bytes:
+          description: Total PostgreSQL database size, including indexes and metadata.
+          format: int64
+          type: integer
+        sampled_at:
+          description: UTC time when storage usage was measured. Usage is cached for up to one minute.
+          format: date-time
+          type: string
+        stale_catalogs:
+          description: Fact files whose catalog pair needs refreshing.
+          format: int64
+          type: integer
+        volume_available_bytes:
+          description: Space available to the server on the archive filesystem.
+          format: int64
+          minimum: 0
+          type: integer
+        volume_total_bytes:
+          description: Capacity of the filesystem containing the archive.
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+        - sampled_at
+        - postgres_bytes
+        - pending_rows_estimate
+        - archived_rows
+        - parquet_bytes
+        - parquet_files
+        - catalog_bytes
+        - catalog_files
+        - pending_mutations
+        - stale_catalogs
+        - volume_total_bytes
+        - volume_available_bytes
+        - maintenance
       type: object
     SubmitOutputBody:
       additionalProperties: false
@@ -3653,6 +3788,29 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: List and search benchmark series
+  /api/storage:
+    get:
+      operationId: storageStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageStatus"
+          description: OK
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: Storage usage and maintenance status
   /api/tokens:
     get:
       operationId: list-tokens

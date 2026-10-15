@@ -16,7 +16,7 @@ import (
 const benchmarkVerdictsPending = `-- name: BenchmarkVerdictsPending :one
 SELECT coalesce((
   $1::text IS NULL
-  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind = 'benchmark')
+  AND EXISTS (SELECT 1 FROM verdict_queue q WHERE q.kind IN ('benchmark', 'commit'))
 ) OR EXISTS (
   SELECT 1
   FROM verdict_queue q
@@ -26,22 +26,21 @@ SELECT coalesce((
     WHERE v.benchmark_id = q.key AND v.repository = $1::text
     UNION ALL
     SELECT 1
-    FROM benchmark_result br
-    WHERE br.benchmark_id = q.key
-      AND br.error IS NULL
-      AND br.commit_repo_url = $1::text
+    FROM benchmark_membership m
+    WHERE m.benchmark_id = q.key
+      AND m.nonerror_count > 0
+      AND m.repository = $1::text
     LIMIT 1
   ) owned
   WHERE q.kind = 'benchmark'
-), false)::boolean AS pending
+) OR EXISTS (SELECT 1 FROM verdict_queue q JOIN commit c ON c.id = q.key WHERE q.kind = 'commit' AND c.repository = $1::text), false)::boolean AS pending
 `
 
 // Whether a queued recompute can change a benchmark within the repository
 // filter, so the list can refresh until statuses settle. A queued benchmark
-// belongs to the repository of its stored rows, which outlive its last
-// result, or of its listable results. Each queued key is looked up on its own
-// so the results lookup uses the partial benchmark_id index instead of
-// scanning every result.
+// belongs to the repository of its stored verdicts, which outlive its last
+// result, or its compact membership record. Commit repairs stay pending until
+// the worker expands them into benchmark keys.
 func (q *Queries) BenchmarkVerdictsPending(ctx context.Context, repository *string) (bool, error) {
 	row := q.db.QueryRow(ctx, benchmarkVerdictsPending, repository)
 	var pending bool
@@ -53,7 +52,7 @@ const claimVerdictQueue = `-- name: ClaimVerdictQueue :many
 WITH ready AS (
   SELECT q.kind, q.key
   FROM verdict_queue q
-  WHERE (q.enqueued_at <= $2::timestamptz OR q.kind = 'benchmark')
+  WHERE (q.enqueued_at <= $2::timestamptz OR q.kind IN ('benchmark', 'commit'))
     AND (q.claimed_until IS NULL OR q.claimed_until < clock_timestamp())
   ORDER BY q.enqueued_at
   LIMIT $3
@@ -82,8 +81,7 @@ type ClaimVerdictQueueRow struct {
 
 // Claim settled keys with a lease so concurrent servers never process the same
 // key at once and a crashed worker's keys become claimable again. Benchmark
-// keys need no settling: a result changes only its own benchmark, and keys
-// re-enqueued between ticks already coalesce.
+// and commit keys need no settling; re-enqueues between ticks coalesce.
 func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueueParams) ([]ClaimVerdictQueueRow, error) {
 	rows, err := q.db.Query(ctx, claimVerdictQueue, arg.LeaseUntil, arg.SettledBefore, arg.BatchSize)
 	if err != nil {
@@ -252,9 +250,42 @@ func (q *Queries) ReleaseVerdictClaim(ctx context.Context, arg ReleaseVerdictCla
 	return err
 }
 
+const selectCommitVerdictSubjects = `-- name: SelectCommitVerdictSubjects :many
+SELECT DISTINCT run_id, benchmark_id, commit_repo_url AS repository
+FROM benchmark_result_local
+WHERE commit_id = $1
+ORDER BY run_id, benchmark_id, commit_repo_url
+`
+
+type SelectCommitVerdictSubjectsRow struct {
+	RunID       string
+	BenchmarkID string
+	Repository  string
+}
+
+func (q *Queries) SelectCommitVerdictSubjects(ctx context.Context, commitID *string) ([]SelectCommitVerdictSubjectsRow, error) {
+	rows, err := q.db.Query(ctx, selectCommitVerdictSubjects, commitID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectCommitVerdictSubjectsRow{}
+	for rows.Next() {
+		var i SelectCommitVerdictSubjectsRow
+		if err := rows.Scan(&i.RunID, &i.BenchmarkID, &i.Repository); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
 SELECT DISTINCT br.run_id
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.commit_repo_url = $1
   AND br."timestamp" >= $2::timestamp
@@ -295,7 +326,7 @@ SELECT DISTINCT ON (br.commit_repo_url)
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS default_branch,
   br."timestamp" AS last_result_at,
   br.id AS last_result_id
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = $1
 ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC
@@ -350,6 +381,7 @@ SELECT
     OR (NOT v.default_branch AND EXISTS (
       SELECT 1 FROM verdict_queue q WHERE q.kind = 'repository' AND q.key = v.repository
     ))
+    OR EXISTS (SELECT 1 FROM verdict_queue q JOIN commit c ON c.id = q.key WHERE q.kind = 'commit' AND c.repository = v.repository)
   )::boolean AS pending
 FROM run_verdict v
 WHERE v.run_id = ANY($1::text[])
@@ -397,7 +429,7 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 
 const upsertBenchmarkVerdict = `-- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
-  benchmark_id, machine_name, repository, case_id, point_timestamps, preview_points, unit,
+  benchmark_id, machine_name, repository, case_id, point_count, preview_points, unit,
   status, change_percent, latest_result_id, latest_result_timestamp,
   latest_commit_sha, latest_commit_timestamp, computed_at
 )
@@ -406,7 +438,7 @@ VALUES (
   $2,
   $3,
   $4,
-  $5::timestamp[],
+  $5::bigint,
   $6::jsonb,
   $7,
   $8,
@@ -420,7 +452,7 @@ VALUES (
 ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
   repository = EXCLUDED.repository,
   case_id = EXCLUDED.case_id,
-  point_timestamps = EXCLUDED.point_timestamps,
+  point_count = EXCLUDED.point_count,
   preview_points = EXCLUDED.preview_points,
   unit = EXCLUDED.unit,
   status = EXCLUDED.status,
@@ -437,7 +469,7 @@ type UpsertBenchmarkVerdictParams struct {
 	MachineName           string
 	Repository            string
 	CaseID                string
-	PointTimestamps       []time.Time
+	PointCount            int64
 	PreviewPoints         []byte
 	Unit                  *string
 	Status                string
@@ -454,7 +486,7 @@ func (q *Queries) UpsertBenchmarkVerdict(ctx context.Context, arg UpsertBenchmar
 		arg.MachineName,
 		arg.Repository,
 		arg.CaseID,
-		arg.PointTimestamps,
+		arg.PointCount,
 		arg.PreviewPoints,
 		arg.Unit,
 		arg.Status,
@@ -518,9 +550,13 @@ SELECT EXISTS (
   WHERE $1::text IS NULL
     OR (q.kind = 'repository' AND q.key = $1::text)
     OR (q.kind = 'run' AND EXISTS (
-      SELECT 1 FROM benchmark_result br
-      WHERE br.run_id = q.key AND br.commit_repo_url = $1::text
+      SELECT 1 FROM run_membership m
+      WHERE m.run_id = q.key AND m.repository = $1::text
+      UNION ALL
+      SELECT 1 FROM run_verdict v
+      WHERE v.run_id = q.key AND v.repository = $1::text
     ))
+    OR (q.kind = 'commit' AND EXISTS (SELECT 1 FROM commit c WHERE c.id = q.key AND c.repository = $1::text))
 )::boolean
 `
 

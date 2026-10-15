@@ -20,9 +20,12 @@ services:
     environment:
       BENCHDB_ADDR: ":8080"
       BENCHDB_DB_URL: "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"
+      BENCHDB_DATA_DIR: "/var/lib/benchdb"
       BENCHDB_INIT_SCHEMA: "true"
       BENCHDB_SEED: "true"
       BENCHDB_AUTH_DISABLED: "${DCOMP_BENCHDB_AUTH_DISABLED:-true}"
+    volumes:
+      - benchdb_server_archive:/var/lib/benchdb
     depends_on:
       db:
         condition: service_healthy
@@ -36,3 +39,4 @@ services:
 
 volumes:
   benchdb_server_data:
+  benchdb_server_archive:

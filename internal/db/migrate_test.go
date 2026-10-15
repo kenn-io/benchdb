@@ -16,7 +16,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 12
+const latestMigrationVersion = 13
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -31,7 +31,7 @@ func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	require.NoError(t, db.Migrate(ctx, pool))
 	assertCurrentMigration(t, ctx, pool)
 	var resultID string
-	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM benchmark_result WHERE submission_key = 'submission-1'`).Scan(&resultID))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM benchmark_result_local WHERE submission_key = 'submission-1'`).Scan(&resultID))
 	var savedRun string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ci_run_report (run_id, result_ids, evaluated_at, report, summary)
 		VALUES ('run-1', $1, now(), '{"status":"skipped"}', '{"status":"skipped"}') RETURNING run_id`, []string{resultID}).Scan(&savedRun))
@@ -372,7 +372,7 @@ func TestMigrateQueuesStoredBenchmarksToFillTheirPreviews(t *testing.T) {
 	assert.Equal(t, []string{"bench-1"}, keys, "stored tracks are recomputed to fill their previews")
 	var points int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT cardinality(point_timestamps) + jsonb_array_length(preview_points) FROM benchmark_verdict`).Scan(&points))
+		`SELECT point_count + jsonb_array_length(preview_points) FROM benchmark_verdict`).Scan(&points))
 	assert.Zero(t, points, "existing tracks start empty until the worker recomputes them")
 }
 

@@ -3,6 +3,16 @@
 // the write, read, and health endpoints. Configuration is via environment:
 //
 //	BENCHDB_DB_URL        Postgres URL (or DATABASE_URL). Required.
+//	BENCHDB_DATA_DIR      Persistent directory for managed Parquet files. Required.
+//	BENCHDB_DUCKDB_EXTENSION_DIR Prepared DuckDB extension directory. Defaults to
+//	                          extensions below BENCHDB_DATA_DIR.
+//	BENCHDB_DUCKDB_THREADS Aggregate DuckDB execution target. Defaults to GOMAXPROCS.
+//	BENCHDB_DUCKDB_MEMORY_MB Aggregate buffer memory in MiB. Defaults to 256 per
+//	                          thread, with a 1024 minimum and 8192 maximum.
+//	BENCHDB_DUCKDB_READERS Concurrent readers, each sharing those resource budgets.
+//	                          Defaults to 1-4 readers based on the thread target.
+//	BENCHDB_MAINTENANCE_INTERVAL Minimum time between archive cycles. Default 1h;
+//	                          accepts durations of at least 1h, such as 6h or 24h.
 //	BENCHDB_ADDR          Listen address. Default ":8080".
 //	BENCHDB_INIT_SCHEMA   "true" applies embedded numbered migrations (dev).
 //	BENCHDB_SEED          "true" seeds deterministic demo data (idempotent).
@@ -39,12 +49,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,6 +66,7 @@ import (
 	"go.kenn.io/benchdb/internal/api"
 	"go.kenn.io/benchdb/internal/auth"
 	"go.kenn.io/benchdb/internal/blob"
+	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/commit"
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/db"
@@ -91,7 +104,16 @@ func Run(ctx context.Context) error {
 		log.Printf("schema ready")
 	}
 
-	store := db.NewStore(pool)
+	engine, err := columnar.Open(ctx, pool, cfg.archive)
+	if err != nil {
+		return fmt.Errorf("open managed archive: %w", err)
+	}
+	defer func() {
+		if err := engine.Close(); err != nil {
+			log.Printf("close managed archive: %v", err)
+		}
+	}()
+	store := columnar.NewStore(db.NewStore(pool), engine)
 	var blobs service.ArtifactBlobs
 	if bucket := os.Getenv("BENCHDB_ARTIFACT_BUCKET"); bucket != "" {
 		endpoint := os.Getenv("BENCHDB_ARTIFACT_ENDPOINT")
@@ -104,10 +126,6 @@ func Run(ctx context.Context) error {
 		}
 	}
 	artifacts := service.NewArtifacts(store, blobs)
-	collectorCtx, stopCollector := context.WithCancel(ctx)
-	collectorDone := make(chan struct{})
-	go func() { defer close(collectorDone); artifacts.RunCollector(collectorCtx) }()
-	defer func() { stopCollector(); <-collectorDone }()
 
 	// A read-only connection, such as the production-clone harness uses,
 	// treats every write as an error, so it serves stored verdicts without
@@ -117,8 +135,18 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("check database read-only mode: %w", err)
 	}
 	if readOnly {
-		log.Printf("read-only database: run verdicts and benchmark statuses are not computed")
+		log.Printf("read-only database: archive maintenance, artifact collection, and verdict computation are disabled")
 	} else {
+		archiveCtx, stopArchive := context.WithCancel(ctx)
+		archiveDone := make(chan struct{})
+		go func() { defer close(archiveDone); engine.Run(archiveCtx) }()
+		defer func() { stopArchive(); <-archiveDone }()
+
+		collectorCtx, stopCollector := context.WithCancel(ctx)
+		collectorDone := make(chan struct{})
+		go func() { defer close(collectorDone); artifacts.RunCollector(collectorCtx) }()
+		defer func() { stopCollector(); <-collectorDone }()
+
 		verdictCtx, stopVerdicts := context.WithCancel(ctx)
 		verdictsDone := make(chan struct{})
 		go func() { defer close(verdictsDone); service.NewVerdicts(store, service.VerdictSettle).Run(verdictCtx) }()
@@ -174,39 +202,62 @@ func Run(ctx context.Context) error {
 		log.Printf("github commit provider enabled (budget %s)", cfg.githubTimeout)
 	}
 
+	// Periodic workers stop on the signal; requests get a drain window.
+	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelRequests()
+	var connections sync.WaitGroup
 	srv := &http.Server{
 		Addr:              cfg.addr,
 		Handler:           server.New(store, authn, provider, authHandler, artifacts, cfg.baseURL),
 		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return requestCtx },
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				connections.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				connections.Done()
+			}
+		},
 	}
 
-	errc := make(chan error, 1)
+	serveDone := make(chan struct{})
+	var serveErr error
 	go func() {
+		defer close(serveDone)
 		log.Printf("listening on %s (auth disabled: %t)", cfg.addr, authn.Disabled())
-		errc <- srv.ListenAndServe()
+		serveErr = srv.ListenAndServe()
 	}()
 
 	select {
-	case err := <-errc:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
+	case <-serveDone:
 	case <-ctx.Done():
 		log.Printf("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err := srv.Shutdown(shutdownCtx)
-		if backfiller != nil {
-			backfiller.Shutdown(shutdownCtx)
-		}
-		return err
 	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = srv.Shutdown(shutdownCtx)
+	cancelRequests()
+	if err != nil {
+		err = errors.Join(err, srv.Close())
+	}
+	<-serveDone
+	// Close interrupts sockets but does not wait for their handlers to return.
+	// Keep storage open until every connection has finished using it.
+	connections.Wait()
+	if backfiller != nil {
+		backfiller.Shutdown(shutdownCtx)
+	}
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		serveErr = nil
+	}
+	return errors.Join(serveErr, err)
 }
 
 type config struct {
 	addr             string
 	databaseURL      string
+	archive          columnar.Config
 	seed             bool
 	initSchema       bool
 	apiToken         string
@@ -276,10 +327,15 @@ func loadConfig() (config, error) {
 	if _, err := pgxpool.ParseConfig(dbURL); err != nil {
 		return config{}, errors.New("invalid database configuration")
 	}
+	archive, err := columnar.ConfigFromEnv()
+	if err != nil {
+		return config{}, err
+	}
 
 	return config{
 		addr:             addr,
 		databaseURL:      dbURL,
+		archive:          archive,
 		seed:             os.Getenv("BENCHDB_SEED") == "true",
 		initSchema:       os.Getenv("BENCHDB_INIT_SCHEMA") == "true",
 		apiToken:         apiToken,

@@ -115,7 +115,7 @@ WITH scoped AS (
     v.benchmark_id,
     v.machine_name,
     v.repository,
-    v.point_timestamps,
+    v.point_count,
     v.preview_points,
     v.unit,
     v.change_percent,
@@ -184,12 +184,18 @@ SELECT
   (
     SELECT coalesce(sum(CASE
       WHEN $1::timestamp IS NULL AND $2::timestamp IS NULL
-        THEN cardinality(s.point_timestamps)
+        THEN s.point_count
       ELSE (
         SELECT count(*)
-        FROM unnest(s.point_timestamps) AS point
-        WHERE ($1::timestamp IS NULL OR point >= $1::timestamp)
-          AND ($2::timestamp IS NULL OR point <= $2::timestamp)
+        FROM benchmark_result_local br
+        JOIN commit c ON c.id = br.commit_id
+        JOIN hardware h ON h.id = br.hardware_id
+        WHERE br.benchmark_id = s.benchmark_id AND h.name = s.machine_name
+          AND br.error IS NULL AND c.sha = c.fork_point_sha
+          AND c."timestamp" IS NOT NULL
+          AND (br.change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
+          AND ($1::timestamp IS NULL OR c."timestamp" >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR c."timestamp" <= $2::timestamp)
       ) END), 0)
     FROM scoped s
     WHERE s.benchmark_id = p.benchmark_id
@@ -217,7 +223,7 @@ LEFT JOIN LATERAL (
   ORDER BY s.status_rank, abs(s.change_percent) DESC NULLS LAST, s.machine_name
   LIMIT 1
 ) d ON true
-LEFT JOIN benchmark_result br ON br.id = l.latest_result_id
+LEFT JOIN benchmark_result_local br ON br.id = l.latest_result_id
 ORDER BY p.status_rank, p.case_name, p.benchmark_id
 `
 

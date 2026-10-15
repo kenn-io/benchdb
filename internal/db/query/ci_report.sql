@@ -10,7 +10,7 @@ SELECT
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE c.repository = sqlc.arg('repository')::text
   AND c.sha = sqlc.arg('sha')::text
@@ -39,7 +39,7 @@ SELECT
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = ANY(sqlc.arg('run_ids')::text[])
 GROUP BY
@@ -135,7 +135,7 @@ WITH selected_runs AS (
   JOIN unnest(sqlc.arg('commit_ids')::text[]) WITH ORDINALITY AS commits(commit_id, ord) USING (ord)
 )
 SELECT count(*)
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN selected_runs selected
   ON selected.run_id = br.run_id
  AND selected.commit_id = br.commit_id;
@@ -155,14 +155,14 @@ contender_ids AS MATERIALIZED (
   SELECT
     br.id AS result_id,
     0 AS side_order
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN contender_runs selected
     ON selected.run_id = br.run_id
    AND selected.commit_id = br.commit_id
 ),
 contender_fingerprints AS MATERIALIZED (
   SELECT DISTINCT br.history_fingerprint
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN contender_runs selected
     ON selected.run_id = br.run_id
    AND selected.commit_id = br.commit_id
@@ -171,7 +171,7 @@ baseline_ids AS MATERIALIZED (
   SELECT DISTINCT ON (br.run_id, br.commit_id, br.history_fingerprint)
     br.id AS result_id,
     1 AS side_order
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   JOIN baseline_runs selected
     ON selected.run_id = br.run_id
    AND selected.commit_id = br.commit_id
@@ -211,9 +211,10 @@ SELECT
   br.unit,
   br.data,
   br.error,
-  br.change_annotations
+  br.change_annotations,
+  br.optional_benchmark_info
 FROM selected_ids selected
-JOIN benchmark_result br ON br.id = selected.result_id
+JOIN benchmark_result_local br ON br.id = selected.result_id
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
 JOIN info inf ON inf.id = br.info_id

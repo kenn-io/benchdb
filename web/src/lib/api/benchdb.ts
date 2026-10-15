@@ -746,6 +746,47 @@ export interface MachineList {
   machines: string[] | null;
 }
 
+export type MaintenanceStatusPhase = typeof MaintenanceStatusPhase[keyof typeof MaintenanceStatusPhase];
+
+
+export const MaintenanceStatusPhase = {
+  idle: 'idle',
+  export: 'export',
+  compact: 'compact',
+  catalogs: 'catalogs',
+  cleanup: 'cleanup',
+  schedule: 'schedule',
+} as const;
+
+export type MaintenanceStatusState = typeof MaintenanceStatusState[keyof typeof MaintenanceStatusState];
+
+
+export const MaintenanceStatusState = {
+  scheduled: 'scheduled',
+  running: 'running',
+  failed: 'failed',
+  interrupted: 'interrupted',
+  disabled: 'disabled',
+} as const;
+
+export interface MaintenanceStatus {
+  compacted_files: number;
+  enabled: boolean;
+  /** Public maintenance failure summary, without filesystem paths or connection details. */
+  error?: string;
+  exported_rows: number;
+  interval_seconds: number;
+  last_finished_at?: string;
+  last_started_at?: string;
+  last_success_at?: string;
+  next_run_at?: string;
+  phase: MaintenanceStatusPhase;
+  /** Fact files whose catalog pair was refreshed in this cycle. */
+  refreshed_catalogs: number;
+  removed_files: number;
+  state: MaintenanceStatusState;
+}
+
 export interface MeOutputBody {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
@@ -1035,6 +1076,37 @@ export interface StatsInput {
   /** @nullable */
   times?: (number | null)[] | null;
   unit?: string;
+}
+
+export interface StorageStatus {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  /** Rows in published archive files, before pending deletions are applied. */
+  archived_rows: number;
+  catalog_bytes: number;
+  catalog_files: number;
+  maintenance: MaintenanceStatus;
+  parquet_bytes: number;
+  parquet_files: number;
+  pending_mutations: number;
+  /** PostgreSQL estimate of rows awaiting archival; statistics may lag ingestion and maintenance. */
+  pending_rows_estimate: number;
+  /** Total PostgreSQL database size, including indexes and metadata. */
+  postgres_bytes: number;
+  /** UTC time when storage usage was measured. Usage is cached for up to one minute. */
+  sampled_at: string;
+  /** Fact files whose catalog pair needs refreshing. */
+  stale_catalogs: number;
+  /**
+     * Space available to the server on the archive filesystem.
+     * @minimum 0
+     */
+  volume_available_bytes: number;
+  /**
+     * Capacity of the filesystem containing the archive.
+     * @minimum 0
+     */
+  volume_total_bytes: number;
 }
 
 export interface SubmitOutputBody {
@@ -1775,6 +1847,17 @@ const listSeries = (
   }
 
 /**
+ * @summary Storage usage and maintenance status
+ */
+const storageStatus = (
+     options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<StorageStatus>> => {
+    return axiosInstance.get(
+      `/api/storage`,options
+    );
+  }
+
+/**
  * @summary List the caller's API tokens
  */
 const listTokens = (
@@ -1819,7 +1902,7 @@ const usersMe = (
     );
   }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,listTokens,createToken,deleteToken,usersMe}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -1854,6 +1937,7 @@ export type ListRepositoriesResult = AxiosResponse<RepositoryList>
 export type SubmitResultResult = AxiosResponse<SubmitOutputBody>
 export type ListRecentRunsResult = AxiosResponse<RecentRunsPage>
 export type ListSeriesResult = AxiosResponse<SeriesPage>
+export type StorageStatusResult = AxiosResponse<StorageStatus>
 export type ListTokensResult = AxiosResponse<ListTokensOutputBody>
 export type CreateTokenResult = AxiosResponse<CreateTokenOutputBody>
 export type DeleteTokenResult = AxiosResponse<void>

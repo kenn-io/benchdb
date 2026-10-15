@@ -204,13 +204,16 @@ benchdb results submit "bench-results/*.json" \
               <h2>Run one binary and PostgreSQL.</h2>
               <p>
                 The <code>benchdb</code> binary serves the API and the dashboard.
-                PostgreSQL stores the results. Each deploy runs <code>benchdb migrate</code>
+                PostgreSQL stores recent results; the server moves older results to
+                Parquet files on a persistent volume. Back up both together.
+                Each deploy runs <code>benchdb migrate</code>
                 before <code>benchdb serve</code> starts. Mint reporter tokens with <code>benchdb admin tokens
                 create</code>. Monitor <code>/api/ping</code> and <code>/metrics</code>.
-                Schedule alert evaluation and delivery as separate jobs.
+                Schedule alert evaluation with access to the server's archive volume,
+                and delivery as a separate job.
               </p>
               <div class="operator-grid">
-                <div><strong>Deploy</strong><span>One application image plus PostgreSQL</span></div>
+                <div><strong>Deploy</strong><span>One application image, PostgreSQL, and a persistent archive volume</span></div>
                 <div><strong>Migrate</strong><span><code>benchdb migrate</code> before the server starts</span></div>
                 <div><strong>Observe</strong><span><code>/api/ping</code> and Prometheus <code>/metrics</code></span></div>
                 <div><strong>Automate</strong><span>Reporter tokens and scheduled alerts</span></div>

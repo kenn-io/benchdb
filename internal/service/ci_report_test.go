@@ -546,7 +546,13 @@ func TestCIReportRejectsInvalidExplicitBaselineRunIDs(t *testing.T) {
 // requests, keyed by its cutoff.
 type historyRecordingStore struct {
 	*db.Store
-	requested map[time.Time][]string
+	requested    map[time.Time][]string
+	compareReads int
+}
+
+func (s *historyRecordingStore) GetResultForCompare(ctx context.Context, id string) (storage.CompareResultRow, error) {
+	s.compareReads++
+	return s.Store.GetResultForCompare(ctx, id)
 }
 
 func (s *historyRecordingStore) SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]storage.HistoryRow, error) {
@@ -568,6 +574,9 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 		req := machineReq(samples(value, value+1, value+2), "s")
 		req.Tags = map[string]any{"name": name, "source": "test"}
 		req.RunID, req.GitHub.Commit = runID, sha
+		if name == "bench-a" {
+			req.OptionalBenchmarkInfo = map[string]any{"tolerance": map[string]any{"absolute": 100}}
+		}
 		res, err := ing.Submit(ctx, req)
 		require.NoError(t, err)
 		return res
@@ -586,6 +595,7 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 		Repository: testRepo, CommitSHA: "pr", Baseline: service.CIReportBaselineForkPoint,
 	})
 	require.NoError(t, err)
+	assert.Zero(t, recording.compareReads, "CI comparisons use the result values already loaded in the batch")
 
 	assert.Equal(t, map[time.Time][]string{
 		t0.Add(24 * time.Hour): {contenderA.HistoryFingerprint},
@@ -605,6 +615,12 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 			require.NotNil(t, single.Analysis.LookbackZScore, "the comparison has lookback history")
 			assert.Equal(t, single.Analysis.LookbackZScore, row.Analysis.LookbackZScore)
 			assert.Equal(t, single.Analysis.Pairwise, row.Analysis.Pairwise)
+			if row.Contender.ResultID == contenderA.ID {
+				require.NotNil(t, row.Analysis.Pairwise)
+				assert.True(t, row.Analysis.Pairwise.Tolerance.WithinTolerance)
+				assert.False(t, row.Analysis.Pairwise.RegressionIndicated)
+				assert.InDelta(t, 100.0, row.Analysis.Pairwise.Tolerance.MinimumChange, 1e-9)
+			}
 			analyzed++
 		}
 	}

@@ -35,7 +35,7 @@ SELECT
   c.repository AS commit_repository,
   c.message AS commit_message,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
 JOIN info i ON i.id = br.info_id
@@ -138,7 +138,7 @@ SELECT
   c.repository AS commit_repository,
   c.message AS commit_message,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
 JOIN commit c ON c.id = br.commit_id
@@ -231,7 +231,7 @@ SELECT
   c.repository AS commit_repository,
   c.message AS commit_message,
   c."timestamp" AS commit_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN info inf ON inf.id = br.info_id
 JOIN hardware hw ON hw.id = br.hardware_id
 JOIN LATERAL (

@@ -73,7 +73,7 @@ func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.Verdi
 				MachineName:           verdict.MachineName,
 				Repository:            verdict.Repository,
 				CaseID:                verdict.CaseID,
-				PointTimestamps:       verdict.PointTimestamps,
+				PointCount:            verdict.PointCount,
 				PreviewPoints:         verdict.PreviewPoints,
 				Unit:                  verdict.Unit,
 				Status:                verdict.Status,
@@ -209,4 +209,16 @@ func (s *Store) VerdictsPending(ctx context.Context, repository *string) (bool, 
 // CountAttentionRuns counts runs, as the list shows them, that need attention.
 func (s *Store) CountAttentionRuns(ctx context.Context, repository *string) (int64, error) {
 	return s.q.CountAttentionRuns(ctx, repository)
+}
+
+func (s *Store) SelectCommitVerdictSubjects(ctx context.Context, commitID string) ([]storage.CommitVerdictSubject, error) {
+	rows, err := s.q.SelectCommitVerdictSubjects(ctx, &commitID)
+	if err != nil {
+		return nil, err
+	}
+	subjects := make([]storage.CommitVerdictSubject, 0, len(rows))
+	for _, row := range rows {
+		subjects = append(subjects, storage.CommitVerdictSubject{RunID: row.RunID, BenchmarkID: row.BenchmarkID, Repository: row.Repository})
+	}
+	return subjects, nil
 }

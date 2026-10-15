@@ -1649,6 +1649,7 @@ type ClientInterface interface {
 	SubmitResultWithResponse(ctx context.Context, options *SubmitResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SubmitResultResp, error)
 	ListRecentRunsWithResponse(ctx context.Context, options *ListRecentRunsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListRecentRunsResp, error)
 	ListSeriesWithResponse(ctx context.Context, options *ListSeriesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListSeriesResp, error)
+	StorageStatusWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*StorageStatusResp, error)
 	ListTokensWithResponse(ctx context.Context, options *ListTokensRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListTokensResp, error)
 	CreateTokenWithResponse(ctx context.Context, options *CreateTokenRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CreateTokenResp, error)
 	DeleteTokenWithResponse(ctx context.Context, options *DeleteTokenRequestOptions, reqEditors ...runtime.RequestEditorFn) (*DeleteTokenResp, error)
@@ -3276,6 +3277,84 @@ func (c *Client) ListSeriesWithResponse(ctx context.Context, options *ListSeries
 	}
 }
 
+// StorageStatus Storage usage and maintenance status
+func (c *Client) StorageStatusWithResponse(ctx context.Context, reqEditors ...runtime.RequestEditorFn) (*StorageStatusResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/storage",
+		Method:     "GET",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/storage")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &StorageStatusResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(StorageStatusResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "StorageStatusResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		out.ApplicationProblemPlusJSON500 = new(StorageStatusErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSON500); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "StorageStatusErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	case 503:
+		out.ApplicationProblemPlusJSON503 = new(StorageStatusErrorResponseApplicationProblemPlusJSON)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSON503); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "StorageStatusErrorResponseApplicationProblemPlusJSON",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
 // ListTokens List the caller's API tokens
 func (c *Client) ListTokensWithResponse(ctx context.Context, options *ListTokensRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListTokensResp, error) {
 	var err error
@@ -3535,6 +3614,47 @@ func (f FinalizeRunReportInputBodyBaseline) Validate() error {
 		return nil
 	default:
 		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid FinalizeRunReportInputBodyBaseline value, got: %v", f))
+	}
+}
+
+type MaintenanceStatusPhase string
+
+const (
+	Catalogs MaintenanceStatusPhase = "catalogs"
+	Cleanup  MaintenanceStatusPhase = "cleanup"
+	Compact  MaintenanceStatusPhase = "compact"
+	Export   MaintenanceStatusPhase = "export"
+	Idle     MaintenanceStatusPhase = "idle"
+	Schedule MaintenanceStatusPhase = "schedule"
+)
+
+// Validate checks if the MaintenanceStatusPhase value is valid
+func (m MaintenanceStatusPhase) Validate() error {
+	switch m {
+	case Catalogs, Cleanup, Compact, Export, Idle, Schedule:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid MaintenanceStatusPhase value, got: %v", m))
+	}
+}
+
+type MaintenanceStatusState string
+
+const (
+	Disabled    MaintenanceStatusState = "disabled"
+	Failed      MaintenanceStatusState = "failed"
+	Interrupted MaintenanceStatusState = "interrupted"
+	Running     MaintenanceStatusState = "running"
+	Scheduled   MaintenanceStatusState = "scheduled"
+)
+
+// Validate checks if the MaintenanceStatusState value is valid
+func (m MaintenanceStatusState) Validate() error {
+	switch m {
+	case Disabled, Failed, Interrupted, Running, Scheduled:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid MaintenanceStatusState value, got: %v", m))
 	}
 }
 
@@ -4210,6 +4330,12 @@ type ListSeriesResponse = SeriesPage
 
 type ListSeriesErrorResponse = ErrorModel
 
+type StorageStatusResponse = StorageStatus
+
+type StorageStatusErrorResponse = ErrorModel
+
+type StorageStatusErrorResponseApplicationProblemPlusJSON = ErrorModel
+
 type ListTokensResponse = ListTokensOutputBody
 
 type ListTokensErrorResponse = ErrorModel
@@ -4469,6 +4595,15 @@ type ListSeriesResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *ListSeriesResponse
+}
+
+type StorageStatusResp struct {
+	HTTPResponse                  *http.Response
+	Body                          []byte
+	StatusCode                    int
+	JSON200                       *StorageStatusResponse
+	ApplicationProblemPlusJSON500 *StorageStatusErrorResponse
+	ApplicationProblemPlusJSON503 *StorageStatusErrorResponseApplicationProblemPlusJSON
 }
 
 type ListTokensResp struct {
@@ -5709,6 +5844,44 @@ func (m MachineList) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(m))
 }
 
+type MaintenanceStatus struct {
+	CompactedFiles int64 `json:"compacted_files"`
+	Enabled        bool  `json:"enabled"`
+
+	// ErrorData Public maintenance failure summary, without filesystem paths or connection details.
+	ErrorData       *string                `json:"error,omitempty"`
+	ExportedRows    int64                  `json:"exported_rows"`
+	IntervalSeconds float64                `json:"interval_seconds"`
+	LastFinishedAt  *time.Time             `json:"last_finished_at,omitempty"`
+	LastStartedAt   *time.Time             `json:"last_started_at,omitempty"`
+	LastSuccessAt   *time.Time             `json:"last_success_at,omitempty"`
+	NextRunAt       *time.Time             `json:"next_run_at,omitempty"`
+	Phase           MaintenanceStatusPhase `json:"phase" validate:"required"`
+
+	// RefreshedCatalogs Fact files whose catalog pair was refreshed in this cycle.
+	RefreshedCatalogs int64                  `json:"refreshed_catalogs"`
+	RemovedFiles      int64                  `json:"removed_files"`
+	State             MaintenanceStatusState `json:"state" validate:"required"`
+}
+
+func (m MaintenanceStatus) Validate() error {
+	var errors runtime.ValidationErrors
+	if v, ok := any(m.Phase).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Phase", err)
+		}
+	}
+	if v, ok := any(m.State).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("State", err)
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
+}
+
 type MeOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string `json:"$schema,omitempty"`
@@ -6305,6 +6478,60 @@ type StatsInput struct {
 
 func (s StatsInput) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(s))
+}
+
+type StorageStatus struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+
+	// ArchivedRows Rows in published archive files, before pending deletions are applied.
+	ArchivedRows     int64             `json:"archived_rows"`
+	CatalogBytes     int64             `json:"catalog_bytes"`
+	CatalogFiles     int64             `json:"catalog_files"`
+	Maintenance      MaintenanceStatus `json:"maintenance"`
+	ParquetBytes     int64             `json:"parquet_bytes"`
+	ParquetFiles     int64             `json:"parquet_files"`
+	PendingMutations int64             `json:"pending_mutations"`
+
+	// PendingRowsEstimate PostgreSQL estimate of rows awaiting archival; statistics may lag ingestion and maintenance.
+	PendingRowsEstimate int64 `json:"pending_rows_estimate"`
+
+	// PostgresBytes Total PostgreSQL database size, including indexes and metadata.
+	PostgresBytes int64 `json:"postgres_bytes"`
+
+	// SampledAt UTC time when storage usage was measured. Usage is cached for up to one minute.
+	SampledAt time.Time `json:"sampled_at" validate:"required"`
+
+	// StaleCatalogs Fact files whose catalog pair needs refreshing.
+	StaleCatalogs int64 `json:"stale_catalogs"`
+
+	// VolumeAvailableBytes Space available to the server on the archive filesystem.
+	VolumeAvailableBytes int64 `json:"volume_available_bytes" validate:"gte=0"`
+
+	// VolumeTotalBytes Capacity of the filesystem containing the archive.
+	VolumeTotalBytes int64 `json:"volume_total_bytes" validate:"gte=0"`
+}
+
+func (s StorageStatus) Validate() error {
+	var errors runtime.ValidationErrors
+	if v, ok := any(s.Maintenance).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Maintenance", err)
+		}
+	}
+	if err := typesValidator.Var(s.SampledAt, "required"); err != nil {
+		errors = errors.Append("SampledAt", err)
+	}
+	if err := typesValidator.Var(s.VolumeAvailableBytes, "gte=0"); err != nil {
+		errors = errors.Append("VolumeAvailableBytes", err)
+	}
+	if err := typesValidator.Var(s.VolumeTotalBytes, "gte=0"); err != nil {
+		errors = errors.Append("VolumeTotalBytes", err)
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type SubmitOutputBody struct {

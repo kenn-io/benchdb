@@ -16,14 +16,8 @@ VALUES (
 )
 RETURNING id;
 
--- name: UpdateBenchmarkResultChangeAnnotations :one
-UPDATE benchmark_result SET change_annotations = $2 WHERE id = $1 RETURNING id;
-
--- name: DeleteBenchmarkResult :one
-DELETE FROM benchmark_result WHERE id = $1 RETURNING id;
-
 -- name: CountBenchmarkResults :one
-SELECT count(*) FROM benchmark_result;
+SELECT coalesce(sum(result_count), 0)::bigint FROM run_membership;
 
 -- name: GetBenchmarkResultByID :one
 SELECT
@@ -33,12 +27,12 @@ SELECT
   data, times, mean, min, max, median, q1, q3, stdev, iqr,
   validation, optional_benchmark_info, change_annotations,
   submission_key, submission_payload_sha256
-FROM benchmark_result
+FROM benchmark_result_local
 WHERE id = $1;
 
 -- name: GetBenchmarkResultBySubmissionKey :one
-SELECT id, run_id, history_fingerprint, submission_payload_sha256
-FROM benchmark_result
+SELECT result_id AS id, run_id, history_fingerprint, payload_sha256
+FROM result_submission
 WHERE submission_key = $1;
 
 -- name: GetBenchmarkResultDetail :one
@@ -66,7 +60,7 @@ SELECT
   c.message AS commit_message,
   c."timestamp" AS commit_timestamp,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
 JOIN info inf ON inf.id = br.info_id
@@ -102,7 +96,7 @@ SELECT
   c.author_avatar AS commit_author_avatar,
   c."timestamp" AS commit_timestamp,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN "case" cs ON cs.id = br.case_id
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE (sqlc.narg('run_id')::text IS NULL OR br.run_id = sqlc.narg('run_id'))
@@ -113,6 +107,28 @@ WHERE (sqlc.narg('run_id')::text IS NULL OR br.run_id = sqlc.narg('run_id'))
   AND (sqlc.narg('cursor')::text IS NULL OR br.id < sqlc.narg('cursor'))
 ORDER BY br.id DESC
 LIMIT sqlc.arg('page_size');
+
+-- name: SelectRecentRunCandidates :many
+-- Separate global and repository scans expose their respective timestamp indexes.
+-- The cursor skips a complete (timestamp, run_id) group, including repetitions
+-- split across batches: they all belong to the run already seen by the caller.
+SELECT run_id, "timestamp" FROM (
+  (SELECT run_id, "timestamp"
+   FROM benchmark_result_local
+   WHERE sqlc.narg('repository')::text IS NULL
+     AND ("timestamp", run_id) < (coalesce(sqlc.narg('cursor_timestamp')::timestamp, 'infinity'::timestamp), coalesce(sqlc.narg('cursor_run_id')::text, ''))
+   ORDER BY "timestamp" DESC, run_id DESC
+   LIMIT sqlc.arg('batch_size'))
+  UNION ALL
+  (SELECT run_id, "timestamp"
+   FROM benchmark_result_local
+   WHERE sqlc.narg('repository')::text IS NOT NULL
+     AND commit_repo_url = sqlc.narg('repository')::text
+     AND ("timestamp", run_id) < (coalesce(sqlc.narg('cursor_timestamp')::timestamp, 'infinity'::timestamp), coalesce(sqlc.narg('cursor_run_id')::text, ''))
+   ORDER BY "timestamp" DESC, run_id DESC
+   LIMIT sqlc.arg('batch_size'))
+) candidates
+ORDER BY "timestamp" DESC, run_id DESC;
 
 -- name: SelectRecentRuns :many
 -- Search all history before pagination so older commits remain discoverable.
@@ -126,20 +142,13 @@ WITH matching_commits AS MATERIALIZED (
 ),
 matching_runs AS MATERIALIZED (
   SELECT DISTINCT br.run_id
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   WHERE br.commit_id IN (SELECT id FROM matching_commits)
     AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
 ),
--- The empty-ref and matching-ref cases share the same paging and aggregation.
+-- Search and attention filters select runs before aggregating their results.
 -- For a ref, calculate recency per matching run through its run_id index.
 candidate_runs AS (
-  SELECT br.run_id, max(br."timestamp") AS last_result_at
-  FROM benchmark_result br
-  WHERE sqlc.arg('search')::text = ''
-    AND NOT sqlc.arg('needs_attention')::boolean
-    AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
-  GROUP BY br.run_id
-  UNION ALL
   -- Matches CountAttentionRuns: without a repository filter a run is judged by
   -- the repository of its latest result, ordered as the list orders it.
   SELECT v.run_id, v.last_result_at
@@ -158,7 +167,7 @@ candidate_runs AS (
   FROM matching_runs mr
   CROSS JOIN LATERAL (
     SELECT max(br."timestamp") AS last_result_at
-    FROM benchmark_result br
+    FROM benchmark_result_local br
     WHERE br.run_id = mr.run_id
       AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
   ) latest
@@ -166,11 +175,14 @@ candidate_runs AS (
     AND NOT sqlc.arg('needs_attention')::boolean
 ),
 selected_runs AS MATERIALIZED (
-  SELECT cr.run_id
+  SELECT unnest(sqlc.arg('recent_run_ids')::text[]) AS run_id
+  WHERE sqlc.arg('search')::text = '' AND NOT sqlc.arg('needs_attention')::boolean
+  UNION ALL
+  (SELECT cr.run_id
   FROM candidate_runs cr
   ORDER BY cr.last_result_at DESC, cr.run_id DESC
   LIMIT sqlc.arg('page_size')
-  OFFSET sqlc.arg('offset_count')
+  OFFSET sqlc.arg('offset_count'))
 ),
 run_agg AS MATERIALIZED (
   SELECT
@@ -182,8 +194,15 @@ run_agg AS MATERIALIZED (
     count(DISTINCT br.history_fingerprint) AS series_count,
     count(DISTINCT br.batch_id) FILTER (WHERE br.batch_id IS NOT NULL) AS batch_count,
     array_agg(DISTINCT h.name ORDER BY h.name)::text[] AS machine_names
-  FROM benchmark_result br
-  JOIN selected_runs sr ON sr.run_id = br.run_id
+  FROM selected_runs sr
+  -- Keep each lookup on run_id. Flattening this subquery can scan the whole
+  -- repository or intersect its large index again for every selected run.
+  CROSS JOIN LATERAL (
+    SELECT run_id, "timestamp", error, history_fingerprint, batch_id, hardware_id, commit_repo_url
+    FROM benchmark_result_local
+    WHERE run_id = sr.run_id
+    OFFSET 0
+  ) br
   JOIN hardware h ON h.id = br.hardware_id
   WHERE (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
   GROUP BY br.run_id
@@ -213,9 +232,13 @@ SELECT
 FROM run_agg a
 JOIN LATERAL (
   SELECT br.id, br.run_reason, br.run_tags, br.batch_id, br.commit_repo_url, br.commit_id, br."timestamp"
-  FROM benchmark_result br
-  WHERE br.run_id = a.run_id
-    AND (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
+  FROM (
+    SELECT id, run_reason, run_tags, batch_id, commit_repo_url, commit_id, "timestamp"
+    FROM benchmark_result_local
+    WHERE run_id = a.run_id
+    OFFSET 0
+  ) br
+  WHERE (sqlc.narg('repository')::text IS NULL OR br.commit_repo_url = sqlc.narg('repository')::text)
   ORDER BY br."timestamp" DESC, br.id DESC
   LIMIT 1
 ) latest ON true

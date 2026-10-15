@@ -24,6 +24,8 @@ const (
 	// VerdictKindBenchmark keys one benchmark_id whose machine tracks must be
 	// recomputed.
 	VerdictKindBenchmark VerdictKind = "benchmark"
+	// VerdictKindCommit expands a repaired commit across hot and archived facts.
+	VerdictKindCommit VerdictKind = "commit"
 )
 
 // VerdictClaim is one leased queue entry. EnqueuedAt identifies the version
@@ -34,6 +36,13 @@ type VerdictClaim struct {
 	Key        string
 	EnqueuedAt time.Time
 	Token      uuid.UUID
+}
+
+// CommitVerdictSubject identifies a run and benchmark affected by commit repair.
+type CommitVerdictSubject struct {
+	RunID       string
+	BenchmarkID string
+	Repository  string
 }
 
 // RunVerdictSubject is a run within one repository, identified the way the
@@ -62,17 +71,17 @@ type RunVerdict struct {
 
 // BenchmarkVerdict is one machine's stored track of a logical benchmark over
 // default-branch history. Unit is nil unless the track has one unit with a
-// known direction. PointTimestamps holds the commit time of every history
-// point, oldest first; PreviewPoints is the JSON array of its latest chart
-// points. ChangePercent is the latest point's change from its history
-// window's mean, in percent of the mean, from the segment that sets Status;
-// nil when that mean is zero or cannot be computed.
+// known direction. PointCount is the total number of history points;
+// PreviewPoints is the bounded JSON array of its latest chart points.
+// ChangePercent is the latest point's change from its history window's mean,
+// in percent of the mean, from the segment that sets Status; nil when that
+// mean is zero or cannot be computed.
 type BenchmarkVerdict struct {
 	BenchmarkID           string
 	MachineName           string
 	Repository            string
 	CaseID                string
-	PointTimestamps       []time.Time
+	PointCount            int64
 	PreviewPoints         []byte
 	Unit                  *string
 	Status                string
@@ -101,6 +110,8 @@ type VerdictStore interface {
 	// nothing on a read-only connection.
 	EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) error
 	SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error)
+	// SelectCommitVerdictSubjects expands commit repair across all stored facts.
+	SelectCommitVerdictSubjects(ctx context.Context, commitID string) ([]CommitVerdictSubject, error)
 	// SelectRunVerdictSubjects returns one subject per repository the run has
 	// results in, and none when the run has no results.
 	SelectRunVerdictSubjects(ctx context.Context, runID string) ([]RunVerdictSubject, error)

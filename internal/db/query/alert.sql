@@ -144,7 +144,7 @@ SELECT
   br.run_id,
   c.sha AS commit_sha,
   br."timestamp" AS last_result_timestamp
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE br.commit_repo_url = sqlc.arg('repository')
   AND (sqlc.narg('run_reason')::text IS NULL OR br.run_reason = sqlc.narg('run_reason'))
