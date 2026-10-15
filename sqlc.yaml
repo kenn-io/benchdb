@@ -14,6 +14,55 @@ sql:
           - db_type: "uuid"
             go_type:
               import: "github.com/google/uuid"
+              package: "googleuuid"
+              type: "UUID"
+          - column: "archive_storage.id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_storage.dataset_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_cycle.id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_file_location.id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_lookup_partition.id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_lookup_segment.partition_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_lookup_segment.storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_object.storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_orphan.storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_retirement.storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_upload.storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_upload.cycle_id"
+            go_type:
+              import: "uuid"
               type: "UUID"
           # The aggregate columns and per-iteration data/times are floats in the
           # stats core; map numeric -> float64 (and numeric[] -> []float64).

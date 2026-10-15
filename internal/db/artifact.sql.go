@@ -8,7 +8,7 @@ package db
 import (
 	"context"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 )
 
 const deleteResultArtifact = `-- name: DeleteResultArtifact :one
@@ -17,7 +17,7 @@ DELETE FROM result_artifact WHERE result_id = $1 AND id = $2 RETURNING object_ke
 
 type DeleteResultArtifactParams struct {
 	ResultID string
-	ID       uuid.UUID
+	ID       googleuuid.UUID
 }
 
 func (q *Queries) DeleteResultArtifact(ctx context.Context, arg DeleteResultArtifactParams) (string, error) {
@@ -33,7 +33,7 @@ SELECT id, result_id, name, kind, media_type, sha256, size_bytes, object_key FRO
 
 type GetResultArtifactParams struct {
 	ResultID string
-	ID       uuid.UUID
+	ID       googleuuid.UUID
 }
 
 func (q *Queries) GetResultArtifact(ctx context.Context, arg GetResultArtifactParams) (ResultArtifact, error) {
@@ -58,7 +58,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertResultArtifactParams struct {
-	ID        uuid.UUID
+	ID        googleuuid.UUID
 	ResultID  string
 	Name      string
 	Kind      string
@@ -112,7 +112,7 @@ FROM result_artifact WHERE result_id = $1 ORDER BY name, id
 `
 
 type ListResultArtifactsRow struct {
-	ID        uuid.UUID
+	ID        googleuuid.UUID
 	Name      string
 	Kind      string
 	MediaType string

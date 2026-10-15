@@ -139,21 +139,21 @@ func TestMaintenanceContinuesAfterConcurrentResultDeletion(t *testing.T) {
 	require.ErrorIs(t, err, storage.ErrNotFound, "retry must not resurrect the deleted result")
 }
 
-func TestScheduleWriteFailureStillReclaimsOrphans(t *testing.T) {
+func TestUnreadableLegacyScheduleStillReclaimsOrphans(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet.staging")
 	require.NoError(t, os.WriteFile(orphan, []byte("abandoned export"), 0600))
-	// Exercise the scheduler's actual file-write failure boundary. Reclamation
-	// must not depend on being able to replace the advisory schedule file.
+	// An unreadable legacy schedule resets once; subsequent writes use PostgreSQL.
 	require.NoError(t, os.Mkdir(filepath.Join(e.cfg.Dir, "maintenance.json"), 0700))
-	require.Error(t, e.runScheduledMaintenance(ctx))
+	require.NoError(t, e.importMaintenance(ctx))
+	require.NoError(t, e.runScheduledMaintenance(ctx))
 	_, err = os.Stat(orphan)
 	require.ErrorIs(t, err, os.ErrNotExist)
 	assert.Equal(t, 1, e.maintenanceStatus().RemovedFiles)
-	assert.Equal(t, "failed", e.maintenanceStatus().State)
+	assert.Equal(t, "scheduled", e.maintenanceStatus().State)
 }
 
 func TestCorruptScheduleDoesNotPreventArchiveReads(t *testing.T) {

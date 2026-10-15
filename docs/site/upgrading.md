@@ -27,6 +27,37 @@ created by a build that includes the reset upgrades in place with
 BenchDB has no down-migration command. The rollback path is the backup you
 take before migrating.
 
+## Durable archive state
+
+Migration 14 keeps the archive maintenance schedule in PostgreSQL. The first
+writer imports `maintenance.json` once, preserving its next scheduled time.
+Changing the interval can lengthen that wait but cannot shorten it. Later
+starts use the database record even if the local schedule file changes or is
+lost. Read-only processes do not import or create schedule state. An unreadable
+legacy schedule is logged and reset to the normal interval by the first writer.
+
+The migration preserves existing archive manifests and records local object
+sizes without reading or hashing Parquet files. It adds lifecycle, retention,
+and lookup-directory tables for the remote archive work; this alone does not
+enable remote storage or change physical file cleanup. Logical file IDs and
+lookup catalogs are populated by later maintenance, rather than during the
+schema migration.
+
+Retirement deadlines start when a later transaction observes committed
+retirement using PostgreSQL's wall clock. A retention increase extends existing
+promises; a decrease or pause preserves them. These records, object receipts,
+and the durable schedule belong in every PostgreSQL backup.
+
+Before upgrading, retain a matched database and archive backup from the same
+stopped deployment. Migration 14 can be reversed for an untouched local archive,
+but refuses after durable schedule import or new lifecycle, lookup, retention,
+or remote-binding state exists: older binaries cannot preserve that state.
+BenchDB still has no down-migration command. Restore the matched database and
+archive backup with the previous binary when rolling back. Do not remove
+retention records to force a downgrade. After a future archive transfer, retain
+its source and transfer recovery records with the matching database backup;
+changing only the archive URL is not a recovery procedure.
+
 ## Upgrade in place
 
 1. Choose the new image and note its digest. For a release, copy the

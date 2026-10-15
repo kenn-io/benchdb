@@ -7,8 +7,9 @@ package db
 import (
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"uuid"
 )
 
 type AlertDelivery struct {
@@ -67,9 +68,17 @@ type ApiToken struct {
 	RevokedAt   *time.Time
 }
 
+type ArchiveCycle struct {
+	ID         uuid.UUID
+	Owner      string
+	State      string
+	StartedAt  pgtype.Timestamptz
+	FinishedAt pgtype.Timestamptz
+}
+
 type ArchiveDataset struct {
 	Singleton bool
-	ID        uuid.UUID
+	ID        googleuuid.UUID
 }
 
 type ArchiveFile struct {
@@ -89,6 +98,90 @@ type ArchiveFileCommit struct {
 	CommitID        string
 	CommitTimestamp *time.Time
 	OnDefaultBranch bool
+}
+
+type ArchiveFileLocation struct {
+	ID          uuid.UUID
+	ArchivePath *string
+}
+
+type ArchiveLookupPartition struct {
+	ID            uuid.UUID
+	Kind          string
+	KeyEncoding   string
+	LowerBound    []byte
+	UpperBound    []byte
+	KeyRange      interface{}
+	Generation    int64
+	Complete      bool
+	BackfillState []byte
+}
+
+type ArchiveLookupSegment struct {
+	PartitionID uuid.UUID
+	StorageID   uuid.UUID
+	Key         string
+	RowCount    int64
+	ByteSize    int64
+}
+
+type ArchiveMaintenance struct {
+	Singleton       bool
+	Status          []byte
+	ImportCompleted bool
+}
+
+type ArchiveObject struct {
+	StorageID          uuid.UUID
+	Key                string
+	ByteSize           int64
+	Sha256             []byte
+	Checksums          []byte
+	Revision           *string
+	VerificationMethod *string
+}
+
+type ArchiveOrphan struct {
+	StorageID       uuid.UUID
+	Key             string
+	Revision        *string
+	FirstObservedAt pgtype.Timestamptz
+	DeleteAfter     pgtype.Timestamptz
+}
+
+type ArchivePolicy struct {
+	Singleton             bool
+	ConfiguredRetentionNs *int64
+	AppliedRetentionNs    *int64
+	AppliedAt             pgtype.Timestamptz
+}
+
+type ArchiveRetirement struct {
+	RetiredXid      interface{}
+	StorageID       uuid.UUID
+	Key             string
+	FirstObservedAt pgtype.Timestamptz
+	DeleteAfter     pgtype.Timestamptz
+}
+
+type ArchiveStorage struct {
+	ID        uuid.UUID
+	DatasetID uuid.UUID
+	Backend   string
+	Namespace string
+	Endpoint  string
+	Active    bool
+}
+
+type ArchiveUpload struct {
+	StorageID      uuid.UUID
+	Key            string
+	CycleID        uuid.UUID
+	StartedAt      pgtype.Timestamptz
+	ExpectedSize   int64
+	ExpectedSha256 []byte
+	State          string
+	Receipt        []byte
 }
 
 type ArtifactGarbage struct {
@@ -339,7 +432,7 @@ type Info struct {
 }
 
 type ResultArtifact struct {
-	ID        uuid.UUID
+	ID        googleuuid.UUID
 	ResultID  string
 	Name      string
 	Kind      string
