@@ -202,7 +202,9 @@ machines.
 A row is `regressed` or `improved` only when the contender's lookback z-score
 passes `--threshold-z`, the contender is at least 3 standard deviations and
 more than 2% away from its own baseline result in the same direction, and the
-change exceeds any configured tolerance.
+change is larger than the practical tolerance. Timings get a 30 ms floor even
+when no tolerance is configured; see
+[Practical tolerance](regression-analysis.md#practical-tolerance).
 [Regression analysis](regression-analysis.md) explains each test. Each lookback
 z-score is signed so that a positive value is better.
 

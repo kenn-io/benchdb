@@ -339,10 +339,23 @@ The script builds the pod's `BENCHDB_DB_URL` from the deploy inputs
 `DB_USERNAME`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and `DB_NAME`, which are all
 required. It URL-encodes the user, password, and database name and adds
 `sslmode=disable`. The pod receives only `BENCHDB_DB_URL`, not the separate
-fields. The runtime ConfigMap holds only `BENCHDB_ADDR` and `BENCHDB_INTENDED_BASE_URL`; everything else goes
-in the `benchdb-secret` Secret. When the GitHub App settings are present, the
-script stores the private key in a separate `benchdb-github-app-key` Secret and
-mounts it into the pod.
+fields. The runtime ConfigMap holds only `BENCHDB_ADDR` and
+`BENCHDB_INTENDED_BASE_URL`.
+
+The `benchdb-secret` Secret holds exactly these settings, and no others:
+
+- `BENCHDB_DB_URL` and `BENCHDB_API_TOKEN`;
+- either the three `BENCHDB_COMMIT_GITHUB_APP_*` settings, when the GitHub App
+  is configured, or `GITHUB_API_TOKEN`;
+- `BENCHDB_SESSION_SECRET` and the three `BENCHDB_OIDC_*` settings, when OIDC
+  is configured.
+
+When the GitHub App settings are present, the script stores the private key in
+a separate `benchdb-github-app-key` Secret and mounts it into the pod.
+
+The script does not forward any other server setting. To use attachment
+storage, add `BENCHDB_ARTIFACT_BUCKET` and the AWS credentials for that bucket
+to the Deployment yourself. Without them, attachment requests return `503`.
 
 The script also validates the configuration before it renders the Secret:
 
@@ -362,11 +375,24 @@ Run the functions in this order for a deploy:
 | --- | --- |
 | `build_and_push` | Builds the image with `BENCHDB_REVISION`, tags it with `BENCHDB_DEPLOY_VERSION`, and pushes it to ECR. |
 | `deploy_secrets_and_config` | Applies the Secret, the optional GitHub App key Secret, and the ConfigMap. |
-| `run_migrations` | Deletes any previous `benchdb-migration` Job, starts a new one running `benchdb migrate`, waits up to 24 hours for it to complete, prints its logs, and exits non-zero unless it succeeded. The Job has `backoffLimit: 0`, so a failed migration is not retried. |
+| `run_migrations` | Deletes any previous `benchdb-migration` Job, starts a new one running `benchdb migrate`, waits up to 24 hours for it to complete, and prints its logs. It then calls `exit`, with 0 only if the Job succeeded, so call it in a subshell. The Job has `backoffLimit: 0`, so a failed migration is not retried. |
 | `deploy` | Applies the Deployment and restarts it, then applies the Service, the ServiceMonitor when the cluster has its CRD, and the ingress on the clusters the script lists. Waits for the rollout. |
 | `rollback` | Runs `kubectl rollout undo` on the Deployment. It does not revert the schema. |
 
-Only run `deploy` after `run_migrations` succeeds.
+Stop the old pods before migrating, and deploy only if the migration
+succeeded. Old pods would otherwise take re-queued statuses from the
+migration and score them with the old rules; see
+[Upgrading](upgrading.md). Because `run_migrations` ends with `exit`, run it in
+a subshell so the shell that sourced the script survives:
+
+```bash
+deploy_secrets_and_config   # also points kubectl at the cluster and namespace
+kubectl scale deployment/benchdb-deployment --replicas=0
+( run_migrations ) && deploy
+```
+
+`deploy` restores the Deployment's two replicas, because
+`k8s/benchdb-deployment.templ.yml` sets `replicas: 2`.
 
 The Deployment runs two replicas with a `RollingUpdate` strategy,
 `minReadySeconds: 15`, and `progressDeadlineSeconds: 900`. Startup, liveness,

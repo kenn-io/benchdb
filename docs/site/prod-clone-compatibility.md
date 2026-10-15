@@ -31,8 +31,8 @@ The row counts catch writes that succeeded. The log scan catches writes that
 the read-only role or `default_transaction_read_only` blocked. You need both to
 claim the run wrote nothing.
 
-The script drives a hidden command group, `benchdb admin prod-clone`, inside
-the main `benchdb` binary. General CLI help does not list it, and it is not a
+The script drives a hidden `prod-clone` command group under `admin` in the
+main `benchdb` binary. General CLI help does not list it, and it is not a
 supported user workflow.
 
 ## Safety conditions

@@ -43,7 +43,11 @@ take before migrating.
     need their own backup; see
     [Attachment storage](submitting-results.md#attachment-storage).
 
-3. Run the new image's `benchdb migrate` with `BENCHDB_DB_URL` set, and wait
+3. Stop every server running the old version. A running server's status worker
+   takes work from the queue that migrations fill. An old server would score
+   re-queued statuses with its old rules and remove them from the queue, and
+   the new server would not score them again.
+4. Run the new image's `benchdb migrate` with `BENCHDB_DB_URL` set, and wait
    for it to finish:
 
     ```bash
@@ -54,18 +58,19 @@ take before migrating.
     non-zero. Do not start the new server. Fix the cause, or
     [roll back](#roll-back).
 
-4. Roll out the new server image.
-5. Check the new server. `benchdb health --server <url>` prints `ok`, and
+5. Start the new server version. Do this only after `migrate` succeeded.
+6. Check the new server. `benchdb health --server <url>` prints `ok`, and
    `GET <url>/api/ping` returns the new build's commit in `revision`.
 
 Some migrations re-queue stored run verdicts and benchmark statuses. The
 server recomputes them in the background after it starts. Until it finishes,
 the Benchmarks page reads "Updating statuses…".
 
-Operations shows how each deployment setup orders steps 3 and 4:
+Operations shows how each deployment setup orders steps 3 to 5:
 
-- In Kubernetes, run `run_migrations` from `scripts/go_deploy_runtime.sh`
-  before `deploy`. See [Kubernetes](operations.md#kubernetes).
+- In Kubernetes, scale the Deployment to zero, run `run_migrations` from
+  `scripts/go_deploy_runtime.sh` in a subshell, and run `deploy` only if it
+  succeeded. See [Kubernetes](operations.md#kubernetes).
 - In the Umbrel Compose example, a `migrate` service runs first, and the
   server waits for it to exit successfully. Change the pinned image digest and
   restart the app. See [Umbrel deployment](operations.md#umbrel-deployment).

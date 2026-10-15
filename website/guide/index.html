@@ -180,8 +180,9 @@ benchdb results submit "bench-results/*.json" \
                 <code>regressed</code>, <code>improved</code>, <code>stable</code>,
                 <code>insufficient</code>, <code>errored</code>,
                 <code>missing_baseline</code>, or <code>not_comparable</code>. A row
-                regresses only when the result is outside the benchmark's recent history
-                and also more than 2% from the baseline, so one noisy pair of results does
+                regresses only when the result is outside the benchmark's recent history,
+                more than 2% from the baseline, and larger than the benchmark's minimum
+                change (30 ms for timings by default), so one noisy pair of results does
                 not fail the build.
               </p>
               <pre class="code-card"><code>benchdb ci report \

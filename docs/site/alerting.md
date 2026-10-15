@@ -83,7 +83,8 @@ For each enabled rule, the evaluator:
 
 A report is `failure` when at least one row is a lookback regression. That
 requires the contender to be outside the history band, at least 3 standard
-deviations from its own baseline result, and more than 2% away from it.
+deviations from its own baseline result, more than 2% away from it, and
+larger than the practical tolerance (30 ms by default for timings).
 [Regression analysis](regression-analysis.md) explains the rule.
 
 If a rule is disabled, or its repository, baseline, thresholds, or run reason

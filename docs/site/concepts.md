@@ -92,10 +92,18 @@ window then starts at that result.
 ### CI report and alert status
 
 CI reports and alert rules compare each contender result with its baseline
-result. A row is `regressed` or `improved` when the lookback z-score passes its
-threshold (2 by default) and the contender also moved at least 3 standard
-deviations and more than 2% from its own baseline result. Report rows can also
-be `errored`, `missing_baseline`, or `not_comparable`.
+result. A row is `regressed` or `improved` only when all of these hold:
+
+- the lookback z-score passes its threshold (2 by default);
+- the contender moved at least 3 standard deviations and more than 2% from its
+  own baseline result;
+- the change is larger than the practical tolerance. Timings in `s` or `ns`
+  have a default floor of 30 ms, so a 5 ms slowdown on a 100 ms benchmark stays
+  `stable`. Microbenchmarks should set `metric_kind` to `microbenchmark`, which
+  has no default floor. See
+  [Practical tolerance](regression-analysis.md#practical-tolerance).
+
+Report rows can also be `errored`, `missing_baseline`, or `not_comparable`.
 
 [Regression analysis](regression-analysis.md) explains the calculations.
 [CI reporting](ci-reporting.md) explains how row statuses decide the report
