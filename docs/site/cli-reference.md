@@ -322,12 +322,12 @@ least one usable token, or all of `BENCHDB_COMMIT_GITHUB_APP_ID`,
 `BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID`, and
 `BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE`. Setting both is an error.
 
-### `benchdb admin alerts rules apply`
+### `benchdb admin alerts sync`
 
 Make one account's alert rules match a JSON file:
 
 ```bash
-benchdb admin alerts rules apply --email alerts@example.com --file rules.json
+benchdb admin alerts sync --email alerts@example.com --file rules.json
 ```
 
 | Flag | Default | Description |

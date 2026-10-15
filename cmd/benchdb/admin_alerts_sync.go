@@ -18,7 +18,7 @@ import (
 	"go.kenn.io/benchdb/internal/service"
 )
 
-type adminAlertRulesApplyConfig struct {
+type adminAlertsSyncConfig struct {
 	DatabaseURL string
 	File        string
 	Email       string
@@ -31,27 +31,25 @@ type alertRulesFile struct {
 	Rules []service.AlertRuleSpec `json:"rules"`
 }
 
-type adminAlertRulesApplyOutput struct {
+type adminAlertsSyncOutput struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
-	service.AlertRulesApplied
+	service.AlertRulesSynced
 }
 
-var runAdminAlertRulesApply = runAdminAlertRulesApplyReal
+var runAdminAlertsSync = runAdminAlertsSyncReal
 
-func adminAlertRulesCommand(stdout, stderr io.Writer) *cobra.Command {
-	rules := groupCommand("rules", "Manage alert rules from a file.")
-	rules.AddCommand(newAdminAlertRulesApplyCommand(stdout, stderr, runAdminAlertRulesApplyConfig))
-	return rules
+func adminAlertsSyncCommand(stdout, stderr io.Writer) *cobra.Command {
+	return newAdminAlertsSyncCommand(stdout, stderr, runAdminAlertsSyncConfig)
 }
 
-func newAdminAlertRulesApplyCommand(
+func newAdminAlertsSyncCommand(
 	stdout, stderr io.Writer,
-	run func(context.Context, adminAlertRulesApplyConfig, io.Writer, io.Writer) error,
+	run func(context.Context, adminAlertsSyncConfig, io.Writer, io.Writer) error,
 ) *cobra.Command {
-	cfg := adminAlertRulesApplyConfig{}
+	cfg := adminAlertsSyncConfig{}
 	cmd := configureCommand(&cobra.Command{
-		Use:   "apply",
+		Use:   "sync",
 		Short: "Make one owner's alert rules match a rules file.",
 		Long: "Creates, updates, and deletes the owner's alert rules so they match --file exactly, " +
 			"matching rules by name. Use an owner account whose rules come only from this file. " +
@@ -109,35 +107,39 @@ func readAlertRulesFile(path string) ([]service.AlertRuleSpec, error) {
 	return file.Rules, nil
 }
 
-func runAdminAlertRulesApplyConfig(
-	ctx context.Context, cfg adminAlertRulesApplyConfig, stdout, stderr io.Writer,
+func runAdminAlertsSyncConfig(
+	ctx context.Context, cfg adminAlertsSyncConfig, stdout, stderr io.Writer,
 ) error {
-	out, err := runAdminAlertRulesApply(ctx, cfg, stdout, stderr)
+	out, err := runAdminAlertsSync(ctx, cfg, stdout, stderr)
 	if err != nil {
 		return err
 	}
 	return writeJSONLine(stdout, out)
 }
 
-func runAdminAlertRulesApplyReal(
-	ctx context.Context, cfg adminAlertRulesApplyConfig, _, _ io.Writer,
-) (adminAlertRulesApplyOutput, error) {
+func runAdminAlertsSyncReal(
+	ctx context.Context, cfg adminAlertsSyncConfig, _, _ io.Writer,
+) (adminAlertsSyncOutput, error) {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return adminAlertRulesApplyOutput{}, errors.New("connect database failed")
+		return adminAlertsSyncOutput{}, errors.New("connect database failed")
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
-		return adminAlertRulesApplyOutput{}, errors.New("connect database failed")
+		return adminAlertsSyncOutput{}, errors.New("connect database failed")
 	}
 	store := db.NewStore(pool)
 	userID, err := store.GetOrCreateUserByEmail(ctx, cfg.Email, cfg.UserName, "!")
 	if err != nil {
-		return adminAlertRulesApplyOutput{}, fmt.Errorf("create owner: %w", err)
+		return adminAlertsSyncOutput{}, fmt.Errorf("create owner: %w", err)
 	}
-	applied, err := service.ApplyAlertRules(ctx, store, userID, cfg.Rules, time.Now().UTC())
+	var synced service.AlertRulesSynced
+	err = store.WithAlertRuleLock(ctx, userID, func(tx *db.Store) error {
+		synced, err = service.SyncAlertRules(ctx, tx, userID, cfg.Rules, time.Now().UTC())
+		return err
+	})
 	if err != nil {
-		return adminAlertRulesApplyOutput{}, fmt.Errorf("apply alert rules: %w", err)
+		return adminAlertsSyncOutput{}, fmt.Errorf("sync alert rules: %w", err)
 	}
-	return adminAlertRulesApplyOutput{UserID: userID, Email: cfg.Email, AlertRulesApplied: applied}, nil
+	return adminAlertsSyncOutput{UserID: userID, Email: cfg.Email, AlertRulesSynced: synced}, nil
 }

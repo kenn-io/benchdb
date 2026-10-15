@@ -20,7 +20,7 @@ func writeRulesFile(t *testing.T, content string) string {
 	return path
 }
 
-func TestAdminAlertRulesApplyUsageAndConfigErrors(t *testing.T) {
+func TestAdminAlertsSyncUsageAndConfigErrors(t *testing.T) {
 	valid := writeRulesFile(t, `{"rules": []}`)
 	tests := []struct {
 		name       string
@@ -59,7 +59,7 @@ func TestAdminAlertRulesApplyUsageAndConfigErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("BENCHDB_DB_URL", tt.dbURL)
 			var stdout, stderr bytes.Buffer
-			code := run(append([]string{"admin", "alerts", "rules", "apply"}, tt.args...), &stdout, &stderr)
+			code := run(append([]string{"admin", "alerts", "sync"}, tt.args...), &stdout, &stderr)
 			assert.Equal(t, tt.wantCode, code)
 			assert.Empty(t, stdout.String())
 			assert.Contains(t, stderr.String(), tt.wantStderr)
@@ -67,27 +67,27 @@ func TestAdminAlertRulesApplyUsageAndConfigErrors(t *testing.T) {
 	}
 }
 
-func TestAdminAlertRulesApplyPassesRulesAndPrintsCounts(t *testing.T) {
+func TestAdminAlertsSyncPassesRulesAndPrintsCounts(t *testing.T) {
 	path := writeRulesFile(t, `{"rules": [
 		{"name": "lib main", "repository": "https://github.com/example/lib",
 		 "baseline": "parent", "threshold": 7.5, "run_reason": "commit", "enabled": false}
 	]}`)
-	var got adminAlertRulesApplyConfig
-	runAdminAlertRulesApply = func(
-		_ context.Context, cfg adminAlertRulesApplyConfig, _, _ io.Writer,
-	) (adminAlertRulesApplyOutput, error) {
+	var got adminAlertsSyncConfig
+	runAdminAlertsSync = func(
+		_ context.Context, cfg adminAlertsSyncConfig, _, _ io.Writer,
+	) (adminAlertsSyncOutput, error) {
 		got = cfg
-		return adminAlertRulesApplyOutput{
+		return adminAlertsSyncOutput{
 			UserID: "user-1", Email: cfg.Email,
 			Created: 1, Deleted: 2,
 		}, nil
 	}
-	t.Cleanup(func() { runAdminAlertRulesApply = runAdminAlertRulesApplyReal })
+	t.Cleanup(func() { runAdminAlertsSync = runAdminAlertsSyncReal })
 	t.Setenv("BENCHDB_DB_URL", "postgres://user:pass@db/benchdb")
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
-		"admin", "alerts", "rules", "apply", "--file", path, "--email", " alerts@example.com ",
+		"admin", "alerts", "sync", "--file", path, "--email", " alerts@example.com ",
 	}, &stdout, &stderr)
 
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())

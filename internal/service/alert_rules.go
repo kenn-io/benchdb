@@ -1,9 +1,11 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ type AlertRuleSpec struct {
 	Enabled    *bool    `json:"enabled,omitempty"`
 }
 
-// AlertRuleConfig is a validated alert rule with its defaults applied.
+// AlertRuleConfig is a validated alert rule with its defaults synced.
 type AlertRuleConfig struct {
 	Name       string
 	Repository string
@@ -104,7 +106,7 @@ func AlertRuleEvaluationChanged(rule storage.AlertRule, cfg AlertRuleConfig) boo
 		!sameStringPtr(rule.RunReason, cfg.RunReason)
 }
 
-// AlertRuleSyncStore is the storage ApplyAlertRules needs.
+// AlertRuleSyncStore is the storage SyncAlertRules needs.
 type AlertRuleSyncStore interface {
 	ListAlertRulesByUser(ctx context.Context, userID string) ([]storage.AlertRule, error)
 	CreateAlertRule(ctx context.Context, p storage.InsertAlertRuleParams) (storage.AlertRule, error)
@@ -112,48 +114,54 @@ type AlertRuleSyncStore interface {
 	DeleteAlertRule(ctx context.Context, id, userID string) error
 }
 
-// AlertRulesApplied counts what ApplyAlertRules changed.
-type AlertRulesApplied struct {
+// AlertRulesSynced counts what SyncAlertRules changed.
+type AlertRulesSynced struct {
 	Created   int `json:"created"`
 	Updated   int `json:"updated"`
 	Deleted   int `json:"deleted"`
 	Unchanged int `json:"unchanged"`
 }
 
-// ApplyAlertRules makes one owner's alert rules match specs exactly, matching
+// SyncAlertRules makes one owner's alert rules match specs exactly, matching
 // rules by name. It creates missing rules, updates changed ones, and deletes
 // the owner's rules that specs do not name, so the owner should be an account
-// whose rules come only from this list. Every spec is validated, and names
-// must be unique, before anything changes. A rerun after a partial failure
-// finishes the job.
-func ApplyAlertRules(
+// whose rules come only from this list. When the owner has several rules with
+// one name, it keeps the oldest and deletes the rest. Every spec is validated,
+// and names must be unique, before anything changes. Run it under
+// db.Store.WithAlertRuleLock so overlapping syncs cannot create duplicates.
+func SyncAlertRules(
 	ctx context.Context, store AlertRuleSyncStore, ownerID string, specs []AlertRuleSpec, now time.Time,
-) (AlertRulesApplied, error) {
-	var applied AlertRulesApplied
+) (AlertRulesSynced, error) {
+	var synced AlertRulesSynced
 	wanted := make([]AlertRuleConfig, 0, len(specs))
 	names := make(map[string]bool, len(specs))
 	for i, spec := range specs {
 		cfg, err := NormalizeAlertRule(spec)
 		if err != nil {
-			return applied, fmt.Errorf("rule %d: %w", i+1, err)
+			return synced, fmt.Errorf("rule %d: %w", i+1, err)
 		}
 		if names[cfg.Name] {
-			return applied, &ValidationError{Message: fmt.Sprintf("rule %d: duplicate name %q", i+1, cfg.Name)}
+			return synced, &ValidationError{Message: fmt.Sprintf("rule %d: duplicate name %q", i+1, cfg.Name)}
 		}
 		names[cfg.Name] = true
 		wanted = append(wanted, cfg)
 	}
 	existing, err := store.ListAlertRulesByUser(ctx, ownerID)
 	if err != nil {
-		return applied, fmt.Errorf("list alert rules: %w", err)
+		return synced, fmt.Errorf("list alert rules: %w", err)
 	}
 	byName := make(map[string]storage.AlertRule, len(existing))
+	// Oldest first, so the oldest of several same-named rules is kept.
+	slices.SortFunc(existing, func(a, b storage.AlertRule) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.ID, b.ID))
+	})
 	for _, rule := range existing {
-		if !names[rule.Name] {
+		_, duplicate := byName[rule.Name]
+		if !names[rule.Name] || duplicate {
 			if err := store.DeleteAlertRule(ctx, rule.ID, ownerID); err != nil {
-				return applied, fmt.Errorf("delete alert rule %q: %w", rule.Name, err)
+				return synced, fmt.Errorf("delete alert rule %q: %w", rule.Name, err)
 			}
-			applied.Deleted++
+			synced.Deleted++
 			continue
 		}
 		byName[rule.Name] = rule
@@ -166,14 +174,14 @@ func ApplyAlertRules(
 				Threshold: cfg.Threshold, ThresholdZ: cfg.ThresholdZ, RunReason: cfg.RunReason,
 				Enabled: cfg.Enabled, CreatedAt: now,
 			}); err != nil {
-				return applied, fmt.Errorf("create alert rule %q: %w", cfg.Name, err)
+				return synced, fmt.Errorf("create alert rule %q: %w", cfg.Name, err)
 			}
-			applied.Created++
+			synced.Created++
 			continue
 		}
 		reset := AlertRuleEvaluationChanged(rule, cfg)
 		if !reset && rule.Enabled == cfg.Enabled {
-			applied.Unchanged++
+			synced.Unchanged++
 			continue
 		}
 		if _, err := store.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
@@ -181,9 +189,9 @@ func ApplyAlertRules(
 			Threshold: cfg.Threshold, ThresholdZ: cfg.ThresholdZ, RunReason: cfg.RunReason,
 			Enabled: cfg.Enabled, UpdatedAt: now, ResetEvaluation: reset,
 		}); err != nil {
-			return applied, fmt.Errorf("update alert rule %q: %w", cfg.Name, err)
+			return synced, fmt.Errorf("update alert rule %q: %w", cfg.Name, err)
 		}
-		applied.Updated++
+		synced.Updated++
 	}
-	return applied, nil
+	return synced, nil
 }

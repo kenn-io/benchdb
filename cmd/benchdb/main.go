@@ -261,7 +261,7 @@ func adminCommand(stdout, stderr io.Writer) *cobra.Command {
 	alerts := groupCommand("alerts", "Run alert operations.")
 	alerts.AddCommand(adminAlertsEvaluateCommand(stdout, stderr))
 	alerts.AddCommand(adminAlertsDeliverCommand(stdout, stderr))
-	alerts.AddCommand(adminAlertRulesCommand(stdout, stderr))
+	alerts.AddCommand(adminAlertsSyncCommand(stdout, stderr))
 	cmd.AddCommand(alerts)
 	return cmd
 }
