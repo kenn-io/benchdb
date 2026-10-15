@@ -249,7 +249,8 @@ make site-deploy
 from the `docs-assets` branch. For the dashboard screenshots it uses verified
 local captures or fetches them from the `docs-screenshots` branch. It then
 stages the built site as a prebuilt Vercel output and runs
-`vercel deploy --prebuilt --prod`.
+`vercel deploy --prebuilt --prod`. Each step prints one line, and a failing step
+prints its full output. Set `VERBOSE=1` to see every step's output as it runs.
 
 ## Dashboard changes
 
