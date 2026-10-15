@@ -167,7 +167,7 @@ describe("TrendPage", () => {
     );
     expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /band: ±2σ/i })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /y-axis: start at zero/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "sha-r1" })).toBeInTheDocument();
   });
 
@@ -178,8 +178,8 @@ describe("TrendPage", () => {
     });
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
 
-    await fireEvent.click(screen.getByRole("combobox", { name: /y-axis: zero baseline/i }));
-    await fireEvent.click(screen.getByRole("option", { name: /observed range/i }));
+    await fireEvent.click(screen.getByRole("combobox", { name: /y-axis: start at zero/i }));
+    await fireEvent.click(screen.getByRole("option", { name: /fit to data/i }));
 
     expect(window.location.search).toBe("?range=all&y_axis=observed");
   });

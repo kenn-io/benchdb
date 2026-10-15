@@ -56,8 +56,8 @@
     label: `±${sigma}σ`,
   }));
   const yAxisOptions: SelectDropdownOption[] = [
-    { value: "zero", label: "Zero baseline" },
-    { value: "observed", label: "Observed range" },
+    { value: "zero", label: "Start at zero" },
+    { value: "observed", label: "Fit to data" },
   ];
   type TrendFilter = "all" | "outliers" | "steps";
   type ComparePick = {

@@ -72,7 +72,7 @@ describe("SeriesBrowse", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: "demo" })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Benchmarks" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Filter benchmarks by status" })).toHaveTextContent("All 1 Stable 1");
-    expect(screen.getByRole("link", { name: /result explorer/i })).toHaveAttribute("href", "/results");
+    expect(screen.getByRole("link", { name: /^all results$/i })).toHaveAttribute("href", "/results");
     expect(screen.getByRole("group", { name: "Time window" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
   });
@@ -320,12 +320,12 @@ describe("SeriesBrowse", () => {
 
     expect(screen.getByRole("button", { name: /^open trend demo\b/i })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
-    const yAxis = screen.getByRole("combobox", { name: /y-axis: observed range/i });
+    const yAxis = screen.getByRole("combobox", { name: /y-axis: fit to data/i });
     await fireEvent.click(yAxis);
-    await fireEvent.click(screen.getByRole("option", { name: /zero baseline/i }));
+    await fireEvent.click(screen.getByRole("option", { name: /start at zero/i }));
     expect(window.location.search).toBe("?view=charts&y=zero");
     await rerender({ query: parseBrowseQuery(window.location.search) });
-    expect(screen.getByRole("combobox", { name: /y-axis: zero baseline/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /y-axis: start at zero/i })).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /load more/i }));
     await screen.findByRole("button", { name: /^open trend second\b/i });

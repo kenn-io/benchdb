@@ -74,7 +74,7 @@ describe("RecentRunsHome", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument());
 
-    expect(screen.getByLabelText("Recent run summary")).toHaveTextContent("2 runs");
+    expect(screen.getByLabelText("Recent run summary")).toHaveTextContent("On this page: 2 runs");
     expect(screen.getByText(/360 results/i)).toBeInTheDocument();
     expect(screen.getAllByText(/1 error/i)).not.toHaveLength(0);
     expect(screen.getByText(/1 machine/i)).toBeInTheDocument();
