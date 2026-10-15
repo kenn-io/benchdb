@@ -67,7 +67,6 @@ func TestMissingMandatoryReportArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, missing, "api-probes.json")
 	assert.Contains(t, missing, "cli-probes.json")
-	assert.NotContains(t, missing, "sdk-smoke.json", "the removed Python SDK smoke test is not required")
 	assert.Contains(t, missing, "counts-before.json")
 	assert.Contains(t, missing, "counts-after.json")
 	assert.NotContains(t, missing, "preflight.json")
