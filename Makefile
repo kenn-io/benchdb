@@ -13,30 +13,33 @@ export BENCHDB_DUCKDB_EXTENSION_DIR ?= $(CURDIR)/.cache/duckdb/extensions
 ZENSICAL_VERSION := $(shell sed -n 's/^zensical==//p' requirements-docs.txt)
 ZENSICAL ?= uvx --from zensical==$(ZENSICAL_VERSION) zensical
 VERCEL ?= vercel
+# Docs and site steps print one line each; set VERBOSE=1 to see their output.
+STEP := ./scripts/run_step.sh
+DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 
 .PHONY: check-zensical-version
 check-zensical-version:
 	@test -n "$(ZENSICAL_VERSION)" || { echo 'requirements-docs.txt must pin zensical with zensical==<version>'; exit 1; }
-	@actual="$$( $(ZENSICAL) --version )"; \
-	if [ "$$actual" != "$(ZENSICAL_VERSION)" ]; then \
-		echo "expected zensical $(ZENSICAL_VERSION), got $$actual"; \
-		exit 1; \
-	fi
+	@$(STEP) "zensical $(ZENSICAL_VERSION)" sh -c '\
+		actual="$$($(ZENSICAL) --version)"; \
+		if [ "$$actual" != "$(ZENSICAL_VERSION)" ]; then \
+			echo "expected zensical $(ZENSICAL_VERSION), got $$actual"; \
+			exit 1; \
+		fi'
 
 .PHONY: docs-link-check
 docs-link-check:
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_docs_links
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_docs_rendered_assets
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B -m unittest scripts.test_build_docs_site
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_links.py
+	@$(STEP) "docs checker tests" $(DOCS_PY) -m unittest \
+		scripts.test_docs_links scripts.test_docs_rendered_assets scripts.test_build_docs_site
+	@$(STEP) --summary "docs links" $(DOCS_PY) scripts/docs_links.py
 
 .PHONY: docs-assets
 docs-assets:
-	./scripts/sync_docs_assets.sh
+	@$(STEP) --summary "product screenshot" ./scripts/sync_docs_assets.sh
 
 .PHONY: docs-screenshot-assets
 docs-screenshot-assets:
-	./scripts/sync_docs_screenshots.sh
+	@$(STEP) --summary "dashboard screenshots" ./scripts/sync_docs_screenshots.sh
 
 .PHONY: build-docs
 build-docs: check-zensical-version docs-link-check docs-assets docs-screenshot-assets
@@ -45,11 +48,12 @@ build-docs: check-zensical-version docs-link-check docs-assets docs-screenshot-a
 build-docs-ci: check-zensical-version docs-link-check docs-screenshots-check
 
 build-docs build-docs-ci:
-	rm -rf site
-	$(ZENSICAL) build
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/build_docs_site.py
-	PYTHONDONTWRITEBYTECODE=1 uv run --with tomli python -B scripts/docs_rendered_assets.py docs/site/assets site/docs/assets
-	echo 'Documentation site built at site/index.html'
+	@$(STEP) "build site" sh -c '\
+		rm -rf site && \
+		$(ZENSICAL) build && \
+		$(DOCS_PY) scripts/build_docs_site.py && \
+		$(DOCS_PY) scripts/docs_rendered_assets.py docs/site/assets site/docs/assets'
+	@echo 'Site built at site/index.html'
 
 .PHONY: docs-serve
 docs-serve: build-docs
@@ -57,11 +61,12 @@ docs-serve: build-docs
 
 .PHONY: site-build
 site-build: build-docs
-	./scripts/build_vercel_output.sh
+	@$(STEP) --summary "Vercel output" ./scripts/build_vercel_output.sh
 
 .PHONY: site-deploy
 site-deploy: site-build
-	$(VERCEL) deploy --prebuilt --prod
+	@echo "Deploying to Vercel..."
+	@$(VERCEL) deploy --prebuilt --prod
 
 .PHONY: docs-screenshots
 docs-screenshots:
@@ -69,7 +74,7 @@ docs-screenshots:
 
 .PHONY: docs-screenshots-check
 docs-screenshots-check:
-	bash ./scripts/check_docs_screenshots.sh
+	@$(STEP) --summary "dashboard screenshot checks" bash ./scripts/check_docs_screenshots.sh
 
 .PHONY: clean-local
 clean-local:

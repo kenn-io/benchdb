@@ -17,4 +17,4 @@ mkdir -p "$output/static"
 cp -R "$site/." "$output/static/"
 printf '{"version":3}\n' > "$output/config.json"
 
-echo "Vercel static output built at $output"
+echo "Vercel static output built at ${output#"$root"/}"

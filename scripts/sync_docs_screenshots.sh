@@ -29,7 +29,7 @@ if [[ -n "$source_dir" ]]; then
 	cp "$source_dir/dashboard-screenshots-evidence.json" "$stage/latest/"
 	echo "staged dashboard screenshots from BENCHDB_DOCS_SCREENSHOT_SOURCE_DIR"
 elif screenshots_are_valid "$destination"; then
-	echo "using verified dashboard screenshots in $destination"
+	echo "using verified dashboard screenshots in ${destination#"$root"/}"
 	exit 0
 elif git fetch --quiet --depth=1 "$remote" docs-screenshots; then
 	git archive FETCH_HEAD latest | tar -x -C "$stage"
