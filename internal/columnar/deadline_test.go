@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -351,4 +352,39 @@ func TestReadDeadlineBudgets(t *testing.T) {
 	}
 	_, err = Open(ctx, pool, Config{Dir: t.TempDir(), ReadTimeout: -time.Second})
 	require.ErrorContains(t, err, "BENCHDB_ANALYTICAL_READ_TIMEOUT")
+}
+
+// A canceled transaction can finish on database/sql's rollback goroutine.
+// Read must join that completion before returning its guard and reader.
+func TestReadDeadlineRollbackCompletion(t *testing.T) {
+	e, _, _ := deadlineEngine(t)
+	pending := 0
+	for range 100 {
+		parent, cancel := context.WithCancel(context.Background())
+		readErr := e.Read(parent, func(ctx context.Context, _ *ReadSnapshot) error {
+			cancel()
+			runtime.Gosched() // Let the real automatic rollback contend with cleanup.
+			return ctx.Err()
+		})
+		cancel()
+		require.ErrorIs(t, readErr, context.Canceled)
+		handle := <-e.readers
+		if handle.Stats().InUse != 0 {
+			pending++
+		}
+		e.readers <- handle
+		guard := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
+		acquired, err := guard.TryLock()
+		require.NoError(t, err)
+		require.True(t, acquired, "Read must release its guard after transaction completion")
+		require.NoError(t, guard.Close())
+		nextReadErr := e.Read(context.Background(), func(ctx context.Context, snapshot *ReadSnapshot) error {
+			var n int
+			err := snapshot.QueryRowContext(ctx, `SELECT 1`).Scan(&n)
+			assert.Equal(t, 1, n)
+			return err
+		})
+		require.NoError(t, nextReadErr)
+	}
+	assert.Zero(t, pending, "Read returned before its SQL connection was released")
 }

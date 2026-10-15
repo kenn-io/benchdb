@@ -484,11 +484,26 @@ func (e *Engine) Read(ctx context.Context, fn func(context.Context, *ReadSnapsho
 	}
 	stopInterrupt := e.interruptPostgres(ctx, handle)
 	defer stopInterrupt() // Join canceled scanners before releasing the file lock.
-	tx, err := handle.BeginTx(ctx, nil)
+	conn, err := handle.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		// Rollback can finish on database/sql's cancellation goroutine. Close
+		// joins that work before the watcher, file lock, and reader are released.
+		if closeErr := conn.Close(); !errors.Is(closeErr, sql.ErrConnDone) {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); !errors.Is(rollbackErr, sql.ErrTxDone) {
+			err = errors.Join(err, rollbackErr)
+		}
+	}()
 	files, err := e.manifest(ctx, tx)
 	if err != nil {
 		return err
