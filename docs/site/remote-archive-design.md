@@ -115,6 +115,23 @@ These checks follow [S3 upload integrity](https://docs.aws.amazon.com/AmazonS3/l
 and [GCS checksum headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers#xgooghash).
 They do not change packstore's existing verification contract.
 
+A conditional conflict does not by itself mean publication failed. An SDK
+retry can encounter the key created by its own earlier request. After a
+conditional conflict or an uncertain completion, inspect that exact key and
+compare size and a provider full-object SHA-256 with the validated source.
+If only CRC32C, composite checksums, or client metadata are available, read
+back the observed revision and compare its full SHA-256. A matching object
+returns a verified receipt without replacing it; a proven difference returns
+`ErrExists`. The receipt describes the contents, not which attempt created them.
+
+If inspection cannot determine the result within the caller's remaining
+budget, return `ErrOutcomeUnknown` with no receipt and preserve the underlying
+error. A missing key after an uncertain request also remains unknown because
+the upload may still finish. BenchDB retains the upload intent for later
+reconciliation; this error alone does not abandon the intent or permit cleanup.
+Kit does not start an unbounded background verification. Local retries must
+also complete the required durability steps before returning a receipt.
+
 Local publication flushes staged bytes, uses Kit's `atomicfile.RenameNoReplace`,
 and calls `atomicfile.SyncDir` on the containing directory. S3 uses the AWS
 Go SDK v2 for conditional `PutObject` or conditional multipart completion.
@@ -210,6 +227,22 @@ within each partition, and record the partition boundaries and object
 references in a small PostgreSQL directory. A point lookup opens only its
 partition's catalog objects. Do not put a new row for every archived result in
 PostgreSQL.
+
+Partition result IDs by their original bytewise ID ranges. BenchDB generates
+lowercase hexadecimal UUIDv7 IDs, whose chronological prefix would be lost by
+hash partitioning. Use adaptive boundaries based on actual keys, rather than
+fixed prefixes that put all recent IDs into one growing partition. New greater
+IDs can start a new range without rewriting an older range's immutable files.
+Export batches have no ordering guarantee: delayed IDs still update their
+overlapping ranges, with bounded segment merges and splits. Legacy text IDs
+remain valid lookup keys. Run IDs and fingerprints may use hash ranges with
+exact-key checks. Record the key encoding with the directory's binary bounds.
+
+Build the random legacy result-ID index once from staged sorted runs and
+bounded external merge passes into final ID ranges. Checkpoint that work and
+include exports arriving during the build before declaring the index complete.
+Do not add a small segment to every final partition on each legacy export.
+Measure the local sorting space and writes as well as the final index size.
 
 Assign one logical file ID to each fact file at initial export or backfill.
 A new `archive_file_location` table maps each logical ID directly to its current
