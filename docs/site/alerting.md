@@ -49,8 +49,8 @@ benchdb admin alerts rules apply --email alerts@example.com --file rules.json
 {
   "rules": [
     {
-      "name": "docbank main",
-      "repository": "https://github.com/kenn-io/docbank",
+      "name": "lib main",
+      "repository": "https://github.com/example/lib",
       "baseline": "parent",
       "run_reason": "commit"
     }

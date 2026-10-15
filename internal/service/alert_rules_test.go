@@ -18,23 +18,23 @@ func TestApplyAlertRulesSyncsOneOwnersRules(t *testing.T) {
 	other, err := store.GetOrCreateUserByEmail(ctx, "someone@example.com", "Someone", "!")
 	require.NoError(t, err)
 	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
-		UserID: other, Name: "agentsview main", Repository: "https://github.com/kenn-io/agentsview",
+		UserID: other, Name: "app main", Repository: "https://github.com/example/app",
 		Baseline: "parent", Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: time.Now().UTC(),
 	})
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
 	commitReason := "commit"
 	rules := []service.AlertRuleSpec{
-		{Name: "agentsview main", Repository: "git@github.com:kenn-io/agentsview/", Baseline: "parent", RunReason: &commitReason},
-		{Name: "docbank main", Repository: "https://github.com/kenn-io/docbank", Baseline: "parent", RunReason: &commitReason},
+		{Name: "app main", Repository: "git@github.com:example/app/", Baseline: "parent", RunReason: &commitReason},
+		{Name: "lib main", Repository: "https://github.com/example/lib", Baseline: "parent", RunReason: &commitReason},
 	}
 
 	applied, err := service.ApplyAlertRules(ctx, store, owner, rules, now)
 	require.NoError(t, err)
 	assert.Equal(t, service.AlertRulesApplied{Created: 2}, applied)
 	byName := ownerRules(t, store, owner)
-	assert.Equal(t, "https://github.com/kenn-io/agentsview", byName["agentsview main"].Repository, "the repository is normalized")
-	assert.InDelta(t, 5.0, byName["docbank main"].Threshold, 0, "defaults apply")
+	assert.Equal(t, "https://github.com/example/app", byName["app main"].Repository, "the repository is normalized")
+	assert.InDelta(t, 5.0, byName["lib main"].Threshold, 0, "defaults apply")
 
 	applied, err = service.ApplyAlertRules(ctx, store, owner, rules, now)
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestApplyAlertRulesSyncsOneOwnersRules(t *testing.T) {
 
 	// An open rule stays open when only enabled changes, and resets when what
 	// it evaluates changes.
-	for _, name := range []string{"agentsview main", "docbank main"} {
+	for _, name := range []string{"app main", "lib main"} {
 		_, err = store.UpdateAlertRuleEvaluation(ctx, storage.UpdateAlertRuleEvaluationParams{
 			ID: byName[name].ID, State: storage.AlertRuleStateOpen, EvaluatedAt: now,
 		})
@@ -55,9 +55,9 @@ func TestApplyAlertRulesSyncsOneOwnersRules(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, service.AlertRulesApplied{Updated: 2}, applied)
 	byName = ownerRules(t, store, owner)
-	assert.False(t, byName["agentsview main"].Enabled)
-	assert.Equal(t, storage.AlertRuleStateOpen, byName["agentsview main"].State)
-	assert.Equal(t, storage.AlertRuleStateInactive, byName["docbank main"].State)
+	assert.False(t, byName["app main"].Enabled)
+	assert.Equal(t, storage.AlertRuleStateOpen, byName["app main"].State)
+	assert.Equal(t, storage.AlertRuleStateInactive, byName["lib main"].State)
 
 	applied, err = service.ApplyAlertRules(ctx, store, owner, rules[1:], now)
 	require.NoError(t, err)
@@ -72,15 +72,15 @@ func TestApplyAlertRulesRejectsAnInvalidListBeforeChangingAnything(t *testing.T)
 	require.NoError(t, err)
 	now := time.Now().UTC()
 	_, err = service.ApplyAlertRules(ctx, store, owner, []service.AlertRuleSpec{
-		{Name: "keep", Repository: "https://github.com/kenn-io/docbank"},
+		{Name: "keep", Repository: "https://github.com/example/lib"},
 	}, now)
 	require.NoError(t, err)
 
 	for name, rules := range map[string][]service.AlertRuleSpec{
-		"bad baseline": {{Name: "new", Repository: "https://github.com/kenn-io/msgvault", Baseline: "nightly"}},
+		"bad baseline": {{Name: "new", Repository: "https://github.com/example/cli", Baseline: "nightly"}},
 		"duplicate name": {
-			{Name: "new", Repository: "https://github.com/kenn-io/msgvault"},
-			{Name: "new", Repository: "https://github.com/kenn-io/agentsview"},
+			{Name: "new", Repository: "https://github.com/example/cli"},
+			{Name: "new", Repository: "https://github.com/example/app"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

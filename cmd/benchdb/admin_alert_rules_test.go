@@ -69,7 +69,7 @@ func TestAdminAlertRulesApplyUsageAndConfigErrors(t *testing.T) {
 
 func TestAdminAlertRulesApplyPassesRulesAndPrintsCounts(t *testing.T) {
 	path := writeRulesFile(t, `{"rules": [
-		{"name": "docbank main", "repository": "https://github.com/kenn-io/docbank",
+		{"name": "lib main", "repository": "https://github.com/example/lib",
 		 "baseline": "parent", "threshold": 7.5, "run_reason": "commit", "enabled": false}
 	]}`)
 	var got adminAlertRulesApplyConfig
@@ -96,7 +96,7 @@ func TestAdminAlertRulesApplyPassesRulesAndPrintsCounts(t *testing.T) {
 	assert.Equal(t, "alerts@example.com", got.UserName, "the name defaults to the email")
 	require.Len(t, got.Rules, 1)
 	rule := got.Rules[0]
-	assert.Equal(t, "docbank main", rule.Name)
+	assert.Equal(t, "lib main", rule.Name)
 	assert.Equal(t, "parent", rule.Baseline)
 	require.NotNil(t, rule.Threshold)
 	assert.InDelta(t, 7.5, *rule.Threshold, 0)
