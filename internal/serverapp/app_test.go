@@ -56,6 +56,49 @@ func TestLoadConfigFallsBackToDatabaseURL(t *testing.T) {
 	assert.Equal(t, "postgres://fallback/db", cfg.databaseURL)
 }
 
+func TestLoadConfigRequiresPersistentDataDirectory(t *testing.T) {
+	isolateLoadConfigEnv(t)
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_DATA_DIR", "")
+	_, err := loadConfig()
+	require.ErrorContains(t, err, "BENCHDB_DATA_DIR")
+}
+
+func TestLoadConfigArchiveDirectories(t *testing.T) {
+	isolateLoadConfigEnv(t)
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	dir := t.TempDir()
+	extensions := filepath.Join(t.TempDir(), "extensions")
+	t.Setenv("BENCHDB_DATA_DIR", dir)
+	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", extensions)
+	t.Setenv("BENCHDB_DUCKDB_THREADS", "12")
+	t.Setenv("BENCHDB_DUCKDB_MEMORY_MB", "2048")
+	t.Setenv("BENCHDB_DUCKDB_READERS", "3")
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, dir, cfg.archive.Dir)
+	assert.Equal(t, extensions, cfg.archive.ExtensionDir)
+	assert.Equal(t, 12, cfg.archive.Threads)
+	assert.Equal(t, 2048, cfg.archive.MemoryLimitMB)
+	assert.Equal(t, 3, cfg.archive.Readers)
+}
+
+func TestLoadConfigRejectsInvalidArchiveResources(t *testing.T) {
+	for _, tc := range []struct{ name, value string }{
+		{"BENCHDB_DUCKDB_THREADS", "two"},
+		{"BENCHDB_DUCKDB_READERS", "0"},
+		{"BENCHDB_DUCKDB_MEMORY_MB", "-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateLoadConfigEnv(t)
+			t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+			t.Setenv(tc.name, tc.value)
+			_, err := loadConfig()
+			require.ErrorContains(t, err, tc.name)
+		})
+	}
+}
+
 func TestLoadConfigPreservesCommitAuthenticationModes(t *testing.T) {
 	t.Run("zero mode", func(t *testing.T) {
 		isolateLoadConfigEnv(t)
@@ -90,6 +133,12 @@ func TestLoadConfigPreservesCommitAuthenticationModes(t *testing.T) {
 
 func isolateLoadConfigEnv(t *testing.T) {
 	t.Helper()
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", "")
+	t.Setenv("BENCHDB_DUCKDB_THREADS", "")
+	t.Setenv("BENCHDB_DUCKDB_MEMORY_MB", "")
+	t.Setenv("BENCHDB_DUCKDB_READERS", "")
+	t.Setenv("BENCHDB_MAINTENANCE_INTERVAL", "")
 	for _, name := range []string{"BENCHDB_DB_URL", "BENCHDB_API_TOKEN", "BENCHDB_SESSION_SECRET", "BENCHDB_OIDC_CLIENT_SECRET"} {
 		t.Setenv(name+"_FILE", "")
 	}

@@ -14,6 +14,7 @@ permissions:
   contents: read
 
 env:
+  CGO_ENABLED: "1"
   # "|" falls back to the source repo on any proxy error, including HTTP/2 stream resets mid-download.
   GOPROXY: https://proxy.golang.org|direct
 
@@ -42,9 +43,13 @@ jobs:
       - run: make migration-history-check
       - run: make huma-check
       - run: make go-lint-ci
+      - name: Install Windows C/C++ cross compiler
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64
       - name: Run lint for Windows
         env:
           GOOS: windows
+          CC: x86_64-w64-mingw32-gcc
+          CXX: x86_64-w64-mingw32-g++
         run: make go-lint-ci
       - run: make go-vet
       - run: make go-test
@@ -155,6 +160,8 @@ jobs:
           name: benchdb-binaries
           path: |
             bin/benchdb
+            .cache/duckdb/extensions
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 

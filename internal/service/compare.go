@@ -74,21 +74,6 @@ type historyLoader func(ctx context.Context, fingerprint string, asOf time.Time)
 // Compare loads two results, validates they are comparable, and returns the
 // pairwise + lookback-z analysis. The API defaults to 5 percent and 2 standard deviations.
 func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, threshold, thresholdZ float64) (*CompareResult, error) {
-	return r.compare(ctx, baselineID, contenderID, threshold, thresholdZ, r.historyAsOf)
-}
-
-func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
-	return r.store.SelectHistoryForFingerprintsAsOf(ctx, []string{fingerprint}, asOf)
-}
-
-// compare is Compare with the lookback history supplied by history, so a
-// caller comparing many results can load all their histories at once.
-func (r *Reader) compare(
-	ctx context.Context,
-	baselineID, contenderID string,
-	threshold, thresholdZ float64,
-	history historyLoader,
-) (*CompareResult, error) {
 	baseline, err := r.loadCompareResult(ctx, baselineID)
 	if err != nil {
 		return nil, err
@@ -97,7 +82,24 @@ func (r *Reader) compare(
 	if err != nil {
 		return nil, err
 	}
+	return r.compareRows(ctx, baseline, contender, threshold, thresholdZ, r.historyAsOf)
+}
 
+func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+	return r.store.SelectHistoryForFingerprintsAsOf(ctx, []string{fingerprint}, asOf)
+}
+
+// compareRows shares validation and analysis with callers that already loaded
+// the results and their lookback history in batches.
+func (r *Reader) compareRows(
+	ctx context.Context,
+	baseline, contender storage.CompareResultRow,
+	threshold, thresholdZ float64,
+	history historyLoader,
+) (*CompareResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	baseSVS, err := comparableSVS(baseline)
 	if err != nil {
 		return nil, err

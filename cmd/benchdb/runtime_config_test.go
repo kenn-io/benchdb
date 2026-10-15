@@ -60,3 +60,13 @@ func TestMigratePreservesDatabaseConnectionCause(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.ErrorContains(t, err, "ping database")
 }
+
+func TestAdminAlertsRejectsInvalidArchiveResources(t *testing.T) {
+	isolateDatabaseSources(t)
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	t.Setenv("BENCHDB_DUCKDB_THREADS", "two")
+	var out, errOut bytes.Buffer
+	assert.Equal(t, 2, run([]string{"admin", "alerts", "evaluate"}, &out, &errOut))
+	assert.Contains(t, errOut.String(), "BENCHDB_DUCKDB_THREADS")
+}

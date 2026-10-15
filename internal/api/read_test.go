@@ -90,9 +90,8 @@ func TestResultDetailLessIsBetter(t *testing.T) {
 
 	// An errored result may carry an unvalidated raw unit; deriving must not 500.
 	bogus := seedResult(t, tapi, seedOpts{sha: "c2", ts: day(1), unit: "s", data: []float64{1}})
-	_, err := pool.Exec(ctx,
+	dbtest.UpdateResultFixture(t, ctx, pool,
 		`UPDATE benchmark_result SET unit='zzz', error='{"x":1}'::jsonb, data='{}' WHERE id=$1`, bogus)
-	require.NoError(t, err)
 	d2 := getResultDetail(t, tapi, bogus)
 	assert.Nil(t, d2.LessIsBetter, "unknown unit -> null, not a 500")
 }

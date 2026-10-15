@@ -4,6 +4,9 @@
 # from the maintained implementation. Active developer and CI targets below use
 # the Go server, embedded SPA, generated clients, and Zensical docs.
 
+export CGO_ENABLED := 1
+export BENCHDB_DUCKDB_EXTENSION_DIR ?= $(CURDIR)/.cache/duckdb/extensions
+
 # Build the public documentation site locally. Zensical reads zensical.toml and
 # writes the rendered reference under ./site/docs. The version is pinned in
 # requirements-docs.txt and reused by CI.
@@ -70,7 +73,7 @@ docs-screenshots-check:
 
 .PHONY: clean-local
 clean-local:
-	rm -rf bin site var .cache web/node_modules web/playwright-report web/test-results
+	rm -rf bin site .cache web/node_modules web/playwright-report web/test-results
 	find . -type d \( -name "__pycache__" -o -name ".pytest_cache" -o -name ".ruff_cache" \) -prune -exec rm -rf {} +
 	@if [ -d web/dist ]; then find web/dist -mindepth 1 ! -name .gitkeep -exec rm -rf {} +; fi
 	@if command -v go >/dev/null 2>&1; then go clean -cache; fi
@@ -138,7 +141,8 @@ server-container-smoke:
 dev:
 	scripts/dev.sh
 
-# Stop the backend dev Postgres (add `-v` to also wipe the seeded data volume).
+# Stop the backend dev Postgres. For a full reset, see docs/site/contributing.md;
+# the database and archive must be reset together.
 .PHONY: dev-down
 dev-down:
 	docker compose -p benchdb_backend_dev -f docker-compose.backend-dev.yml down
@@ -188,12 +192,12 @@ go-vet:
 # Full Go suite. Postgres-backed tests use testcontainers and skip when Docker
 # is unavailable.
 .PHONY: go-test
-go-test:
+go-test: duckdb-extensions
 	go test -shuffle=on ./...
 
 # Fast Go tests: -short skips the Postgres-backed tests (no Docker needed).
 .PHONY: go-test-short
-go-test-short:
+go-test-short: duckdb-extensions
 	go test -short -shuffle=on ./...
 
 # Codegen pipeline: huma -> OpenAPI -> typed clients. The Go structs are the
@@ -250,8 +254,12 @@ web-build:
 	cd web && bun install --frozen-lockfile
 	cd web && bun run build; status=$$?; git -C "$(CURDIR)" checkout -- web/dist/.gitkeep; exit $$status
 
+.PHONY: duckdb-extensions
+duckdb-extensions:
+	scripts/install_duckdb_extensions.sh "$(BENCHDB_DUCKDB_EXTENSION_DIR)"
+
 .PHONY: build
-build: web-build
+build: web-build duckdb-extensions
 	go build -o bin/benchdb ./cmd/benchdb
 
 # e2e runs the keystone end-to-end check: boots the built server + ephemeral

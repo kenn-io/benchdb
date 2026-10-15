@@ -70,9 +70,11 @@ func TestSubmissionConstraintRequiresHashForKey(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `
-		UPDATE benchmark_result
-		SET submission_key = 'key-without-hash', submission_payload_sha256 = NULL
-		WHERE id = $1
+		INSERT INTO benchmark_result (id, case_id, context_id, info_id, hardware_id,
+            run_id, run_tags, "timestamp", commit_repo_url, history_fingerprint, submission_key)
+        SELECT 'invalid-key-fixture', case_id, context_id, info_id, hardware_id,
+            run_id, run_tags, "timestamp", commit_repo_url, history_fingerprint, 'key-without-hash'
+        FROM benchmark_result WHERE id = $1
 	`, result.ID)
 	require.Error(t, err)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 )
 
@@ -69,9 +70,8 @@ func TestCompareFailedResultIs422(t *testing.T) {
 	baseline := seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
 	contender := seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}})
 	// Mark the contender failed directly (the ingester accepts only valid bodies).
-	_, err := pool.Exec(ctx, `UPDATE benchmark_result SET error = $1 WHERE id = $2`,
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET error = $1 WHERE id = $2`,
 		[]byte(`{"stack":"boom"}`), contender)
-	require.NoError(t, err)
 
 	resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
 	require.Equal(t, http.StatusUnprocessableEntity, resp.Code, "body %s", resp.Body.String())
@@ -124,8 +124,7 @@ func TestCompareBaselineWithoutCommitNullsLookback(t *testing.T) {
 	baseline := seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
 	contender := seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}})
 	// Strip the baseline's commit so there is no ancestry cutoff.
-	_, err := pool.Exec(ctx, `UPDATE benchmark_result SET commit_id = NULL WHERE id = $1`, baseline)
-	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET commit_id = NULL WHERE id = $1`, baseline)
 
 	resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
 	require.Equal(t, http.StatusOK, resp.Code, "body %s", resp.Body.String())
@@ -160,8 +159,7 @@ func TestCompareLookbackPropagatesDataError(t *testing.T) {
 	contender := seedResult(t, tapi, seedOpts{sha: "c4", ts: day(4), data: []float64{100}})
 	// Empty the day-1 member's data while leaving error NULL: it stays a membership
 	// member (error IS NULL) but historySVS now errors on it inside the lookback window.
-	_, err := pool.Exec(ctx, `UPDATE benchmark_result SET data = '{}' WHERE id = $1`, corrupt)
-	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET data = '{}' WHERE id = $1`, corrupt)
 
 	resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
 	require.Equal(t, http.StatusInternalServerError, resp.Code,

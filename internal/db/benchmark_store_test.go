@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.kenn.io/benchdb/internal/db"
+	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
 )
 
@@ -60,7 +61,7 @@ func storeBenchmarkTracks(
 				continue
 			}
 			verdict.Repository, verdict.CaseID = row.Repository, row.CaseID
-			verdict.PointTimestamps = append(verdict.PointTimestamps, *row.CommitTimestamp)
+			verdict.PointCount++
 			preview = append(preview, previewPoint{CommitTimestamp: *row.CommitTimestamp, Value: row.Data[0], Unit: row.Unit})
 			if row.CommitTimestamp.After(verdict.LatestCommitTimestamp) {
 				verdict.LatestResultID, verdict.LatestResultTimestamp = row.ID, row.Timestamp
@@ -296,6 +297,19 @@ func queuedBenchmarks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []s
 	return keys
 }
 
+func drainBenchmarkWork(t *testing.T, ctx context.Context, st *db.Store) {
+	t.Helper()
+	worker := service.NewVerdicts(st, 0)
+	for range 10 {
+		claimed, err := worker.Process(ctx)
+		require.NoError(t, err)
+		if claimed == 0 {
+			return
+		}
+	}
+	require.FailNow(t, "verdict worker did not drain the fixture queue")
+}
+
 func TestDefaultBranchHistoryQueuesItsBenchmark(t *testing.T) {
 	st, pool, ctx := newTestStore(t)
 	seedSeries(t, st, ctx, "fp-pr", "pr-only", `{}`, "m5", []seriesMember{{ts: day(0), value: 1, offBranch: true}})
@@ -317,7 +331,15 @@ func TestDefaultBranchHistoryQueuesItsBenchmark(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE commit SET fork_point_sha = sha WHERE sha LIKE 'sha-m5-pr-only-%'`)
 	require.NoError(t, err)
 	prID := benchmarkIDForCase(t, ctx, pool, "pr-only")
-	assert.Equal(t, []string{prID}, queuedBenchmarks(t, ctx, pool))
+	assert.True(t, listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10}).Pending,
+		"commit repair is pending before its subjects have been expanded")
+	drainBenchmarkWork(t, ctx, st)
+	list := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10})
+	require.Len(t, list.Rows, 1)
+	assert.Equal(t, prID, list.Rows[0].BenchmarkID)
+	assert.Equal(t, "insufficient", list.Rows[0].Status)
+	assert.Equal(t, int64(1), list.Rows[0].PointCount)
+	assert.False(t, list.Pending)
 }
 
 func TestBenchmarkStatusesPendingFollowRepository(t *testing.T) {
@@ -410,8 +432,8 @@ func resultOnCommit(t *testing.T, ctx context.Context, st *db.Store, commitID, c
 
 // TestCommitRepairAndResultInsertQueueEveryBenchmark interleaves a result
 // insert on an unknown commit with that commit's repair. Neither transaction
-// can see the other's uncommitted write, so each must wait for the other
-// instead of both concluding the result is off the default branch.
+// can see the other's uncommitted write, so they must serialize and the
+// deferred commit work must eventually score both benchmarks.
 func TestCommitRepairAndResultInsertQueueEveryBenchmark(t *testing.T) {
 	for _, order := range []string{"result first", "repair first"} {
 		t.Run(order, func(t *testing.T) {
@@ -448,14 +470,27 @@ func TestCommitRepairAndResultInsertQueueEveryBenchmark(t *testing.T) {
 					second <- err
 				}()
 			}
-			time.Sleep(500 * time.Millisecond)
-			assert.Empty(t, second, "the second writer must wait for the first")
+			require.Eventually(t, func() bool {
+				var blocked bool
+				err := pool.QueryRow(ctx, `SELECT EXISTS (
+					SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+				)`, first.Conn().PgConn().PID()).Scan(&blocked)
+				return err == nil && blocked
+			}, 5*time.Second, 10*time.Millisecond, "the second writer must wait for the first")
 			require.NoError(t, first.Commit(ctx))
 			require.NoError(t, <-second, "the writers must not deadlock")
 
 			want := []string{benchmarkIDForCase(t, ctx, pool, "earlier-bench"), benchmarkIDForCase(t, ctx, pool, "new-bench")}
-			slices.Sort(want)
-			assert.Equal(t, want, queuedBenchmarks(t, ctx, pool))
+			drainBenchmarkWork(t, ctx, st)
+			list := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10})
+			var got []string
+			for _, row := range list.Rows {
+				got = append(got, row.BenchmarkID)
+				assert.Equal(t, "insufficient", row.Status)
+				assert.Equal(t, int64(1), row.PointCount)
+			}
+			assert.ElementsMatch(t, want, got)
+			assert.False(t, list.Pending)
 		})
 	}
 }

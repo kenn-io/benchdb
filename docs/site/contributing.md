@@ -64,6 +64,20 @@ requests to `kenn-io/benchdb`, not to the original Conbench repository.
 loads deterministic demo data, and runs with auth disabled. Ctrl-C stops the
 server. The database keeps running until you run `make dev-down`.
 
+Go builds require `CGO_ENABLED=1` and a C/C++ compiler; the Makefile enables
+CGO. `make build` and the Go test targets prepare the matching DuckDB
+PostgreSQL extension in `.cache/duckdb/extensions`. Run `make duckdb-extensions`
+to prepare it separately, then set `BENCHDB_DUCKDB_EXTENSION_DIR` to that
+directory when running `bin/benchdb`. The server loads the local file without
+downloading extensions. Initial setup needs internet access.
+The container release targets Linux amd64 and arm64. The source extension
+installer supports Linux and macOS on those architectures. Keep the DuckDB Go
+driver and the installer's DuckDB version together when updating either one.
+
+`make dev` keeps its archive under `var/dev-data` beside the development setup.
+`BENCHDB_DEV_DATA_DIR` selects another persistent local directory. Archive
+storage currently supports local volumes; S3 archive storage is future work.
+
 ```bash
 make dev
 curl localhost:8080/api/ping
@@ -186,11 +200,34 @@ Record lasting product, migration, and operations decisions in `docs/site/`.
 Keep active plans and work history in the issue tracker. Do not commit
 `.superpowers/` or other scratch notes.
 
-Build outputs such as `site/`, `bin/`, `var/`, `.cache/`, `web/node_modules`,
+Build outputs such as `site/`, `bin/`, `.cache/`, `web/node_modules`,
 and the built files in `web/dist` are ignored. Regenerate them with the Makefile
 instead of treating them as source. `make clean-local` deletes them, keeps
 `web/dist/.gitkeep`, and clears the Go build cache. Clearing the cache stops
 `//go:embed` from naming deleted dashboard files.
+
+`var/` is also ignored, but it can contain the persistent development archive.
+`make clean-local` preserves it. Keep an archive with its matching PostgreSQL
+database; deleting only one leaves the development installation incomplete.
+
+To reset the default development database, first stop `make dev` and any other
+processes using it. Remove the database volume and move its matching archive
+aside before restarting:
+
+```bash
+docker compose -p benchdb_backend_dev -f docker-compose.backend-dev.yml down -v
+archive_dir="${BENCHDB_DEV_DATA_DIR:-$PWD/var/dev-data}"
+if [ -d "$archive_dir" ]; then
+  mv "$archive_dir" "${archive_dir}.before-reset.$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+make dev
+```
+
+This deletes the development PostgreSQL data. The retained archive alone cannot
+restore those results. If `BENCHDB_DEV_DB_URL` selects another database, reset
+that database separately and move its matching `BENCHDB_DEV_DATA_DIR` aside.
+Do not remove only the archive's `dataset` file: it prevents files from one
+database being used with another.
 
 ### Website deployment
 

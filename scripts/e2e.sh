@@ -17,6 +17,7 @@ DEV_TOKEN="cb_e2e_dev_token_value"
 PG_CONTAINER="benchdb-e2e-pg-$$"
 SERVER_PID=""
 SERVER_LOG="$(mktemp)"
+DATA_DIR="$(mktemp -d)"
 
 cleanup() {
   status=$?
@@ -27,14 +28,18 @@ cleanup() {
     echo "--- playwright report: web/playwright-report/index.html ---" >&2
   fi
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+  [ -n "$SERVER_PID" ] && wait "$SERVER_PID" 2>/dev/null || true
   docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
   rm -f "$SERVER_LOG" 2>/dev/null || true
+  rm -rf "$DATA_DIR"
   exit "$status"
 }
 trap cleanup EXIT
 
 echo "==> build binaries + SPA"
 make build
+export BENCHDB_DATA_DIR="$DATA_DIR"
+export BENCHDB_DUCKDB_EXTENSION_DIR="${BENCHDB_DUCKDB_EXTENSION_DIR:-$ROOT/.cache/duckdb/extensions}"
 
 echo "==> start ephemeral Postgres"
 docker run -d --name "$PG_CONTAINER" \

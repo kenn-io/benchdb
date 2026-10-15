@@ -13,6 +13,10 @@ export BENCHDB_DEPLOY_VERSION="test"
 export BENCHDB_SERVER_IMAGE_NAME="benchdb-server"
 export BENCHDB_SERVER_IMAGE_SPEC="${DOCKER_REGISTRY}/${BENCHDB_SERVER_IMAGE_NAME}:${BENCHDB_DEPLOY_VERSION}"
 export BENCHDB_ADDR=":8080"
+export BENCHDB_DUCKDB_THREADS="2"
+export BENCHDB_DUCKDB_MEMORY_MB="1024"
+export BENCHDB_DUCKDB_READERS="1"
+unset BENCHDB_MAINTENANCE_INTERVAL
 export BENCHDB_INTENDED_BASE_URL="https://benchdb.example.com"
 export CERTIFICATE_ARN="arn:aws:acm:us-east-1:000000000000:certificate/example"
 export DB_NAME="benchdb"
@@ -461,6 +465,108 @@ exercise_runtime_deploy_case() {
 	) >/dev/null 2>&1
 }
 
+exercise_migration_case() {
+	local outfile="$1"
+	local profile="$2"
+	(
+		cd "$tmp"
+		export EKS_CLUSTER='cluster.example' NAMESPACE='default'
+		local stopped=0 applied=0 scaled=0
+		[[ "$profile" != already_stopped ]] || stopped=1
+		aws() { return 0; }
+		render_migration_manifest() { printf '%s\n' 'kind: Job'; }
+		kubectl() {
+			case "$*" in
+				'get persistentvolumeclaim benchdb-data')
+					[[ "$profile" != missing_volume ]]
+					;;
+				'get deployment benchdb-deployment --ignore-not-found -o name')
+					printf '%s\n' 'deployment.apps/benchdb-deployment'
+					;;
+				'scale deployment.apps/benchdb-deployment --replicas=0')
+					scaled=1
+					;;
+				'get pods -l app=benchdb -o name')
+					[[ "$profile" != already_stopped ]] || return 0
+					printf '%s\n' 'pod/old-server'
+					;;
+				'wait --for=delete pod/old-server --timeout=120s')
+					[[ "$scaled" == 1 && "$profile" != stuck_pods ]] || return 1
+					stopped=1
+					printf '%s\n' 'serving-stopped' >> "$outfile"
+					;;
+				'apply -f _jobspec')
+					[[ "$stopped" == 1 ]] || return 1
+					applied=1
+					printf '%s\n' 'migration-started' >> "$outfile"
+					;;
+				'wait --for=condition=complete --timeout=86400s job/benchdb-migration')
+					[[ "$applied" == 1 && "$profile" != failed_migration ]] || return 1
+					printf '%s\n' 'migration-completed' >> "$outfile"
+					;;
+				'describe job benchdb-migration')
+					printf '%s\n' 'Normal SuccessfulCreate 10m job-controller Created pod: migration-test'
+					;;
+				'get job benchdb-migration -o jsonpath={.status.succeeded}')
+					printf '1'
+					;;
+				*) return 0 ;;
+			esac
+		}
+		run_migrations
+	) >/dev/null 2>&1
+}
+
+exercise_rollback_case() {
+	local profile="$1"
+	(
+		export EKS_CLUSTER='cluster.example' NAMESPACE='default'
+		local replicas=0 undone=0
+		aws() { return 0; }
+		kubectl() {
+			case "$*" in
+				'config set-context --current --namespace=default') return 0 ;;
+				'rollout undo deployment.v1.apps/benchdb-deployment')
+					[[ "$profile" != failed_undo ]] || return 1
+					undone=1
+					;;
+				'scale deployment/benchdb-deployment --replicas=1')
+					[[ "$undone" == 1 && "$profile" != failed_scale ]] || return 1
+					replicas=1
+					;;
+				'rollout status deployment/benchdb-deployment')
+					[[ "$undone" == 1 && "$replicas" == 1 ]]
+					;;
+				*) return 1 ;;
+			esac
+		}
+		if rollback; then
+			[[ "$profile" == success && "$replicas" == 1 ]]
+		else
+			[[ "$profile" != success && "$replicas" == 0 ]]
+		fi
+	) >/dev/null 2>&1
+}
+
+for rollback_profile in success failed_undo failed_scale; do
+	exercise_rollback_case "$rollback_profile" || record_failure "rollback did not preserve recovery ordering: $rollback_profile"
+done
+
+for migration_profile in success already_stopped missing_volume stuck_pods failed_migration; do
+	migration_log="$tmp/migration-$migration_profile.log"
+	: > "$migration_log"
+	if exercise_migration_case "$migration_log" "$migration_profile"; then
+		[[ "$migration_profile" == success || "$migration_profile" == already_stopped ]] || record_failure "migration unexpectedly succeeded: $migration_profile"
+		require_contains "$migration_log" "migration-completed"
+	else
+		[[ "$migration_profile" != success && "$migration_profile" != already_stopped ]] || record_failure "migration failed after serving stopped"
+		require_absent "$migration_log" "migration-completed"
+	fi
+	if [[ "$migration_profile" == missing_volume || "$migration_profile" == stuck_pods ]]; then
+		require_absent "$migration_log" "migration-started"
+	fi
+done
+
 require_missing "$root/cmd/benchdb-server"
 
 require_absent "$render_prod_deployment" "gunicorn"
@@ -468,12 +574,6 @@ require_absent "$render_prod_deployment" "gunicorn-port"
 
 require_contains "$render_prod_deployment" "image: \"${BENCHDB_SERVER_IMAGE_SPEC}\""
 require_absent "$render_prod_deployment" "BENCHDB_WEBAPP_IMAGE_SPEC"
-require_line "$render_prod_deployment" '^[[:space:]]*replicas:[[:space:]]*2$'
-require_line "$render_prod_deployment" '^[[:space:]]*type:[[:space:]]*RollingUpdate$'
-require_line "$render_prod_deployment" '^[[:space:]]*maxSurge:[[:space:]]*25%$'
-require_line "$render_prod_deployment" '^[[:space:]]*maxUnavailable:[[:space:]]*25%$'
-require_absent "$render_prod_deployment" "single-replica"
-require_absent "$render_prod_deployment" "process-local"
 require_contains "$render_prod_deployment" "name: http"
 require_contains "$render_prod_deployment" "containerPort: 8080"
 require_contains "$render_prod_deployment" "startupProbe:"
@@ -552,6 +652,9 @@ require_absent "$render_config" "FLASK_APP"
 write_key_set \
 	"BENCHDB_ADDR" \
 	"BENCHDB_INTENDED_BASE_URL" \
+	"BENCHDB_DUCKDB_THREADS" \
+	"BENCHDB_DUCKDB_MEMORY_MB" \
+	"BENCHDB_DUCKDB_READERS" \
 	> "$tmp/config-expected-keys"
 json_map_keys "$render_config" "data" > "$tmp/config-render-keys"
 require_key_sets_equal "benchdb config contract" "$tmp/config-expected-keys" "$tmp/config-render-keys"

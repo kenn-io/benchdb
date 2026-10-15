@@ -276,6 +276,8 @@ gets `403`. See [Authentication and tokens](auth-and-tokens.md).
 
 The `benchdb admin` commands connect to PostgreSQL directly. Run them where
 `BENCHDB_DB_URL` or `BENCHDB_DB_URL_FILE` is set.
+Alert evaluation also needs the server's archive volume and matching DuckDB
+extensions. See [Evaluation](alerting.md#evaluation) for scheduling requirements.
 
 ### `benchdb admin tokens create`
 

@@ -679,8 +679,7 @@ func (s sampleSeeder) committedResult(
 
 func rewriteResultID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, oldID string, newID string) string {
 	t.Helper()
-	tag, err := pool.Exec(ctx, `UPDATE benchmark_result SET id = $1 WHERE id = $2`, newID, oldID)
-	require.NoError(t, err)
+	tag := dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET id = $1 WHERE id = $2`, newID, oldID)
 	require.Equal(t, int64(1), tag.RowsAffected())
 	return newID
 }

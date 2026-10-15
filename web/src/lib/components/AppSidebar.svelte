@@ -5,6 +5,7 @@
   import ChartLineIcon from "@lucide/svelte/icons/chart-line";
   import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";
   import GitCompareIcon from "@lucide/svelte/icons/git-compare-arrows";
+  import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
   import HistoryIcon from "@lucide/svelte/icons/history";
   import MenuIcon from "@lucide/svelte/icons/menu";
   import PanelLeftCloseIcon from "@lucide/svelte/icons/panel-left-close";
@@ -127,6 +128,7 @@
     { label: "Compare", href: "/compare", route: "compare", active: ["compare"], icon: GitCompareIcon },
   ]);
   const account: NavItem = { label: "Account", href: "/account", route: "account", active: ["account"], icon: UserRoundIcon };
+  const storage: NavItem = { label: "Storage", href: "/storage", route: "storage", active: ["storage"], icon: HardDriveIcon };
 
   // Collapsing to an icon rail is a per-browser preference. Storage can be
   // unavailable (private windows, blocked site data); the sidebar then starts
@@ -346,6 +348,7 @@
   </nav>
 
   <div class="sidebar-foot">
+    {@render navLink(storage)}
     {@render navLink(account)}
     <a class="nav-link" href={appURL("/docs")} title={rail ? "API Docs" : undefined}>
       <BookOpenIcon size={17} strokeWidth={1.75} aria-hidden="true" />

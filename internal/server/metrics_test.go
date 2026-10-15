@@ -12,6 +12,7 @@ import (
 	"go.kenn.io/benchdb/internal/api"
 	"go.kenn.io/benchdb/internal/auth"
 	"go.kenn.io/benchdb/internal/commit"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 func TestMetricsEndpointReportsRequests(t *testing.T) {
@@ -54,6 +55,32 @@ func TestMetricsEndpointReportsUnknownCommitCountFromProvider(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "benchdb_github_unknown_commits_total 42\n")
+}
+
+func TestMetricsDistinguishesFailedAndInterruptedMaintenance(t *testing.T) {
+	for _, tc := range []struct {
+		state, failed, interrupted string
+	}{
+		{"failed", "benchdb_storage_maintenance_failed 1\n", "benchdb_storage_maintenance_interrupted 0\n"},
+		{"interrupted", "benchdb_storage_maintenance_failed 0\n", "benchdb_storage_maintenance_interrupted 1\n"},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			recorder := newMetricsRecorder(nil)
+			recorder.storage = maintenanceMetricStatus{state: tc.state}
+			response := httptest.NewRecorder()
+			recorder.serveMetrics(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+			require.Equal(t, http.StatusOK, response.Code)
+			assert.Contains(t, response.Body.String(), tc.failed)
+			assert.Contains(t, response.Body.String(), tc.interrupted)
+		})
+	}
+}
+
+type maintenanceMetricStatus struct{ state string }
+
+func (s maintenanceMetricStatus) StorageStatus(context.Context) (storage.StorageStatus, error) {
+	return storage.StorageStatus{Maintenance: storage.MaintenanceStatus{Enabled: true, State: s.state}}, nil
 }
 
 func TestMetricsRouteLabelsAvoidRawIDs(t *testing.T) {

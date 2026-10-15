@@ -494,24 +494,10 @@ func profileRelationSizes(ctx context.Context, db ProfileDB) ([]RelationSize, SQ
 func profileSQLQueries(samples profileSamples) []profileSQLQuery {
 	queries := []profileSQLQuery{
 		{
-			name:      "RecentRunsPage25",
-			operation: "recent runs page 25",
-			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", false, int32(0), int32(profileRecentPageSize + 1)},
-			explain:   true,
-		},
-		{
-			name:      "RecentRunsPage100",
-			operation: "recent runs page 100",
-			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", false, int32(0), int32(profileRecentMaxPageSize + 1)},
-			explain:   true,
-		},
-		{
-			name:      "RecentRunsPage2",
-			operation: "recent runs second page",
-			sql:       db.RecentRunsSQL,
-			args:      []any{nil, "", false, int32(profileRecentPageSize), int32(profileRecentPageSize + 1)},
+			name:      "RecentRunCandidates",
+			operation: "first batch of recent run candidates",
+			sql:       db.RecentRunCandidatesSQL,
+			args:      []any{nil, nil, nil, db.RecentRunCandidateBatchSize},
 			explain:   true,
 		},
 		{
@@ -624,6 +610,25 @@ func profileSQLQueries(samples profileSamples) []profileSQLQuery {
 			},
 		)
 	}
+	if samples.ciReportRepository != "" {
+		queries = append(queries, profileSQLQuery{
+			name:      "RecentRunCandidatesByRepository",
+			operation: "first batch of recent run candidates by repository",
+			sql:       db.RecentRunCandidatesSQL,
+			args:      []any{samples.ciReportRepository, nil, nil, db.RecentRunCandidateBatchSize},
+			explain:   true,
+		})
+	}
+	if len(samples.ciReportRunIDs) > 0 {
+		queries = append(queries, profileSQLQuery{
+			name:      "RecentRunSummaries",
+			operation: "summaries of selected runs",
+			sql:       db.RecentRunsSQL,
+			args:      []any{nil, "", false, samples.ciReportRunIDs, int32(0), int32(profileRecentPageSize + 1)},
+			explain:   true,
+		})
+	}
+
 	if samples.ciReportCommitSHA != "" {
 		ref := samples.ciReportCommitSHA[:min(6, len(samples.ciReportCommitSHA))]
 		for _, offset := range []int32{0, int32(profileRecentPageSize)} {
@@ -631,7 +636,7 @@ func profileSQLQueries(samples profileSamples) []profileSQLQuery {
 				name:      fmt.Sprintf("RecentRunsSearchOffset%d", offset),
 				operation: "recent runs by partial commit ref",
 				sql:       db.RecentRunsSQL,
-				args:      []any{nil, ref, false, offset, int32(profileRecentPageSize + 1)},
+				args:      []any{nil, ref, false, []string{}, offset, int32(profileRecentPageSize + 1)},
 				explain:   true,
 			})
 		}

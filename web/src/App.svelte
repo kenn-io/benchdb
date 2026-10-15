@@ -12,6 +12,7 @@
   import RunPage from "./lib/components/RunPage.svelte";
   import SeriesBrowse from "./lib/components/SeriesBrowse.svelte";
   import AppSidebar from "./lib/components/AppSidebar.svelte";
+  import StoragePage from "./lib/components/StoragePage.svelte";
   import TrendPage from "./lib/components/TrendPage.svelte";
   import { matchRoute, NAVIGATE_EVENT, pageTitle, type Route } from "./lib/router";
 
@@ -97,6 +98,8 @@
       {/key}
     {:else if route.name === "account"}
       <AccountPage />
+    {:else if route.name === "storage"}
+      <StoragePage />
     {:else}
       <main class="not-found">
         <h1>Not found</h1>

@@ -11,24 +11,14 @@ import (
 )
 
 const countBenchmarkResults = `-- name: CountBenchmarkResults :one
-SELECT count(*) FROM benchmark_result
+SELECT coalesce(sum(result_count), 0)::bigint FROM run_membership
 `
 
 func (q *Queries) CountBenchmarkResults(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, countBenchmarkResults)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const deleteBenchmarkResult = `-- name: DeleteBenchmarkResult :one
-DELETE FROM benchmark_result WHERE id = $1 RETURNING id
-`
-
-func (q *Queries) DeleteBenchmarkResult(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, deleteBenchmarkResult, id)
-	err := row.Scan(&id)
-	return id, err
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getBenchmarkResultByID = `-- name: GetBenchmarkResultByID :one
@@ -39,7 +29,7 @@ SELECT
   data, times, mean, min, max, median, q1, q3, stdev, iqr,
   validation, optional_benchmark_info, change_annotations,
   submission_key, submission_payload_sha256
-FROM benchmark_result
+FROM benchmark_result_local
 WHERE id = $1
 `
 
@@ -119,26 +109,26 @@ func (q *Queries) GetBenchmarkResultByID(ctx context.Context, id string) (GetBen
 }
 
 const getBenchmarkResultBySubmissionKey = `-- name: GetBenchmarkResultBySubmissionKey :one
-SELECT id, run_id, history_fingerprint, submission_payload_sha256
-FROM benchmark_result
+SELECT result_id AS id, run_id, history_fingerprint, payload_sha256
+FROM result_submission
 WHERE submission_key = $1
 `
 
 type GetBenchmarkResultBySubmissionKeyRow struct {
-	ID                      string
-	RunID                   string
-	HistoryFingerprint      string
-	SubmissionPayloadSha256 *string
+	ID                 string
+	RunID              string
+	HistoryFingerprint string
+	PayloadSha256      string
 }
 
-func (q *Queries) GetBenchmarkResultBySubmissionKey(ctx context.Context, submissionKey *string) (GetBenchmarkResultBySubmissionKeyRow, error) {
+func (q *Queries) GetBenchmarkResultBySubmissionKey(ctx context.Context, submissionKey string) (GetBenchmarkResultBySubmissionKeyRow, error) {
 	row := q.db.QueryRow(ctx, getBenchmarkResultBySubmissionKey, submissionKey)
 	var i GetBenchmarkResultBySubmissionKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.RunID,
 		&i.HistoryFingerprint,
-		&i.SubmissionPayloadSha256,
+		&i.PayloadSha256,
 	)
 	return i, err
 }
@@ -165,7 +155,7 @@ SELECT
   c.message AS commit_message,
   c."timestamp" AS commit_timestamp,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN "case" cs ON cs.id = br.case_id
 JOIN context ctx ON ctx.id = br.context_id
 JOIN info inf ON inf.id = br.info_id
@@ -384,7 +374,7 @@ SELECT
   c.author_avatar AS commit_author_avatar,
   c."timestamp" AS commit_timestamp,
   coalesce(c.sha = c.fork_point_sha, false)::boolean AS commit_is_default_branch
-FROM benchmark_result br
+FROM benchmark_result_local br
 JOIN "case" cs ON cs.id = br.case_id
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE ($1::text IS NULL OR br.run_id = $1)
@@ -485,6 +475,66 @@ func (q *Queries) SelectBenchmarkResults(ctx context.Context, arg SelectBenchmar
 	return items, nil
 }
 
+const selectRecentRunCandidates = `-- name: SelectRecentRunCandidates :many
+SELECT run_id, "timestamp" FROM (
+  (SELECT run_id, "timestamp"
+   FROM benchmark_result_local
+   WHERE $1::text IS NULL
+     AND ("timestamp", run_id) < (coalesce($2::timestamp, 'infinity'::timestamp), coalesce($3::text, ''))
+   ORDER BY "timestamp" DESC, run_id DESC
+   LIMIT $4)
+  UNION ALL
+  (SELECT run_id, "timestamp"
+   FROM benchmark_result_local
+   WHERE $1::text IS NOT NULL
+     AND commit_repo_url = $1::text
+     AND ("timestamp", run_id) < (coalesce($2::timestamp, 'infinity'::timestamp), coalesce($3::text, ''))
+   ORDER BY "timestamp" DESC, run_id DESC
+   LIMIT $4)
+) candidates
+ORDER BY "timestamp" DESC, run_id DESC
+`
+
+type SelectRecentRunCandidatesParams struct {
+	Repository      *string
+	CursorTimestamp *time.Time
+	CursorRunID     *string
+	BatchSize       int32
+}
+
+type SelectRecentRunCandidatesRow struct {
+	RunID     string
+	Timestamp time.Time
+}
+
+// Separate global and repository scans expose their respective timestamp indexes.
+// The cursor skips a complete (timestamp, run_id) group, including repetitions
+// split across batches: they all belong to the run already seen by the caller.
+func (q *Queries) SelectRecentRunCandidates(ctx context.Context, arg SelectRecentRunCandidatesParams) ([]SelectRecentRunCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, selectRecentRunCandidates,
+		arg.Repository,
+		arg.CursorTimestamp,
+		arg.CursorRunID,
+		arg.BatchSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectRecentRunCandidatesRow{}
+	for rows.Next() {
+		var i SelectRecentRunCandidatesRow
+		if err := rows.Scan(&i.RunID, &i.Timestamp); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectRecentRuns = `-- name: SelectRecentRuns :many
 WITH matching_commits AS MATERIALIZED (
   SELECT c.id FROM commit c
@@ -494,18 +544,11 @@ WITH matching_commits AS MATERIALIZED (
 ),
 matching_runs AS MATERIALIZED (
   SELECT DISTINCT br.run_id
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   WHERE br.commit_id IN (SELECT id FROM matching_commits)
     AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
 ),
 candidate_runs AS (
-  SELECT br.run_id, max(br."timestamp") AS last_result_at
-  FROM benchmark_result br
-  WHERE $2::text = ''
-    AND NOT $3::boolean
-    AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
-  GROUP BY br.run_id
-  UNION ALL
   -- Matches CountAttentionRuns: without a repository filter a run is judged by
   -- the repository of its latest result, ordered as the list orders it.
   SELECT v.run_id, v.last_result_at
@@ -524,7 +567,7 @@ candidate_runs AS (
   FROM matching_runs mr
   CROSS JOIN LATERAL (
     SELECT max(br."timestamp") AS last_result_at
-    FROM benchmark_result br
+    FROM benchmark_result_local br
     WHERE br.run_id = mr.run_id
       AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
   ) latest
@@ -532,11 +575,14 @@ candidate_runs AS (
     AND NOT $3::boolean
 ),
 selected_runs AS MATERIALIZED (
-  SELECT cr.run_id
+  SELECT unnest($4::text[]) AS run_id
+  WHERE $2::text = '' AND NOT $3::boolean
+  UNION ALL
+  (SELECT cr.run_id
   FROM candidate_runs cr
   ORDER BY cr.last_result_at DESC, cr.run_id DESC
-  LIMIT $5
-  OFFSET $4
+  LIMIT $6
+  OFFSET $5)
 ),
 run_agg AS MATERIALIZED (
   SELECT
@@ -548,8 +594,15 @@ run_agg AS MATERIALIZED (
     count(DISTINCT br.history_fingerprint) AS series_count,
     count(DISTINCT br.batch_id) FILTER (WHERE br.batch_id IS NOT NULL) AS batch_count,
     array_agg(DISTINCT h.name ORDER BY h.name)::text[] AS machine_names
-  FROM benchmark_result br
-  JOIN selected_runs sr ON sr.run_id = br.run_id
+  FROM selected_runs sr
+  -- Keep each lookup on run_id. Flattening this subquery can scan the whole
+  -- repository or intersect its large index again for every selected run.
+  CROSS JOIN LATERAL (
+    SELECT run_id, "timestamp", error, history_fingerprint, batch_id, hardware_id, commit_repo_url
+    FROM benchmark_result_local
+    WHERE run_id = sr.run_id
+    OFFSET 0
+  ) br
   JOIN hardware h ON h.id = br.hardware_id
   WHERE ($1::text IS NULL OR br.commit_repo_url = $1::text)
   GROUP BY br.run_id
@@ -579,9 +632,13 @@ SELECT
 FROM run_agg a
 JOIN LATERAL (
   SELECT br.id, br.run_reason, br.run_tags, br.batch_id, br.commit_repo_url, br.commit_id, br."timestamp"
-  FROM benchmark_result br
-  WHERE br.run_id = a.run_id
-    AND ($1::text IS NULL OR br.commit_repo_url = $1::text)
+  FROM (
+    SELECT id, run_reason, run_tags, batch_id, commit_repo_url, commit_id, "timestamp"
+    FROM benchmark_result_local
+    WHERE run_id = a.run_id
+    OFFSET 0
+  ) br
+  WHERE ($1::text IS NULL OR br.commit_repo_url = $1::text)
   ORDER BY br."timestamp" DESC, br.id DESC
   LIMIT 1
 ) latest ON true
@@ -593,6 +650,7 @@ type SelectRecentRunsParams struct {
 	Repository     *string
 	Search         string
 	NeedsAttention bool
+	RecentRunIds   []string
 	OffsetCount    int32
 	PageSize       int32
 }
@@ -624,13 +682,14 @@ type SelectRecentRunsRow struct {
 // Search all history before pagination so older commits remain discoverable.
 // Aggregate result counts only for the selected run IDs. The attention filter
 // pages over stored verdicts instead of the result table.
-// The empty-ref and matching-ref cases share the same paging and aggregation.
+// Search and attention filters select runs before aggregating their results.
 // For a ref, calculate recency per matching run through its run_id index.
 func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsParams) ([]SelectRecentRunsRow, error) {
 	rows, err := q.db.Query(ctx, selectRecentRuns,
 		arg.Repository,
 		arg.Search,
 		arg.NeedsAttention,
+		arg.RecentRunIds,
 		arg.OffsetCount,
 		arg.PageSize,
 	)
@@ -672,20 +731,4 @@ func (q *Queries) SelectRecentRuns(ctx context.Context, arg SelectRecentRunsPara
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateBenchmarkResultChangeAnnotations = `-- name: UpdateBenchmarkResultChangeAnnotations :one
-UPDATE benchmark_result SET change_annotations = $2 WHERE id = $1 RETURNING id
-`
-
-type UpdateBenchmarkResultChangeAnnotationsParams struct {
-	ID                string
-	ChangeAnnotations []byte
-}
-
-func (q *Queries) UpdateBenchmarkResultChangeAnnotations(ctx context.Context, arg UpdateBenchmarkResultChangeAnnotationsParams) (string, error) {
-	row := q.db.QueryRow(ctx, updateBenchmarkResultChangeAnnotations, arg.ID, arg.ChangeAnnotations)
-	var id string
-	err := row.Scan(&id)
-	return id, err
 }

@@ -6,7 +6,8 @@ metrics, the background verdict worker, and the admin commands you run on a
 schedule. For upgrade and rollback steps, see [Upgrading](upgrading.md).
 
 BenchDB ships as one `benchdb` binary with the Svelte dashboard embedded. It
-stores everything in PostgreSQL.
+stores new results and metadata in PostgreSQL and archives measurements in
+Parquet files on a persistent local volume.
 
 ## Configuration
 
@@ -17,6 +18,12 @@ Boolean settings turn on only for the exact string `true`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BENCHDB_DB_URL` | required | Postgres connection URL. |
+| `BENCHDB_DATA_DIR` | required | Persistent local directory for archived results, staging, and bounded spill. The image uses `/var/lib/benchdb`. |
+| `BENCHDB_DUCKDB_EXTENSION_DIR` | `BENCHDB_DATA_DIR/extensions` | Prepared DuckDB extension directory. The image sets its bundled directory. Source builds can use `make duckdb-extensions`. |
+| `BENCHDB_DUCKDB_THREADS` | `GOMAXPROCS` at startup | Total DuckDB execution thread target, shared by readers and maintenance. |
+| `BENCHDB_DUCKDB_MEMORY_MB` | 256 MiB per thread, bounded to 1024–8192 MiB | Total DuckDB buffer memory in MiB, divided over all readers and maintenance. |
+| `BENCHDB_DUCKDB_READERS` | 1–4, based on threads | Concurrent analytical readers. Defaults to one per eight threads after reserving one thread, rounded down, with a minimum of one and a maximum of four. |
+| `BENCHDB_MAINTENANCE_INTERVAL` | `1h` | Time between archive maintenance cycles, at least `1h`. Use `6h` or `24h` for less frequent maintenance. |
 | `BENCHDB_ADDR` | `:8080` | Listen address. |
 | `BENCHDB_INTENDED_BASE_URL` | unset | Public browser URL, including any path prefix. BenchDB uses it for routing, redirects, report links, and cookies. Required for OIDC and for a [path prefix](#serve-behind-a-path-prefix). |
 | `BENCHDB_API_TOKEN` | unset | Static operator bearer token for break-glass writes. Use server-minted reporter tokens for normal automation. |
@@ -68,7 +75,7 @@ and their parent directories under the deployer's control.
 The container runs as UID/GID `65532:65532`, so that account must be able to
 read mounted secret files. Provision and back up credentials through your
 deployment's secret store. Keep operator tokens and session signing keys stable
-across restarts, and give every replica the same values.
+across restarts.
 
 ### Authentication
 
@@ -86,6 +93,122 @@ command.
 
 Cookies carry the `Secure` attribute unless the host in
 `BENCHDB_INTENDED_BASE_URL` is `localhost`, `127.0.0.1`, or `::1`.
+
+## Persistent result storage
+
+Archive storage uses a local persistent volume. S3 archive storage is future
+work. Existing S3 artifact settings apply to attached artifacts, not archived
+benchmark measurements.
+
+Mount a persistent volume at `BENCHDB_DATA_DIR`. Archived result rows are removed
+from PostgreSQL, so a database backup alone cannot restore their measurements.
+Back up both PostgreSQL and the Parquet files it references. Keep this directory
+paired with its database when moving or restoring an installation.
+
+For a consistent backup, stop the server and other writers, back up PostgreSQL
+and the complete data directory (including its `dataset` identity file), then
+restart the server.
+Restore both from that same backup before starting BenchDB. Startup fails if the
+directory belongs to another database or a published file is missing or has the
+wrong size. Restore the matching volume instead of creating an empty directory.
+
+For the first upgrade to managed Parquet, stop the old server and other writers
+before taking the recovery backup and applying migrations. Start the new server
+with its persistent volume after migration succeeds. The new server drains
+existing history automatically while serving both PostgreSQL and Parquet rows.
+Once archival starts, rolling back only the image cannot restore the old storage
+layout. Restore the pre-migration database backup with the old image to undo
+that cutover.
+
+Run one server against the local volume. The Kubernetes template uses one
+replica and a `Recreate` rollout, so an upgrade briefly stops serving requests.
+Before deploying, provision a `ReadWriteOnce` persistent volume claim named
+`benchdb-data` in the deployment namespace, sized for the archive and temporary
+export/compaction files. The deployment checks that the claim exists; storage
+class and capacity remain deployment choices. The mounted directory must be
+writable by UID/GID `65532:65532`.
+
+Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
+longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion
+batches for fewer archive updates. New results remain queryable while waiting.
+The first cycle waits one interval; subsequent cycles wait one interval after
+the previous attempt finishes, including failures. The schedule and last run
+are saved in `maintenance.json` on the archive volume across server restarts.
+An interrupted cycle keeps its scheduled retry time. A corrupt schedule logs a
+warning and resets the next run to one interval from startup; archive reads
+remain available. If saving the schedule fails, the worker attempts orphan
+cleanup before retrying the write, so abandoned files can free space.
+
+At the start of a cycle, the worker captures an arrival cutoff five minutes
+before that start time. It exports eligible results in batches of 100,000 rows,
+then compacts files toward one million rows and refreshes stale catalogs. It
+attempts cleanup between rewrites and at the end of the cycle; active readers
+retain the files they need. After three cleanup deferrals, new analytical reads
+wait for existing queries to finish and retired files to be removed. Canceling
+maintenance releases this gate without interrupting existing queries.
+Arrivals after that cutoff wait for the next cycle.
+Compaction and catalog refresh each perform at most one pass per file present
+after export, so ongoing edits cannot extend these phases indefinitely. An initial
+historical backfill may take longer than the configured interval. Read-only database
+connections serve existing data without running archive, artifact, or verdict
+maintenance.
+
+The **Storage** page shows PostgreSQL size, published Parquet and catalog sizes,
+file counts, available archive volume space, pending edits and stale catalogs,
+and the last and next maintenance runs. Pending result counts are PostgreSQL
+estimates and can lag recent writes. Usage samples are cached for up to one
+minute; maintenance progress is current. `GET /api/storage` exposes the same
+information, and `/metrics` exposes numeric storage and maintenance gauges.
+`benchdb_storage_maintenance_failed` is `1` when the last cycle failed;
+`benchdb_storage_maintenance_interrupted` reports interruptions separately. A
+shutdown interruption does not count as a failed cycle.
+Neither endpoint scans archived measurements. Volume space includes files used
+by other applications; published file sizes exclude temporary and retired files.
+
+Each fact file has small Parquet catalogs for run discovery and series browsing.
+The worker publishes and retires them with their fact file. Edits and commit
+repairs take effect immediately through the logical read; maintenance then
+rebuilds affected catalogs. Commit-only repairs leave the fact files unchanged.
+Back up the entire directory, including `catalog/`; published catalogs are
+required dataset files and must not be deleted as if they were disposable caches.
+
+Plan space for both the retained archive and temporary export/compaction files.
+Each DuckDB reader and the maintenance connection can spill up to 8 GB.
+The server and `admin alerts evaluate` use the same resource settings:
+
+- The thread target defaults to `GOMAXPROCS` at startup. Maintenance gets one
+  thread below 16 total threads and two otherwise. Readers divide the remaining
+  threads equally, rounded down, with at least one each. An explicit reader
+  count must be between 1 and 32 and fit the remaining thread target.
+- The memory setting is a total across all readers and maintenance, divided
+  equally and rounded down to whole MiB. Each connection needs at least 128 MiB.
+  Adding readers divides this total further rather than multiplying it.
+- On a 20-CPU deployment, defaults give two readers nine threads each,
+  maintenance two threads, and 5120 MiB of total DuckDB buffer memory.
+
+The CPU setting is an execution target, not an operating-system limit. On a
+single-CPU deployment, one reader and maintenance each need one thread.
+The memory setting limits DuckDB's buffer manager, not process RSS; some DuckDB
+allocations sit outside it. Leave room for those allocations, the Go server,
+and PostgreSQL. Set the memory budget explicitly to fit a small container's
+memory limit; the default follows the thread target rather than detecting RAM.
+See DuckDB's [memory limits](https://duckdb.org/docs/current/operations_manual/limits)
+and [out-of-memory guidance](https://duckdb.org/docs/current/guides/performance/oom).
+
+The release image includes the PostgreSQL extension for its embedded DuckDB
+version and architecture. Startup loads that file without downloading code.
+If a source-built server reports a missing extension, run
+`make duckdb-extensions` and set `BENCHDB_DUCKDB_EXTENSION_DIR` to
+`.cache/duckdb/extensions` using an absolute path. The `admin alerts evaluate`
+command also needs the same data directory and extension directory as the server.
+Separate server and admin processes each have their own resource budget.
+
+The read-only clone harness requires a clone with the current migrations and its
+matching archive copy. Set `BENCHDB_PROD_CLONE_DATA_DIR` explicitly when using
+`scripts/prod_clone_compat.sh`; it does not migrate an older clone.
+Its sample selection, SQL timings, row counts, and query plans still read
+PostgreSQL directly. They do not cover Parquet rows after eviction, so the
+harness cannot establish complete post-archive correctness or performance.
 
 ## Serve behind a path prefix
 
@@ -126,6 +249,11 @@ Run it to completion before you start a new server version. `benchdb serve`
 does not migrate or check the schema version at startup unless
 `BENCHDB_INIT_SCHEMA=true`.
 
+Apply merged migrations automatically as part of deployment, after taking a
+recovery backup and retaining the previous image for rollback. They need no
+separate migration approval. Unmerged or ad hoc schema changes still require
+explicit operator authorization.
+
 `benchdb migrate` takes these steps in order:
 
 1. Connects with `BENCHDB_DB_URL` (or `DATABASE_URL`) and pings the database.
@@ -162,6 +290,21 @@ server recomputes them under new rules. See
 it in the `benchdb` binary at `/usr/local/bin/benchdb`, and runs
 `benchdb serve` on container port 8080. The same image runs schema upgrades
 with `benchdb migrate`; there is no separate migration image.
+
+Its archive directory is a Docker volume. Reuse a named volume when replacing
+the container:
+
+```bash
+docker volume create benchdb-data
+docker run --mount type=volume,src=benchdb-data,dst=/var/lib/benchdb \
+  --env-file benchdb.env -p 8080:8080 benchdb:VERSION
+```
+
+Use your deployment's image name and version. The environment file must supply
+`BENCHDB_DB_URL` for the matching database. A plain `docker run` creates an
+anonymous volume, but a replacement container does not automatically reuse it;
+`--rm` removes that anonymous volume. Keep the named volume and its PostgreSQL
+backup together. Never remove the archive volume while retaining its database.
 
 Pass the commit being built as
 `--build-arg BENCHDB_REVISION=$(git rev-parse HEAD)`. The build context
@@ -290,6 +433,9 @@ services:
       BENCHDB_DB_URL: "postgres://benchdb:${APP_BENCHDB_POSTGRES_PASSWORD:?required}@db:5432/benchdb?sslmode=disable"
       BENCHDB_API_TOKEN: "${APP_BENCHDB_API_TOKEN:?required}"
       BENCHDB_ADDR: ":8080"
+      BENCHDB_DATA_DIR: "/var/lib/benchdb"
+    volumes:
+      - "${APP_DATA_DIR}/archive:/var/lib/benchdb"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -302,8 +448,9 @@ services:
 ```
 
 The server starts only after the `migrate` service exits successfully.
-Provision persistent database directories through the normal app package
-layout. Production needs no custom pre-start hook, shell entrypoint, generated
+Provision both database and archive directories through the normal app
+package layout. Give the archive directory to UID/GID `65532:65532`. Production
+needs no custom pre-start hook, shell entrypoint, generated
 `.env`, seeded config, `BENCHDB_INIT_SCHEMA`, or `BENCHDB_SEED`. For OIDC or a
 path prefix, set `BENCHDB_INTENDED_BASE_URL` to the browser URL and add the
 prefix to the health command's `--server` URL. You can also pass `_FILE`
@@ -339,8 +486,13 @@ The script builds the pod's `BENCHDB_DB_URL` from the deploy inputs
 `DB_USERNAME`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and `DB_NAME`, which are all
 required. It URL-encodes the user, password, and database name and adds
 `sslmode=disable`. The pod receives only `BENCHDB_DB_URL`, not the separate
-fields. The runtime ConfigMap holds only `BENCHDB_ADDR` and
-`BENCHDB_INTENDED_BASE_URL`.
+fields. The runtime ConfigMap holds `BENCHDB_ADDR`,
+`BENCHDB_INTENDED_BASE_URL`, and the DuckDB resource settings. Kubernetes
+defaults are `BENCHDB_DUCKDB_THREADS=2`, `BENCHDB_DUCKDB_MEMORY_MB=1024`, and
+`BENCHDB_DUCKDB_READERS=1`; set these deployment inputs to change the budgets.
+`BENCHDB_MAINTENANCE_INTERVAL` is forwarded when supplied. The memory setting
+bounds DuckDB buffers; leave additional pod memory for the server and other
+allocations.
 
 The `benchdb-secret` Secret holds exactly these settings, and no others:
 
@@ -369,61 +521,59 @@ The Go server ignores Conbench's Flask-era variables, such as `SECRET_KEY`,
 `REGISTRATION_KEY`, `APPLICATION_NAME`, `BENCHMARKS_DATA_PUBLIC`,
 `DISTRIBUTION_COMMITS`, and `SVS_TYPE`.
 
-Run the functions in this order for a deploy:
+The script provides these deployment functions:
 
 | Function | What it does |
 | --- | --- |
 | `build_and_push` | Builds the image with `BENCHDB_REVISION`, tags it with `BENCHDB_DEPLOY_VERSION`, and pushes it to ECR. |
 | `deploy_secrets_and_config` | Applies the Secret, the optional GitHub App key Secret, and the ConfigMap. |
-| `run_migrations` | Deletes any previous `benchdb-migration` Job, starts a new one running `benchdb migrate`, waits up to 24 hours for it to complete, and prints its logs. It then calls `exit`, with 0 only if the Job succeeded, so call it in a subshell. The Job has `backoffLimit: 0`, so a failed migration is not retried. |
-| `deploy` | Applies the Deployment and restarts it, then applies the Service, the ServiceMonitor when the cluster has its CRD, and the ingress on the clusters the script lists. Waits for the rollout. |
-| `rollback` | Runs `kubectl rollout undo` on the Deployment. It does not revert the schema. |
+| `stop_serving` | Checks that the `benchdb-data` claim exists, scales the Deployment to zero, and waits for its pods to exit. |
+| `run_migrations` | Calls `stop_serving`, replaces any previous `benchdb-migration` Job, and starts `benchdb migrate`. It waits up to 24 hours and prints the completed Job's logs. It calls `exit` after checking success, so call it in a subshell. The Job has `backoffLimit: 0`, so a failed migration is not retried. |
+| `deploy` | Checks the archive claim, applies the Deployment and restarts it, then applies the Service, the ServiceMonitor when the cluster has its CRD, and the ingress on the clusters the script lists. Waits for the rollout. |
+| `rollback` | Restores the previous Deployment revision, scales it to one replica, and waits for the rollout. It does not restore data or revert the schema. |
 
-Stop the old pods before migrating, and deploy only if the migration
-succeeded. Old pods would otherwise take re-queued statuses from the
-migration and score them with the old rules; see
-[Upgrading](upgrading.md). Run the steps from a script that stops at the
-first failure. Because `run_migrations` ends with `exit`, call it in a
-subshell:
+After configuring the deployment environment and provisioning `benchdb-data`,
+use this order:
+
+1. Build and publish the new image with `build_and_push`, then apply the
+   configuration with `deploy_secrets_and_config`.
+2. Run `stop_serving` and stop any other writers.
+3. Take the recovery database backup and, for an existing archive, its matching
+   volume backup. Retain the previous image reference. The helper does not
+   create backups.
+4. Run `run_migrations` with the new image selected, then `deploy` only if the
+   migration succeeds. A failed migration leaves serving stopped.
+
+After the backup succeeds, continue from a script that stops at the first
+failure. Because `run_migrations` ends with `exit`, call it in a subshell:
 
 ```bash
 #!/usr/bin/env bash
 set -eo pipefail
 source scripts/go_deploy_runtime.sh
 
-deploy_secrets_and_config   # also points kubectl at the cluster and namespace
-kubectl scale deployment/benchdb-deployment --replicas=0
-
-# Wait up to 10 minutes until no server pod is left. Migration Job pods do
-# not carry the app=benchdb label. Each listing is its own assignment, so a
-# failed kubectl call stops the script instead of reading as "no pods".
-for _ in $(seq 120); do
-  pods="$(kubectl get pods -l app=benchdb -o name)"
-  [ -z "$pods" ] && break
-  sleep 5
-done
-if [ -n "$pods" ]; then
-  echo "old server pods are still running; not migrating" >&2
-  exit 1
-fi
-
 ( run_migrations )
 deploy
 ```
 
-`deploy` restores the Deployment's two replicas, because
-`k8s/benchdb-deployment.templ.yml` sets `replicas: 2`.
+Stop old pods before migrating even when the schema change only re-queues
+statuses: old pods would otherwise score those statuses with the old rules.
+For a failed storage cutover, restore the recovery database and its matching
+archive backup before running `rollback`. For the first managed-Parquet
+upgrade, restore the pre-migration database with the old image. The helper
+cannot recover measurements that have moved out of PostgreSQL. See
+[Upgrading](upgrading.md).
 
-The Deployment runs two replicas with a `RollingUpdate` strategy,
-`minReadySeconds: 15`, and `progressDeadlineSeconds: 900`. Startup, liveness,
-and readiness probes all use `/api/ping` on the `http` container port, and the
-Service targets that port. The load balancer health check also uses
-`/api/ping`.
+`deploy` starts one replica with the `benchdb-data` volume. The Deployment uses
+a `Recreate` strategy, `minReadySeconds: 15`, and
+`progressDeadlineSeconds: 900`, so upgrades briefly stop serving requests.
+Startup, liveness, and readiness probes all use `/api/ping` on the `http`
+container port, and the Service targets that port. The load balancer health
+check also uses `/api/ping`.
 
-Replicas need no sticky routing for OIDC CLI login. The server stores only a
-hash of the short-lived one-time loopback code in Postgres and marks it
-redeemed during `cli-exchange`, so the callback and the exchange can reach
-different pods.
+The server stores only a hash of the short-lived one-time CLI loopback code in
+Postgres and marks it redeemed during `cli-exchange`. Pending codes remain
+available across server restarts.
 
 ## Metrics
 
@@ -439,6 +589,9 @@ the internet-facing load balancer.
 | `benchdb_github_unknown_commits_total` | counter | Commit enrichments in this process that fell back to unknown GitHub metadata during ingestion. |
 | `benchdb_http_requests_total{method,route,status}` | counter | Requests by method, low-cardinality route, and status. Unexpected methods report as `OTHER`. |
 | `benchdb_http_request_duration_seconds{method,route,status}` | summary | Request latency, as `_count` and `_sum` series. |
+| `benchdb_storage_*` | gauges | Storage usage and archive maintenance progress; see [Persistent result storage](#persistent-result-storage). |
+| `benchdb_storage_maintenance_failed` | gauge | `1` when the last maintenance cycle failed, excluding interruptions. |
+| `benchdb_storage_maintenance_interrupted` | gauge | `1` when the last maintenance cycle was interrupted. |
 
 `benchdb_github_unknown_commits_total` is not the size of a database backlog.
 It resets when the process restarts and counts only what that process saw. Use
@@ -457,15 +610,14 @@ Every server process runs a background worker. It stores each run's CI
 attention verdict in `run_verdict` and each benchmark's status in
 `benchmark_verdict`. The Runs page, which is the dashboard home, and the
 Benchmarks list read these stored rows instead of scoring history on each page
-load. Each benchmark row also stores the commit times of its history and its
-latest chart points.
+load. Each benchmark row also stores a total point count and a bounded set
+of chart points. Counts for a selected time window come from the analytical
+store, which reads both PostgreSQL and Parquet.
 
-Database triggers add work to `verdict_queue` when results are inserted,
-deleted, or re-annotated, and when commits are inserted or repaired. Because
-the triggers live in the database, writes from admin commands queue work too.
-Workers claim queued keys with a two-minute lease, so several replicas can
-share the queue. A key that fails stays queued and is retried when its lease
-ends.
+Result insertion, deletion, annotations, and commit repair add work to
+`verdict_queue`, including writes from admin commands. Workers claim queued
+keys with a two-minute lease, so abandoned work can resume after a restart. A
+key that fails stays queued and is retried when its lease ends.
 
 - A run gets one verdict per repository it has results in.
 - A benchmark gets one row per machine.
@@ -589,13 +741,31 @@ Nobody needs to resubmit benchmark payloads.
 ## Scheduled alert jobs
 
 Alert rules run through two admin commands. Schedule both from trusted
-operations automation, such as cron, a Kubernetes CronJob, or a scheduled CI
-job:
+operations automation. Evaluation needs the server's PostgreSQL database,
+archive volume, and DuckDB extension directory. In Kubernetes, run it inside
+the existing server pod:
 
 ```bash
+kubectl exec deployment/benchdb-deployment -- benchdb admin alerts evaluate --format json
+```
+
+For a host process or a job with the archive volume mounted:
+
+```bash
+export BENCHDB_DB_URL="postgres://..."
+export BENCHDB_INTENDED_BASE_URL="https://benchdb.example"
+export BENCHDB_DATA_DIR="/var/lib/benchdb"
+# Source builds also need BENCHDB_DUCKDB_EXTENSION_DIR.
+
 benchdb admin alerts evaluate --format json
 benchdb admin alerts deliver --channel webhook --format json
 ```
+
+A separate CronJob or CI runner with only database access cannot evaluate
+archived history. Run it in the server pod or mount the same persistent volume.
+Archive initialization has a 30-second deadline and does not wait for a
+maintenance export to finish. Separate evaluator processes consume their own
+DuckDB memory and thread budget.
 
 `evaluate` reads enabled alert rules, finds each rule's latest matching run,
 classifies it with the CI report engine, and records open and resolve events
@@ -630,6 +800,10 @@ The repository keeps a temporary, local-only gate that checks the Go server,
 dashboard, and CLI against a read-only clone of an existing deployment. It is
 not a normal BenchDB workflow, and its CLI command is hidden. Run it only
 through `scripts/prod_clone_compat.sh`.
+
+The helper's direct SQL diagnostics and sample discovery remain PostgreSQL-only.
+They do not sample archived measurements or measure DuckDB plans. A successful
+gate is not a complete validation after results have moved to Parquet.
 
 Do not commit private infrastructure details, sample identifiers, raw
 payloads, query plans, or server logs from these runs.

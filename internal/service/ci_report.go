@@ -986,7 +986,7 @@ func (r *CIReporter) analyzeComparison(
 	threshold, thresholdZ float64,
 	history historyLoader,
 ) error {
-	analysis, err := r.reader.compare(ctx, item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ, history)
+	analysis, err := r.reader.compareRows(ctx, ciReportCompareInput(item.baselineRow), ciReportCompareInput(item.row), threshold, thresholdZ, history)
 	baseSide := ciReportBaselineSideFromRow(item.baselineRow)
 	if errors.Is(err, ErrNotComparable) {
 		comp.Status = CIReportRowStatusNotComparable
@@ -1007,6 +1007,15 @@ func (r *CIReporter) analyzeComparison(
 	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ)
 	comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
 	return nil
+}
+
+func ciReportCompareInput(row storage.CIReportResultRow) storage.CompareResultRow {
+	return storage.CompareResultRow{
+		ID: row.ResultID, RunID: row.RunID, HistoryFingerprint: row.HistoryFingerprint,
+		Unit: row.Unit, Data: row.Data, Error: row.Error,
+		OptionalBenchmarkInfo: row.OptionalBenchmarkInfo,
+		CommitID:              row.CommitID, CommitTimestamp: row.CommitTimestamp,
+	}
 }
 
 func ciReportComparisonBase(row storage.CIReportResultRow) (CIReportComparison, error) {

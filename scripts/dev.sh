@@ -23,6 +23,9 @@ ADDR="${BENCHDB_ADDR:-:8080}"
 # hit a real database. Use BENCHDB_DEV_DB_URL to point at a different dev DB.
 DEV_DB_URL="postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable"
 DB_URL="${BENCHDB_DEV_DB_URL:-$DEV_DB_URL}"
+DATA_DIR="${BENCHDB_DEV_DATA_DIR:-$REPO_ROOT/var/dev-data}"
+EXTENSION_DIR="$DATA_DIR/extensions"
+scripts/install_duckdb_extensions.sh "$EXTENSION_DIR"
 
 echo "[dev] starting Postgres…"
 "${COMPOSE[@]}" up -d db
@@ -38,6 +41,8 @@ done
 echo "[dev] starting benchdb serve on ${ADDR} (db: ${DB_URL})…"
 BENCHDB_ADDR="$ADDR" \
 	BENCHDB_DB_URL="$DB_URL" \
+	BENCHDB_DATA_DIR="$DATA_DIR" \
+	BENCHDB_DUCKDB_EXTENSION_DIR="$EXTENSION_DIR" \
 	BENCHDB_INIT_SCHEMA=true \
 	BENCHDB_SEED=true \
 	BENCHDB_AUTH_DISABLED=true \

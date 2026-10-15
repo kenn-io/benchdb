@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.kenn.io/benchdb/internal/auth"
+	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/commit"
 	"go.kenn.io/benchdb/internal/commitauth"
 	"go.kenn.io/benchdb/internal/commitrepair"
@@ -51,6 +52,7 @@ type adminRepairConfig struct {
 
 type adminAlertsEvaluateConfig struct {
 	DatabaseURL   string
+	Archive       columnar.Config
 	PublicBaseURL string
 	Format        string
 }
@@ -547,6 +549,11 @@ func newAdminAlertsEvaluateCommand(
 			}
 			cfg.DatabaseURL = databaseURL
 			cfg.PublicBaseURL = os.Getenv("BENCHDB_INTENDED_BASE_URL")
+			archive, err := columnar.ConfigFromEnv()
+			if err != nil {
+				return commandUsageError(cmd, "%v", err)
+			}
+			cfg.Archive = archive
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -584,7 +591,14 @@ func runAdminAlertsEvaluateReal(
 		return service.AlertEvaluationSummary{}, errors.New("connect database failed")
 	}
 
-	store := db.NewStore(pool)
+	opening, cancel := context.WithTimeout(ctx, 30*time.Second)
+	engine, err := columnar.Open(opening, pool, cfg.Archive)
+	cancel()
+	if err != nil {
+		return service.AlertEvaluationSummary{}, fmt.Errorf("open managed archive: %w", err)
+	}
+	defer engine.Close()
+	store := columnar.NewStore(db.NewStore(pool), engine)
 	reporter := service.NewCIReporter(store, cfg.PublicBaseURL)
 	return service.NewAlertEvaluator(store, reporter, nil).Evaluate(ctx, service.AlertEvaluationOptions{})
 }

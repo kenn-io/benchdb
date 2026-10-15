@@ -242,17 +242,13 @@ func trackPreview(members map[string][]storage.HistoryRow) []BenchmarkPreviewPoi
 	return points
 }
 
-// trackPointTimestamps returns the commit time of every history point in a
-// track, oldest first, so the list can count points inside a window.
-func trackPointTimestamps(members map[string][]storage.HistoryRow) []time.Time {
-	timestamps := make([]time.Time, 0)
+// trackPointCount counts history points without retaining a timestamp per result.
+func trackPointCount(members map[string][]storage.HistoryRow) int64 {
+	var count int64
 	for _, segment := range members {
-		for _, member := range segment {
-			timestamps = append(timestamps, *member.CommitTimestamp)
-		}
+		count += int64(len(segment))
 	}
-	slices.SortFunc(timestamps, time.Time.Compare)
-	return timestamps
+	return count
 }
 
 // statusOrder ranks statuses as the list orders them, worst first.
@@ -383,7 +379,7 @@ func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) ([]storage.BenchmarkV
 			return nil, fmt.Errorf("encode preview for %s on %s: %w", track.verdict.BenchmarkID, machine, err)
 		}
 		verdict := track.verdict
-		verdict.PointTimestamps = trackPointTimestamps(track.members)
+		verdict.PointCount = trackPointCount(track.members)
 		verdict.PreviewPoints = preview
 		verdict.Unit = unit
 		scored := trackVerdict(track.fingerprints, track.members, unit, lessIsBetter)

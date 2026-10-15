@@ -235,7 +235,7 @@ func TestHistoryFiltersMembership(t *testing.T) {
 // TestHistorySelectsChangeAnnotations asserts the membership query returns the
 // change_annotations column so the service can read begins_distribution_change.
 func TestHistorySelectsChangeAnnotations(t *testing.T) {
-	store, pool, ctx := newTestStore(t)
+	store, _, ctx := newTestStore(t)
 	const fp = "fp-annotations"
 
 	caseID, _ := store.GetOrCreateCase(ctx, "bench", []byte(`{}`))
@@ -258,9 +258,7 @@ func TestHistorySelectsChangeAnnotations(t *testing.T) {
 	})
 	mustID(t, id, err)
 
-	_, err = pool.Exec(ctx,
-		`UPDATE benchmark_result SET change_annotations = $1 WHERE id = $2`,
-		[]byte(`{"begins_distribution_change":true}`), id)
+	err = store.UpdateBenchmarkResultChangeAnnotations(ctx, id, []byte(`{"begins_distribution_change":true}`))
 	require.NoError(t, err)
 
 	rows, err := store.SelectHistoryForFingerprint(ctx, fp)

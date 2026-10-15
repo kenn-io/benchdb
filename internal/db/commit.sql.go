@@ -99,11 +99,11 @@ FROM (
   SELECT c.repository, max(c."timestamp") AS last_activity
   FROM commit c
   WHERE c.repository <> ''
-    AND EXISTS (SELECT 1 FROM benchmark_result br WHERE br.commit_id = c.id)
+    AND EXISTS (SELECT 1 FROM benchmark_result_local br WHERE br.commit_id = c.id)
   GROUP BY c.repository
   UNION ALL
   SELECT br.commit_repo_url, max(br."timestamp")
-  FROM benchmark_result br
+  FROM benchmark_result_local br
   WHERE br.commit_id IS NULL
     AND br.commit_repo_url <> ''
   GROUP BY br.commit_repo_url

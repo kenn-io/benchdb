@@ -1,13 +1,21 @@
 # Temporary production-clone migration gate
 
-This page is for maintainers who need to check that BenchDB can read a copy of
-an existing production database without writing to it. It covers the safety
-checks, how to prepare a clone, how to run the gate, and the evidence recorded
-from earlier runs.
+This page is for maintainers who need to collect PostgreSQL diagnostics and
+check reads against a disposable copy of a production database. It covers the
+safety checks, how to prepare a clone, how to run the gate, and the evidence
+recorded from earlier runs.
 
 The gate is temporary and exists only for migration work. It runs on your
 machine against a restored PostgreSQL clone. It is not part of the normal
 BenchDB workflow, and the repository does not deploy it.
+
+The current server needs current migrations and a matching local archive.
+The helper still selects samples and collects row counts, SQL timings, and
+query plans directly from PostgreSQL. Those queries omit results that have
+moved to Parquet. A passing gate does not establish complete archive
+correctness or performance; check archived history through the analytical
+store and running HTTP service. See [Managed Parquet storage](storage-roadmap.md)
+for full-archive measurements and their limits.
 
 Never commit passwords, tokens, `.pgpass` entries, service credentials,
 private hostnames, private IP addresses, raw production-derived payloads,
@@ -16,7 +24,8 @@ query plans with identifiers, or raw server logs from these runs.
 ## What the gate checks
 
 `scripts/prod_clone_compat.sh` builds BenchDB, starts `benchdb serve` against
-the clone with a read-only connection, and then checks that:
+the clone with a read-only connection. For the PostgreSQL samples it can
+find, it checks that:
 
 - the server starts and answers `/api/ping`,
 - the read API returns valid data for the series list, result list, result
@@ -27,9 +36,10 @@ the clone with a read-only connection, and then checks that:
 - row counts in the checked tables are the same before and after the run,
 - the server log contains no blocked-write messages.
 
-The row counts catch writes that succeeded. The log scan catches writes that
-the read-only role or `default_transaction_read_only` blocked. You need both to
-claim the run wrote nothing.
+The row-count check detects changes in the number of rows. The log scan
+catches writes that the read-only role or `default_transaction_read_only`
+blocked. Both must pass for gate acceptance; they do not replace the dedicated
+read-only role.
 
 The script drives a hidden `prod-clone` command group under `admin` in the
 main `benchdb` binary. General CLI help does not list it, and it is not a
@@ -43,12 +53,15 @@ Set these variables before every run:
 export BENCHDB_PROD_CLONE_DB_URL='postgresql://<read-only-role>@<clone-host>:<port>/<clone-database>'
 export BENCHDB_PROD_CLONE_CONFIRM=read-only
 export BENCHDB_PROD_CLONE_READONLY_ROLE='<read-only-role>'
+export BENCHDB_PROD_CLONE_DATA_DIR='<matching-clone-archive-directory>'
 ```
 
 The gate stops before it connects unless:
 
 - `BENCHDB_PROD_CLONE_DB_URL` is set, uses the `postgres` or `postgresql`
   scheme, and names a host and a database,
+- `BENCHDB_PROD_CLONE_DATA_DIR` names the migrated clone's existing archive
+  directory,
 - `BENCHDB_PROD_CLONE_CONFIRM` is exactly `read-only`,
 - `BENCHDB_PROD_CLONE_READONLY_ROLE` is set. The only exception is a
   development dry run, described below.
@@ -97,13 +110,15 @@ run, and the report fails it.
 
 ## The server the gate starts
 
-The script starts `benchdb serve` with an empty environment plus three
+The script starts `benchdb serve` with an empty environment plus these
 variables:
 
 | Variable | Value |
 | --- | --- |
 | `PATH` | Copied from your shell |
 | `BENCHDB_DB_URL` | The clone URL without its password or query string, plus the options below |
+| `BENCHDB_DATA_DIR` | `BENCHDB_PROD_CLONE_DATA_DIR`, the matching clone archive |
+| `BENCHDB_DUCKDB_EXTENSION_DIR` | The prepared extension directory from your shell, or `.cache/duckdb/extensions` under the repository |
 | `BENCHDB_ADDR` | `127.0.0.1:<port>`, where the port is `BENCHDB_PROD_CLONE_PORT` or 18080 |
 
 The server therefore inherits no auth, session, seed, OIDC, GitHub token, or
@@ -113,15 +128,19 @@ The server therefore inherits no auth, session, seed, OIDC, GitHub token, or
 `application_name=benchdb-admin-prod-clone-compat`.
 
 The script stops if the port already serves a BenchDB API. On a read-only
-connection the server does not compute run verdicts or benchmark statuses. It
-serves only the rows already stored.
+connection the server skips archive maintenance, artifact collection, and
+verdict computation. It reads the existing archive and stored statuses.
 
 ## Prepare the clone
 
+Use a clone with the current schema and its matching archive. A database-only
+copy is incomplete once results have moved to Parquet.
+
 `benchdb migrate` refuses a database that has `benchmark_result` but no
-`schema_migrations` table. Rebuild a restored copy from the current baseline
-first, as described in [Upgrading BenchDB](upgrading.md). Use a writable role
-for that step:
+`schema_migrations` table. Follow [Upgrading BenchDB](upgrading.md) for a raw
+legacy snapshot; do not mark migrations as applied by hand. For a BenchDB
+clone with a valid migration ledger, apply pending migrations with a writable
+role before the read-only run:
 
 ```bash
 BENCHDB_DB_URL='postgresql://<writable-role>@<clone-host>:<port>/<clone-database>' \
@@ -140,6 +159,7 @@ The script needs `jq`, `curl`, and `uv`, plus the Go and Bun toolchains for
 BENCHDB_PROD_CLONE_DB_URL='postgresql://<read-only-role>@<clone-host>:<port>/<clone-database>' \
 BENCHDB_PROD_CLONE_CONFIRM=read-only \
 BENCHDB_PROD_CLONE_READONLY_ROLE='<read-only-role>' \
+BENCHDB_PROD_CLONE_DATA_DIR='<matching-clone-archive-directory>' \
 scripts/prod_clone_compat.sh --profile
 ```
 
@@ -158,22 +178,25 @@ rm -rf var/prod-clone-compat/
 
 ### Expected warnings
 
-Sample selection is best effort. These warnings do not fail the gate:
+Sample selection is best effort. The report flags sample warnings for review,
+but these optional warnings do not fail the gate:
 
 - an optional candidate-source query hit the statement timeout,
 - optional sample metadata hit the statement timeout,
 - an optional category, such as errored results, mixed units, or high-volume
   series, is missing from the sample manifest.
 
-With these warnings the run still shows compatibility and the cost of
-targeted reads. It does not show that every historical data shape was sampled.
+An empty sample manifest or missing compare sample does fail validation.
+Review optional warnings before relying on the run: it covers the selected
+PostgreSQL samples, not every historical data shape or archived result.
 
 ## Recorded evidence
 
-The numbers below come from runs made before the repository history starts on
-2026-08-27. They describe the server and dashboard of that time. Later changes,
-such as stored run verdicts and benchmark statuses, have not been measured on
-a clone.
+The first three timing sections below describe runs made before the
+repository history starts on 2026-08-27. They describe the server and dashboard
+of that time. The later recent-run experiment has its own limits. These runs
+are separate from the [full-archive measurements](storage-roadmap.md#large-history-measurements),
+which include stored statuses for a limited verdict fixture.
 
 ### Compatibility result
 
@@ -265,9 +288,9 @@ rows in about 1.4 s.
 A review found that sampling recent commits without results could leave the
 series page sparse. An exact latest-per-fingerprint query fixed that but timed
 out on the clone, because it sorted the whole eligible history. Default browse
-now starts from a bounded window of recent default-branch commits that have
+then started from a bounded window of recent default-branch commits that had
 non-errored results. Search, fingerprint, run, history, and CI report routes
-handle exact lookups.
+handled exact lookups.
 
 The follow-up run measured:
 
@@ -281,14 +304,54 @@ The follow-up run measured:
 
 In a browser, `/series` loaded its 25-row page in about 4.1-4.2 s on desktop
 and mobile, with no console errors and no page-wide horizontal scroll. Browse
-is still the slowest page, but it stays under the read timeout.
+was still the slowest page, but it stayed under the read timeout.
+
+### Exact recent-run paging at 106 million results
+
+A later run on PostgreSQL 16 measured the recent-runs handler against a
+disposable copy with about 106 million results. The previous default query
+grouped the entire result table before selecting a page and exceeded a
+15-second statement timeout.
+
+The updated path walked timestamp indexes in batches until it found enough
+distinct runs. It then read those runs through the run-ID index to calculate
+complete counts and metadata. A repeatable-read transaction kept discovery
+and summaries consistent. There was no fixed time window or sampled result
+cap; deep offsets still required walking the preceding results.
+
+Warm measurements used the real HTTP handler in process, with PostgreSQL's
+default automatic plan selection. They exclude network and browser time:
+
+| Recent-runs request | Status | Handler time |
+| --- | ---: | ---: |
+| 25 runs | 200 | 0.52 s |
+| 25 runs, offset 25 | 200 | 0.64 s |
+| 100 runs | 200 | 1.54 s |
+| 25 runs, repository filter | 200 | 0.41 s |
+| 100 runs, repository filter | 200 | 0.92 s |
+| Repository with no results | 200 | 1.4 ms |
+
+This experiment added a repository/timestamp index with run IDs included. It
+occupied about 10 GB on the disposable copy. That index build is not part of
+the managed-storage migration: the current server moves settled results into
+Parquet and keeps only the bounded ingestion table's indexes in PostgreSQL.
+
+The SQL profiler now records candidate discovery and run summaries separately.
+Its HTTP probes measure complete requests, including all batches.
+
+This was a focused performance check, not a new full compatibility gate. The
+snapshot lacked the current migration ledger and verdict tables. Empty
+run-verdict and queue fixtures were added only to the disposable copy to
+exercise the handler. Modern benchmark browsing, verdict computation, and a
+full legacy-data upgrade were not validated by this run.
 
 ### What this means for storage
 
-Targeted reads by result, history, compare, and CI report stay fast on
-Postgres. Broad browsing across `benchmark_result` is the cost. The
-[storage roadmap](storage-roadmap.md) uses this evidence and describes the
-proposed next steps.
+These PostgreSQL runs showed fast targeted reads by result, history, compare,
+and CI report. Broad browsing across `benchmark_result` remained expensive.
+The current [managed Parquet storage](storage-roadmap.md) moves settled
+results out of that table and uses run and series catalogs for browsing. Its
+scale measurements are recorded separately from the earlier PostgreSQL runs.
 
 ## Record new evidence
 

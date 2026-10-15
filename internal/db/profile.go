@@ -1,5 +1,8 @@
 package db
 
-// RecentRunsSQL exposes the generated endpoint query for EXPLAIN and timing.
-// The SQL remains owned by query/benchmark_result.sql.
+// RecentRunsSQL exposes the generated run-summary query for EXPLAIN and timing.
+// Unfiltered pages supply the run IDs found by batched discovery.
 const RecentRunsSQL = selectRecentRuns
+
+// RecentRunCandidatesSQL exposes one discovery batch for EXPLAIN and timing.
+const RecentRunCandidatesSQL = selectRecentRunCandidates

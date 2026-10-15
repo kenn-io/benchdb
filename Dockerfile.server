@@ -6,7 +6,7 @@ RUN bun install --frozen-lockfile
 COPY web ./
 RUN bun run build
 
-FROM --platform=$BUILDPLATFORM golang:1.27.0 AS go-build
+FROM golang:1.27.0-bookworm AS go-build
 
 WORKDIR /src
 # "|" falls back to the source repo on any proxy error, including HTTP/2 stream resets mid-download.
@@ -19,13 +19,23 @@ ARG TARGETOS
 ARG TARGETARCH
 # The build context excludes .git, so the commit comes in as a build argument.
 ARG BENCHDB_REVISION=""
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags "-X go.kenn.io/benchdb/internal/buildinfo.revision=${BENCHDB_REVISION}" \
     -o /out/benchdb ./cmd/benchdb
+RUN scripts/install_duckdb_extensions.sh /out/duckdb/extensions
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -m 0700 -o 65532 -g 65532 /var/lib/benchdb
 
 COPY --from=go-build /out/benchdb /usr/local/bin/benchdb
+COPY --from=go-build /out/duckdb/extensions /usr/local/share/benchdb/duckdb/extensions
+ENV BENCHDB_DATA_DIR=/var/lib/benchdb \
+    BENCHDB_DUCKDB_EXTENSION_DIR=/usr/local/share/benchdb/duckdb/extensions
+# Reuse a named volume at this path when replacing the container.
+VOLUME ["/var/lib/benchdb"]
 EXPOSE 8080
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/benchdb", "serve"]

@@ -67,6 +67,10 @@ export interface AccountRoute {
   name: "account";
 }
 
+export interface StorageRoute {
+  name: "storage";
+}
+
 export type CIReportBaseline = "" | "fork_point" | "parent" | "latest_default";
 
 export interface CIReportQuery {
@@ -118,6 +122,7 @@ export interface BrowseRoute {
 export type Route =
   | HomeRoute
   | AccountRoute
+  | StorageRoute
   | BrowseRoute
   | LeafRoute
   | TrendRoute
@@ -462,6 +467,9 @@ export function matchRoute(pathname: string, search = ""): Route {
   if (pathname === "/account" || pathname === "/account/") {
     return { name: "account" };
   }
+  if (pathname === "/storage" || pathname === "/storage/") {
+    return { name: "storage" };
+  }
   if (pathname === "/ci/report" || pathname === "/ci/report/") {
     return { name: "ci-report", query: parseCIReportQuery(search) };
   }
@@ -509,6 +517,7 @@ export function matchRoute(pathname: string, search = ""): Route {
 const ROUTE_TITLES: Record<Route["name"], string> = {
   home: "Runs",
   account: "Account",
+  storage: "Storage",
   browse: "Benchmarks",
   "series-leaf": "Benchmark trend",
   trend: "Benchmark trend",

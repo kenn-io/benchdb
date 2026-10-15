@@ -6,8 +6,9 @@ need a BenchDB server URL and an API token. If you do not have a server yet,
 
 ## Build the CLI
 
-`make build` needs Go and [Bun](https://bun.sh/). It builds the dashboard and
-writes `bin/benchdb`, which contains both the CLI and the server.
+`make build` needs Go, [Bun](https://bun.sh/), and a C/C++ compiler for DuckDB.
+It enables CGO, prepares DuckDB's extensions, builds the dashboard, and writes
+`bin/benchdb`, which contains both the CLI and the server.
 
 ```bash
 make build

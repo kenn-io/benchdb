@@ -521,6 +521,57 @@ func TestRecentRunSearchOrdersWholeRunsBeforePagination(t *testing.T) {
 	}
 }
 
+func TestRecentRunsPageAcrossTiesAndInterleavedRuns(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	otherRepo := "https://github.com/org/other"
+	for _, result := range []struct {
+		run, repo string
+		day       int
+	}{
+		{"run-a", defaultRepo, 1},
+		{"run-b", defaultRepo, 2},
+		{"run-c", defaultRepo, 3},
+		{"run-a", defaultRepo, 3},
+		{"run-a", defaultRepo, 3},
+		{"run-b", otherRepo, 4},
+	} {
+		seedResult(t, tapi, seedOpts{
+			sha: fmt.Sprintf("commit-%d", result.day), ts: day(result.day),
+			data: []float64{10}, runID: result.run, repo: result.repo,
+		})
+	}
+	for _, tc := range []struct {
+		query string
+		ids   []string
+		count int64
+		more  bool
+	}{
+		{"page_size=2", []string{"run-b", "run-c"}, 2, true},
+		{"page_size=2&offset=2", []string{"run-a"}, 3, false},
+		{"page_size=2&offset=3", []string{}, 0, false},
+		{"page_size=2&repository=" + url.QueryEscape(defaultRepo), []string{"run-c", "run-a"}, 1, true},
+		{"page_size=2&offset=2&repository=" + url.QueryEscape(defaultRepo), []string{"run-b"}, 1, false},
+		{"repository=" + url.QueryEscape(otherRepo), []string{"run-b"}, 1, false},
+		{"repository=" + url.QueryEscape("https://github.com/org/absent"), []string{}, 0, false},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			resp := tapi.Get("/api/runs/recent?" + tc.query)
+			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			var page service.RecentRunsPage
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+			ids := make([]string, 0, len(page.Runs))
+			for _, run := range page.Runs {
+				ids = append(ids, run.RunID)
+			}
+			assert.Equal(t, tc.ids, ids)
+			assert.Equal(t, tc.more, page.HasMore)
+			if len(page.Runs) > 0 {
+				assert.Equal(t, tc.count, page.Runs[0].ResultCount)
+			}
+		})
+	}
+}
+
 func TestRecentRunSearchTreatsWildcardsAsLiteralText(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
 	seedResult(t, tapi, seedOpts{sha: "abcdef111111", ts: day(1), data: []float64{10}, runID: "literal-run"})
@@ -530,5 +581,36 @@ func TestRecentRunSearchTreatsWildcardsAsLiteralText(t *testing.T) {
 		var page service.RecentRunsPage
 		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
 		assert.Empty(t, page.Runs, "search %q must not match arbitrary characters", ref)
+	}
+}
+
+func TestRecentRunsDiscoverPastLargeRunsAndTimestampTies(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	seed := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{10}, runID: "run-z"})
+	seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{10}, runID: "run-y"})
+	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{10}, runID: "run-z"})
+	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}, runID: "run-a"})
+	// Each timestamp/run group spans several discovery batches. The older
+	// run-z result must not displace run-a when discovery reaches it again.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO benchmark_result (id, case_id, context_id, info_id, hardware_id,
+			run_id, "timestamp", run_tags, commit_repo_url, history_fingerprint)
+		SELECT 'bulk-' || n, br.case_id, br.context_id, br.info_id, br.hardware_id,
+			CASE WHEN n <= 10000 THEN 'run-z' ELSE 'run-y' END,
+			br."timestamp", br.run_tags, br.commit_repo_url, br.history_fingerprint
+		FROM benchmark_result br CROSS JOIN generate_series(1, 20000) n
+		WHERE br.id = $1`, seed)
+	require.NoError(t, err)
+	for _, repository := range []string{"", defaultRepo} {
+		for offset, id := range []string{"run-z", "run-y", "run-a"} {
+			resp := tapi.Get(fmt.Sprintf("/api/runs/recent?page_size=1&offset=%d&repository=%s", offset, url.QueryEscape(repository)))
+			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			var page service.RecentRunsPage
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &page))
+			require.Len(t, page.Runs, 1)
+			assert.Equal(t, id, page.Runs[0].RunID)
+			assert.Equal(t, offset < 2, page.HasMore)
+			assert.Equal(t, []int64{10002, 10001, 1}[offset], page.Runs[0].ResultCount)
+		}
 	}
 }

@@ -1,8 +1,9 @@
 # Upgrading BenchDB
 
 This page is for operators moving a BenchDB server to a newer version. It
-covers the normal in-place upgrade, rolling back, and the one-time rebuild for
-databases from early private builds.
+covers the normal in-place upgrade, rolling back, and rebuilding databases from
+early private builds. Keep PostgreSQL and its managed Parquet archive together
+through backup, restore, and deployment.
 [Operations](operations.md#schema-migrations) describes exactly what
 `benchdb migrate` checks and applies.
 
@@ -30,8 +31,14 @@ take before migrating.
 
 1. Choose the new image and note its digest. For a release, copy the
    `ghcr.io/kenn-io/benchdb@sha256:...` reference from the release workflow
-   summary.
-2. Take a recovery backup before you migrate:
+   summary. Retain the current image or binary for rollback.
+2. Stop every server and result publisher. Keep them stopped through backup
+   and migration. A running server's status worker takes work from the queue
+   that migrations fill. An old server would score re-queued statuses with
+   its old rules and remove them from the queue, and the new server would not
+   score them again.
+3. Take an owner-private recovery backup that includes the database schema,
+   data, and migration history:
 
     ```bash
     umask 077
@@ -39,14 +46,23 @@ take before migrating.
       --file benchdb-before-upgrade.dump "$BENCHDB_DB_URL"
     ```
 
-    The dump covers the database only. Attachment bytes in the artifact bucket
-    need their own backup; see
+    If the source already uses managed Parquet storage, also back up the
+    complete `BENCHDB_DATA_DIR` while the server remains stopped. Include its
+    measurement files, catalogs, and `dataset` identity file:
+
+    ```bash
+    umask 077
+    tar -C "$BENCHDB_DATA_DIR" -cf benchdb-archive.tar .
+    ```
+
+    `pg_dump` does not include Parquet files. The database and archive backups
+    must come from the same stopped deployment. For the first managed-Parquet
+    upgrade, the database backup contains all measurements; provision an
+    empty persistent local archive directory for the new server.
+
+    Attachment bytes in the artifact bucket need their own backup; see
     [Attachment storage](submitting-results.md#attachment-storage).
 
-3. Stop every server running the old version. A running server's status worker
-   takes work from the queue that migrations fill. An old server would score
-   re-queued statuses with its old rules and remove them from the queue, and
-   the new server would not score them again.
 4. Run the new image's `benchdb migrate` with `BENCHDB_DB_URL` set, and wait
    for it to finish:
 
@@ -58,45 +74,68 @@ take before migrating.
     non-zero. Do not start the new server. Fix the cause, or
     [roll back](#roll-back).
 
-5. Start the new server version. Do this only after `migrate` succeeded.
+5. Start the new server version with its persistent archive mounted at
+   `BENCHDB_DATA_DIR`. Do this only after `migrate` succeeded.
 6. Check the new server. `benchdb health --server <url>` prints `ok`, and
    `GET <url>/api/ping` returns the new build's commit in `revision`.
+   Check representative result, history, series, run, and report pages.
+   Keep the backups until the upgraded deployment has accepted and displayed
+   new results.
 
 Some migrations re-queue stored run verdicts and benchmark statuses. The
 server recomputes them in the background after it starts. Until it finishes,
 the Benchmarks page reads "Updating statuses…".
 
-Operations shows how each deployment setup orders steps 3 to 5:
+Operations describes how each deployment setup runs migrations before serving:
 
 - In Kubernetes, scale the Deployment to zero, run `run_migrations` from
   `scripts/go_deploy_runtime.sh` in a subshell, and run `deploy` only if it
   succeeded. See [Kubernetes](operations.md#kubernetes).
 - In the Umbrel Compose example, a `migrate` service runs first, and the
   server waits for it to exit successfully. Change the pinned image digest and
-  restart the app. See [Umbrel deployment](operations.md#umbrel-deployment).
+  restart the app after taking the paired backup above. See
+  [Umbrel deployment](operations.md#umbrel-deployment).
 
 ## Roll back
 
-Restore the database and the previous image together. Rolling back only the
-image is not enough. An older binary's `benchdb migrate` refuses a newer
-schema with `database schema version N is newer than this binary (expects M);
-upgrade BenchDB`. `benchdb serve` does not check the schema version, so an old
-server would start against a schema it was not built for.
+Restore the database, its matching archive, and the previous image together.
+Rolling back only the image is not enough. An older binary's `benchdb migrate`
+refuses a newer schema with `database schema version N is newer than this
+binary (expects M); upgrade BenchDB`. `benchdb serve` does not check the schema
+version, so an old server could attempt to use a schema it was not built for.
 
 1. Stop the new server and every result publisher.
-2. Restore the recovery backup into an empty database:
+2. Restore the full recovery dump into an empty database. Do **not** run
+   migrations on the empty database first:
 
     ```bash
-    pg_restore --no-owner --no-acl \
+    pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
       --dbname "$RESTORE_DATABASE_URL" benchdb-before-upgrade.dump
     ```
 
-3. Point `BENCHDB_DB_URL` at the restored database and deploy the previous
-   image digest.
+3. If the source used managed Parquet storage, extract the matching archive
+   backup into an empty directory and give the server write access to it:
 
-Results written after the backup are not in the restored database.
+    ```bash
+    install -d -m 0700 "$RESTORED_BENCHDB_DATA_DIR"
+    tar -C "$RESTORED_BENCHDB_DATA_DIR" -xf benchdb-archive.tar
+    ```
+
+4. Point `BENCHDB_DB_URL` at the restored database and, for an archived source,
+   `BENCHDB_DATA_DIR` at the restored archive. Deploy the previous image digest
+   and verify the same pages. To retry an upgrade, apply the new binary's
+   migrations to this restored pair before starting the new server. When
+   retrying the first managed-Parquet upgrade, use an empty archive directory.
+
+A data-only restore into a freshly migrated database is not this recovery
+procedure. Migration 13 seeds the singleton `archive_dataset` row, so restoring
+that row again conflicts. Omitting it instead loses the identity that ties the
+archive to its database. The full dump restores the original schema and
+identity together.
+
+Results written after the backup are not in the restored deployment.
 Kubernetes' `rollback` function runs `kubectl rollout undo` on the Deployment
-only. It does not restore the schema.
+only. It does not restore the database or archive.
 
 ## Rebuild a database from a pre-reset build
 
@@ -107,34 +146,19 @@ temporary database layouts. They are not supported upgrade sources. Do not run
 exported and rebuilt from the current BenchDB baseline`. If it has a ledger,
 `benchdb migrate` cannot tell it apart, so check which build created it.
 
-Export the data and rebuild the database once. Do not change the migration
-ledger by hand.
+These databases need a conversion specific to their source schema. A generic
+data-only restore into the current schema is not a supported upgrade. Never
+change the migration ledger by hand.
 
-Stop BenchDB and all result publishers first. Then keep two owner-private
-archives:
+Stop BenchDB and all result publishers. Before attempting the conversion,
+retain the old image or binary and take an owner-private full recovery backup:
 
 ```bash
 umask 077
 pg_dump --format=custom --no-owner --no-acl \
   --file benchdb-recovery.dump "$OLD_BENCHDB_DATABASE_URL"
-pg_dump --format=custom --data-only --no-owner --no-acl \
-  --exclude-table-data=public.schema_migrations \
-  --exclude-table-data=public.alembic_version \
-  --file benchdb-data.dump "$OLD_BENCHDB_DATABASE_URL"
 ```
 
-The recovery archive keeps the old schema for rollback. The data archive is
-the input to the new baseline.
-
-Create an empty database, apply the current migrations, and restore the data:
-
-```bash
-BENCHDB_DB_URL="$NEW_BENCHDB_DATABASE_URL" benchdb migrate
-pg_restore --data-only --single-transaction --no-owner --no-acl \
-  --dbname "$NEW_BENCHDB_DATABASE_URL" benchdb-data.dump
-```
-
-Before you switch traffic, compare row counts for every application table.
-Check representative result, history, series, run, and report pages. Keep the
-recovery archive until the rebuilt deployment has accepted and displayed new
-results.
+Before switching traffic to the rebuilt deployment, check representative
+result, history, series, run, and report pages. Keep the recovery backup until
+the rebuilt deployment has accepted and displayed new results.

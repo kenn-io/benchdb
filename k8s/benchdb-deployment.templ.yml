@@ -7,7 +7,8 @@ spec:
   selector:
     matchLabels:
       app: benchdb
-  replicas: 2
+  # Local Parquet files are owned by one server and its persistent volume.
+  replicas: 1
   # Note(JP): give this 15 min instead of 10; the rollout does not need to be
   # super fast and sometimes we want to manually fix a problem while the deploy
   # pipeline keeps waiting -- "The number of seconds you want to wait for your
@@ -16,19 +17,17 @@ spec:
   # status: "False" with reason: ProgressDeadlineExceeded in the status of the
   # resource" Defaults to 600 (10 min).
   progressDeadlineSeconds: 900
-  # Keep the Pod available only after it has stayed ready long enough for
-  # Service routing to converge during rolling deployments.
   minReadySeconds: 15
   strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
+    type: Recreate
   template:
     metadata:
       labels:
         app: benchdb
     spec:
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: benchdb
         # Injected by deployment automation.
@@ -41,6 +40,8 @@ spec:
         # its runtime identity. This k8s API is documented here:
         # https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/#the-downward-api
         env:
+          - name: BENCHDB_DATA_DIR
+            value: /var/lib/benchdb
           - name: ENV_NODE_NAME
             valueFrom:
               fieldRef:
@@ -54,6 +55,9 @@ spec:
               name: benchdb-config
           - secretRef:
               name: benchdb-secret
+        volumeMounts:
+          - name: benchdb-data
+            mountPath: /var/lib/benchdb
         # {{BENCHDB_GITHUB_APP_VOLUME_MOUNTS}}
         resources:
           requests:
@@ -90,5 +94,9 @@ spec:
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
+      volumes:
+        - name: benchdb-data
+          persistentVolumeClaim:
+            claimName: benchdb-data
       # {{BENCHDB_GITHUB_APP_VOLUMES}}
       terminationGracePeriodSeconds: 60

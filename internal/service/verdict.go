@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
+	"slices"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -67,6 +69,29 @@ func (v *Verdicts) Process(ctx context.Context) (int, error) {
 
 func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) error {
 	switch claim.Kind {
+	case storage.VerdictKindCommit:
+		subjects, err := v.store.SelectCommitVerdictSubjects(ctx, claim.Key)
+		if err != nil {
+			return err
+		}
+		// Enqueue all three kinds even when the repaired commit left the
+		// default branch: its old history contribution must be removed.
+		keys := map[storage.VerdictKind]map[string]bool{
+			storage.VerdictKindRun: {}, storage.VerdictKindRepository: {}, storage.VerdictKindBenchmark: {},
+		}
+		for _, subject := range subjects {
+			keys[storage.VerdictKindRun][subject.RunID] = true
+			keys[storage.VerdictKindRepository][subject.Repository] = true
+			keys[storage.VerdictKindBenchmark][subject.BenchmarkID] = true
+		}
+		for _, kind := range []storage.VerdictKind{storage.VerdictKindRun, storage.VerdictKindRepository, storage.VerdictKindBenchmark} {
+			for _, key := range slices.Sorted(maps.Keys(keys[kind])) {
+				if err := v.store.EnqueueVerdict(ctx, kind, key); err != nil {
+					return err
+				}
+			}
+		}
+		return v.store.FinishVerdictClaim(ctx, claim)
 	case storage.VerdictKindRun:
 		verdicts, err := v.runVerdicts(ctx, claim.Key)
 		if err != nil {

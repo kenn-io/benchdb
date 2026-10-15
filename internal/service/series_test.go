@@ -325,8 +325,7 @@ func TestBenchmarkVerdictsStoreEachMachineTrack(t *testing.T) {
 	m1Track := verdicts[0]
 	assert.Equal(t, "m1", m1Track.MachineName)
 	assert.Equal(t, statusStable, m1Track.Status, "the superseded context does not decide the track")
-	require.Len(t, m1Track.PointTimestamps, len(preDropSVS)+len(postDropSVS))
-	assert.True(t, slices.IsSortedFunc(m1Track.PointTimestamps, time.Time.Compare))
+	require.Equal(t, int64(len(preDropSVS)+len(postDropSVS)), m1Track.PointCount)
 	var preview []BenchmarkPreviewPoint
 	require.NoError(t, json.Unmarshal(m1Track.PreviewPoints, &preview))
 	require.Len(t, preview, benchmarkPreviewLen, "the preview spans both contexts, latest points only")
@@ -365,7 +364,7 @@ func TestTrackPreviewKeepsTheLatestComputablePoints(t *testing.T) {
 	require.Len(t, preview, benchmarkPreviewLen)
 	assert.InDelta(t, svs[len(svs)-2], preview[len(preview)-1].Value, 0, "the uncomputable latest point is skipped")
 	assert.InDelta(t, svs[len(svs)-benchmarkPreviewLen-1], preview[0].Value, 0)
-	assert.Len(t, trackPointTimestamps(map[string][]storage.HistoryRow{"fp": segment}), len(svs),
+	assert.Equal(t, int64(len(svs)), trackPointCount(map[string][]storage.HistoryRow{"fp": segment}),
 		"point counts include every history point")
 }
 
