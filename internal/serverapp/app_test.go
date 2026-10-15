@@ -139,6 +139,7 @@ func isolateLoadConfigEnv(t *testing.T) {
 	t.Setenv("BENCHDB_DUCKDB_MEMORY_MB", "")
 	t.Setenv("BENCHDB_DUCKDB_READERS", "")
 	t.Setenv("BENCHDB_MAINTENANCE_INTERVAL", "")
+	t.Setenv("BENCHDB_ANALYTICAL_READ_TIMEOUT", "2m")
 	for _, name := range []string{"BENCHDB_DB_URL", "BENCHDB_API_TOKEN", "BENCHDB_SESSION_SECRET", "BENCHDB_OIDC_CLIENT_SECRET"} {
 		t.Setenv(name+"_FILE", "")
 	}

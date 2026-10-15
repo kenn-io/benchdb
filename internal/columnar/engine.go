@@ -36,6 +36,7 @@ type Config struct {
 	TargetRows    int
 	Settle        time.Duration
 	Interval      time.Duration
+	ReadTimeout   time.Duration
 }
 
 type Engine struct {
@@ -235,8 +236,8 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 			}
 		}
 		// pgx accepts startup GUCs as URI parameters; libpq requires these in
-		// options. Preserve them (including read-only and statement timeouts)
-		// for every PostgreSQL connection opened by the extension.
+		// options. Preserve read-only and statement timeouts alongside the
+		// application deadline on every extension connection.
 		escapeOption := strings.NewReplacer("\\", "\\\\", " ", "\\ ", "\t", "\\\t", "\n", "\\\n", "\r", "\\\r")
 		var startup strings.Builder
 		startup.WriteString(q.Get("options"))
@@ -427,11 +428,22 @@ func syncPath(path string) error {
 
 // Read pins PostgreSQL's manifest, metadata, and hot facts to one snapshot.
 // Cleanup cannot unlink the selected files until the callback returns.
-func (e *Engine) Read(ctx context.Context, fn func(*sql.Tx) error) (err error) {
+func (e *Engine) Read(ctx context.Context, fn func(context.Context, *ReadSnapshot) error) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, e.cfg.ReadTimeout)
+	defer cancel()
+	defer func() {
+		if ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	e.lifecycle.RLock()
+	// Close is the only lifecycle writer. Reject new work once it is pending,
+	// rather than waiting past the read deadline for active calls to unwind.
+	if !e.lifecycle.TryRLock() {
+		return errors.New("archive engine is closed")
+	}
 	defer e.lifecycle.RUnlock()
 	if e.closed {
 		return errors.New("archive engine is closed")
@@ -443,13 +455,6 @@ func (e *Engine) Read(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 		return ctx.Err()
 	}
 	defer func() { e.readers <- handle }()
-	stopInterrupt := e.interruptPostgres(ctx, handle)
-	defer stopInterrupt()
-	defer func() {
-		if ctx.Err() != nil {
-			err = errors.Join(err, ctx.Err())
-		}
-	}()
 	// Only pending cleanup gates admission. Normal reads cannot keep barging
 	// ahead of a cleaner trying to acquire the gate itself.
 	if _, statErr := os.Stat(filepath.Join(e.cfg.Dir, ".cleanup-pending")); statErr == nil {
@@ -477,6 +482,8 @@ func (e *Engine) Read(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 	if !ok {
 		return ctx.Err()
 	}
+	stopInterrupt := e.interruptPostgres(ctx, handle)
+	defer stopInterrupt() // Join canceled scanners before releasing the file lock.
 	tx, err := handle.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -492,7 +499,10 @@ func (e *Engine) Read(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 	if err := e.catalogViews(ctx, tx, files); err != nil {
 		return err
 	}
-	if err := fn(tx); err != nil {
+	if err := fn(ctx, &ReadSnapshot{tx: tx}); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return tx.Commit()

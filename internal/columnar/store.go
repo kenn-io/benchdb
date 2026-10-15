@@ -11,8 +11,8 @@ import (
 
 type Store struct {
 	*db.Store
-	engine *Engine
-	tx     *sql.Tx
+	engine   *Engine
+	snapshot *ReadSnapshot
 }
 
 func NewStore(postgres *db.Store, engine *Engine) *Store {
@@ -24,9 +24,9 @@ type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func (s *Store) read(ctx context.Context, fn func(queryer) error) error {
-	if s.tx != nil {
-		return fn(s.tx)
+func (s *Store) read(ctx context.Context, fn func(context.Context, queryer) error) error {
+	if s.snapshot != nil {
+		return fn(ctx, s.snapshot)
 	}
-	return s.engine.Read(ctx, func(tx *sql.Tx) error { return fn(tx) })
+	return s.engine.Read(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error { return fn(ctx, snapshot) })
 }

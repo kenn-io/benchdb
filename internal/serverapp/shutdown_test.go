@@ -2,7 +2,6 @@ package serverapp
 
 import (
 	"context"
-	"database/sql"
 	"io"
 	"net"
 	"net/http"
@@ -245,7 +244,7 @@ func TestEngineCancelsPostgresLockWait(t *testing.T) {
 		done := make(chan readResult, 1)
 		go func() {
 			var result readResult
-			result.err = engine.Read(readCtx, func(tx *sql.Tx) error {
+			result.err = engine.Read(readCtx, func(readCtx context.Context, tx *columnar.ReadSnapshot) error {
 				return tx.QueryRowContext(readCtx, `SELECT count(*) FROM "commit"`).Scan(&result.count)
 			})
 			done <- result

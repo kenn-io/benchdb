@@ -62,7 +62,7 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 			return nil, &ValidationError{Message: "result IDs must be nonempty and unique"}
 		}
 	}
-	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(transaction storage.Store) (storage.RunReport, error) {
+	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline}
 		if baseline == CIReportBaselineExplicitRun {
 			query.Baseline = ""

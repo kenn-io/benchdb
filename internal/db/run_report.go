@@ -30,7 +30,7 @@ func (s *Store) LockRun(ctx context.Context, runID string) (pgx.Tx, error) {
 	return tx, nil
 }
 
-func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs []string, build func(storage.Store) (storage.RunReport, error)) (storage.RunReport, error) {
+func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs []string, build func(context.Context, storage.Store) (storage.RunReport, error)) (storage.RunReport, error) {
 	tx, err := s.LockRun(ctx, runID)
 	if err != nil {
 		return storage.RunReport{}, err
@@ -61,7 +61,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if !slices.Equal(actual, resultIDs) {
 		return storage.RunReport{}, storage.ErrConflict
 	}
-	saved, err = build(transaction)
+	saved, err = build(ctx, transaction)
 	if err != nil {
 		return storage.RunReport{}, err
 	}

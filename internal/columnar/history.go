@@ -57,7 +57,7 @@ ORDER BY hw.name,br.history_fingerprint,c."timestamp",br.id`, []any{benchmarkID}
 }
 
 func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) (out []storage.HistoryRow, err error) {
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		source, err := s.seriesSource(ctx, q, p.Fingerprints)
 		if err != nil {
 			return err

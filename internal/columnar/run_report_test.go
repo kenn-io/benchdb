@@ -1,6 +1,7 @@
 package columnar
 
 import (
+	"context"
 	"encoding/json/v2"
 	"os"
 	"testing"
@@ -69,7 +70,7 @@ func TestFinalizedReportKeepsCommitEnrichmentOutsideSnapshot(t *testing.T) {
 	require.Equal(t, "c3", before.Runs[0].BaselineCommit.Sha)
 	require.NotNil(t, before.Comparisons[0].Analysis.LookbackZScore)
 
-	_, err = store.FinalizeRunReport(ctx, "contender", []string{resultID}, func(transaction storage.Store) (storage.RunReport, error) {
+	_, err = store.FinalizeRunReport(ctx, "contender", []string{resultID}, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		// Finalization has pinned its manifest and facts. The normal repair
 		// writer commits enrichment on another connection before analysis starts.
 		updated, err := pg.UpdateUnknownCommit(ctx, storage.UpdateUnknownCommitParams{

@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -105,7 +104,7 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 				require.FailNow(t, "maintenance did not publish the second rewrite")
 			}
 			assert.Equal(t, 2*len(tracer.retiredPaths), e.maintenanceStatus().RemovedFiles, "include cleanup from every pass")
-			require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+			require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 				var count int
 				if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&count); err != nil {
 					return err

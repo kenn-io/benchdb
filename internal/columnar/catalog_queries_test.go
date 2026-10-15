@@ -1,7 +1,7 @@
 package columnar
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -221,8 +221,8 @@ func TestExactSeriesPageFitsBoundedMemory(t *testing.T) {
 	for start := 0; start < 100000; start += 10000 {
 		relative := fmt.Sprintf("data/wide-series-%06d.parquet", start)
 		path := filepath.Join(dir, relative)
-		require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `COPY (
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+			_, err := tx.tx.ExecContext(ctx, `COPY (
 SELECT br.* REPLACE (
 'wide-series-'||lpad(generated.i::VARCHAR,6,'0') AS id,
 'wide-series' AS history_fingerprint,
@@ -234,12 +234,12 @@ WHERE br.id=$1) TO `+literal(path)+` (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROU
 		}))
 		publishArchiveFixture(t, ctx, e, relative, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), 10000)
 	}
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `SET memory_limit='128MB'; SET max_temp_directory_size='64MB'`); err != nil {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if _, err := tx.tx.ExecContext(ctx, `SET memory_limit='128MB'; SET max_temp_directory_size='64MB'`); err != nil {
 			return err
 		}
 		store := NewStore(pg, e)
-		store.tx = tx
+		store.snapshot = tx
 		page, err := store.SelectSeriesPage(ctx, storage.SeriesListParams{Fingerprint: new("wide-series"), PageSize: 1})
 		if err != nil {
 			return err

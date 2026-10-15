@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,7 +40,7 @@ func TestArchivePublishesCatalogsWithFacts(t *testing.T) {
 		assert.Equal(t, size, info.Size())
 		assert.Positive(t, size)
 	}
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var id string
 		var count int64
 		if err := tx.QueryRowContext(ctx, `SELECT latest_result_id,point_count FROM archive_series_catalog WHERE latest_result_id=?`, page[0].LatestResultID).Scan(&id, &count); err != nil {
@@ -91,7 +90,7 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	release := make(chan struct{})
 	readerDone := make(chan error, 1)
 	go func() {
-		readerDone <- e.Read(ctx, func(tx *sql.Tx) error {
+		readerDone <- e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 			var count int64
 			err := tx.QueryRowContext(ctx, `SELECT sum(point_count) FROM archive_series_catalog`).Scan(&count)
 			if err == nil && count != 0 {
@@ -153,7 +152,7 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	var captured time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT commit_timestamp FROM archive_file_commit WHERE commit_id=$1`, commitID).Scan(&captured))
 	assert.Equal(t, time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC), captured)
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var stale int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM archive_stale_series`).Scan(&stale); err != nil {
 			return err
@@ -177,7 +176,7 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(e.cfg.Dir, original))
 	require.ErrorIs(t, err, os.ErrNotExist)
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var stale int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM archive_stale_series`).Scan(&stale); err != nil {
 			return err

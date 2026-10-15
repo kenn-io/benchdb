@@ -33,6 +33,13 @@ func ConfigFromEnv() (Config, error) {
 			*setting.value = n
 		}
 	}
+	if value, set := os.LookupEnv("BENCHDB_ANALYTICAL_READ_TIMEOUT"); set {
+		timeout, err := time.ParseDuration(value)
+		if err != nil || timeout <= 0 {
+			return Config{}, errors.New("BENCHDB_ANALYTICAL_READ_TIMEOUT must be a positive duration")
+		}
+		cfg.ReadTimeout = timeout
+	}
 	if value := os.Getenv("BENCHDB_MAINTENANCE_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil || interval < time.Hour {
@@ -51,6 +58,12 @@ type resourceLimits struct {
 }
 
 func (cfg *Config) resourceLimits() (resourceLimits, error) {
+	if cfg.ReadTimeout == 0 {
+		cfg.ReadTimeout = 2 * time.Minute
+	}
+	if cfg.ReadTimeout < 0 {
+		return resourceLimits{}, errors.New("BENCHDB_ANALYTICAL_READ_TIMEOUT must be a positive duration")
+	}
 	if cfg.Threads == 0 {
 		cfg.Threads = runtime.GOMAXPROCS(0)
 	}
