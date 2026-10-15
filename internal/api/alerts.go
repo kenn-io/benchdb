@@ -4,17 +4,13 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"errors"
-	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"go.kenn.io/benchdb/internal/auth"
-	"go.kenn.io/benchdb/internal/commit"
 	"go.kenn.io/benchdb/internal/service"
-	"go.kenn.io/benchdb/internal/stats"
 	"go.kenn.io/benchdb/internal/storage"
 )
 
@@ -211,7 +207,7 @@ func (h *AlertHandler) update(ctx context.Context, in *updateAlertRuleInput) (*a
 		ID: in.ID, UserID: p.UserID, Name: body.Name, Repository: body.Repository,
 		Baseline: body.Baseline, Threshold: body.Threshold, ThresholdZ: body.ThresholdZ,
 		RunReason: body.RunReason, Enabled: body.Enabled, UpdatedAt: time.Now().UTC(),
-		ResetEvaluation: alertRuleEvaluationConfigChanged(existing, body),
+		ResetEvaluation: service.AlertRuleEvaluationChanged(existing, body),
 	})
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -290,87 +286,17 @@ func (h *AlertHandler) ownedRuleForPrincipal(ctx context.Context, p auth.Princip
 	return rule, nil
 }
 
-type normalizedAlertRuleBody struct {
-	Name       string
-	Repository string
-	Baseline   string
-	Threshold  float64
-	ThresholdZ float64
-	RunReason  *string
-	Enabled    bool
-}
-
-func validateAlertRuleBody(in alertRuleBody) (normalizedAlertRuleBody, error) {
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return normalizedAlertRuleBody{}, huma.Error422UnprocessableEntity("name is required")
+// validateAlertRuleBody applies the shared rule validation and defaults,
+// returning 422 for an invalid field.
+func validateAlertRuleBody(in alertRuleBody) (service.AlertRuleConfig, error) {
+	cfg, err := service.NormalizeAlertRule(service.AlertRuleSpec{
+		Name: in.Name, Repository: in.Repository, Baseline: in.Baseline, Threshold: in.Threshold,
+		ThresholdZ: in.ThresholdZ, RunReason: in.RunReason, Enabled: in.Enabled,
+	})
+	if ve, ok := errors.AsType[*service.ValidationError](err); ok {
+		return service.AlertRuleConfig{}, huma.Error422UnprocessableEntity(ve.Message)
 	}
-	repository := strings.TrimSpace(in.Repository)
-	if repository == "" {
-		return normalizedAlertRuleBody{}, huma.Error422UnprocessableEntity("repository is required")
-	}
-	repository = commit.NormalizeRepoURL(repository)
-	baseline := in.Baseline
-	if baseline == "" {
-		baseline = string(service.CIReportBaselineForkPoint)
-	}
-	if !validAlertBaseline(baseline) {
-		return normalizedAlertRuleBody{}, huma.Error422UnprocessableEntity("invalid baseline")
-	}
-	threshold := stats.PairwisePercentThresholdDefault
-	if in.Threshold != nil {
-		threshold = *in.Threshold
-	}
-	if math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold <= 0 {
-		return normalizedAlertRuleBody{}, huma.Error422UnprocessableEntity("threshold must be greater than zero")
-	}
-	thresholdZ := stats.ZScoreThresholdDefault
-	if in.ThresholdZ != nil {
-		thresholdZ = *in.ThresholdZ
-	}
-	if math.IsNaN(thresholdZ) || math.IsInf(thresholdZ, 0) || thresholdZ <= 0 {
-		return normalizedAlertRuleBody{}, huma.Error422UnprocessableEntity("threshold_z must be greater than zero")
-	}
-	enabled := true
-	if in.Enabled != nil {
-		enabled = *in.Enabled
-	}
-	var runReason *string
-	if in.RunReason != nil {
-		trimmed := strings.TrimSpace(*in.RunReason)
-		if trimmed != "" {
-			runReason = &trimmed
-		}
-	}
-	return normalizedAlertRuleBody{
-		Name: name, Repository: repository, Baseline: baseline, Threshold: threshold,
-		ThresholdZ: thresholdZ, RunReason: runReason, Enabled: enabled,
-	}, nil
-}
-
-func validAlertBaseline(v string) bool {
-	return v == string(service.CIReportBaselineForkPoint) ||
-		v == string(service.CIReportBaselineParent) ||
-		v == string(service.CIReportBaselineLatestDefault)
-}
-
-func alertRuleEvaluationConfigChanged(rule storage.AlertRule, body normalizedAlertRuleBody) bool {
-	return rule.Repository != body.Repository ||
-		rule.Baseline != body.Baseline ||
-		rule.Threshold != body.Threshold ||
-		rule.ThresholdZ != body.ThresholdZ ||
-		!sameStringPtr(rule.RunReason, body.RunReason)
-}
-
-func sameStringPtr(a, b *string) bool {
-	switch {
-	case a == nil && b == nil:
-		return true
-	case a == nil || b == nil:
-		return false
-	default:
-		return *a == *b
-	}
+	return cfg, err
 }
 
 func alertRuleViewOf(r storage.AlertRule) alertRuleView {

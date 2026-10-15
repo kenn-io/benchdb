@@ -36,6 +36,38 @@ If an update changes `repository`, `baseline`, `threshold`, `threshold_z`, or
 Signed-in users can create rules, see their state, delete rules, and view
 recent events on the `/account` page.
 
+## Rules from a file
+
+Operators can keep one account's rules in a file and apply it on every
+scheduled run:
+
+```bash
+benchdb admin alerts rules apply --email alerts@example.com --file rules.json
+```
+
+```json
+{
+  "rules": [
+    {
+      "name": "docbank main",
+      "repository": "https://github.com/kenn-io/docbank",
+      "baseline": "parent",
+      "run_reason": "commit"
+    }
+  ]
+}
+```
+
+Each entry takes the [rule fields](#alert-rules). The command matches rules by
+`name`. It creates missing rules, updates changed ones, and deletes the
+account's rules that the file does not list. It creates the account if it does
+not exist. Use an account whose rules come only from the file, because rules
+added through the API or `/account` page are deleted on the next apply.
+
+The command checks every entry before it changes anything. An invalid field or
+a repeated `name` fails the whole file. Updates follow the API's state rule: a
+rule changed in an evaluated field returns to `inactive`.
+
 ## Alert rule API
 
 | Method and path | Purpose |
