@@ -311,25 +311,101 @@ func TestScheduleWriteFailurePreventsWork(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	_, err := seed.Run(ctx, db.NewStore(pool))
 	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET arrived_at=now()-interval '1 day'`)
 	var before int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&before))
 	require.Positive(t, before)
 	dir := t.TempDir()
 	writer := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
 	require.NoError(t, writer.importMaintenance(ctx))
-	cfg := pool.Config()
-	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
-	readOnly, err := pgxpool.NewWithConfig(ctx, cfg)
-	require.NoError(t, err)
-	defer readOnly.Close()
-	e, err := Open(ctx, readOnly, Config{Dir: dir, Readers: 1})
+	e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, e.Close()) }()
-	require.Error(t, e.runScheduledMaintenance(ctx), "the attempt must be saved before export begins")
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_schedule_update() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'schedule update rejected'; END;
+$$;
+CREATE TRIGGER reject_schedule_update BEFORE UPDATE ON archive_maintenance
+FOR EACH ROW EXECUTE FUNCTION reject_schedule_update()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, e.runScheduledMaintenance(ctx), "schedule update rejected", "the attempt must be saved before export begins")
 	var after, files int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&after))
 	assert.Equal(t, before, after)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files))
 	assert.Zero(t, files)
 	assert.Equal(t, "failed", e.maintenance.State)
+	// Only schedule persistence failed: the same writable engine can export.
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_schedule_update ON archive_maintenance`)
+	require.NoError(t, err)
+	require.NoError(t, e.runScheduledMaintenance(ctx))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&after))
+	assert.Zero(t, after)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files))
+	assert.Positive(t, files)
+}
+
+func TestMaintenanceRetriesInitialization(t *testing.T) {
+	for _, operation := range []string{"INSERT", "UPDATE"} {
+		for _, outcome := range []string{"recover", "cancel"} {
+			t.Run(operation+"/"+outcome, func(t *testing.T) {
+				pool, ctx := dbtest.NewPool(t)
+				_, err := seed.Run(ctx, db.NewStore(pool))
+				require.NoError(t, err)
+				dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET arrived_at=now()-interval '1 day'`)
+				var before int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&before))
+				require.Positive(t, before)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"scheduled","phase":"idle","next_run_at":"2020-01-01T00:00:00Z"}`), 0600))
+				e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, e.Close()) })
+				_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION reject_schedule_write() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'schedule temporarily unavailable' USING ERRCODE='40001'; END;
+$$;
+CREATE TRIGGER reject_schedule_write BEFORE %s ON archive_maintenance
+FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
+				require.NoError(t, err)
+				runCtx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				go func() { defer close(done); e.Run(runCtx) }()
+				t.Cleanup(func() {
+					cancel()
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						assert.Fail(t, "maintenance did not stop after cancellation")
+					}
+				})
+				require.Eventually(t, func() bool { return e.maintenanceStatus().Phase == "schedule" }, 5*time.Second, time.Millisecond)
+				var hot, files int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM benchmark_result), (SELECT count(*) FROM archive_file)`).Scan(&hot, &files))
+				assert.Equal(t, before, hot, "initialization failures must withhold export")
+				assert.Zero(t, files)
+				select {
+				case <-done:
+					require.FailNow(t, "maintenance stopped after a transient initialization failure")
+				default:
+				}
+				if outcome == "recover" {
+					_, err = pool.Exec(ctx, `DROP TRIGGER reject_schedule_write ON archive_maintenance`)
+					require.NoError(t, err)
+					require.Eventually(t, func() bool {
+						var succeeded bool
+						err := pool.QueryRow(ctx, `SELECT status->>'last_success_at' IS NOT NULL FROM archive_maintenance`).Scan(&succeeded)
+						return err == nil && succeeded
+					}, 10*time.Second, 10*time.Millisecond, "the same worker must recover and run its due cycle")
+					require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM benchmark_result), (SELECT sum(row_count) FROM archive_file)`).Scan(&hot, &files))
+					assert.Zero(t, hot)
+					assert.Equal(t, before, files)
+				}
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					require.FailNow(t, "cancellation must interrupt initialization backoff")
+				}
+			})
+		}
+	}
 }

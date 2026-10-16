@@ -92,16 +92,17 @@ func TestArchiveStateUpgrade(t *testing.T) {
 
 func TestArchiveStateLookupRanges(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
+	// No existing ranges may mask a missing encoding constraint with an overlap.
+	_, err := pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,generation) VALUES (gen_random_uuid(),'result','sha256',0)`)
+	require.Error(t, err, "result lookups preserve original bytes")
 	// Adjacent raw-ID partitions, with explicit unbounded endpoints, are legal.
-	_, err := pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,lower_bound,upper_bound,generation) VALUES
+	_, err = pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,lower_bound,upper_bound,generation) VALUES
  (gen_random_uuid(),'result','raw-id',NULL,decode('6d','hex'),0),
  (gen_random_uuid(),'result','raw-id',decode('6d','hex'),NULL,0),
  (gen_random_uuid(),'run','sha256',NULL,NULL,0)`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,lower_bound,upper_bound,generation) VALUES (gen_random_uuid(),'result','raw-id',decode('61','hex'),decode('7a','hex'),0)`)
 	require.Error(t, err, "overlapping raw-ID ranges must be rejected")
-	_, err = pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,generation) VALUES (gen_random_uuid(),'result','sha256',0)`)
-	require.Error(t, err, "result lookups preserve original bytes")
 	_, err = pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,lower_bound,upper_bound,generation) VALUES (gen_random_uuid(),'fingerprint','sha256',decode('7a','hex'),decode('61','hex'),0)`)
 	require.Error(t, err, "reversed bounds must be rejected")
 	_, err = pool.Exec(ctx, `INSERT INTO archive_lookup_partition(id,kind,key_encoding,lower_bound,upper_bound,generation) VALUES (gen_random_uuid(),'fingerprint','sha256',decode('61','hex'),decode('61','hex'),0)`)

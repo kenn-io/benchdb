@@ -132,12 +132,17 @@ Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
 longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion
 batches for fewer archive updates. New results remain queryable while waiting.
 The first cycle waits one interval; subsequent cycles wait one interval after
-the previous attempt finishes, including failures. The schedule and last run
-are saved in `maintenance.json` on the archive volume across server restarts.
-An interrupted cycle keeps its scheduled retry time. A corrupt schedule logs a
-warning and resets the next run to one interval from startup; archive reads
-remain available. If saving the schedule fails, the worker attempts orphan
-cleanup before retrying the write, so abandoned files can free space.
+the previous attempt finishes, including failures. PostgreSQL stores the
+schedule and last run, so replacing the local working directory preserves them.
+On upgrade, the writer imports `maintenance.json` once. An interrupted cycle
+keeps its scheduled retry time; an unreadable legacy file logs a warning and
+resets the next run to one interval from startup.
+
+Maintenance starts only after its schedule is imported and saved. Transient
+database errors during initialization retry with increasing delays, up to
+30 seconds between attempts, until the database recovers or the server stops.
+If saving a cycle's start fails, that cycle does no archive work and waits the
+normal maintenance interval before trying again. Archive reads remain available.
 
 At the start of a cycle, the worker captures an arrival cutoff five minutes
 before that start time. It exports eligible results in batches of 100,000 rows,

@@ -127,6 +127,7 @@ func TestMaintenanceContinuesAfterConcurrentResultDeletion(t *testing.T) {
 		require.NoError(t, store.DeleteBenchmarkResult(ctx, id))
 		deleted = id
 	}
+	require.NoError(t, e.importMaintenance(ctx))
 	require.NoError(t, e.runScheduledMaintenance(ctx))
 	require.NotEmpty(t, deleted, "delete a real result after the export selected it")
 	var pending int

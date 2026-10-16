@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v7"
 	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.kenn.io/benchdb/internal/storage"
 )
 
@@ -127,16 +132,27 @@ func (e *Engine) Run(ctx context.Context) {
 		return
 	}
 	defer owner.Close()
-	if err := e.importMaintenance(ctx); err != nil {
-		e.failMaintenance("schedule", err)
-		return
-	}
-	e.maintenanceMu.Lock()
-	e.maintenance.Enabled = true
-	e.maintenanceMu.Unlock()
 	defer func() { e.maintenanceMu.Lock(); e.maintenance.Enabled = false; e.maintenanceMu.Unlock() }()
-	if err := e.saveMaintenance(ctx); err != nil {
-		e.failMaintenance("schedule", err)
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = time.Second
+	policy.MaxInterval = 20 * time.Second // Jitter keeps the longest wait at 30 seconds.
+	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+		err := e.importMaintenance(ctx)
+		e.maintenanceMu.Lock()
+		e.maintenance.Enabled = true
+		e.maintenanceMu.Unlock()
+		if err == nil {
+			err = e.saveMaintenance(ctx)
+		}
+		if err != nil && ctx.Err() == nil {
+			e.failMaintenance("schedule", err)
+			if !retryableScheduleError(err) {
+				return struct{}{}, backoff.Permanent(err)
+			}
+		}
+		return struct{}{}, err
+	}, backoff.WithBackOff(policy), backoff.WithMaxElapsedTime(0))
+	if err != nil {
 		return
 	}
 	for {
@@ -150,6 +166,21 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func retryableScheduleError(err error) bool {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		// Connection failures, aborted transactions, resource shortages,
+		// unavailable locks, and server interruptions can clear without a restart.
+		for _, class := range []string{"08", "40", "53", "55", "57"} {
+			if strings.HasPrefix(pgErr.Code, class) {
+				return true
+			}
+		}
+		return false
+	}
+	var networkError net.Error
+	return pgconn.SafeToRetry(err) || errors.As(err, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func (e *Engine) waitForMaintenance(ctx context.Context) bool {

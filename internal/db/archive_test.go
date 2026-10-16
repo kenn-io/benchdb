@@ -123,14 +123,17 @@ func TestArchiveMigrationRollbackKeepsLogicalAnnotations(t *testing.T) {
 	assertCurrentBaseline(t, ctx, pool)
 	id := strings.Repeat("r", 50)
 	require.NoError(t, db.NewStore(pool).UpdateBenchmarkResultChangeAnnotations(ctx, id, []byte(`{"exclude_from_history":true}`)))
-	down, err := os.ReadFile("migrations/000013_managed_parquet_storage.down.sql")
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, string(down))
-	require.NoError(t, err)
+	// Undo dependent migrations first, as the migration runner would.
+	for _, name := range []string{"000014_remote_archive", "000013_managed_parquet_storage"} {
+		down, err := os.ReadFile("migrations/" + name + ".down.sql")
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(down))
+		require.NoError(t, err)
+	}
 	var annotations string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT change_annotations::text FROM benchmark_result WHERE id = $1`, id).Scan(&annotations))
 	assert.JSONEq(t, `{"exclude_from_history":true}`, annotations)
-	_, err = pool.Exec(ctx, `DELETE FROM benchmark_result WHERE id = $1`, id)
+	_, err := pool.Exec(ctx, `DELETE FROM benchmark_result WHERE id = $1`, id)
 	require.NoError(t, err)
 	var artifacts, garbage int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM result_artifact), (SELECT count(*) FROM artifact_garbage)`).Scan(&artifacts, &garbage))
