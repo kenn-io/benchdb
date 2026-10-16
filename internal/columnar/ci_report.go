@@ -9,11 +9,12 @@ import (
 )
 
 const ciRunColumns = `br.run_id,br.run_tags,br.run_reason,br.commit_repo_url,
-c.id,c.sha,c.repository,c.parent,c.fork_point_sha,c."timestamp"`
+c.id,c.sha,c.repository,c.parent,c.fork_point_sha,c."timestamp",c.message`
 
 func scanCIRun(row rowScanner) (out storage.CIReportRunRow, err error) {
 	err = row.Scan(&out.RunID, &out.RunTags, &out.RunReason, &out.CommitRepoURL, &out.CommitID,
-		&out.CommitSha, &out.CommitRepository, &out.CommitParent, &out.CommitForkPointSha, &out.CommitTimestamp)
+		&out.CommitSha, &out.CommitRepository, &out.CommitParent, &out.CommitForkPointSha, &out.CommitTimestamp,
+		&out.CommitMessage)
 	return
 }
 

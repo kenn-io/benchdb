@@ -177,9 +177,7 @@ func TestSlackAlertDeliverySenderPostsSlackMessage(t *testing.T) {
 	require.NoError(t, err)
 	text, ok := got["text"].(string)
 	require.True(t, ok)
-	assert.Contains(t, text, "BenchDB alert: failure")
-	assert.Contains(t, text, "regressions detected")
-	assert.Contains(t, text, "https://benchdb.example/ci/report?run_ids=run-1")
+	assert.Equal(t, "Benchmark regression at sha-1", text)
 	assert.NotContains(t, got, "event", "Slack receives a native message, not the generic webhook envelope")
 	blocks, ok := got["blocks"].([]any)
 	require.True(t, ok)
@@ -214,9 +212,6 @@ func TestSlackAlertDeliverySenderDoesNotLinkRelativeReportURL(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	text, ok := got["text"].(string)
-	require.True(t, ok)
-	assert.Contains(t, text, "/ci/report?run_ids=run-1")
 	blocks, ok := got["blocks"].([]any)
 	require.True(t, ok)
 	for _, block := range blocks {
@@ -226,7 +221,7 @@ func TestSlackAlertDeliverySenderDoesNotLinkRelativeReportURL(t *testing.T) {
 		require.True(t, ok)
 		blockText, ok := textBlock["text"].(string)
 		require.True(t, ok)
-		assert.NotContains(t, blockText, "</ci/report?run_ids=run-1|Open report>")
+		assert.NotContains(t, blockText, "/ci/report?run_ids=run-1", "a relative report link cannot be opened from Slack")
 	}
 }
 
@@ -274,11 +269,11 @@ func TestGitHubCheckAlertDeliverySenderCreatesCheckRun(t *testing.T) {
 	assert.Equal(t, "https://benchdb.example/ci/report?run_ids=run-1", got["details_url"])
 	output, ok := got["output"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "BenchDB alert: failure", output["title"])
+	assert.Equal(t, "Benchmark regression in org/repo", output["title"])
 	summary, ok := output["summary"].(string)
 	require.True(t, ok)
-	assert.Contains(t, summary, "regressions detected")
-	assert.Contains(t, summary, "https://benchdb.example/ci/report?run_ids=run-1")
+	assert.Contains(t, summary, "[`sha-1`](https://github.com/org/repo/commit/sha-1)")
+	assert.Contains(t, summary, "[Open BenchDB report](https://benchdb.example/ci/report?run_ids=run-1)")
 }
 
 func TestGitHubCommentAlertDeliverySenderCreatesCommitComment(t *testing.T) {
@@ -319,10 +314,9 @@ func TestGitHubCommentAlertDeliverySenderCreatesCommitComment(t *testing.T) {
 	assert.Equal(t, "application/vnd.github+json", gotAccept)
 	body, ok := got["body"].(string)
 	require.True(t, ok)
-	assert.Contains(t, body, "BenchDB alert: failure")
-	assert.Contains(t, body, "regressions detected")
-	assert.Contains(t, body, "https://benchdb.example/ci/report?run_ids=run-1")
-	assert.Contains(t, body, "run-1")
+	assert.True(t, strings.HasPrefix(body, "### Benchmark regression in org/repo\n"), body)
+	assert.Contains(t, body, "[Open BenchDB report](https://benchdb.example/ci/report?run_ids=run-1)")
+	assert.Contains(t, body, "Alert event: `event-1`")
 }
 
 func TestEmailAlertDeliverySenderSendsPlainTextMessage(t *testing.T) {
@@ -349,9 +343,8 @@ func TestEmailAlertDeliverySenderSendsPlainTextMessage(t *testing.T) {
 	assert.ElementsMatch(t, []string{"RCPT TO:<ops@example.com>", "RCPT TO:<dev@example.com>"}, message.recipients)
 	assert.Contains(t, message.data, "From: alerts@example.com\r\n")
 	assert.Contains(t, message.data, "To: ops@example.com, dev@example.com\r\n")
-	assert.Contains(t, message.data, "Subject: BenchDB alert: failure\r\n")
-	assert.Contains(t, message.data, "regressions detected")
-	assert.Contains(t, message.data, "https://benchdb.example/ci/report?run_ids=run-1")
+	assert.Contains(t, message.data, "Subject: Benchmark regression in org/repo\r\n")
+	assert.Contains(t, message.data, "Report: https://benchdb.example/ci/report?run_ids=run-1")
 	assert.Contains(t, message.data, "Repository: https://github.com/org/repo")
 	assert.Contains(t, message.data, "Commit: sha-1")
 	assert.Contains(t, message.data, "Run: run-1")
@@ -557,4 +550,118 @@ type fakeAlertDeliverySender struct {
 func (s *fakeAlertDeliverySender) SendAlertDelivery(_ context.Context, payload service.AlertDeliveryPayload) error {
 	s.payloads = append(s.payloads, payload)
 	return s.err
+}
+
+func postSlackAlert(t *testing.T, event service.AlertDeliveryEvent) (string, []string) {
+	t.Helper()
+	var got struct {
+		Text   string `json:"text"`
+		Blocks []struct {
+			Text struct {
+				Text string `json:"text"`
+			} `json:"text"`
+		} `json:"blocks"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	err := service.NewSlackAlertDeliverySender(server.Client()).SendAlertDelivery(context.Background(),
+		service.AlertDeliveryPayload{Channel: service.AlertDeliveryChannelSlack, Target: server.URL, Event: event})
+	require.NoError(t, err)
+	blocks := make([]string, 0, len(got.Blocks))
+	for _, block := range got.Blocks {
+		blocks = append(blocks, block.Text.Text)
+	}
+	return got.Text, blocks
+}
+
+func alertSummaryJSON(t *testing.T, summary service.AlertEventSummary) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(summary)
+	require.NoError(t, err)
+	return raw
+}
+
+func TestSlackAlertSaysWhatRegressedWhereAndByHowMuch(t *testing.T) {
+	summary := service.AlertEventSummary{
+		Compared: 100, Analyzed: 98, Regressions: 7, Improvements: 36,
+		CommitSubject: "Cache <packed> objects & refs",
+		Regressed: []service.AlertEventRow{{
+			Name: "get-text-first-rate", Machine: "box-a", Unit: "B/s", Before: 1.53e9, After: 1.47e9,
+			PercentChange: -3.66, SeriesURL: "https://benchdb.example/series/abc",
+		}, {
+			Name: "push<new>", Machine: "box-a", Unit: "s", Before: 0.0021, After: 0.0025,
+			PercentChange: 19.05,
+		}},
+	}
+	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
+		ID: "event-1", Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
+		CommitSHA: new("c71cab86fef397b63d67596695200230af404c7c"), Repository: "https://github.com/org/repo",
+		ReportURL: "https://benchdb.example/ci/report?run_ids=run-1", Summary: alertSummaryJSON(t, summary),
+	})
+
+	assert.Equal(t, "Benchmark regression in org/repo at c71cab8: get-text-first-rate −3.7% and 6 more", text)
+	assert.Equal(t, []string{
+		":small_red_triangle_down: *Benchmark regression in org/repo*\n" +
+			"Commit <https://github.com/org/repo/commit/c71cab86fef397b63d67596695200230af404c7c|c71cab8>: " +
+			"Cache &lt;packed&gt; objects &amp; refs",
+		"• <https://benchdb.example/series/abc|get-text-first-rate> on box-a: 1.53 GB/s → 1.47 GB/s (−3.7% vs recent runs)\n" +
+			"• push&lt;new&gt; on box-a: 2.1 ms → 2.5 ms (+19.1% vs recent runs)\n" +
+			"• and 5 more",
+		"In this run: 7 regressed, 36 improved, 55 unchanged, 2 without enough history  ·  " +
+			"<https://benchdb.example/ci/report?run_ids=run-1|Open report>",
+	}, blocks)
+}
+
+func TestSlackAlertForAResolvedRuleSaysItIsBackToNormal(t *testing.T) {
+	summary := service.AlertEventSummary{Compared: 98, Analyzed: 98, Improvements: 2}
+	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
+		ID: "event-2", Kind: storage.AlertEventKindResolved, Status: string(service.CIReportStatusSuccess),
+		CommitSHA: new("abcdef0123"), Repository: "https://github.com/org/repo",
+		ReportURL: "https://benchdb.example/ci/report?run_ids=run-2", Summary: alertSummaryJSON(t, summary),
+	})
+
+	assert.Equal(t, "No longer regressed: org/repo at abcdef0", text)
+	require.Len(t, blocks, 2)
+	assert.True(t, strings.HasPrefix(blocks[0], ":white_check_mark: *No longer regressed: org/repo*"), blocks[0])
+	assert.Equal(t, "In this run: 0 regressed, 2 improved, 96 unchanged  ·  "+
+		"<https://benchdb.example/ci/report?run_ids=run-2|Open report>", blocks[1])
+}
+
+func TestSlackAlertFromAnEventWithOnlyCountsStillNamesTheRepository(t *testing.T) {
+	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
+		ID: "event-3", Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
+		Repository: "https://github.com/org/repo", Summary: json.RawMessage(`{"regressions":1}`),
+	})
+
+	assert.Equal(t, "Benchmark regression in org/repo", text)
+	assert.Equal(t, []string{":small_red_triangle_down: *Benchmark regression in org/repo*", "• 1 benchmark regressed"}, blocks)
+}
+
+func TestSlackAlertWithLongBenchmarkNamesStaysWithinSlackLimits(t *testing.T) {
+	long := strings.Repeat("&", 600)
+	rows := make([]service.AlertEventRow, 5)
+	for i := range rows {
+		rows[i] = service.AlertEventRow{
+			Name: long, Machine: long, Unit: "s", Before: 1, After: 2, PercentChange: 100,
+			SeriesURL: "https://benchdb.example/series/" + strings.Repeat("f", 32),
+		}
+	}
+	summary := service.AlertEventSummary{Regressions: 5, Compared: 5, Analyzed: 5, CommitSubject: long, Regressed: rows}
+	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
+		ID: "event-4", Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
+		CommitSHA: new("abcdef0123"), Repository: "https://github.com/org/" + long,
+		ReportURL: "https://benchdb.example/ci/report?run_ids=run-4", Summary: alertSummaryJSON(t, summary),
+	})
+
+	assert.LessOrEqual(t, len(text), 3000)
+	rowLines := 0
+	for _, block := range blocks {
+		assert.LessOrEqual(t, len(block), 3000, "Slack rejects a section longer than 3000 characters")
+		rowLines += strings.Count(block, "• ")
+	}
+	assert.Equal(t, 5, rowLines, "every row is still delivered")
+	assert.Contains(t, blocks[1], "…", "long names are cut short")
 }

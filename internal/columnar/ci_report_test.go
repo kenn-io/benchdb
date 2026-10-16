@@ -104,6 +104,9 @@ func TestCIReportRetainsToleranceAfterArchive(t *testing.T) {
 	assert.True(t, want.Comparisons[0].Analysis.Pairwise.Tolerance.WithinTolerance)
 	assert.False(t, want.Comparisons[0].Analysis.Pairwise.RegressionIndicated)
 	assert.InDelta(t, 100000000.0, want.Comparisons[0].Analysis.Pairwise.Tolerance.MinimumChange, 1e-9)
+	require.Len(t, want.Runs, 1)
+	require.NotNil(t, want.Runs[0].Commit)
+	require.NotEmpty(t, want.Runs[0].Commit.Message, "each phase must load the contender's commit message")
 
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 7, Settle: time.Nanosecond})
 	require.NoError(t, err)

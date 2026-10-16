@@ -2,7 +2,11 @@ package service_test
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,4 +309,130 @@ func (r *fakeAlertReporter) Report(_ context.Context, q service.CIReportQuery) (
 		return nil, r.err
 	}
 	return r.next, nil
+}
+
+func lookbackRegression(name, unit string, before, after float64) service.CIReportComparison {
+	return service.CIReportComparison{
+		Status: service.CIReportRowStatusRegressed, Name: name, Unit: &unit,
+		Hardware:  service.Hardware{Name: "box-a"},
+		Contender: service.CIReportSide{SVS: new(after)},
+		Analysis: &service.CIReportAnalysis{LookbackZScore: &service.LookbackAnalysis{
+			RegressionIndicated: true, Tolerance: &service.ChangeTolerance{Reference: before},
+		}},
+		Links: service.CIReportRowLinks{Series: "/series/" + name},
+	}
+}
+
+func TestAlertEvaluatorRecordsWhatRegressedForDelivery(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	improved := lookbackRegression("faster", "s", 0.2, 0.1)
+	improved.Status = service.CIReportRowStatusImproved
+	improved.Analysis.LookbackZScore.RegressionIndicated = false
+	improved.Analysis.LookbackZScore.ImprovementIndicated = true
+	reporter := &fakeAlertReporter{next: &service.CIReport{
+		Status: service.CIReportStatusFailure, StatusReason: "lookback regression detected",
+		ReportURL: "https://benchdb.example/app/ci/report?run_ids=run-1",
+		Summary:   service.CIReportSummary{Regressions: 2, Improvements: 1, Compared: 3, Analyzed: 3},
+		Runs: []service.CIReportRun{{
+			Commit: &service.Commit{Message: "Speed up writes\n\nLonger explanation."},
+			Comparisons: []service.CIReportComparison{
+				lookbackRegression("read-rate", "B/s", 1.53e9, 1.47e9), improved,
+				lookbackRegression("write-time", "s", 0.10, 0.15),
+			},
+		}},
+	}}
+
+	_, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	require.Len(t, store.events, 1)
+	var summary service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(store.events[0].Summary, &summary))
+	assert.Equal(t, 2, summary.Regressions, "the report's counts are kept")
+	assert.Equal(t, "Speed up writes", summary.CommitSubject)
+	require.Len(t, summary.Regressed, 2)
+	assert.Equal(t, service.AlertEventRow{
+		Name: "write-time", Machine: "box-a", Unit: "s", Before: 0.10, After: 0.15, PercentChange: 50,
+		SeriesURL: "https://benchdb.example/app/series/write-time",
+	}, roundRow(summary.Regressed[0]), "the larger change comes first")
+	assert.Equal(t, service.AlertEventRow{
+		Name: "read-rate", Machine: "box-a", Unit: "B/s", Before: 1.53e9, After: 1.47e9, PercentChange: -3.9,
+		SeriesURL: "https://benchdb.example/app/series/read-rate",
+	}, roundRow(summary.Regressed[1]), "before is the recent-runs mean the row was judged against")
+}
+
+func TestAlertEvaluatorKeepsOnlyTheWorstRegressedRows(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	var rows []service.CIReportComparison
+	for i := 1; i <= 8; i++ {
+		rows = append(rows, lookbackRegression(fmt.Sprintf("bench-%d", i), "s", 100, 100+float64(i)))
+	}
+	reporter := &fakeAlertReporter{next: &service.CIReport{
+		Status: service.CIReportStatusFailure, ReportURL: "/ci/report?run_ids=run-1",
+		Summary: service.CIReportSummary{Regressions: 8, Compared: 8, Analyzed: 8},
+		Runs:    []service.CIReportRun{{Comparisons: rows}},
+	}}
+
+	_, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	var summary service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(store.events[0].Summary, &summary))
+	names := make([]string, 0, len(summary.Regressed))
+	for _, row := range summary.Regressed {
+		names = append(names, row.Name)
+		assert.Empty(t, row.SeriesURL, "a relative report URL gives no series link a reader could open")
+	}
+	assert.Equal(t, []string{"bench-8", "bench-7", "bench-6", "bench-5", "bench-4"}, names)
+}
+
+func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"c1": ciCommitInfo("c1", nil, "c1", t0),
+		"c2": ciCommitInfo("c2", new("c1"), "c2", t0.Add(24*time.Hour)),
+		"c3": ciCommitInfo("c3", new("c2"), "c3", t0.Add(48*time.Hour)),
+		"c4": ciCommitInfo("c4", new("c3"), "c4", t0.Add(72*time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	ciSubmit(t, ing, ctx, "main-c1", "c1", 10)
+	ciSubmit(t, ing, ctx, "main-c2", "c2", 20)
+	ciSubmit(t, ing, ctx, "main-c3", "c3", 30)
+	ciSubmit(t, ing, ctx, "main-c4", "c4", 100)
+	owner, err := store.GetOrCreateUserByEmail(ctx, "alerts@example.com", "Alerts", "!")
+	require.NoError(t, err)
+	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
+		UserID: owner, Name: "main", Repository: testRepo, Baseline: string(service.CIReportBaselineParent),
+		Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: t0,
+	})
+	require.NoError(t, err)
+	reporter := service.NewCIReporter(store, "https://benchdb.example")
+
+	summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Opened)
+	var stored service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(summary.Events[0].Summary, &stored))
+	assert.Equal(t, "commit c4", stored.CommitSubject)
+	require.Len(t, stored.Regressed, 1)
+	assert.InDelta(t, 20.0, stored.Regressed[0].Before, 1e-9, "the mean of the earlier main runs")
+	assert.InDelta(t, 100.0, stored.Regressed[0].After, 1e-9)
+	assert.True(t, strings.HasPrefix(stored.Regressed[0].SeriesURL, "https://benchdb.example/series/"))
+}
+
+func roundRow(row service.AlertEventRow) service.AlertEventRow {
+	row.PercentChange = math.Round(row.PercentChange*10) / 10
+	return row
 }

@@ -344,7 +344,8 @@ SELECT
   c.repository AS commit_repository,
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  c.message AS commit_message
 FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE c.repository = $1::text
@@ -359,7 +360,8 @@ GROUP BY
   c.repository,
   c.parent,
   c.fork_point_sha,
-  c."timestamp"
+  c."timestamp",
+  c.message
 ORDER BY br.run_id
 `
 
@@ -379,6 +381,7 @@ type SelectCIReportRunsByCommitRow struct {
 	CommitParent       *string
 	CommitForkPointSha *string
 	CommitTimestamp    *time.Time
+	CommitMessage      string
 }
 
 func (q *Queries) SelectCIReportRunsByCommit(ctx context.Context, arg SelectCIReportRunsByCommitParams) ([]SelectCIReportRunsByCommitRow, error) {
@@ -401,6 +404,7 @@ func (q *Queries) SelectCIReportRunsByCommit(ctx context.Context, arg SelectCIRe
 			&i.CommitParent,
 			&i.CommitForkPointSha,
 			&i.CommitTimestamp,
+			&i.CommitMessage,
 		); err != nil {
 			return nil, err
 		}
@@ -423,7 +427,8 @@ SELECT
   c.repository AS commit_repository,
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  c.message AS commit_message
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = ANY($1::text[])
@@ -437,7 +442,8 @@ GROUP BY
   c.repository,
   c.parent,
   c.fork_point_sha,
-  c."timestamp"
+  c."timestamp",
+  c.message
 ORDER BY br.run_id
 `
 
@@ -452,6 +458,7 @@ type SelectCIReportRunsByIDsRow struct {
 	CommitParent       *string
 	CommitForkPointSha *string
 	CommitTimestamp    *time.Time
+	CommitMessage      *string
 }
 
 func (q *Queries) SelectCIReportRunsByIDs(ctx context.Context, runIds []string) ([]SelectCIReportRunsByIDsRow, error) {
@@ -474,6 +481,7 @@ func (q *Queries) SelectCIReportRunsByIDs(ctx context.Context, runIds []string) 
 			&i.CommitParent,
 			&i.CommitForkPointSha,
 			&i.CommitTimestamp,
+			&i.CommitMessage,
 		); err != nil {
 			return nil, err
 		}

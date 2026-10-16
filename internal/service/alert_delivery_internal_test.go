@@ -87,3 +87,24 @@ func TestGithubRepositorySpec(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatAlertValueUsesReadableScales(t *testing.T) {
+	tests := []struct {
+		value float64
+		unit  string
+		want  string
+	}{
+		{2.5, "s", "2.5 s"},
+		{0.0021, "s", "2.1 ms"},
+		{0.000047499, "s", "47.5 µs"},
+		{3.2e-7, "s", "320 ns"},
+		{1.53e9, "B/s", "1.53 GB/s"},
+		{2.5e7, "B/s", "25.00 MB/s"},
+		{512, "B/s", "512 B/s"},
+		{12345.678, "items/s", "1.235e+04 items/s"},
+		{42, "", "42"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, formatAlertValue(tt.value, tt.unit), "%g %s", tt.value, tt.unit)
+	}
+}

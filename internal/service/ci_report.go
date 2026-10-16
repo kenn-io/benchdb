@@ -1238,6 +1238,7 @@ func ciReportCommitFromRun(row storage.CIReportRunRow) *Commit {
 		ID:         *row.CommitID,
 		Sha:        derefString(row.CommitSha),
 		Repository: derefString(row.CommitRepository),
+		Message:    derefString(row.CommitMessage),
 		Timestamp:  row.CommitTimestamp,
 	}
 }
