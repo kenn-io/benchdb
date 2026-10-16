@@ -2,7 +2,10 @@ package service_test
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -305,4 +308,98 @@ func (r *fakeAlertReporter) Report(_ context.Context, q service.CIReportQuery) (
 		return nil, r.err
 	}
 	return r.next, nil
+}
+
+func TestAlertEvaluatorRecordsWhatRegressedForDelivery(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	rate, seconds := "B/s", "s"
+	lookbackDrop := service.CIReportComparison{
+		Status: "regressed", Name: "read-rate", Unit: &rate, Hardware: service.Hardware{Name: "box-a"},
+		Contender: service.CIReportSide{SVS: new(1.47e9)},
+		Baseline:  &service.CIReportBaselineSide{SVS: new(1.50e9)},
+		Analysis: &service.CIReportAnalysis{LookbackZScore: &service.LookbackAnalysis{
+			RegressionIndicated: true, Tolerance: &service.ChangeTolerance{Reference: 1.53e9},
+		}},
+		Links: service.CIReportRowLinks{Series: "/series/read-rate"},
+	}
+	pairwiseSlowdown := service.CIReportComparison{
+		Status: "regressed", Name: "write-time", Unit: &seconds, Hardware: service.Hardware{Name: "box-b"},
+		Contender: service.CIReportSide{SVS: new(0.15)},
+		Baseline:  &service.CIReportBaselineSide{SVS: new(0.10)},
+		Analysis:  &service.CIReportAnalysis{Pairwise: &service.PairwiseAnalysis{RegressionIndicated: true}},
+	}
+	improved := pairwiseSlowdown
+	improved.Status, improved.Name = "improved", "faster"
+	reporter := &fakeAlertReporter{next: &service.CIReport{
+		Status: service.CIReportStatusFailure, StatusReason: "regressions detected",
+		ReportURL: "https://benchdb.example/app/ci/report?run_ids=run-1",
+		Summary:   service.CIReportSummary{Regressions: 2, Improvements: 1, Compared: 5},
+		Runs: []service.CIReportRun{{
+			Commit:      &service.Commit{Message: "Speed up writes\n\nLonger explanation."},
+			Comparisons: []service.CIReportComparison{lookbackDrop, improved, pairwiseSlowdown},
+		}},
+	}}
+
+	_, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	require.Len(t, store.events, 1)
+	var summary service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(store.events[0].Summary, &summary))
+	assert.Equal(t, 2, summary.Regressions, "the report's counts are kept")
+	assert.Equal(t, "Speed up writes", summary.CommitSubject)
+	require.Len(t, summary.Regressed, 2)
+	assert.Equal(t, service.AlertEventRow{
+		Name: "write-time", Machine: "box-b", Unit: "s", Before: 0.10, After: 0.15,
+		PercentChange: 50, Against: "baseline",
+	}, roundRow(summary.Regressed[0]), "the larger change comes first")
+	assert.Equal(t, service.AlertEventRow{
+		Name: "read-rate", Machine: "box-a", Unit: "B/s", Before: 1.53e9, After: 1.47e9,
+		PercentChange: -3.9, Against: "recent runs", SeriesURL: "https://benchdb.example/app/series/read-rate",
+	}, roundRow(summary.Regressed[1]), "a lookback regression is measured against the recent-runs mean")
+}
+
+func TestAlertEvaluatorKeepsOnlyTheWorstRegressedRows(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	var rows []service.CIReportComparison
+	for i := 1; i <= 8; i++ {
+		rows = append(rows, service.CIReportComparison{
+			Status: "regressed", Name: fmt.Sprintf("bench-%d", i),
+			Contender: service.CIReportSide{SVS: new(100 + float64(i))},
+			Baseline:  &service.CIReportBaselineSide{SVS: new(100.0)},
+			Analysis:  &service.CIReportAnalysis{Pairwise: &service.PairwiseAnalysis{RegressionIndicated: true}},
+		})
+	}
+	reporter := &fakeAlertReporter{next: &service.CIReport{
+		Status: service.CIReportStatusFailure, ReportURL: "/ci/report?run_ids=run-1",
+		Summary: service.CIReportSummary{Regressions: 8, Compared: 8},
+		Runs:    []service.CIReportRun{{Comparisons: rows}},
+	}}
+
+	_, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	var summary service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(store.events[0].Summary, &summary))
+	names := make([]string, 0, len(summary.Regressed))
+	for _, row := range summary.Regressed {
+		names = append(names, row.Name)
+		assert.Empty(t, row.SeriesURL, "a relative report URL gives no absolute series link")
+	}
+	assert.Equal(t, []string{"bench-8", "bench-7", "bench-6", "bench-5", "bench-4"}, names)
+}
+
+func roundRow(row service.AlertEventRow) service.AlertEventRow {
+	row.PercentChange = math.Round(row.PercentChange*10) / 10
+	return row
 }

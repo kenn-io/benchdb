@@ -521,8 +521,8 @@ func (s *GitHubCheckAlertDeliverySender) SendAlertDelivery(
 		Conclusion: githubCheckConclusion(payload.Event.Status),
 		ExternalID: payload.Event.ID,
 		Output: githubCheckRunOutput{
-			Title:   fmt.Sprintf("BenchDB alert: %s", payload.Event.Status),
-			Summary: githubCheckSummary(payload.Event),
+			Title:   newAlertMessage(payload.Event).headline(),
+			Summary: newAlertMessage(payload.Event).markdown(),
 		},
 	}
 	if isAbsoluteHTTPURL(payload.Event.ReportURL) {
@@ -630,37 +630,13 @@ func githubCheckConclusion(status string) string {
 	}
 }
 
-func githubCheckSummary(event AlertDeliveryEvent) string {
-	summary := event.StatusReason
-	if event.ReportURL != "" {
-		summary += "\n\nReport: " + event.ReportURL
-	}
-	if event.RunID != nil && *event.RunID != "" {
-		summary += "\nRun: " + *event.RunID
-	}
-	return summary
-}
-
 func githubCommentBody(event AlertDeliveryEvent) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "### BenchDB alert: %s\n\n", event.Status)
-	b.WriteString(event.StatusReason)
-	if event.ReportURL != "" {
-		if isAbsoluteHTTPURL(event.ReportURL) {
-			fmt.Fprintf(&b, "\n\n[Open BenchDB report](%s)", event.ReportURL)
-		} else {
-			fmt.Fprintf(&b, "\n\nReport: `%s`", event.ReportURL)
-		}
-	}
-	if event.RunID != nil && *event.RunID != "" {
-		fmt.Fprintf(&b, "\n\nRun: `%s`", *event.RunID)
-	}
-	fmt.Fprintf(&b, "\n\nAlert event: `%s`", event.ID)
-	return b.String()
+	message := newAlertMessage(event)
+	return fmt.Sprintf("### %s\n\n%s\n\nAlert event: `%s`", message.headline(), message.markdown(), event.ID)
 }
 
 func emailAlertMessage(fromHeader string, recipients []string, event AlertDeliveryEvent) []byte {
-	subject := sanitizeEmailHeader("BenchDB alert: " + event.Status)
+	subject := sanitizeEmailHeader(newAlertMessage(event).headline())
 	headers := []string{
 		"From: " + sanitizeEmailHeader(fromHeader),
 		"To: " + sanitizeEmailHeader(strings.Join(recipients, ", ")),
@@ -676,12 +652,8 @@ func emailAlertMessage(fromHeader string, recipients []string, event AlertDelive
 
 func emailAlertBody(event AlertDeliveryEvent) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "BenchDB alert: %s\n\n", event.Status)
-	fmt.Fprintf(&b, "Kind: %s\n", event.Kind)
-	fmt.Fprintf(&b, "Reason: %s\n", event.StatusReason)
-	if event.ReportURL != "" {
-		fmt.Fprintf(&b, "Report: %s\n", event.ReportURL)
-	}
+	b.WriteString(newAlertMessage(event).plainText())
+	b.WriteString("\n\n")
 	if event.Repository != "" {
 		fmt.Fprintf(&b, "Repository: %s\n", event.Repository)
 	}
@@ -718,29 +690,7 @@ type slackMessage struct {
 }
 
 func slackAlertDeliveryMessage(event AlertDeliveryEvent) slackMessage {
-	text := fmt.Sprintf("BenchDB alert: %s - %s - %s", event.Status, event.StatusReason, event.ReportURL)
-	message := slackMessage{
-		Text: text,
-		Blocks: []slackBlock{
-			{
-				Type: "section",
-				Text: slackTextBlock{
-					Type: "mrkdwn",
-					Text: fmt.Sprintf("*BenchDB alert:* %s\n%s", event.Status, event.StatusReason),
-				},
-			},
-		},
-	}
-	if isAbsoluteHTTPURL(event.ReportURL) {
-		message.Blocks = append(message.Blocks, slackBlock{
-			Type: "section",
-			Text: slackTextBlock{
-				Type: "mrkdwn",
-				Text: fmt.Sprintf("<%s|Open report>", event.ReportURL),
-			},
-		})
-	}
-	return message
+	return newAlertMessage(event).slack()
 }
 
 func isAbsoluteHTTPURL(raw string) bool {

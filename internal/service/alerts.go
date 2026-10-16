@@ -232,7 +232,7 @@ func (e *AlertEvaluator) transitionRule(
 	kind string,
 	now time.Time,
 ) (storage.AlertRuleTransition, error) {
-	summary, err := json.Marshal(report.Summary)
+	summary, err := json.Marshal(newAlertEventSummary(report))
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}

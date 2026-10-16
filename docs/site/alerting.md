@@ -141,7 +141,13 @@ change while the evaluator runs, the evaluator leaves that rule alone on that
 pass.
 
 Each event stores the report status, status reason, repository, run id, commit
-SHA, report URL, and report summary JSON.
+SHA, report URL, and a summary. The summary has the report's counts, the commit
+subject (`commit_subject`), and up to five regressed benchmarks, largest change
+first (`regressed_rows`). Each row has the benchmark `name`, `machine`, `unit`,
+the `before` and `after` values, `percent_change`, what it was measured
+`against`, and an absolute `series_url` when the report URL is absolute. A
+lookback regression is measured against the mean of recent runs; a pairwise
+regression against the baseline result.
 
 The command prints a summary to stdout with the counts `rules`,
 `evaluated`, `opened`, `resolved`, `unchanged`, `skipped`, `no_candidate`, and
@@ -211,7 +217,22 @@ channel, and alert event:
     "commit_sha": "abcdef",
     "repository": "https://github.com/org/repo",
     "report_url": "https://benchdb.example/ci/report?baseline=fork_point&commit_sha=abcdef&repository=https%3A%2F%2Fgithub.com%2Forg%2Frepo&run_ids=run-123",
-    "summary": {"regressions": 1},
+    "summary": {
+      "compared": 98,
+      "regressions": 1,
+      "improvements": 36,
+      "commit_subject": "Cache packed objects",
+      "regressed_rows": [{
+        "name": "get-text-first-rate",
+        "machine": "bench-host",
+        "unit": "B/s",
+        "before": 1530000000,
+        "after": 1470000000,
+        "percent_change": -3.9,
+        "against": "recent runs",
+        "series_url": "https://benchdb.example/series/abc123"
+      }]
+    },
     "created_at": "2026-06-19T00:00:00Z"
   }
 }
@@ -226,8 +247,19 @@ export BENCHDB_ALERT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
 benchdb admin alerts deliver --channel slack --format json
 ```
 
-Slack delivery posts to an incoming webhook. The message has fallback `text`
-and Block Kit sections with the status, the reason, and a link to the report.
+Slack delivery posts to an incoming webhook. A message names the repository
+and links the commit with its subject. It then lists the regressed benchmarks
+with their machine, values, and change, and counts the rest of the run:
+
+```text
+🔻 Benchmark regression in org/repo
+Commit c71cab8: Cache packed objects
+• get-text-first-rate on bench-host: 1.53 GB/s → 1.47 GB/s (−3.9% vs recent runs)
+In this run: 1 regressed, 36 improved, 61 unchanged  ·  Open report
+```
+
+A resolved event reads `No longer regressed: org/repo`. The fallback `text`,
+which Slack shows in notifications, is a one-line version of the same message.
 
 ### GitHub Check Runs
 
@@ -245,7 +277,8 @@ The token needs `checks:write` on the repository. The CLI reads
 
 BenchDB creates a completed Check Run named `BenchDB alert` on the event's
 commit. A `failure` report becomes a failing check, `success` a passing check,
-and any other status a neutral check.
+and any other status a neutral check. The check's title and summary carry the
+same message as Slack.
 
 The target is a repository URL, not a webhook. BenchDB only queues events
 whose rule repository matches the target, so one repository's alerts never
@@ -263,7 +296,8 @@ benchdb admin alerts deliver --channel github-comment --format json
 
 This channel posts a comment on the event's commit. It uses the same
 repository target, token lookup, and repository matching as Check Runs. The
-token needs `contents:write` on the repository.
+token needs `contents:write` on the repository. The comment carries the same
+message as Slack.
 
 ### Email
 
@@ -284,8 +318,9 @@ server offers it. If you set credentials, the server must support SMTP AUTH.
 
 The delivery target is the normalized recipient list, with duplicates removed.
 The SMTP server and password are not part of the target, so retries stay
-unique per event and recipient set. Each message is plain text with the
-status, kind, reason, report URL, repository, commit, run, rule, and event id.
+unique per event and recipient set. Each message is plain text. Its subject is
+the message headline, and its body has the same message as Slack, followed by
+the repository, commit, run, rule, and event id.
 
 ## Adding a channel
 
