@@ -11,7 +11,7 @@ import (
 
 type AlertStore interface {
 	ListEnabledAlertRules(ctx context.Context) ([]storage.AlertRule, error)
-	SelectLatestAlertRun(ctx context.Context, p storage.SelectLatestAlertRunParams) (storage.AlertCandidateRun, error)
+	SelectAlertRuns(ctx context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error)
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
 	TransitionAlertRule(ctx context.Context, p storage.TransitionAlertRuleParams) (storage.AlertRuleTransition, error)
 }
@@ -22,6 +22,9 @@ type AlertReporter interface {
 
 type AlertEvaluationOptions struct{}
 
+// AlertEvaluationSummary counts one evaluation pass. Evaluated counts the
+// finalized runs scored; Opened, Resolved, Unchanged, and Skipped are their
+// outcomes. NoCandidate counts rules with no new finalized run.
 type AlertEvaluationSummary struct {
 	Rules       int                  `json:"rules"`
 	Evaluated   int                  `json:"evaluated"`
@@ -71,48 +74,86 @@ func (e *AlertEvaluator) Evaluate(ctx context.Context, _ AlertEvaluationOptions)
 	return summary, nil
 }
 
+// alertRunsPerPass bounds the runs one rule scores in a pass. A longer
+// backlog continues from the rule's cursor on the next pass.
+const alertRunsPerPass = 50
+
+// evaluateRule scores every run finalized since the rule's cursor, oldest
+// first, so a regression in one run is not hidden by a later run. A rule that
+// has scored nothing yet starts from its newest finalized run instead of
+// replaying history.
 func (e *AlertEvaluator) evaluateRule(ctx context.Context, rule storage.AlertRule, summary *AlertEvaluationSummary) error {
 	now := e.now().UTC()
-	candidate, err := e.store.SelectLatestAlertRun(ctx, storage.SelectLatestAlertRunParams{
+	runs, err := e.store.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{
 		Repository: rule.Repository,
 		RunReason:  rule.RunReason,
+		After:      rule.ReportCursor,
+		Limit:      alertRunsPerPass,
 	})
-	if errors.Is(err, storage.ErrNotFound) {
-		summary.NoCandidate++
-		_, updateErr := e.touchRule(ctx, rule, now)
-		return updateErr
-	}
 	if err != nil {
 		return err
 	}
+	if len(runs) == 0 {
+		summary.NoCandidate++
+		_, err := e.touchRule(ctx, rule, now, nil)
+		return err
+	}
+	for _, run := range runs {
+		next, err := e.evaluateRun(ctx, rule, run, now, summary)
+		if err != nil || next == nil {
+			// A failed run is retried on the next pass; nil means the rule
+			// changed while it was being evaluated.
+			return err
+		}
+		rule = *next
+	}
+	return nil
+}
 
+// evaluateRun scores one finalized run and records the outcome together with
+// the rule's cursor. It returns the updated rule, or nil when the rule
+// changed underneath the evaluation.
+func (e *AlertEvaluator) evaluateRun(
+	ctx context.Context,
+	rule storage.AlertRule,
+	run storage.AlertCandidateRun,
+	now time.Time,
+	summary *AlertEvaluationSummary,
+) (*storage.AlertRule, error) {
 	report, err := e.reporter.Report(ctx, CIReportQuery{
 		Repository: rule.Repository,
-		CommitSHA:  candidate.CommitSHA,
-		RunIDs:     []string{candidate.RunID},
+		CommitSHA:  run.CommitSHA,
+		RunIDs:     []string{run.RunID},
 		Baseline:   CIReportBaseline(rule.Baseline),
 		Threshold:  rule.Threshold,
 		ThresholdZ: rule.ThresholdZ,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if report == nil {
-		return errors.New("nil CI report")
+		return nil, errors.New("nil CI report")
 	}
 	summary.Evaluated++
 	alertReport := automatedAlertReport(report)
-
-	switch alertReport.Status {
-	case CIReportStatusFailure:
-		return e.openIfNeeded(ctx, rule, candidate, alertReport, now, summary)
-	case CIReportStatusSuccess:
-		return e.resolveIfNeeded(ctx, rule, candidate, alertReport, now, summary)
+	open := rule.State == storage.AlertRuleStateOpen
+	switch {
+	case alertReport.Status == CIReportStatusFailure && !open:
+		return e.transitionRule(ctx, rule, run, alertReport, storage.AlertRuleStateOpen,
+			storage.AlertEventKindOpened, now, summary)
+	case alertReport.Status == CIReportStatusSuccess && open:
+		return e.transitionRule(ctx, rule, run, alertReport, storage.AlertRuleStateInactive,
+			storage.AlertEventKindResolved, now, summary)
+	case alertReport.Status == CIReportStatusFailure || alertReport.Status == CIReportStatusSuccess:
+		summary.Unchanged++
 	default:
 		summary.Skipped++
-		_, err = e.touchRule(ctx, rule, now)
-		return err
 	}
+	touch, err := e.touchRule(ctx, rule, now, &run.Cursor)
+	if err != nil || !touch.Touched {
+		return nil, err
+	}
+	return &touch.Rule, nil
 }
 
 // automatedAlertReport removes explicit distribution-boundary contenders from
@@ -160,85 +201,23 @@ func automatedAlertReport(report *CIReport) *CIReport {
 	return &filtered
 }
 
-func (e *AlertEvaluator) openIfNeeded(
-	ctx context.Context,
-	rule storage.AlertRule,
-	candidate storage.AlertCandidateRun,
-	report *CIReport,
-	now time.Time,
-	summary *AlertEvaluationSummary,
-) error {
-	if rule.State == storage.AlertRuleStateOpen {
-		summary.Unchanged++
-		_, err := e.touchRule(ctx, rule, now)
-		return err
-	}
-	transition, err := e.transitionRule(
-		ctx, rule, candidate, report, storage.AlertRuleStateInactive, storage.AlertRuleStateOpen,
-		storage.AlertEventKindOpened, now,
-	)
-	if err != nil {
-		return err
-	}
-	if !transition.Transitioned {
-		summary.Unchanged++
-		return nil
-	}
-	summary.Opened++
-	if transition.Event != nil {
-		summary.Events = append(summary.Events, *transition.Event)
-	}
-	return nil
-}
-
-func (e *AlertEvaluator) resolveIfNeeded(
-	ctx context.Context,
-	rule storage.AlertRule,
-	candidate storage.AlertCandidateRun,
-	report *CIReport,
-	now time.Time,
-	summary *AlertEvaluationSummary,
-) error {
-	if rule.State != storage.AlertRuleStateOpen {
-		summary.Unchanged++
-		_, err := e.touchRule(ctx, rule, now)
-		return err
-	}
-	transition, err := e.transitionRule(
-		ctx, rule, candidate, report, storage.AlertRuleStateOpen, storage.AlertRuleStateInactive,
-		storage.AlertEventKindResolved, now,
-	)
-	if err != nil {
-		return err
-	}
-	if !transition.Transitioned {
-		summary.Unchanged++
-		return nil
-	}
-	summary.Resolved++
-	if transition.Event != nil {
-		summary.Events = append(summary.Events, *transition.Event)
-	}
-	return nil
-}
-
 func (e *AlertEvaluator) transitionRule(
 	ctx context.Context,
 	rule storage.AlertRule,
-	candidate storage.AlertCandidateRun,
+	run storage.AlertCandidateRun,
 	report *CIReport,
-	fromState string,
 	toState string,
 	kind string,
 	now time.Time,
-) (storage.AlertRuleTransition, error) {
-	summary, err := json.Marshal(newAlertEventSummary(report))
+	summary *AlertEvaluationSummary,
+) (*storage.AlertRule, error) {
+	eventSummary, err := json.Marshal(newAlertEventSummary(report))
 	if err != nil {
-		return storage.AlertRuleTransition{}, err
+		return nil, err
 	}
-	return e.store.TransitionAlertRule(ctx, storage.TransitionAlertRuleParams{
+	transition, err := e.store.TransitionAlertRule(ctx, storage.TransitionAlertRuleParams{
 		ID:           rule.ID,
-		FromState:    fromState,
+		FromState:    rule.State,
 		ToState:      toState,
 		Repository:   rule.Repository,
 		Baseline:     rule.Baseline,
@@ -248,18 +227,36 @@ func (e *AlertEvaluator) transitionRule(
 		EventKind:    kind,
 		Status:       string(report.Status),
 		StatusReason: report.StatusReason,
-		RunID:        &candidate.RunID,
-		CommitSHA:    &candidate.CommitSHA,
+		RunID:        &run.RunID,
+		CommitSHA:    &run.CommitSHA,
 		ReportURL:    report.ReportURL,
-		Summary:      summary,
+		Summary:      eventSummary,
 		EvaluatedAt:  now,
+		Cursor:       run.Cursor,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if !transition.Transitioned {
+		summary.Unchanged++
+		return nil, nil
+	}
+	if kind == storage.AlertEventKindOpened {
+		summary.Opened++
+	} else {
+		summary.Resolved++
+	}
+	if transition.Event != nil {
+		summary.Events = append(summary.Events, *transition.Event)
+	}
+	return &transition.Rule, nil
 }
 
 func (e *AlertEvaluator) touchRule(
 	ctx context.Context,
 	rule storage.AlertRule,
 	now time.Time,
+	cursor *storage.AlertReportCursor,
 ) (storage.AlertRuleTouch, error) {
 	return e.store.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID:          rule.ID,
@@ -270,5 +267,6 @@ func (e *AlertEvaluator) touchRule(
 		ThresholdZ:  rule.ThresholdZ,
 		RunReason:   rule.RunReason,
 		EvaluatedAt: now,
+		Cursor:      cursor,
 	})
 }

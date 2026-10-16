@@ -50,6 +50,7 @@ type ProductSmokeTargets struct {
 	RecentRunID               string
 	RecentBatchID             string
 	CIRegressionRunID         string
+	CIRegressionResultID      string
 	CIRegressionCommitSHA     string
 	CIRegressionRunReason     string
 	CIActionRequiredRunID     string
@@ -242,6 +243,10 @@ func productSmokeTargets(fingerprint string, results map[string]*service.Result)
 	if err != nil {
 		return ProductSmokeTargets{}, err
 	}
+	regressionID, err := resultID("feature-branch-1")
+	if err != nil {
+		return ProductSmokeTargets{}, err
+	}
 
 	return ProductSmokeTargets{
 		Repository:                repo,
@@ -252,6 +257,7 @@ func productSmokeTargets(fingerprint string, results map[string]*service.Result)
 		RecentRunID:               "run-commit-15",
 		RecentBatchID:             "batch-commit-15",
 		CIRegressionRunID:         "run-feature-branch-1",
+		CIRegressionResultID:      regressionID,
 		CIRegressionCommitSHA:     "feature-branch-1",
 		CIRegressionRunReason:     "pull request",
 		CIActionRequiredRunID:     "run-commit-05",

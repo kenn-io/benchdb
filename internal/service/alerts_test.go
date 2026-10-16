@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.kenn.io/benchdb/internal/dbtest"
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -27,6 +27,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	})
 	reporter := &fakeAlertReporter{}
 	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	store.finalizeRun("run-1", "sha-1")
 
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "regressions detected",
@@ -48,6 +49,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.JSONEq(t, `{"runs":0,"missing_runs":0,"contender_results":0,"compared":4,"analyzed":0,"regressions":2,"improvements":0,"benchmark_errors":0,"missing_baseline":0,"not_comparable":0}`, string(store.events[0].Summary))
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State)
 
+	store.finalizeRun("run-2", "sha-2")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "still regressed",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -58,6 +60,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.Equal(t, 1, summary.Unchanged)
 	assert.Len(t, store.events, 1, "open alerts do not emit repeat failure events")
 
+	store.finalizeRun("run-3", "sha-3")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusSkipped, StatusReason: "not enough history",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -68,6 +71,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State, "skipped reports do not resolve an open alert")
 	assert.Len(t, store.events, 1)
 
+	store.finalizeRun("run-4", "sha-4")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusSuccess, StatusReason: "all compared rows stable",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -151,35 +155,6 @@ func TestAlertEvaluatorSkipsAllBoundaryRowsWithoutResolving(t *testing.T) {
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State)
 }
 
-func TestAlertEvaluatorConstrainsDuplicateRunIDByCommit(t *testing.T) {
-	_, store, pool, ctx := newIngester(t)
-	t0 := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
-	provider := ciCommitProvider{
-		"base":  ciCommitInfo("base", nil, "base", t0),
-		"head":  ciCommitInfo("head", new("base"), "base", t0.Add(24*time.Hour)),
-		"later": ciCommitInfo("later", new("head"), "later", t0.Add(48*time.Hour)),
-	}
-	ing := service.NewIngester(store, provider)
-	ciSubmit(t, ing, ctx, "baseline-run", "base", 10)
-	ciSubmit(t, ing, ctx, "ci-run", "head", 20)
-	ciSubmit(t, ing, ctx, "ci-run", "later", 30)
-
-	userID := dbtest.SeedUser(t, ctx, pool)
-	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
-		UserID: userID, Name: "duplicate run ids", Repository: testRepo,
-		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: fixedAlertNow(),
-	})
-	require.NoError(t, err)
-
-	evaluator := service.NewAlertEvaluator(store, service.NewCIReporter(store, ""), fixedAlertNow)
-	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Rules)
-	assert.Equal(t, 1, summary.Evaluated)
-	assert.Equal(t, 0, summary.Failed)
-}
-
 func fixedAlertNow() time.Time {
 	return time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 }
@@ -190,6 +165,16 @@ type fakeAlertStore struct {
 	events        []storage.InsertAlertEventParams
 	missingRunFor map[string]bool
 	beforeUpdate  func(*fakeAlertStore, storage.AlertRule)
+	// runs are the finalized runs, oldest first; nil means one run, run-1.
+	runs []storage.AlertCandidateRun
+}
+
+// finalizeRun adds a finalized run after every existing one.
+func (s *fakeAlertStore) finalizeRun(runID, commitSHA string) {
+	at := fixedAlertNow().Add(time.Duration(len(s.runs)) * time.Minute)
+	s.runs = append(s.runs, storage.AlertCandidateRun{
+		RunID: runID, CommitSHA: commitSHA, Cursor: storage.AlertReportCursor{At: at, RunID: runID},
+	})
 }
 
 func newFakeAlertStore(rules ...storage.AlertRule) *fakeAlertStore {
@@ -212,13 +197,29 @@ func (s *fakeAlertStore) ListEnabledAlertRules(context.Context) ([]storage.Alert
 	return out, nil
 }
 
-func (s *fakeAlertStore) SelectLatestAlertRun(_ context.Context, p storage.SelectLatestAlertRunParams) (storage.AlertCandidateRun, error) {
+func (s *fakeAlertStore) SelectAlertRuns(_ context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error) {
 	for _, rule := range s.rules {
 		if rule.Repository == p.Repository && s.missingRunFor[rule.ID] {
-			return storage.AlertCandidateRun{}, storage.ErrNotFound
+			return nil, nil
 		}
 	}
-	return storage.AlertCandidateRun{RunID: "run-1", CommitSHA: "sha-1", LastResultTimestamp: fixedAlertNow()}, nil
+	runs := s.runs
+	if runs == nil {
+		runs = []storage.AlertCandidateRun{{
+			RunID: "run-1", CommitSHA: "sha-1", Cursor: storage.AlertReportCursor{At: fixedAlertNow(), RunID: "run-1"},
+		}}
+	}
+	if p.After == nil {
+		return runs[len(runs)-1:], nil
+	}
+	var out []storage.AlertCandidateRun
+	for _, run := range runs {
+		after := run.Cursor.At.After(p.After.At) || (run.Cursor.At.Equal(p.After.At) && run.Cursor.RunID > p.After.RunID)
+		if after && len(out) < int(p.Limit) {
+			out = append(out, run)
+		}
+	}
+	return out, nil
 }
 
 func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error) {
@@ -232,6 +233,9 @@ func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.T
 	}
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
+	if p.Cursor != nil {
+		rule.ReportCursor = p.Cursor
+	}
 	s.rules[p.ID] = rule
 	return storage.AlertRuleTouch{Rule: rule, Touched: true}, nil
 }
@@ -253,6 +257,7 @@ func (s *fakeAlertStore) TransitionAlertRule(_ context.Context, p storage.Transi
 	rule.State = p.ToState
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
+	rule.ReportCursor = &p.Cursor
 	s.rules[p.ID] = rule
 	event := storage.AlertEvent{
 		ID:           "event",
@@ -299,6 +304,7 @@ func alertSnapshotMatches(
 
 type fakeAlertReporter struct {
 	next  *service.CIReport
+	byRun map[string]*service.CIReport
 	err   error
 	calls []service.CIReportQuery
 }
@@ -307,6 +313,9 @@ func (r *fakeAlertReporter) Report(_ context.Context, q service.CIReportQuery) (
 	r.calls = append(r.calls, q)
 	if r.err != nil {
 		return nil, r.err
+	}
+	if report, ok := r.byRun[q.RunIDs[0]]; ok {
+		return report, nil
 	}
 	return r.next, nil
 }
@@ -412,7 +421,8 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 	ciSubmit(t, ing, ctx, "main-c1", "c1", 10)
 	ciSubmit(t, ing, ctx, "main-c2", "c2", 20)
 	ciSubmit(t, ing, ctx, "main-c3", "c3", 30)
-	ciSubmit(t, ing, ctx, "main-c4", "c4", 100)
+	contender := ciSubmit(t, ing, ctx, "main-c4", "c4", 100)
+	finalizeAlertRun(t, ctx, store, "main-c4", contender.ID)
 	owner, err := store.GetOrCreateUserByEmail(ctx, "alerts@example.com", "Alerts", "!")
 	require.NoError(t, err)
 	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
@@ -438,4 +448,74 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 func roundRow(row service.AlertEventRow) service.AlertEventRow {
 	row.PercentChange = math.Round(row.PercentChange*10) / 10
 	return row
+}
+
+// finalizeAlertRun marks a run complete the way clients do, which makes it a
+// run alert rules score.
+func finalizeAlertRun(t *testing.T, ctx context.Context, store *db.Store, runID string, resultIDs ...string) {
+	t.Helper()
+	_, err := service.NewRunReports(store, "").Finalize(ctx, runID, resultIDs, service.CIReportBaselineLatestDefault, "")
+	require.NoError(t, err)
+}
+
+func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	stable := &service.CIReport{Status: service.CIReportStatusSuccess, Summary: service.CIReportSummary{Compared: 1, Analyzed: 1}}
+	regressed := &service.CIReport{Status: service.CIReportStatusFailure, Summary: service.CIReportSummary{Regressions: 1, Compared: 1, Analyzed: 1}}
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
+		"run-1": stable, "run-2": regressed, "run-3": stable, "run-4": stable,
+	}}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	store.finalizeRun("run-1", "sha-1")
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+
+	// Three runs land between passes; the middle one regressed.
+	store.finalizeRun("run-2", "sha-2")
+	store.finalizeRun("run-3", "sha-3")
+	store.finalizeRun("run-4", "sha-4")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, summary.Evaluated)
+	assert.Equal(t, 1, summary.Opened, "a regression in an earlier run is not hidden by a later one")
+	assert.Equal(t, 1, summary.Resolved)
+	assert.Equal(t, 1, summary.Unchanged)
+	require.Len(t, store.events, 2)
+	assert.Equal(t, "run-2", *store.events[0].RunID)
+	assert.Equal(t, storage.AlertEventKindOpened, store.events[0].Kind)
+	assert.Equal(t, "run-3", *store.events[1].RunID)
+	assert.Equal(t, storage.AlertEventKindResolved, store.events[1].Kind)
+	assert.Equal(t, "run-4", store.rules["rule-1"].ReportCursor.RunID)
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Evaluated, "a run is scored once")
+	assert.Equal(t, 1, summary.NoCandidate)
+}
+
+func TestAlertEvaluatorStartsANewRuleFromItsNewestRun(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	for i := 1; i <= 3; i++ {
+		store.finalizeRun(fmt.Sprintf("run-%d", i), fmt.Sprintf("sha-%d", i))
+	}
+	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusFailure}}
+
+	summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Evaluated, "history before the rule existed is not replayed")
+	require.Len(t, reporter.calls, 1)
+	assert.Equal(t, []string{"run-3"}, reporter.calls[0].RunIDs)
+	assert.Equal(t, "sha-3", reporter.calls[0].CommitSHA)
 }

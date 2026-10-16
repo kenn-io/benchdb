@@ -260,6 +260,16 @@ type AlertRule struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastEvaluatedAt *time.Time
+	// ReportCursor is the last finalized run report the rule has scored, or
+	// nil before its first score and after a change to what it evaluates.
+	ReportCursor *AlertReportCursor
+}
+
+// AlertReportCursor orders finalized run reports by when they were
+// finalized, then by run ID.
+type AlertReportCursor struct {
+	At    time.Time
+	RunID string
 }
 
 // InsertAlertRuleParams is the column payload for creating an alert rule. The
@@ -312,6 +322,8 @@ type TouchAlertRuleEvaluationParams struct {
 	ThresholdZ  float64
 	RunReason   *string
 	EvaluatedAt time.Time
+	// Cursor, when set, advances the rule's report cursor.
+	Cursor *AlertReportCursor
 }
 
 type AlertRuleTouch struct {
@@ -369,6 +381,7 @@ type TransitionAlertRuleParams struct {
 	ReportURL    string
 	Summary      []byte
 	EvaluatedAt  time.Time
+	Cursor       AlertReportCursor
 }
 
 type AlertRuleTransition struct {
@@ -382,16 +395,21 @@ type ListAlertEventsParams struct {
 	Limit  int32
 }
 
-type SelectLatestAlertRunParams struct {
+// SelectAlertRunsParams selects finalized runs for a rule: those finalized
+// after After, oldest first and at most Limit, or the newest one when After
+// is nil.
+type SelectAlertRunsParams struct {
 	Repository string
 	RunReason  *string
+	After      *AlertReportCursor
+	Limit      int32
 }
 
-// AlertCandidateRun is the newest run selected for an enabled rule.
+// AlertCandidateRun is a finalized run a rule scores.
 type AlertCandidateRun struct {
-	RunID               string
-	CommitSHA           string
-	LastResultTimestamp time.Time
+	RunID     string
+	CommitSHA string
+	Cursor    AlertReportCursor
 }
 
 // AlertDelivery is the durable delivery ledger row for one alert event and one

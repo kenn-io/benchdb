@@ -34,7 +34,9 @@ SET
   enabled = $9,
   updated_at = $10,
   state = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN 'inactive' ELSE state END,
-  last_evaluated_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE last_evaluated_at END
+  last_evaluated_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE last_evaluated_at END,
+  report_cursor_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE report_cursor_at END,
+  report_cursor_run_id = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE report_cursor_run_id END
 WHERE id = $1 AND user_id = $2
 RETURNING *;
 
@@ -48,10 +50,13 @@ WHERE id = $1
 RETURNING *;
 
 -- name: TouchAlertRuleEvaluation :one
+-- A null cursor leaves the rule's cursor where it was.
 UPDATE alert_rule
 SET
   last_evaluated_at = sqlc.arg('evaluated_at'),
-  updated_at = sqlc.arg('evaluated_at')
+  updated_at = sqlc.arg('evaluated_at'),
+  report_cursor_at = coalesce(sqlc.narg('cursor_at'), report_cursor_at),
+  report_cursor_run_id = coalesce(sqlc.narg('cursor_run_id'), report_cursor_run_id)
 WHERE alert_rule.id = sqlc.arg('id')
   AND alert_rule.state = sqlc.arg('state')
   AND alert_rule.enabled = true
@@ -81,7 +86,9 @@ WITH updated_rule AS (
   SET
     state = sqlc.arg('to_state'),
     last_evaluated_at = sqlc.arg('evaluated_at'),
-    updated_at = sqlc.arg('evaluated_at')
+    updated_at = sqlc.arg('evaluated_at'),
+    report_cursor_at = sqlc.arg('cursor_at'),
+    report_cursor_run_id = sqlc.arg('cursor_run_id')
   WHERE alert_rule.id = sqlc.arg('id')
     AND state = sqlc.arg('from_state')
     AND alert_rule.enabled = true
@@ -119,6 +126,8 @@ SELECT
   updated_rule.created_at AS rule_created_at,
   updated_rule.updated_at AS rule_updated_at,
   updated_rule.last_evaluated_at AS rule_last_evaluated_at,
+  updated_rule.report_cursor_at AS rule_report_cursor_at,
+  updated_rule.report_cursor_run_id AS rule_report_cursor_run_id,
   inserted_event.id AS event_id,
   inserted_event.rule_id AS event_rule_id,
   inserted_event.kind AS event_kind,
@@ -139,16 +148,35 @@ WHERE rule_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2;
 
--- name: SelectLatestAlertRun :one
+-- name: SelectAlertReportsAfter :many
+-- Finalized run reports for a rule's repository and run reason, finalized
+-- after the rule's cursor, oldest first. A finalized report marks a complete
+-- run, so a rule never scores a run while its results are still arriving.
 SELECT
-  br.run_id,
-  c.sha AS commit_sha,
-  br."timestamp" AS last_result_timestamp
-FROM benchmark_result_local br
-JOIN commit c ON c.id = br.commit_id
-WHERE br.commit_repo_url = sqlc.arg('repository')
-  AND (sqlc.narg('run_reason')::text IS NULL OR br.run_reason = sqlc.narg('run_reason'))
-ORDER BY br."timestamp" DESC, br.id DESC
+  cr.run_id,
+  (cr.report->>'commit_sha')::text AS commit_sha,
+  cr.evaluated_at
+FROM ci_run_report cr
+WHERE cr.report->>'repository' = sqlc.arg('repository')::text
+  AND cr.report->>'commit_sha' IS NOT NULL
+  AND (sqlc.narg('run_reason')::text IS NULL
+       OR cr.report->'runs'->0->>'run_reason' = sqlc.narg('run_reason')::text)
+  AND (cr.evaluated_at, cr.run_id) > (sqlc.arg('after_at')::timestamptz, sqlc.arg('after_run_id')::text)
+ORDER BY cr.evaluated_at, cr.run_id
+LIMIT sqlc.arg('row_limit')::int;
+
+-- name: SelectLatestAlertReport :one
+-- The newest finalized run report for a rule that has not scored any yet.
+SELECT
+  cr.run_id,
+  (cr.report->>'commit_sha')::text AS commit_sha,
+  cr.evaluated_at
+FROM ci_run_report cr
+WHERE cr.report->>'repository' = sqlc.arg('repository')::text
+  AND cr.report->>'commit_sha' IS NOT NULL
+  AND (sqlc.narg('run_reason')::text IS NULL
+       OR cr.report->'runs'->0->>'run_reason' = sqlc.narg('run_reason')::text)
+ORDER BY cr.evaluated_at DESC, cr.run_id DESC
 LIMIT 1;
 
 -- name: SelectAlertEventsWithoutDelivery :many

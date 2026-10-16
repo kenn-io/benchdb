@@ -113,16 +113,25 @@ On a host, cron can use the server's directory and environment. Initialization
 has a 30-second deadline and can proceed during archive export. Each evaluator
 process has its own DuckDB budget; account for it alongside the server.
 
+Rules score finalized runs. A run counts once its client finalizes its
+report (`POST /api/ci/reports/{run_id}`, see [CI reporting](ci-reporting.md)),
+so a rule never scores a run while its results are still arriving. A run that
+is never finalized is never scored.
+
 For each enabled rule, the evaluator:
 
-1. Finds the newest result in the rule's repository, limited to the rule's
-   `run_reason` when set. If there is none, it counts the rule as
+1. Finds every run finalized since the rule's last scored run, oldest first,
+   in the rule's repository and limited to its `run_reason` when set. A rule
+   that has scored nothing yet starts from its newest finalized run instead of
+   replaying history. So does a rule whose repository, baseline, thresholds,
+   or run reason changed. A pass scores at most 50 runs per rule; the rest wait
+   for the next pass. A rule with no new finalized run counts as
    `no_candidate`.
-2. Builds a CI report for that result's run and commit, with the rule's
-   baseline and thresholds.
+2. For each run, builds a CI report for that run and its commit, with the
+   rule's baseline and thresholds.
 3. Leaves out contender rows marked as the start of a distribution change. If
    that leaves no rows, the report status becomes `skipped`.
-4. Updates the rule from the report status:
+4. Updates the rule from the report status, then moves on to the next run:
 
 | Report status | Rule is `inactive` | Rule is `open` |
 | --- | --- | --- |
@@ -136,6 +145,13 @@ deviations from its own baseline result, more than 2% away from it, and
 larger than the practical tolerance (30 ms by default for timings).
 [Regression analysis](regression-analysis.md) explains the rule.
 
+Because every run is scored in order, a regression in one run is not hidden
+by a later run in the same pass: a regressed run opens the rule, and a later
+clean run resolves it, with an event for each. The rule records the last run
+it scored together with each state change, so a run is scored once. If
+building a report fails, the rule stops at that run and retries it on the next
+pass.
+
 If a rule is disabled, or its repository, baseline, thresholds, or run reason
 change while the evaluator runs, the evaluator leaves that rule alone on that
 pass.
@@ -148,9 +164,10 @@ the `before` and `after` values, `percent_change`, and an absolute `series_url`
 when the report URL is absolute. A row regresses only on its lookback check, so
 `before` is the mean of the recent runs it was judged against.
 
-The command prints a summary to stdout with the counts `rules`,
-`evaluated`, `opened`, `resolved`, `unchanged`, `skipped`, `no_candidate`, and
-`failed`. It prints a warning to stderr for each rule that failed, and exits
+The command prints a summary to stdout. `rules` counts enabled rules and
+`evaluated` counts the runs scored. `opened`, `resolved`, `unchanged`, and
+`skipped` count those runs' outcomes. `no_candidate` counts rules with no new
+finalized run, and `failed` counts rules that failed. It prints a warning to stderr for each rule that failed, and exits
 `1` if any rule failed.
 
 The evaluator uses commit metadata already in the database, so it does not

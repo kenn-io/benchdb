@@ -8,6 +8,8 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimPendingAlertDeliveries = `-- name: ClaimPendingAlertDeliveries :many
@@ -174,7 +176,7 @@ func (q *Queries) DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams
 }
 
 const getAlertRule = `-- name: GetAlertRule :one
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at FROM alert_rule WHERE id = $1
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id FROM alert_rule WHERE id = $1
 `
 
 func (q *Queries) GetAlertRule(ctx context.Context, id string) (AlertRule, error) {
@@ -194,6 +196,8 @@ func (q *Queries) GetAlertRule(ctx context.Context, id string) (AlertRule, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
+		&i.ReportCursorAt,
+		&i.ReportCursorRunID,
 	)
 	return i, err
 }
@@ -309,7 +313,7 @@ VALUES (
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, 'inactive', $10, $10
 )
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id
 `
 
 type InsertAlertRuleParams struct {
@@ -353,6 +357,8 @@ func (q *Queries) InsertAlertRule(ctx context.Context, arg InsertAlertRuleParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
+		&i.ReportCursorAt,
+		&i.ReportCursorRunID,
 	)
 	return i, err
 }
@@ -402,7 +408,7 @@ func (q *Queries) ListAlertEventsByRule(ctx context.Context, arg ListAlertEvents
 }
 
 const listAlertRulesByUser = `-- name: ListAlertRulesByUser :many
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at FROM alert_rule
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id FROM alert_rule
 WHERE user_id = $1
 ORDER BY created_at DESC, id DESC
 `
@@ -430,6 +436,8 @@ func (q *Queries) ListAlertRulesByUser(ctx context.Context, userID string) ([]Al
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastEvaluatedAt,
+			&i.ReportCursorAt,
+			&i.ReportCursorRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -442,7 +450,7 @@ func (q *Queries) ListAlertRulesByUser(ctx context.Context, userID string) ([]Al
 }
 
 const listEnabledAlertRules = `-- name: ListEnabledAlertRules :many
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at FROM alert_rule
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id FROM alert_rule
 WHERE enabled = true
 ORDER BY created_at ASC, id ASC
 `
@@ -470,6 +478,8 @@ func (q *Queries) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastEvaluatedAt,
+			&i.ReportCursorAt,
+			&i.ReportCursorRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -616,34 +626,94 @@ func (q *Queries) SelectAlertEventsWithoutDelivery(ctx context.Context, arg Sele
 	return items, nil
 }
 
-const selectLatestAlertRun = `-- name: SelectLatestAlertRun :one
+const selectAlertReportsAfter = `-- name: SelectAlertReportsAfter :many
 SELECT
-  br.run_id,
-  c.sha AS commit_sha,
-  br."timestamp" AS last_result_timestamp
-FROM benchmark_result_local br
-JOIN commit c ON c.id = br.commit_id
-WHERE br.commit_repo_url = $1
-  AND ($2::text IS NULL OR br.run_reason = $2)
-ORDER BY br."timestamp" DESC, br.id DESC
+  cr.run_id,
+  (cr.report->>'commit_sha')::text AS commit_sha,
+  cr.evaluated_at
+FROM ci_run_report cr
+WHERE cr.report->>'repository' = $1::text
+  AND cr.report->>'commit_sha' IS NOT NULL
+  AND ($2::text IS NULL
+       OR cr.report->'runs'->0->>'run_reason' = $2::text)
+  AND (cr.evaluated_at, cr.run_id) > ($3::timestamptz, $4::text)
+ORDER BY cr.evaluated_at, cr.run_id
+LIMIT $5::int
+`
+
+type SelectAlertReportsAfterParams struct {
+	Repository string
+	RunReason  *string
+	AfterAt    pgtype.Timestamptz
+	AfterRunID string
+	RowLimit   int32
+}
+
+type SelectAlertReportsAfterRow struct {
+	RunID       string
+	CommitSha   string
+	EvaluatedAt pgtype.Timestamptz
+}
+
+// Finalized run reports for a rule's repository and run reason, finalized
+// after the rule's cursor, oldest first. A finalized report marks a complete
+// run, so a rule never scores a run while its results are still arriving.
+func (q *Queries) SelectAlertReportsAfter(ctx context.Context, arg SelectAlertReportsAfterParams) ([]SelectAlertReportsAfterRow, error) {
+	rows, err := q.db.Query(ctx, selectAlertReportsAfter,
+		arg.Repository,
+		arg.RunReason,
+		arg.AfterAt,
+		arg.AfterRunID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectAlertReportsAfterRow{}
+	for rows.Next() {
+		var i SelectAlertReportsAfterRow
+		if err := rows.Scan(&i.RunID, &i.CommitSha, &i.EvaluatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectLatestAlertReport = `-- name: SelectLatestAlertReport :one
+SELECT
+  cr.run_id,
+  (cr.report->>'commit_sha')::text AS commit_sha,
+  cr.evaluated_at
+FROM ci_run_report cr
+WHERE cr.report->>'repository' = $1::text
+  AND cr.report->>'commit_sha' IS NOT NULL
+  AND ($2::text IS NULL
+       OR cr.report->'runs'->0->>'run_reason' = $2::text)
+ORDER BY cr.evaluated_at DESC, cr.run_id DESC
 LIMIT 1
 `
 
-type SelectLatestAlertRunParams struct {
+type SelectLatestAlertReportParams struct {
 	Repository string
 	RunReason  *string
 }
 
-type SelectLatestAlertRunRow struct {
-	RunID               string
-	CommitSha           string
-	LastResultTimestamp time.Time
+type SelectLatestAlertReportRow struct {
+	RunID       string
+	CommitSha   string
+	EvaluatedAt pgtype.Timestamptz
 }
 
-func (q *Queries) SelectLatestAlertRun(ctx context.Context, arg SelectLatestAlertRunParams) (SelectLatestAlertRunRow, error) {
-	row := q.db.QueryRow(ctx, selectLatestAlertRun, arg.Repository, arg.RunReason)
-	var i SelectLatestAlertRunRow
-	err := row.Scan(&i.RunID, &i.CommitSha, &i.LastResultTimestamp)
+// The newest finalized run report for a rule that has not scored any yet.
+func (q *Queries) SelectLatestAlertReport(ctx context.Context, arg SelectLatestAlertReportParams) (SelectLatestAlertReportRow, error) {
+	row := q.db.QueryRow(ctx, selectLatestAlertReport, arg.Repository, arg.RunReason)
+	var i SelectLatestAlertReportRow
+	err := row.Scan(&i.RunID, &i.CommitSha, &i.EvaluatedAt)
 	return i, err
 }
 
@@ -651,20 +721,24 @@ const touchAlertRuleEvaluation = `-- name: TouchAlertRuleEvaluation :one
 UPDATE alert_rule
 SET
   last_evaluated_at = $1,
-  updated_at = $1
-WHERE alert_rule.id = $2
-  AND alert_rule.state = $3
+  updated_at = $1,
+  report_cursor_at = coalesce($2, report_cursor_at),
+  report_cursor_run_id = coalesce($3, report_cursor_run_id)
+WHERE alert_rule.id = $4
+  AND alert_rule.state = $5
   AND alert_rule.enabled = true
-  AND alert_rule.repository = $4
-  AND alert_rule.baseline = $5
-  AND alert_rule.threshold = $6
-  AND alert_rule.threshold_z = $7
-  AND alert_rule.run_reason IS NOT DISTINCT FROM $8
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at
+  AND alert_rule.repository = $6
+  AND alert_rule.baseline = $7
+  AND alert_rule.threshold = $8
+  AND alert_rule.threshold_z = $9
+  AND alert_rule.run_reason IS NOT DISTINCT FROM $10
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id
 `
 
 type TouchAlertRuleEvaluationParams struct {
 	EvaluatedAt *time.Time
+	CursorAt    pgtype.Timestamptz
+	CursorRunID *string
 	ID          string
 	State       string
 	Repository  string
@@ -674,9 +748,12 @@ type TouchAlertRuleEvaluationParams struct {
 	RunReason   *string
 }
 
+// A null cursor leaves the rule's cursor where it was.
 func (q *Queries) TouchAlertRuleEvaluation(ctx context.Context, arg TouchAlertRuleEvaluationParams) (AlertRule, error) {
 	row := q.db.QueryRow(ctx, touchAlertRuleEvaluation,
 		arg.EvaluatedAt,
+		arg.CursorAt,
+		arg.CursorRunID,
 		arg.ID,
 		arg.State,
 		arg.Repository,
@@ -700,6 +777,8 @@ func (q *Queries) TouchAlertRuleEvaluation(ctx context.Context, arg TouchAlertRu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
+		&i.ReportCursorAt,
+		&i.ReportCursorRunID,
 	)
 	return i, err
 }
@@ -710,16 +789,18 @@ WITH updated_rule AS (
   SET
     state = $1,
     last_evaluated_at = $2,
-    updated_at = $2
-  WHERE alert_rule.id = $3
-    AND state = $4
+    updated_at = $2,
+    report_cursor_at = $3,
+    report_cursor_run_id = $4
+  WHERE alert_rule.id = $5
+    AND state = $6
     AND alert_rule.enabled = true
-    AND alert_rule.repository = $5
-    AND alert_rule.baseline = $6
-    AND alert_rule.threshold = $7
-    AND alert_rule.threshold_z = $8
-    AND alert_rule.run_reason IS NOT DISTINCT FROM $9
-  RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at
+    AND alert_rule.repository = $7
+    AND alert_rule.baseline = $8
+    AND alert_rule.threshold = $9
+    AND alert_rule.threshold_z = $10
+    AND alert_rule.run_reason IS NOT DISTINCT FROM $11
+  RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id
 ),
 inserted_event AS (
   INSERT INTO alert_event (
@@ -727,10 +808,10 @@ inserted_event AS (
     report_url, summary, created_at
   )
   SELECT
-    $10, updated_rule.id, updated_rule.repository,
-    $11, $12, $13,
-    $14, $15, $16,
-    $17, $2
+    $12, updated_rule.id, updated_rule.repository,
+    $13, $14, $15,
+    $16, $17, $18,
+    $19, $2
   FROM updated_rule
   RETURNING id, rule_id, kind, status, status_reason, run_id, commit_sha, report_url, summary, created_at, repository
 )
@@ -748,6 +829,8 @@ SELECT
   updated_rule.created_at AS rule_created_at,
   updated_rule.updated_at AS rule_updated_at,
   updated_rule.last_evaluated_at AS rule_last_evaluated_at,
+  updated_rule.report_cursor_at AS rule_report_cursor_at,
+  updated_rule.report_cursor_run_id AS rule_report_cursor_run_id,
   inserted_event.id AS event_id,
   inserted_event.rule_id AS event_rule_id,
   inserted_event.kind AS event_kind,
@@ -766,6 +849,8 @@ CROSS JOIN inserted_event
 type TransitionAlertRuleParams struct {
 	ToState      string
 	EvaluatedAt  *time.Time
+	CursorAt     pgtype.Timestamptz
+	CursorRunID  *string
 	ID           string
 	FromState    string
 	Repository   string
@@ -784,36 +869,40 @@ type TransitionAlertRuleParams struct {
 }
 
 type TransitionAlertRuleRow struct {
-	RuleID              string
-	RuleUserID          string
-	RuleName            string
-	RuleRepository      string
-	RuleBaseline        string
-	RuleThreshold       float64
-	RuleThresholdZ      float64
-	RuleRunReason       *string
-	RuleEnabled         bool
-	RuleState           string
-	RuleCreatedAt       time.Time
-	RuleUpdatedAt       time.Time
-	RuleLastEvaluatedAt *time.Time
-	EventID             string
-	EventRuleID         string
-	EventKind           string
-	EventStatus         string
-	EventStatusReason   string
-	EventRunID          *string
-	EventCommitSha      *string
-	EventRepository     string
-	EventReportUrl      string
-	EventSummary        []byte
-	EventCreatedAt      time.Time
+	RuleID                string
+	RuleUserID            string
+	RuleName              string
+	RuleRepository        string
+	RuleBaseline          string
+	RuleThreshold         float64
+	RuleThresholdZ        float64
+	RuleRunReason         *string
+	RuleEnabled           bool
+	RuleState             string
+	RuleCreatedAt         time.Time
+	RuleUpdatedAt         time.Time
+	RuleLastEvaluatedAt   *time.Time
+	RuleReportCursorAt    pgtype.Timestamptz
+	RuleReportCursorRunID *string
+	EventID               string
+	EventRuleID           string
+	EventKind             string
+	EventStatus           string
+	EventStatusReason     string
+	EventRunID            *string
+	EventCommitSha        *string
+	EventRepository       string
+	EventReportUrl        string
+	EventSummary          []byte
+	EventCreatedAt        time.Time
 }
 
 func (q *Queries) TransitionAlertRule(ctx context.Context, arg TransitionAlertRuleParams) (TransitionAlertRuleRow, error) {
 	row := q.db.QueryRow(ctx, transitionAlertRule,
 		arg.ToState,
 		arg.EvaluatedAt,
+		arg.CursorAt,
+		arg.CursorRunID,
 		arg.ID,
 		arg.FromState,
 		arg.Repository,
@@ -845,6 +934,8 @@ func (q *Queries) TransitionAlertRule(ctx context.Context, arg TransitionAlertRu
 		&i.RuleCreatedAt,
 		&i.RuleUpdatedAt,
 		&i.RuleLastEvaluatedAt,
+		&i.RuleReportCursorAt,
+		&i.RuleReportCursorRunID,
 		&i.EventID,
 		&i.EventRuleID,
 		&i.EventKind,
@@ -872,9 +963,11 @@ SET
   enabled = $9,
   updated_at = $10,
   state = CASE WHEN $11::boolean THEN 'inactive' ELSE state END,
-  last_evaluated_at = CASE WHEN $11::boolean THEN NULL ELSE last_evaluated_at END
+  last_evaluated_at = CASE WHEN $11::boolean THEN NULL ELSE last_evaluated_at END,
+  report_cursor_at = CASE WHEN $11::boolean THEN NULL ELSE report_cursor_at END,
+  report_cursor_run_id = CASE WHEN $11::boolean THEN NULL ELSE report_cursor_run_id END
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id
 `
 
 type UpdateAlertRuleParams struct {
@@ -920,6 +1013,8 @@ func (q *Queries) UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
+		&i.ReportCursorAt,
+		&i.ReportCursorRunID,
 	)
 	return i, err
 }
@@ -928,7 +1023,7 @@ const updateAlertRuleEvaluation = `-- name: UpdateAlertRuleEvaluation :one
 UPDATE alert_rule
 SET state = $2, last_evaluated_at = $3, updated_at = $3
 WHERE id = $1
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_cursor_at, report_cursor_run_id
 `
 
 type UpdateAlertRuleEvaluationParams struct {
@@ -954,6 +1049,8 @@ func (q *Queries) UpdateAlertRuleEvaluation(ctx context.Context, arg UpdateAlert
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
+		&i.ReportCursorAt,
+		&i.ReportCursorRunID,
 	)
 	return i, err
 }

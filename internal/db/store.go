@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgtype"
 	"slices"
 	"time"
 
@@ -296,7 +297,7 @@ func (s *Store) TouchAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.TouchAlertRuleEvaluationParams,
 ) (storage.AlertRuleTouch, error) {
-	row, err := s.q.TouchAlertRuleEvaluation(ctx, TouchAlertRuleEvaluationParams{
+	params := TouchAlertRuleEvaluationParams{
 		EvaluatedAt: &p.EvaluatedAt,
 		ID:          p.ID,
 		State:       p.State,
@@ -305,7 +306,11 @@ func (s *Store) TouchAlertRuleEvaluation(
 		Threshold:   p.Threshold,
 		ThresholdZ:  p.ThresholdZ,
 		RunReason:   p.RunReason,
-	})
+	}
+	if p.Cursor != nil {
+		params.CursorAt, params.CursorRunID = timestamptz(p.Cursor.At), &p.Cursor.RunID
+	}
+	row, err := s.q.TouchAlertRuleEvaluation(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		rule, getErr := s.GetAlertRule(ctx, p.ID)
 		if getErr != nil {
@@ -368,6 +373,8 @@ func (s *Store) TransitionAlertRule(
 		ReportUrl:    p.ReportURL,
 		Summary:      p.Summary,
 		EvaluatedAt:  &p.EvaluatedAt,
+		CursorAt:     timestamptz(p.Cursor.At),
+		CursorRunID:  &p.Cursor.RunID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		rule, getErr := s.GetAlertRule(ctx, p.ID)
@@ -393,25 +400,46 @@ func (s *Store) ListAlertEventsByRule(
 	return alertEventsFromRows(rows), nil
 }
 
-func (s *Store) SelectLatestAlertRun(
+func (s *Store) SelectAlertRuns(
 	ctx context.Context,
-	p storage.SelectLatestAlertRunParams,
-) (storage.AlertCandidateRun, error) {
-	row, err := s.q.SelectLatestAlertRun(ctx, SelectLatestAlertRunParams{
+	p storage.SelectAlertRunsParams,
+) ([]storage.AlertCandidateRun, error) {
+	if p.After == nil {
+		row, err := s.q.SelectLatestAlertReport(ctx, SelectLatestAlertReportParams{
+			Repository: p.Repository,
+			RunReason:  p.RunReason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return []storage.AlertCandidateRun{alertCandidateRun(row.RunID, row.CommitSha, row.EvaluatedAt)}, nil
+	}
+	rows, err := s.q.SelectAlertReportsAfter(ctx, SelectAlertReportsAfterParams{
 		Repository: p.Repository,
 		RunReason:  p.RunReason,
+		AfterAt:    timestamptz(p.After.At),
+		AfterRunID: p.After.RunID,
+		RowLimit:   p.Limit,
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storage.AlertCandidateRun{}, storage.ErrNotFound
-	}
 	if err != nil {
-		return storage.AlertCandidateRun{}, err
+		return nil, err
 	}
+	out := make([]storage.AlertCandidateRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, alertCandidateRun(row.RunID, row.CommitSha, row.EvaluatedAt))
+	}
+	return out, nil
+}
+
+func alertCandidateRun(runID, commitSHA string, finalized pgtype.Timestamptz) storage.AlertCandidateRun {
 	return storage.AlertCandidateRun{
-		RunID:               row.RunID,
-		CommitSHA:           row.CommitSha,
-		LastResultTimestamp: row.LastResultTimestamp,
-	}, nil
+		RunID:     runID,
+		CommitSHA: commitSHA,
+		Cursor:    storage.AlertReportCursor{At: finalized.Time.UTC(), RunID: runID},
+	}
 }
 
 func (s *Store) EnqueueAlertDeliveries(

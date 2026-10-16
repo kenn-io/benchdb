@@ -1,7 +1,6 @@
 package columnar
 
 import (
-	"context"
 	"os"
 	"slices"
 	"strings"
@@ -196,11 +195,6 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 				return strings.Compare(a.RunID+"/"+a.BenchmarkID+"/"+a.Repository, b.RunID+"/"+b.BenchmarkID+"/"+b.Repository)
 			})
 			return subjects, err
-		}},
-		{"latest-alert", func(st storage.Store) (any, error) {
-			return st.(interface {
-				SelectLatestAlertRun(context.Context, storage.SelectLatestAlertRunParams) (storage.AlertCandidateRun, error)
-			}).SelectLatestAlertRun(ctx, storage.SelectLatestAlertRunParams{Repository: target.Repository})
 		}},
 		{"benchmarks", func(st storage.Store) (any, error) {
 			return st.SelectBenchmarkList(ctx, storage.BenchmarkListParams{PageSize: 100})
