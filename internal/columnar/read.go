@@ -12,7 +12,7 @@ import (
 type rowScanner interface{ Scan(...any) error }
 
 func readOne[T any](ctx context.Context, s *Store, query string, args []any, scan func(rowScanner) (T, error)) (out T, err error) {
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		out, err = scan(q.QueryRowContext(ctx, query, args...))
 		return err
 	})
@@ -40,7 +40,7 @@ func collectRows[T any](ctx context.Context, q queryer, query string, args []any
 }
 
 func readRows[T any](ctx context.Context, s *Store, query string, args []any, scan func(rowScanner) (T, error)) (out []T, err error) {
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		out, err = collectRows(ctx, q, query, args, scan)
 		return err
 	})

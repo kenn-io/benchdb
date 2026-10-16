@@ -122,7 +122,7 @@ func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkList
 		cursorRank, cursorName, cursorID = &rank, &p.Cursor.Name, &p.Cursor.ID
 	}
 	pageArgs := append(slices.Clone(args), statusRank, cursorRank, cursorName, cursorID, int64(p.PageSize)+1)
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		rows, e := collectRows(ctx, q, benchmarkPageSQL, pageArgs, scanBenchmark)
 		if e != nil {
 			return e

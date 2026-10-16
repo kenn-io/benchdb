@@ -39,7 +39,7 @@ func scanCICommit(row rowScanner) (out storage.CIReportCommitRow, err error) {
 // Finalization must select baseline metadata from the same snapshot as facts.
 // postgres_query keeps these indexed lookups in PostgreSQL, including recursion.
 func (s *Store) GetCIReportCommit(ctx context.Context, repository, sha string) (storage.CIReportCommitRow, error) {
-	if s.tx == nil {
+	if s.snapshot == nil {
 		return s.Store.GetCIReportCommit(ctx, repository, sha)
 	}
 	query := `SELECT ` + ciCommitColumns + ` FROM "commit" WHERE repository=` + literal(repository) + ` AND sha=` + literal(sha)
@@ -47,7 +47,7 @@ func (s *Store) GetCIReportCommit(ctx context.Context, repository, sha string) (
 }
 
 func (s *Store) SelectLatestDefaultCommit(ctx context.Context, repository string) (storage.CIReportCommitRow, error) {
-	if s.tx == nil {
+	if s.snapshot == nil {
 		return s.Store.SelectLatestDefaultCommit(ctx, repository)
 	}
 	query := `SELECT ` + ciCommitColumns + ` FROM "commit" WHERE repository=` + literal(repository) + `
@@ -56,7 +56,7 @@ AND sha=fork_point_sha AND "timestamp" IS NOT NULL ORDER BY "timestamp" DESC,sha
 }
 
 func (s *Store) SelectCIReportBaselineAncestry(ctx context.Context, repository, sha string, limit int32) ([]storage.CIReportCommitRow, error) {
-	if s.tx == nil {
+	if s.snapshot == nil {
 		return s.Store.SelectCIReportBaselineAncestry(ctx, repository, sha, limit)
 	}
 	query := fmt.Sprintf(`WITH RECURSIVE ancestry AS (

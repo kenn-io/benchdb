@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +42,7 @@ func TestArchiveCanOpenDuringMaintenance(t *testing.T) {
 	second, err := Open(opening, pool, cfg)
 	require.NoError(t, err, "an evaluator must open while the server owns maintenance")
 	t.Cleanup(func() { require.NoError(t, second.Close()) })
-	require.NoError(t, second.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, second.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var count int
 		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&count)
 		assert.Zero(t, count)
@@ -163,7 +162,7 @@ func TestCorruptScheduleDoesNotPreventArchiveReads(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(cfg.Dir, "maintenance.json"), []byte(data), 0600))
 		e, err := Open(ctx, pool, cfg)
 		require.NoError(t, err)
-		require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 			var count int
 			return tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&count)
 		}))

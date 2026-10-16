@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,7 +10,14 @@ import (
 	"go.kenn.io/benchdb/internal/storage"
 )
 
-func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs []string, build func(storage.Store) (storage.RunReport, error)) (storage.RunReport, error) {
+func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs []string, build func(context.Context, storage.Store) (storage.RunReport, error)) (_ storage.RunReport, err error) {
+	ctx, cancel := context.WithTimeout(ctx, s.engine.cfg.ReadTimeout)
+	defer cancel()
+	defer func() {
+		if ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
+	}()
 	// Acquire the run lock before starting the analytical snapshot. A
 	// result committed while this lock was blocked must appear in the manifest.
 	tx, err := s.LockRun(ctx, runID)
@@ -30,8 +36,8 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	if !errors.Is(err, storage.ErrNotFound) {
 		return storage.RunReport{}, err
 	}
-	err = s.engine.Read(ctx, func(analytical *sql.Tx) error {
-		transaction := &Store{Store: postgres, engine: s.engine, tx: analytical}
+	err = s.engine.Read(ctx, func(ctx context.Context, analytical *ReadSnapshot) error {
+		transaction := &Store{Store: postgres, engine: s.engine, snapshot: analytical}
 		actual, err := transaction.fullRunIDs(ctx, runID)
 		if err != nil {
 			return err
@@ -40,7 +46,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 		if !slices.Equal(actual, resultIDs) {
 			return storage.ErrConflict
 		}
-		saved, err = build(transaction)
+		saved, err = build(ctx, transaction)
 		if err != nil {
 			return err
 		}

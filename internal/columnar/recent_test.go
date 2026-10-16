@@ -1,7 +1,7 @@
 package columnar
 
 import (
-	"database/sql"
+	"context"
 	"os"
 	"slices"
 	"testing"
@@ -116,7 +116,7 @@ func TestRecentRunCandidatesShareManifestSnapshot(t *testing.T) {
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		// Engine.Read has read the manifest, but postgres_query has not run.
 		_, err := pg.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
 			CaseID: base.CaseID, ContextID: base.ContextID, InfoID: base.InfoID, HardwareID: base.HardwareID,

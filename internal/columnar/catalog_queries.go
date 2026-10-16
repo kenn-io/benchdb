@@ -58,7 +58,7 @@ GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commi
 
 func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParams) (out []storage.SeriesPageRow, err error) {
 	out = []storage.SeriesPageRow{}
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		files, err := s.engine.manifest(ctx, q)
 		if err != nil {
 			return err

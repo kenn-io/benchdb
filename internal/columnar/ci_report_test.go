@@ -1,7 +1,7 @@
 package columnar
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,8 +40,8 @@ func TestCIReportRepeatedBaselineFitsDefaultMemory(t *testing.T) {
 	for start := 0; start < 100000; start += 10000 {
 		relative := fmt.Sprintf("data/repeated-baseline-%06d.parquet", start)
 		path := filepath.Join(dir, relative)
-		require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `COPY (
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+			_, err := tx.tx.ExecContext(ctx, `COPY (
 SELECT br.* REPLACE (
 'repeated-baseline-'||lpad(generated.i::VARCHAR,6,'0') AS id,
 TIMESTAMP '2030-01-01' + generated.i * INTERVAL '1 microsecond' AS "timestamp",

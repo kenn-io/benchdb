@@ -28,7 +28,7 @@ func TestRunReportKeepsManifestResultsUntilCommit(t *testing.T) {
 	deleted := make(chan struct{})
 	var deleteErr error
 
-	saved, err := store.FinalizeRunReport(ctx, "completed-run", manifest, func(transaction storage.Store) (storage.RunReport, error) {
+	saved, err := store.FinalizeRunReport(ctx, "completed-run", manifest, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		// Start the real deletion after manifest validation, before analysis reads.
 		conn, err := pool.Acquire(ctx)
 		require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestRunReportRetriesFailureAndBuildsOnceAcrossConcurrentStores(t *testing.T
 	seed := newCIReportSeed(t, store, ctx)
 	id := insertCIReportResult(t, store, ctx, seed, ciResultSeed{RunID: "completed-run", RunTags: []byte(`{}`), HistoryFingerprint: "series", ResultTimestamp: time.Now()})
 	failed := errors.New("evaluation interrupted")
-	_, err := store.FinalizeRunReport(ctx, "completed-run", []string{id}, func(storage.Store) (storage.RunReport, error) {
+	_, err := store.FinalizeRunReport(ctx, "completed-run", []string{id}, func(context.Context, storage.Store) (storage.RunReport, error) {
 		return storage.RunReport{}, failed
 	})
 	require.ErrorIs(t, err, failed)
@@ -96,7 +96,7 @@ func TestRunReportRetriesFailureAndBuildsOnceAcrossConcurrentStores(t *testing.T
 	for range 8 {
 		callers.Go(func() {
 			<-start
-			saved, err := db.NewStore(pool).FinalizeRunReport(ctx, "completed-run", []string{id}, func(storage.Store) (storage.RunReport, error) {
+			saved, err := db.NewStore(pool).FinalizeRunReport(ctx, "completed-run", []string{id}, func(context.Context, storage.Store) (storage.RunReport, error) {
 				builds.Add(1)
 				return storage.RunReport{EvaluatedAt: time.Now().UTC(), Report: []byte(`{"status":"failure","runs":[{"run_id":"completed-run"}]}`), Summary: []byte(`{"status":"failure"}`)}, nil
 			})

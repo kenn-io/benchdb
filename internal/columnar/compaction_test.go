@@ -1,7 +1,7 @@
 package columnar
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,7 +62,7 @@ VALUES('compaction-0000000','2024-01-01','compaction','fp','{"approved":true}')`
 	var mutations int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM result_mutation`).Scan(&mutations))
 	assert.Zero(t, mutations, "the annotation is baked independently of small-file accumulation")
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var annotations string
 		if err := tx.QueryRowContext(ctx, `SELECT change_annotations FROM benchmark_result WHERE id='compaction-0000000'`).Scan(&annotations); err != nil {
 			return err
@@ -84,7 +84,7 @@ VALUES('compaction-0000000','2024-01-01','compaction','fp','{"approved":true}')`
 	paths, err := filepath.Glob(filepath.Join(e.cfg.Dir, "data", "*.parquet"))
 	require.NoError(t, err)
 	assert.Len(t, paths, 1, "maintenance removes the retired input files")
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		var count, distinct, nullSamples int64
 		var sum float64
 		if err := tx.QueryRowContext(ctx, `SELECT count(*),count(DISTINCT id),sum(data[1]),count(*) FILTER(WHERE data[2] IS NULL) FROM benchmark_result`).Scan(&count, &distinct, &sum, &nullSamples); err != nil {

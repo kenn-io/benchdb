@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -56,7 +55,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			startRead := func(engine *Engine, release <-chan struct{}) (<-chan struct{}, <-chan error) {
 				ready, done := make(chan struct{}), make(chan error, 1)
 				workers.Go(func() {
-					done <- engine.Read(ctx, func(tx *sql.Tx) error {
+					done <- engine.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 						close(ready)
 						select {
 						case <-release:
@@ -114,7 +113,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			defer stopRead()
 			canceledRead := make(chan error, 1)
 			workers.Go(func() {
-				canceledRead <- e.Read(blockedCtx, func(*sql.Tx) error {
+				canceledRead <- e.Read(blockedCtx, func(context.Context, *ReadSnapshot) error {
 					return errors.New("new query entered while cleanup was draining readers")
 				})
 			})
@@ -217,7 +216,7 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	defer cancelFinalize()
 	finalized := make(chan error, 1)
 	go func() {
-		_, err := store.FinalizeRunReport(finalizeCtx, "empty-run", []string{}, func(storage.Store) (storage.RunReport, error) {
+		_, err := store.FinalizeRunReport(finalizeCtx, "empty-run", []string{}, func(context.Context, storage.Store) (storage.RunReport, error) {
 			return storage.RunReport{EvaluatedAt: time.Now().UTC(), Report: []byte(`{"status":"success"}`), Summary: []byte(`{}`)}, nil
 		})
 		finalized <- err

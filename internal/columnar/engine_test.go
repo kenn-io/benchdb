@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"math"
 	"os"
@@ -42,7 +41,7 @@ func TestArchiveTransferAndRestart(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	check := func() {
 		t.Helper()
-		require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 			var mean float64
 			var data, times any
 			var jsonNull, annotations string
@@ -88,7 +87,7 @@ func TestArchiveTransferAndRestart(t *testing.T) {
 	_, err = e.Maintain(ctx)
 	require.NoError(t, err)
 	var count int
-	require.NoError(t, e.Read(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		return tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&count)
 	}))
 	require.Equal(t, 2, count)
@@ -110,7 +109,7 @@ func TestArchiveTransferAndRestart(t *testing.T) {
 	defer release()
 	readDone := make(chan error, 1)
 	go func() {
-		readDone <- e.Read(ctx, func(tx *sql.Tx) error {
+		readDone <- e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 			var before, after int
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&before); err != nil {
 				return err
@@ -186,5 +185,5 @@ func TestArchiveCancelledRead(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	require.ErrorIs(t, e.Read(cancelled, func(*sql.Tx) error { assert.Fail(t, "cancelled read ran"); return nil }), context.Canceled)
+	require.ErrorIs(t, e.Read(cancelled, func(context.Context, *ReadSnapshot) error { assert.Fail(t, "cancelled read ran"); return nil }), context.Canceled)
 }

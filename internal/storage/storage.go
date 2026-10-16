@@ -41,7 +41,7 @@ type RunReport struct {
 // so the insert-params types below carry no ID.
 type Store interface {
 	VerdictStore
-	FinalizeRunReport(context.Context, string, []string, func(Store) (RunReport, error)) (RunReport, error)
+	FinalizeRunReport(context.Context, string, []string, func(context.Context, Store) (RunReport, error)) (RunReport, error)
 	GetRunReport(context.Context, string) (RunReport, error)
 	RunReportSummaries(context.Context, []string) (map[string][]byte, error)
 	ListResultArtifacts(ctx context.Context, resultID string) ([]ArtifactMetadata, error)

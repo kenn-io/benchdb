@@ -40,7 +40,7 @@ func (s *Store) recentRunPage(ctx context.Context, p storage.RecentRunsParams) (
 		return out, nil
 	}
 	limit := int64(p.Offset) + int64(p.PageSize)
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		candidates, err := postgresRecentCandidates(ctx, q, p.Repository, limit)
 		if err != nil {
 			return err

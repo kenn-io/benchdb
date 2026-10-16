@@ -108,7 +108,7 @@ max(commit_timestamp) AS commit_timestamp FROM scoped GROUP BY history_fingerpri
 SELECT arg_max(scoped,(commit_timestamp,id)) AS member FROM scoped GROUP BY history_fingerprint)`
 		pageJoin = ` JOIN "case" cs ON cs.id=m.case_id`
 	}
-	err = s.read(ctx, func(q queryer) error {
+	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		source := "SELECT * FROM benchmark_result"
 		if p.Fingerprint != nil {
 			source, err = s.seriesSource(ctx, q, []string{*p.Fingerprint})

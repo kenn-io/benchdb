@@ -2,7 +2,6 @@ package columnar
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -134,7 +133,7 @@ INSERT INTO verdict_queue (kind,key) VALUES ('commit','head-id');`)
 		ready, release := make(chan struct{}), make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
-			done <- e.Read(ctx, func(*sql.Tx) error {
+			done <- e.Read(ctx, func(context.Context, *ReadSnapshot) error {
 				close(ready)
 				<-release
 				return nil

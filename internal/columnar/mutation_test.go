@@ -87,7 +87,7 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	assert.JSONEq(t, `{"exclude_from_history":true}`, string(result.ChangeAnnotations))
 	artifact := storage.ArtifactRecord{ID: uuid.New(), ResultID: id, Name: "profile", Kind: "diagnostics", MediaType: "application/json", SHA256: strings.Repeat("a", 64), SizeBytes: 2, ObjectKey: "artifacts/cold-profile"}
 	require.NoError(t, store.InsertResultArtifact(ctx, artifact))
-	_, err = store.FinalizeRunReport(ctx, p.RunID, []string{id}, func(transaction storage.Store) (storage.RunReport, error) {
+	_, err = store.FinalizeRunReport(ctx, p.RunID, []string{id}, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		row, err := transaction.GetBenchmarkResultByID(ctx, id)
 		if err != nil {
 			return storage.RunReport{}, err
@@ -133,9 +133,10 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	defer deleteConn.Release()
 	deleted := make(chan error, 1)
-	_, err = store.FinalizeRunReport(ctx, p.RunID, []string{replacement}, func(transaction storage.Store) (storage.RunReport, error) {
+	deleteCtx := ctx // This independent writer outlives the analytical snapshot.
+	_, err = store.FinalizeRunReport(ctx, p.RunID, []string{replacement}, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		go func() {
-			deleted <- NewStore(db.NewStore(deleteConn), e).DeleteBenchmarkResult(ctx, replacement)
+			deleted <- NewStore(db.NewStore(deleteConn), e).DeleteBenchmarkResult(deleteCtx, replacement)
 		}()
 		require.Eventually(t, func() bool {
 			var blocked bool
@@ -169,7 +170,7 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	defer finalConn.Release()
 	finalized := make(chan error, 1)
 	go func() {
-		_, err := NewStore(db.NewStore(finalConn), e).FinalizeRunReport(ctx, p.RunID, []string{first}, func(storage.Store) (storage.RunReport, error) {
+		_, err := NewStore(db.NewStore(finalConn), e).FinalizeRunReport(ctx, p.RunID, []string{first}, func(context.Context, storage.Store) (storage.RunReport, error) {
 			return storage.RunReport{EvaluatedAt: time.Now().UTC(), Report: []byte(`{}`), Summary: []byte(`{}`)}, nil
 		})
 		finalized <- err
@@ -185,7 +186,7 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	require.ErrorIs(t, err, storage.ErrNotFound)
 	manifest := []string{first, late}
 	slices.Sort(manifest)
-	_, err = store.FinalizeRunReport(ctx, p.RunID, manifest, func(transaction storage.Store) (storage.RunReport, error) {
+	_, err = store.FinalizeRunReport(ctx, p.RunID, manifest, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
 		for _, id := range manifest {
 			if _, err := transaction.GetBenchmarkResultByID(ctx, id); err != nil {
 				return storage.RunReport{}, err
