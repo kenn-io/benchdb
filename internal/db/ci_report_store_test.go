@@ -91,6 +91,8 @@ func TestSelectCIReportRunsByCommit(t *testing.T) {
 	assert.Equal(t, "fork-a", *runA.CommitForkPointSha)
 	require.NotNil(t, runA.CommitTimestamp)
 	assert.True(t, runA.CommitTimestamp.Equal(ts))
+	require.NotNil(t, runA.CommitMessage)
+	assert.Equal(t, "contender", *runA.CommitMessage)
 }
 
 func TestSelectCIReportRunsByIDs(t *testing.T) {
@@ -123,6 +125,8 @@ func TestSelectCIReportRunsByIDs(t *testing.T) {
 	assert.Equal(t, ciReportRepo, rows[0].CommitRepoURL)
 	require.NotNil(t, rows[0].CommitSha)
 	assert.Equal(t, "commit-a", *rows[0].CommitSha)
+	require.NotNil(t, rows[0].CommitMessage)
+	assert.Equal(t, "commit", *rows[0].CommitMessage)
 }
 
 func TestSelectCIReportRunsByIDsReturnsCommitlessRuns(t *testing.T) {

@@ -586,14 +586,14 @@ func alertSummaryJSON(t *testing.T, summary service.AlertEventSummary) json.RawM
 
 func TestSlackAlertSaysWhatRegressedWhereAndByHowMuch(t *testing.T) {
 	summary := service.AlertEventSummary{
-		Compared: 98, Regressions: 7, Improvements: 36,
+		Compared: 100, Analyzed: 98, Regressions: 7, Improvements: 36,
 		CommitSubject: "Cache <packed> objects & refs",
 		Regressed: []service.AlertEventRow{{
 			Name: "get-text-first-rate", Machine: "box-a", Unit: "B/s", Before: 1.53e9, After: 1.47e9,
-			PercentChange: -3.66, Against: "recent runs", SeriesURL: "https://benchdb.example/series/abc",
+			PercentChange: -3.66, SeriesURL: "https://benchdb.example/series/abc",
 		}, {
 			Name: "push<new>", Machine: "box-a", Unit: "s", Before: 0.0021, After: 0.0025,
-			PercentChange: 19.05, Against: "baseline",
+			PercentChange: 19.05,
 		}},
 	}
 	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
@@ -608,15 +608,15 @@ func TestSlackAlertSaysWhatRegressedWhereAndByHowMuch(t *testing.T) {
 			"Commit <https://github.com/org/repo/commit/c71cab86fef397b63d67596695200230af404c7c|c71cab8>: " +
 			"Cache &lt;packed&gt; objects &amp; refs",
 		"• <https://benchdb.example/series/abc|get-text-first-rate> on box-a: 1.53 GB/s → 1.47 GB/s (−3.7% vs recent runs)\n" +
-			"• push&lt;new&gt; on box-a: 2.1 ms → 2.5 ms (+19.1% vs baseline)\n" +
+			"• push&lt;new&gt; on box-a: 2.1 ms → 2.5 ms (+19.1% vs recent runs)\n" +
 			"• and 5 more",
-		"In this run: 7 regressed, 36 improved, 55 unchanged  ·  " +
+		"In this run: 7 regressed, 36 improved, 55 unchanged, 2 without enough history  ·  " +
 			"<https://benchdb.example/ci/report?run_ids=run-1|Open report>",
 	}, blocks)
 }
 
 func TestSlackAlertForAResolvedRuleSaysItIsBackToNormal(t *testing.T) {
-	summary := service.AlertEventSummary{Compared: 98, Improvements: 2}
+	summary := service.AlertEventSummary{Compared: 98, Analyzed: 98, Improvements: 2}
 	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
 		ID: "event-2", Kind: storage.AlertEventKindResolved, Status: string(service.CIReportStatusSuccess),
 		CommitSHA: new("abcdef0123"), Repository: "https://github.com/org/repo",
@@ -638,4 +638,30 @@ func TestSlackAlertFromAnEventWithOnlyCountsStillNamesTheRepository(t *testing.T
 
 	assert.Equal(t, "Benchmark regression in org/repo", text)
 	assert.Equal(t, []string{":small_red_triangle_down: *Benchmark regression in org/repo*", "• 1 benchmark regressed"}, blocks)
+}
+
+func TestSlackAlertWithLongBenchmarkNamesStaysWithinSlackLimits(t *testing.T) {
+	long := strings.Repeat("&", 600)
+	rows := make([]service.AlertEventRow, 5)
+	for i := range rows {
+		rows[i] = service.AlertEventRow{
+			Name: long, Machine: long, Unit: "s", Before: 1, After: 2, PercentChange: 100,
+			SeriesURL: "https://benchdb.example/series/" + strings.Repeat("f", 32),
+		}
+	}
+	summary := service.AlertEventSummary{Regressions: 5, Compared: 5, Analyzed: 5, CommitSubject: long, Regressed: rows}
+	text, blocks := postSlackAlert(t, service.AlertDeliveryEvent{
+		ID: "event-4", Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
+		CommitSHA: new("abcdef0123"), Repository: "https://github.com/org/" + long,
+		ReportURL: "https://benchdb.example/ci/report?run_ids=run-4", Summary: alertSummaryJSON(t, summary),
+	})
+
+	assert.LessOrEqual(t, len(text), 3000)
+	rowLines := 0
+	for _, block := range blocks {
+		assert.LessOrEqual(t, len(block), 3000, "Slack rejects a section longer than 3000 characters")
+		rowLines += strings.Count(block, "• ")
+	}
+	assert.Equal(t, 5, rowLines, "every row is still delivered")
+	assert.Contains(t, blocks[1], "…", "long names are cut short")
 }

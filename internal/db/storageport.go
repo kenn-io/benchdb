@@ -625,6 +625,7 @@ func ciReportRunRowsFromCommitRows(rows []SelectCIReportRunsByCommitRow) []stora
 			CommitParent:       r.CommitParent,
 			CommitForkPointSha: r.CommitForkPointSha,
 			CommitTimestamp:    r.CommitTimestamp,
+			CommitMessage:      &r.CommitMessage,
 		}
 	}
 	return out
@@ -644,6 +645,7 @@ func ciReportRunRowsFromIDRows(rows []SelectCIReportRunsByIDsRow) []storage.CIRe
 			CommitParent:       r.CommitParent,
 			CommitForkPointSha: r.CommitForkPointSha,
 			CommitTimestamp:    r.CommitTimestamp,
+			CommitMessage:      r.CommitMessage,
 		}
 	}
 	return out

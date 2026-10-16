@@ -20,9 +20,9 @@ type AlertEventSummary struct {
 	Regressed     []AlertEventRow `json:"regressed_rows,omitempty"`
 }
 
-// AlertEventRow is one regressed benchmark, worst first. Before is the value
-// the contender was judged against: the recent-runs mean for a lookback
-// regression, or the baseline result otherwise.
+// AlertEventRow is one regressed benchmark. A row regresses only on its
+// lookback check, so Before is the mean of the recent runs it was judged
+// against.
 type AlertEventRow struct {
 	Name          string  `json:"name"`
 	Machine       string  `json:"machine"`
@@ -30,7 +30,6 @@ type AlertEventRow struct {
 	Before        float64 `json:"before"`
 	After         float64 `json:"after"`
 	PercentChange float64 `json:"percent_change"`
-	Against       string  `json:"against"`
 	SeriesURL     string  `json:"series_url,omitempty"`
 }
 
@@ -62,28 +61,22 @@ func newAlertEventSummary(report *CIReport) AlertEventSummary {
 }
 
 func alertEventRow(comparison CIReportComparison, base string) (AlertEventRow, bool) {
-	if comparison.Status != "regressed" || comparison.Contender.SVS == nil || comparison.Analysis == nil {
+	if comparison.Status != CIReportRowStatusRegressed || comparison.Contender.SVS == nil ||
+		comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil ||
+		comparison.Analysis.LookbackZScore.Tolerance == nil {
 		return AlertEventRow{}, false
 	}
 	row := AlertEventRow{
 		Name:    comparison.Name,
 		Machine: comparison.Hardware.Name,
+		Before:  comparison.Analysis.LookbackZScore.Tolerance.Reference,
 		After:   *comparison.Contender.SVS,
-	}
-	if comparison.Unit != nil {
-		row.Unit = *comparison.Unit
-	}
-	lookback, pairwise := comparison.Analysis.LookbackZScore, comparison.Analysis.Pairwise
-	switch {
-	case lookback != nil && lookback.RegressionIndicated && lookback.Tolerance != nil:
-		row.Before, row.Against = lookback.Tolerance.Reference, "recent runs"
-	case pairwise != nil && comparison.Baseline != nil && comparison.Baseline.SVS != nil:
-		row.Before, row.Against = *comparison.Baseline.SVS, "baseline"
-	default:
-		return AlertEventRow{}, false
 	}
 	if row.Before == 0 {
 		return AlertEventRow{}, false
+	}
+	if comparison.Unit != nil {
+		row.Unit = *comparison.Unit
 	}
 	row.PercentChange = (row.After - row.Before) / math.Abs(row.Before) * 100
 	if base != "" && comparison.Links.Series != "" {

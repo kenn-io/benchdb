@@ -145,7 +145,7 @@ func (m alertMessage) slack() slackMessage {
 	if m.opened {
 		icon = ":small_red_triangle_down:"
 	}
-	header := fmt.Sprintf("%s *%s*", icon, slackEscape(m.headline()))
+	header := fmt.Sprintf("%s *%s*", icon, slackEscape(truncateRunes(m.headline(), slackFieldLimit)))
 	if m.commitSHA != "" {
 		sha := "`" + m.shortSHA() + "`"
 		if m.commitURL != "" {
@@ -153,24 +153,23 @@ func (m alertMessage) slack() slackMessage {
 		}
 		header += "\nCommit " + sha
 		if m.subject != "" {
-			header += ": " + slackEscape(m.subject)
+			header += ": " + slackEscape(truncateRunes(m.subject, slackFieldLimit))
 		}
 	}
 	message := slackMessage{Text: slackFallbackText(m), Blocks: []slackBlock{slackSection(header)}}
-	if len(m.rows) > 0 || m.more > 0 {
-		lines := make([]string, 0, len(m.rows)+1)
-		for _, row := range m.rows {
-			name := slackEscape(row.Name)
-			if row.SeriesURL != "" {
-				name = fmt.Sprintf("<%s|%s>", row.SeriesURL, name)
-			}
-			lines = append(lines, fmt.Sprintf("• %s on %s: %s", name, slackEscape(row.Machine), row.change()))
+	lines := make([]string, 0, len(m.rows)+1)
+	for _, row := range m.rows {
+		name := slackEscape(truncateRunes(row.Name, slackFieldLimit))
+		if row.SeriesURL != "" {
+			name = fmt.Sprintf("<%s|%s>", row.SeriesURL, name)
 		}
-		if m.more > 0 {
-			lines = append(lines, "• "+m.moreText())
-		}
-		message.Blocks = append(message.Blocks, slackSection(strings.Join(lines, "\n")))
+		machine := slackEscape(truncateRunes(row.Machine, slackFieldLimit))
+		lines = append(lines, fmt.Sprintf("• %s on %s: %s", name, machine, row.change()))
 	}
+	if m.more > 0 {
+		lines = append(lines, "• "+m.moreText())
+	}
+	message.Blocks = append(message.Blocks, slackSections(lines)...)
 	var footer []string
 	if m.counts != "" {
 		footer = append(footer, "In this run: "+m.counts)
@@ -187,17 +186,52 @@ func (m alertMessage) slack() slackMessage {
 // slackFallbackText is what Slack shows in notifications, where blocks do
 // not render.
 func slackFallbackText(m alertMessage) string {
-	text := m.headline()
+	text := truncateRunes(m.headline(), slackFieldLimit)
 	if m.commitSHA != "" {
 		text += " at " + m.shortSHA()
 	}
 	if len(m.rows) > 0 {
-		text += fmt.Sprintf(": %s %s", m.rows[0].Name, signedPercent(m.rows[0].PercentChange))
+		text += fmt.Sprintf(": %s %s", truncateRunes(m.rows[0].Name, slackFieldLimit), signedPercent(m.rows[0].PercentChange))
 		if extra := len(m.rows) - 1 + m.more; extra > 0 {
 			text += fmt.Sprintf(" and %d more", extra)
 		}
 	}
-	return text
+	return slackEscape(text)
+}
+
+// Slack rejects a section whose text exceeds 3000 characters. Display fields
+// are cut short enough that one escaped row line always fits.
+const (
+	slackSectionLimit = 3000
+	slackFieldLimit   = 120
+)
+
+// slackSections packs lines into as few sections as Slack's limit allows.
+func slackSections(lines []string) []slackBlock {
+	var blocks []slackBlock
+	var current strings.Builder
+	for _, line := range lines {
+		if current.Len() > 0 && current.Len()+1+len(line) > slackSectionLimit {
+			blocks = append(blocks, slackSection(current.String()))
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteString("\n")
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		blocks = append(blocks, slackSection(current.String()))
+	}
+	return blocks
+}
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func slackSection(text string) slackBlock {
@@ -210,9 +244,9 @@ func slackEscape(text string) string {
 
 // change reads like "1.53 GB/s → 1.47 GB/s (−3.6% vs recent runs)".
 func (row AlertEventRow) change() string {
-	return fmt.Sprintf("%s → %s (%s vs %s)",
+	return fmt.Sprintf("%s → %s (%s vs recent runs)",
 		formatAlertValue(row.Before, row.Unit), formatAlertValue(row.After, row.Unit),
-		signedPercent(row.PercentChange), row.Against)
+		signedPercent(row.PercentChange))
 }
 
 func signedPercent(value float64) string {
@@ -255,12 +289,18 @@ func formatAlertValue(value float64, unit string) string {
 	return formatted + " " + unit
 }
 
+// alertRunCounts describes the run. Compared rows include those without
+// enough history to judge, so only analyzed rows count as unchanged.
 func alertRunCounts(summary CIReportSummary) string {
 	if summary.Compared == 0 {
 		return ""
 	}
-	unchanged := max(summary.Compared-summary.Regressions-summary.Improvements, 0)
-	return fmt.Sprintf("%d regressed, %d improved, %d unchanged", summary.Regressions, summary.Improvements, unchanged)
+	unchanged := max(summary.Analyzed-summary.Regressions-summary.Improvements, 0)
+	counts := fmt.Sprintf("%d regressed, %d improved, %d unchanged", summary.Regressions, summary.Improvements, unchanged)
+	if unjudged := summary.Compared - summary.Analyzed; unjudged > 0 {
+		counts += fmt.Sprintf(", %d without enough history", unjudged)
+	}
+	return counts
 }
 
 // shortRepository names a GitHub repository as owner/name and leaves other

@@ -9,7 +9,8 @@ SELECT
   c.repository AS commit_repository,
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  c.message AS commit_message
 FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE c.repository = sqlc.arg('repository')::text
@@ -24,7 +25,8 @@ GROUP BY
   c.repository,
   c.parent,
   c.fork_point_sha,
-  c."timestamp"
+  c."timestamp",
+  c.message
 ORDER BY br.run_id;
 
 -- name: SelectCIReportRunsByIDs :many
@@ -38,7 +40,8 @@ SELECT
   c.repository AS commit_repository,
   c.parent AS commit_parent,
   c.fork_point_sha AS commit_fork_point_sha,
-  c."timestamp" AS commit_timestamp
+  c."timestamp" AS commit_timestamp,
+  c.message AS commit_message
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
 WHERE br.run_id = ANY(sqlc.arg('run_ids')::text[])
@@ -52,7 +55,8 @@ GROUP BY
   c.repository,
   c.parent,
   c.fork_point_sha,
-  c."timestamp"
+  c."timestamp",
+  c.message
 ORDER BY br.run_id;
 
 -- name: GetCIReportCommit :one

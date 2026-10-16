@@ -144,10 +144,9 @@ Each event stores the report status, status reason, repository, run id, commit
 SHA, report URL, and a summary. The summary has the report's counts, the commit
 subject (`commit_subject`), and up to five regressed benchmarks, largest change
 first (`regressed_rows`). Each row has the benchmark `name`, `machine`, `unit`,
-the `before` and `after` values, `percent_change`, what it was measured
-`against`, and an absolute `series_url` when the report URL is absolute. A
-lookback regression is measured against the mean of recent runs; a pairwise
-regression against the baseline result.
+the `before` and `after` values, `percent_change`, and an absolute `series_url`
+when the report URL is absolute. A row regresses only on its lookback check, so
+`before` is the mean of the recent runs it was judged against.
 
 The command prints a summary to stdout with the counts `rules`,
 `evaluated`, `opened`, `resolved`, `unchanged`, `skipped`, `no_candidate`, and
@@ -219,6 +218,7 @@ channel, and alert event:
     "report_url": "https://benchdb.example/ci/report?baseline=fork_point&commit_sha=abcdef&repository=https%3A%2F%2Fgithub.com%2Forg%2Frepo&run_ids=run-123",
     "summary": {
       "compared": 98,
+      "analyzed": 98,
       "regressions": 1,
       "improvements": 36,
       "commit_subject": "Cache packed objects",
@@ -229,7 +229,6 @@ channel, and alert event:
         "before": 1530000000,
         "after": 1470000000,
         "percent_change": -3.9,
-        "against": "recent runs",
         "series_url": "https://benchdb.example/series/abc123"
       }]
     },
@@ -258,7 +257,10 @@ Commit c71cab8: Cache packed objects
 In this run: 1 regressed, 36 improved, 61 unchanged  ·  Open report
 ```
 
-A resolved event reads `No longer regressed: org/repo`. The fallback `text`,
+`unchanged` counts analyzed benchmarks that neither regressed nor improved.
+Benchmarks without enough history to judge are counted separately. Long names
+are shortened so each section stays within Slack's 3,000-character limit. A
+resolved event reads `No longer regressed: org/repo`. The fallback `text`,
 which Slack shows in notifications, is a one-line version of the same message.
 
 ### GitHub Check Runs

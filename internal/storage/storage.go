@@ -802,6 +802,7 @@ type CIReportRunRow struct {
 	CommitParent       *string
 	CommitForkPointSha *string
 	CommitTimestamp    *time.Time
+	CommitMessage      *string
 }
 
 // CIReportRunKey identifies the selected result rows for a run on one exact
