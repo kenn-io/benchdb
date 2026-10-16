@@ -2816,6 +2816,15 @@ func TestCIReportCommandIntegration(t *testing.T) {
 	t.Cleanup(srv.Close)
 	repo := "https://github.com/benchdb/demo"
 
+	// Comparisons need ten earlier default-branch results.
+	for i, value := range []float64{10, 20, 30, 10, 20, 30, 20} {
+		submitCLIResult(t, srv.URL, writeResultFixture(t, map[string]any{
+			"run_id":    "main-run",
+			"github":    map[string]any{"commit": fmt.Sprintf("h%d", i+1), "repository": repo},
+			"timestamp": fmt.Sprintf("2023-12-%02dT12:00:00Z", 24+i),
+			"stats":     map[string]any{"data": []any{value}, "unit": "s"},
+		}))
+	}
 	for _, fixture := range []string{
 		writeResultFixture(t, map[string]any{
 			"run_id": "main-run",

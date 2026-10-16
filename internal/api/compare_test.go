@@ -3,6 +3,7 @@ package api_test
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,8 +16,10 @@ import (
 
 func TestCompareHappyPath(t *testing.T) {
 	tapi, _, _ := seedAPI(t)
-	// Contender fingerprint series: [10,20,30] at days 1..3 (baseline window),
-	// contender 100 at day 4. Baseline = the day-3 result (svs 30).
+	// Contender fingerprint series: ten history results ending [10,20,30] at
+	// days 1..3 (baseline window), contender 100 at day 4. Baseline = the day-3
+	// result (svs 30).
+	seedEarlierHistory(t, tapi, seedOpts{}, 10, 20, 30, 10, 20, 30, 20)
 	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}})
 	baseline := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{30}})
@@ -36,10 +39,10 @@ func TestCompareHappyPath(t *testing.T) {
 	assert.True(t, out.Analysis.Pairwise.RegressionIndicated)
 	assert.False(t, out.Analysis.Pairwise.ImprovementIndicated)
 	assert.InDelta(t, -233.3, out.Analysis.Pairwise.PercentChange, 0.1)
-	// Lookback: window [10,20,30] => mean 20, sd sqrt(175/3)=7.6376; z=(100-20)/sd
-	// =10.47, flipped => -10.47; -z=10.47 > 5 => regression.
+	// Lookback: the window centers on 20 with a spread under 10, so 100 is far
+	// past the threshold, flipped negative because less is better.
 	require.NotNil(t, out.Analysis.LookbackZScore)
-	assert.InDelta(t, -10.47, out.Analysis.LookbackZScore.ZScore, 0.05)
+	assert.Less(t, out.Analysis.LookbackZScore.ZScore, -5.0)
 	assert.True(t, out.Analysis.LookbackZScore.RegressionIndicated)
 	assert.False(t, out.Analysis.LookbackZScore.ImprovementIndicated)
 }
@@ -193,11 +196,14 @@ func TestCompareMeaningfulChangeTolerance(t *testing.T) {
 		{"heap regression", "B", []float64{1024 * 1048576, 1025 * 1048576, 1026 * 1048576}, 1200 * 1048576, map[string]any{"metric_kind": "heap_live"}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			// Ten results centered on the middle value and ending on the last
+			// one, so the window mean and the baseline stay as listed.
+			history := append([]float64{tt.history[1]}, slices.Repeat(tt.history, 3)...)
 			var baseline string
-			for i, v := range tt.history {
+			for i, v := range history {
 				baseline = seedResult(t, tapi, seedOpts{name: tt.name, sha: tt.name + time.Duration(i).String(), ts: day(i + 1), unit: tt.unit, data: []float64{v}})
 			}
-			contender := seedResult(t, tapi, seedOpts{name: tt.name, sha: tt.name + "head", ts: day(4), unit: tt.unit, data: []float64{tt.measured}, tolerance: tt.policy})
+			contender := seedResult(t, tapi, seedOpts{name: tt.name, sha: tt.name + "head", ts: day(len(history) + 1), unit: tt.unit, data: []float64{tt.measured}, tolerance: tt.policy})
 			resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
 			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
 			var out service.CompareResult

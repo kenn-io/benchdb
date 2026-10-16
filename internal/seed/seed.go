@@ -203,8 +203,9 @@ func requests() []seedResult {
 		}
 	}
 	// Excluded: an off-branch commit (sha != fork_point_sha), shaped as a clear
-	// PR regression against commit-03 for CI report and alert smoke coverage.
-	featureReq := baseReq("feature-branch-1", 6, trend(108.0), demoMachines[0])
+	// PR regression against commit-11 for CI report and alert smoke coverage.
+	// Forking that late gives the comparison the ten earlier results it needs.
+	featureReq := baseReq("feature-branch-1", 28, trend(108.0), demoMachines[0])
 	featureReq.RunReason = "pull request"
 	out = append(out, seedResult{label: "feature-branch-1", included: false, req: featureReq})
 	// Excluded: an errored run (a missing iteration -> partial result).
@@ -262,15 +263,15 @@ func productSmokeTargets(fingerprint string, results map[string]*service.Result)
 
 // commitMap gives each seeded sha a real message and timestamp. Included commits
 // default to the default branch (fork_point_sha == sha); feature-branch-1 forks
-// from commit-03 so it is excluded from history.
+// from commit-11 so it is excluded from history.
 func commitMap() map[string]commit.Info {
 	m := make(map[string]commit.Info, len(includedCommits)+2)
 	for _, c := range includedCommits {
 		ts := day(c.day)
 		m[c.sha] = commit.Info{Message: c.message, Timestamp: &ts}
 	}
-	branchPoint := includedCommits[2].sha
-	featureTS := day(4)
+	branchPoint := includedCommits[10].sha
+	featureTS := day(28)
 	m["feature-branch-1"] = commit.Info{Message: "WIP: experimental layout", Timestamp: &featureTS, ForkPointSha: &branchPoint}
 	brokenTS := day(45)
 	m["commit-16-broken"] = commit.Info{Message: "Broken nightly run", Timestamp: &brokenTS}

@@ -124,8 +124,9 @@ type seriesVerdict struct {
 	changePercent *float64
 }
 
-// minHistoryPoints is the fewest earlier members a status needs: a standard
-// deviation from a handful of points is too uncertain to call a change.
+// minHistoryPoints is the fewest earlier results a series status or a
+// lookback check needs: a standard deviation from a handful of points is too
+// uncertain to call a change.
 const minHistoryPoints = 10
 
 // scoreSeries scores the latest member the way seriesStatus describes and

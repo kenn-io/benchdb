@@ -63,13 +63,19 @@ func TestVerdictsReevaluateRecentPullRequestRunsWhenBaselineArrives(t *testing.T
 	now := time.Now().UTC().Truncate(time.Second)
 	recent := now.Add(-3 * 24 * time.Hour)
 	stale := now.Add(-30 * 24 * time.Hour)
-	ing := service.NewIngester(store, ciCommitProvider{
+	provider := ciCommitProvider{
 		"c1":  ciCommitInfo("c1", nil, "c1", recent),
 		"c2":  ciCommitInfo("c2", new("c1"), "c2", recent.Add(time.Hour)),
 		"c3":  ciCommitInfo("c3", new("c2"), "c3", recent.Add(2*time.Hour)),
 		"pr":  ciCommitInfo("pr", new("c3"), "c3", recent.Add(3*time.Hour)),
 		"old": ciCommitInfo("old", new("c3"), "c3", stale),
-	})
+	}
+	ing := service.NewIngester(store, provider)
+	// Earlier default-branch history that is not on the pull request's
+	// ancestry gives it no baseline until c1 to c3 arrive.
+	seedEarlierHistory(provider, recent, func(sha string, at time.Time, value float64) {
+		submitAt(t, ctx, ing, "history-"+sha, sha, value, at)
+	}, 10, 20, 30, 10, 20, 30, 20)
 	submitAt(t, ctx, ing, "pr-run", "pr", 100, recent.Add(3*time.Hour))
 	submitAt(t, ctx, ing, "old-pr-run", "old", 100, stale)
 	drainVerdicts(t, ctx, store)

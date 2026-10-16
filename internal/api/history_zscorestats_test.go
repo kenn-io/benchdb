@@ -106,13 +106,14 @@ func TestHistoryExcludesNullCommitTimestamp(t *testing.T) {
 
 func TestExcludedResultsRemainComparableWithoutChangingHistory(t *testing.T) {
 	tapi, pool, ctx := seedAPI(t)
+	seedEarlierHistory(t, tapi, seedOpts{}, 10, 20, 30, 10, 20, 30, 20)
 	seedResult(t, tapi, seedOpts{sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{sha: "c2", ts: day(2), data: []float64{20}, runReason: "manual", changeAnnotations: map[string]any{"exclude_from_history": false}})
 	baseline := seedResult(t, tapi, seedOpts{sha: "c3", ts: day(3), data: []float64{30}})
 	contender := seedResult(t, tapi, seedOpts{sha: "c4", ts: day(4), data: []float64{100}})
 	fp := fpForResult(t, tapi, contender)
 	before := historyByFP(t, tapi, fp)
-	require.Len(t, before.Samples, 4)
+	require.Len(t, before.Samples, 11)
 	benchmarkID := getResultDetail(t, tapi, contender).BenchmarkID
 	drainVerdicts(t, ctx, pool)
 	pages := map[string]string{}

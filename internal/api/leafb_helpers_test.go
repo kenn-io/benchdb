@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"testing"
@@ -128,6 +129,25 @@ func seedResult(t *testing.T, tapi humatest.TestAPI, o seedOpts) string {
 }
 
 // day returns a fixed UTC base date offset by d days, for deterministic ordering.
+// seedEarlierHistory gives a comparison the ten earlier results its lookback
+// window needs. It seeds one default-branch result per value, a day apart and
+// ending the day before day(1). o sets the series; its sha, ts, and data are
+// replaced, and each result gets its own run unless o names one.
+func seedEarlierHistory(t *testing.T, tapi humatest.TestAPI, o seedOpts, values ...float64) {
+	t.Helper()
+	runID := o.runID
+	for i, value := range values {
+		o.sha = fmt.Sprintf("earlier-%d", i+1)
+		o.runID = runID
+		if o.runID == "" {
+			o.runID = o.sha
+		}
+		o.ts = day(1).AddDate(0, 0, i-len(values))
+		o.data = []float64{value}
+		seedResult(t, tapi, o)
+	}
+}
+
 func day(d int) time.Time {
 	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, d)
 }
