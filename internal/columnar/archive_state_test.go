@@ -81,12 +81,12 @@ func TestArchiveStateLifecycle(t *testing.T) {
 	require.Error(t, state.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: cycle, Key: "data/late.parquet", Size: 12}), "closed cycles cannot gain intents")
 	abandoned := uuid.New()
 	require.NoError(t, state.startCycle(ctx, conn.Conn(), abandoned, "owner-b"))
-	require.NoError(t, state.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: abandoned, Key: "data/abandoned.parquet", Size: 12}))
+	require.NoError(t, state.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: abandoned, Key: "data/abandoned.parquet", Size: 12, SHA256: receipt.SHA256}))
 	require.NoError(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.finishCycle(ctx, tx, abandoned, "abandoned") }))
 	var status string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM archive_upload WHERE key='data/abandoned.parquet'`).Scan(&status))
 	assert.Equal(t, "abandoned", status)
-	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, "data/abandoned.parquet", receipt) }))
+	require.ErrorContains(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, "data/abandoned.parquet", receipt) }), "archive upload cycle is closed")
 }
 
 func TestRetentionNeverShortens(t *testing.T) {
