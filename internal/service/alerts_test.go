@@ -406,6 +406,9 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 		"c4": ciCommitInfo("c4", new("c3"), "c4", t0.Add(72*time.Hour)),
 	}
 	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, t0, func(sha string, _ time.Time, value float64) {
+		ciSubmit(t, ing, ctx, "history-"+sha, sha, value)
+	}, 10, 20, 30, 10, 20, 30, 20)
 	ciSubmit(t, ing, ctx, "main-c1", "c1", 10)
 	ciSubmit(t, ing, ctx, "main-c2", "c2", 20)
 	ciSubmit(t, ing, ctx, "main-c3", "c3", 30)

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,20 @@ func ciSubmit(t *testing.T, ing *service.Ingester, ctx context.Context, runID, s
 	return res
 }
 
+// seedEarlierHistory gives a lookback window the ten results it needs. It adds
+// one default-branch commit per value, a day apart and ending a day before
+// start, and submits that value on it.
+func seedEarlierHistory(
+	provider ciCommitProvider, start time.Time, submit func(sha string, at time.Time, value float64), values ...float64,
+) {
+	for i, value := range values {
+		at := start.Add(-time.Duration(len(values)-i) * 24 * time.Hour)
+		sha := fmt.Sprintf("%040x", i+1)
+		provider[sha] = ciCommitInfo(sha, nil, sha, at)
+		submit(sha, at, value)
+	}
+}
+
 func TestCIReportRunOnlyCommitlessAndMissing(t *testing.T) {
 	ing, store, _, ctx := newIngester(t)
 	reporter := service.NewCIReporter(store, "")
@@ -103,6 +118,9 @@ func TestCIReportForkPointUsesLookbackStatusNotPairwiseOnly(t *testing.T) {
 		"c5": ciCommitInfo("c5", new("c4"), "c5", t0.Add(96*time.Hour)),
 	}
 	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, t0, func(sha string, _ time.Time, value float64) {
+		ciSubmit(t, ing, ctx, "history-"+sha, sha, value)
+	}, 10, 20, 30, 10, 20, 30, 20)
 	ciSubmit(t, ing, ctx, "default-c1", "c1", 10)
 	ciSubmit(t, ing, ctx, "default-c2", "c2", 20)
 	baseline := ciSubmit(t, ing, ctx, "default-c3", "c3", 30)
@@ -253,6 +271,9 @@ func TestCIReportExplicitBaselineRunIDsCompareSelectedRuns(t *testing.T) {
 		"c4": ciCommitInfo("c4", new("c3"), "c4", t0.Add(72*time.Hour)),
 	}
 	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, t0, func(sha string, _ time.Time, value float64) {
+		ciSubmit(t, ing, ctx, "history-"+sha, sha, value)
+	}, 10, 20, 30, 10, 20, 30, 20)
 	ciSubmit(t, ing, ctx, "history-c1", "c1", 10)
 	ciSubmit(t, ing, ctx, "history-c2", "c2", 20)
 	baseline := ciSubmit(t, ing, ctx, "explicit-baseline", "c3", 30)
@@ -563,12 +584,13 @@ func (s *historyRecordingStore) SelectHistoryForFingerprintsAsOf(ctx context.Con
 func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 	_, store, _, ctx := newIngester(t)
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	ing := service.NewIngester(store, ciCommitProvider{
+	provider := ciCommitProvider{
 		"c1": ciCommitInfo("c1", nil, "c1", t0),
 		"c2": ciCommitInfo("c2", new("c1"), "c2", t0.Add(24*time.Hour)),
 		"c3": ciCommitInfo("c3", new("c2"), "c3", t0.Add(48*time.Hour)),
 		"pr": ciCommitInfo("pr", new("c3"), "c3", t0.Add(72*time.Hour)),
-	})
+	}
+	ing := service.NewIngester(store, provider)
 	submit := func(runID, sha, name string, value float64) *service.Result {
 		t.Helper()
 		req := machineReq(samples(value, value+1, value+2), "s")
@@ -581,6 +603,10 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 		require.NoError(t, err)
 		return res
 	}
+	seedEarlierHistory(provider, t0, func(sha string, _ time.Time, value float64) {
+		submit("history-"+sha, sha, "bench-a", value)
+		submit("history-"+sha, sha, "bench-b", value+10)
+	}, 10, 11, 10, 11, 10, 11, 10, 11)
 	// Benchmark A's baseline is on c2 and B's on c3, so each pull-request run
 	// compares against a different baseline commit.
 	submit("main-c1", "c1", "bench-a", 10)
@@ -664,7 +690,11 @@ func TestCIReportForkPointUsesTheMergedBase(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, store, _, ctx := newIngester(t)
-			ing := service.NewIngester(store, provider(tt.forkPointKnown))
+			commits := provider(tt.forkPointKnown)
+			ing := service.NewIngester(store, commits)
+			seedEarlierHistory(commits, t0, func(sha string, _ time.Time, value float64) {
+				ciSubmit(t, ing, ctx, "history-"+sha, sha, value)
+			}, 10, 10.2, 9.8, 10, 10.2, 9.8, 10)
 			ciSubmit(t, ing, ctx, "main-1", main1, 10)
 			ciSubmit(t, ing, ctx, "main-2", main2, 10.2)
 			ciSubmit(t, ing, ctx, "main-3", main3, 9.8)
@@ -708,4 +738,45 @@ func TestCIReportWithoutForkPointOrMergedBaseNeedsAction(t *testing.T) {
 	require.Len(t, report.Runs, 1)
 	require.NotNil(t, report.Runs[0].BaselineError)
 	assert.Equal(t, service.CIReportBaselineErrorUnknownForkPoint, report.Runs[0].BaselineError.Code)
+}
+
+// TestCIReportNeedsTenEarlierResults covers the minimum lookback window: a
+// standard deviation from a handful of points is too uncertain to call a
+// change, so a short history leaves the row insufficient instead of flagging
+// noise.
+func TestCIReportNeedsTenEarlierResults(t *testing.T) {
+	for _, tt := range []struct {
+		window int
+		status service.CIReportStatus
+		row    string
+	}{
+		{9, service.CIReportStatusSkipped, service.CIReportRowStatusInsufficient},
+		{10, service.CIReportStatusFailure, service.CIReportRowStatusRegressed},
+	} {
+		t.Run(fmt.Sprintf("%d results", tt.window), func(t *testing.T) {
+			_, store, _, ctx := newIngester(t)
+			t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			provider := ciCommitProvider{}
+			ing := service.NewIngester(store, provider)
+			var parent *string
+			for i := range tt.window {
+				sha := fmt.Sprintf("main-%d", i)
+				provider[sha] = ciCommitInfo(sha, parent, sha, t0.Add(time.Duration(i)*24*time.Hour))
+				ciSubmit(t, ing, ctx, sha, sha, []float64{10, 20, 30}[i%3])
+				parent = &sha
+			}
+			provider["pr"] = ciCommitInfo("pr", parent, *parent, t0.Add(time.Duration(tt.window)*24*time.Hour))
+			ciSubmit(t, ing, ctx, "pr-run", "pr", 100)
+
+			report, err := service.NewCIReporter(store, "").Report(ctx, service.CIReportQuery{
+				Repository: testRepo, CommitSHA: "pr", Baseline: service.CIReportBaselineForkPoint,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.status, report.Status)
+			require.Len(t, report.Runs, 1)
+			require.Len(t, report.Runs[0].Comparisons, 1)
+			assert.Equal(t, tt.row, report.Runs[0].Comparisons[0].Status)
+		})
+	}
 }

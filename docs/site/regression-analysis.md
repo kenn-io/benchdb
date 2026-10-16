@@ -111,6 +111,7 @@ The history for a comparison is the series' default-branch history up to and
 including the baseline result's commit. A comparison counts as a regression or
 improvement only when all of these hold:
 
+- That history has at least 10 results, the same minimum as benchmark status.
 - The contender's lookback z-score against that history crosses the threshold.
 - The contender is at least 3 standard deviations of the history window away
   from the baseline result, in the same direction.
@@ -135,7 +136,7 @@ A comparison row's status follows from its lookback analysis:
 | `regressed` | The lookback z-score is below the negative threshold and every other condition above holds. |
 | `improved` | The lookback z-score is above the threshold and every other condition above holds. |
 | `stable` | A lookback z-score exists, but the conditions for a regression or improvement do not all hold. |
-| `insufficient` | No lookback z-score exists. The baseline has no commit, the history is empty or mixes units, or the history has fewer than two values or no spread. |
+| `insufficient` | No lookback z-score exists. The baseline has no commit, the history has fewer than 10 results or mixes units, or it has no spread. |
 
 CI reports also use `errored`, `missing_baseline`, and `not_comparable` rows.
 [CI reporting](ci-reporting.md) explains those rows and how rows set the report

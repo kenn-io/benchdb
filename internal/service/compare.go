@@ -221,8 +221,8 @@ type lookbackInput struct {
 
 // lookbackAnalysis scores the contender against its default-branch baseline
 // window (commit.timestamp <= baseline commit). Returns (nil, nil) for the
-// legitimately-absent cases: no baseline commit, an empty window, a mixed-unit
-// window, or an uncomputable z-score. A query failure or data-integrity fault
+// legitimately-absent cases: no baseline commit, a window shorter than
+// minHistoryPoints, a mixed-unit window, or an uncomputable z-score. A query failure or data-integrity fault
 // propagates as an error so the caller can surface it as a 500, matching
 // History().
 func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*LookbackAnalysis, error) {
@@ -250,6 +250,9 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 			return nil, err
 		}
 		points = append(points, point)
+	}
+	if len(points) < minHistoryPoints {
+		return nil, nil
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
 	z := stats.ZScore(&in.contSVS, in.lessIsBetter, mean, stddev)

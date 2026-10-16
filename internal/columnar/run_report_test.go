@@ -3,6 +3,7 @@ package columnar
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -29,6 +30,22 @@ func TestFinalizedReportKeepsCommitEnrichmentOutsideSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	const repository = "https://example.com/repo"
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	// Comparisons need ten earlier default-branch results.
+	for i := range 7 {
+		sha := fmt.Sprintf("earlier-%d", i)
+		at := start.AddDate(0, 0, i-7)
+		commitID, err := pg.GetOrCreateCommit(ctx, storage.InsertCommitParams{
+			Repository: repository, Sha: sha, ForkPointSha: new(sha), Timestamp: new(at),
+		})
+		require.NoError(t, err)
+		_, err = pg.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
+			CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
+			RunID: sha, RunTags: []byte(`{}`), CommitID: &commitID, CommitRepoUrl: repository,
+			HistoryFingerprint: "fingerprint", Timestamp: at,
+			Unit: new("s"), Data: []*float64{new(10.0 + float64(i%3)), new(11.0 + float64(i%3))},
+		})
+		require.NoError(t, err)
+	}
 	var lateID, resultID string
 	for i, commit := range []storage.InsertCommitParams{
 		{Sha: "c1", ForkPointSha: new("c1"), Timestamp: new(start)},

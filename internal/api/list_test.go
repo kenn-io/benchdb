@@ -378,6 +378,7 @@ func TestListRepositoriesFollowsExistingResults(t *testing.T) {
 
 func TestListRecentRunsShowsStoredAttentionVerdicts(t *testing.T) {
 	tapi, pool, ctx := seedAPI(t)
+	seedEarlierHistory(t, tapi, seedOpts{runID: "main-run"}, 10, 20, 30, 10, 20, 30, 20)
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c2", ts: day(2), data: []float64{20}})
 	seedResult(t, tapi, seedOpts{runID: "main-run", sha: "c3", ts: day(3), data: []float64{30}})

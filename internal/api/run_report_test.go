@@ -22,6 +22,7 @@ func TestSavedRunReportPublicationAndReads(t *testing.T) {
 	const runID = "ci/run?part=a#b%2F"
 	const reportPath = "/ci%2Frun%3Fpart%3Da%23b%252F"
 	tapi, pool, ctx := seedCIReportAPI(t, "")
+	seedEarlierHistory(t, tapi, seedOpts{}, 10, 20, 30, 10, 20, 30, 20)
 	seedResult(t, tapi, seedOpts{runID: "main-1", sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{runID: "main-2", sha: "c2", ts: day(2), data: []float64{20}})
 	seedResult(t, tapi, seedOpts{runID: "main-3", sha: "c3", ts: day(3), data: []float64{30}})
@@ -112,6 +113,7 @@ func TestSavedRunReportUsesExactBaseline(t *testing.T) {
 	tapi, pool, ctx := seedCIReportAPI(t, "")
 	store := db.NewStore(pool)
 	api.NewRunReportHandler(service.NewRunReports(store, ""), auth.New(testToken, false, store, nil)).Register(tapi)
+	seedEarlierHistory(t, tapi, seedOpts{}, 10, 20, 30, 10, 20, 30, 20)
 	seedResult(t, tapi, seedOpts{runID: "history-1", sha: "c1", ts: day(1), data: []float64{10}})
 	seedResult(t, tapi, seedOpts{runID: "history-2", sha: "c2", ts: day(2), data: []float64{20}})
 	seedResult(t, tapi, seedOpts{runID: "recorded-baseline", sha: "c3", ts: day(3), data: []float64{30}})

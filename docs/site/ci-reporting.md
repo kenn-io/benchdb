@@ -194,7 +194,7 @@ machines.
 | `regressed` | The lookback analysis found a regression. |
 | `improved` | The lookback analysis found an improvement. |
 | `stable` | Lookback analysis ran and found no change. |
-| `insufficient` | A baseline result exists, but there is not enough history for lookback analysis. |
+| `insufficient` | A baseline result exists, but the history has fewer than 10 results, mixes units, or has no spread, so there is no lookback analysis. |
 | `errored` | The contender result carries an error payload. |
 | `missing_baseline` | No matching baseline result was found. |
 | `not_comparable` | The two results cannot be compared, for example because their units differ. |
