@@ -9,7 +9,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -76,7 +76,7 @@ type ClaimVerdictQueueRow struct {
 	Kind       string
 	Key        string
 	EnqueuedAt pgtype.Timestamptz
-	ClaimToken uuid.UUID
+	ClaimToken googleuuid.UUID
 }
 
 // Claim settled keys with a lease so concurrent servers never process the same

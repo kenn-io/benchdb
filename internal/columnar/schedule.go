@@ -4,45 +4,90 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v7"
 	"github.com/gofrs/flock"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.kenn.io/benchdb/internal/storage"
-	"go.kenn.io/kit/atomicfile"
 )
 
-func (e *Engine) loadMaintenance() error {
+// loadMaintenance only reads PostgreSQL. Opening an admin/read-only engine must
+// not create durable state or import a local writer's schedule.
+func (e *Engine) loadMaintenance(ctx context.Context) error {
+	e.maintenanceMu.Lock()
+	defer e.maintenanceMu.Unlock()
 	e.maintenance = storage.MaintenanceStatus{State: "scheduled", Phase: "idle", NextRunAt: new(time.Now().UTC().Add(e.cfg.Interval))}
-	data, err := os.ReadFile(filepath.Join(e.cfg.Dir, "maintenance.json"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	var data []byte
+	err := e.pg.QueryRow(ctx, `SELECT status FROM archive_maintenance WHERE singleton AND import_completed`).Scan(&data)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if err == nil {
-		var saved storage.MaintenanceStatus
-		if err := json.Unmarshal(data, &saved); err != nil || saved.NextRunAt == nil {
-			slog.Warn("reset unreadable archive maintenance schedule", "error", err)
-		} else {
-			e.maintenance = saved
+		if err := json.Unmarshal(data, &e.maintenance); err != nil {
+			return err
 		}
-		// Apply interval changes from the last attempt, without resetting its age.
-		anchor := e.maintenance.LastFinishedAt
-		if anchor == nil {
-			anchor = e.maintenance.LastStartedAt
+		if e.maintenance.NextRunAt == nil {
+			return errors.New("durable archive maintenance schedule has no next run")
 		}
-		if anchor != nil {
-			e.maintenance.NextRunAt = new(anchor.Add(e.cfg.Interval))
-		}
-		if e.maintenance.State == "running" {
-			e.maintenance.State = "interrupted"
-			e.maintenance.Error = "Previous maintenance was interrupted."
-		}
+	}
+	e.applyMaintenanceInterval()
+	return nil
+}
+
+func (e *Engine) applyMaintenanceInterval() {
+	// Changing the interval may lengthen a wait, but never accelerate a promise.
+	anchor := e.maintenance.LastFinishedAt
+	if anchor == nil {
+		anchor = e.maintenance.LastStartedAt
+	}
+	if anchor != nil && anchor.Add(e.cfg.Interval).After(*e.maintenance.NextRunAt) {
+		e.maintenance.NextRunAt = new(anchor.Add(e.cfg.Interval))
+	}
+	if e.maintenance.State == "running" {
+		e.maintenance.State = "interrupted"
+		e.maintenance.Error = "Previous maintenance was interrupted."
 	}
 	e.maintenance.Enabled = false
 	e.maintenance.IntervalSeconds = e.cfg.Interval.Seconds()
-	return nil
+}
+
+// Only the writer calls this, before its first save or work. ON CONFLICT also
+// protects the marker if another writer imported while this engine was opening.
+func (e *Engine) importMaintenance(ctx context.Context) error {
+	var imported bool
+	if err := e.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM archive_maintenance WHERE singleton AND import_completed)`).Scan(&imported); err != nil {
+		return err
+	}
+	if !imported {
+		saved := storage.MaintenanceStatus{State: "scheduled", Phase: "idle", NextRunAt: new(time.Now().UTC().Add(e.cfg.Interval))}
+		data, err := os.ReadFile(filepath.Join(e.cfg.Dir, "maintenance.json"))
+		if err == nil {
+			var legacy storage.MaintenanceStatus
+			if err := json.Unmarshal(data, &legacy); err != nil || legacy.NextRunAt == nil {
+				slog.Warn("reset unreadable archive maintenance schedule", "error", err)
+			} else {
+				saved = legacy
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("reset unreadable archive maintenance schedule", "error", err)
+		}
+		data, err = json.Marshal(saved)
+		if err != nil {
+			return err
+		}
+		if _, err := e.pg.Exec(ctx, `INSERT INTO archive_maintenance(status,import_completed) VALUES ($1,true) ON CONFLICT(singleton) DO NOTHING`, data); err != nil {
+			return err
+		}
+	}
+	return e.loadMaintenance(ctx)
 }
 
 func (e *Engine) maintenanceStatus() storage.MaintenanceStatus {
@@ -59,14 +104,21 @@ func (e *Engine) maintenanceStatus() storage.MaintenanceStatus {
 }
 
 // Save before doing work so a crash cannot trigger another cycle on every restart.
-func (e *Engine) saveMaintenance() (err error) {
+func (e *Engine) saveMaintenance(ctx context.Context) error {
 	e.maintenanceMu.Lock()
 	data, err := json.Marshal(e.maintenance)
 	e.maintenanceMu.Unlock()
 	if err != nil {
 		return err
 	}
-	return atomicfile.WriteFile(filepath.Join(e.cfg.Dir, "maintenance.json"), data)
+	tag, err := e.pg.Exec(ctx, `UPDATE archive_maintenance SET status=$1 WHERE singleton AND import_completed`, data)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("archive maintenance schedule has not been imported by a writer")
+	}
+	return nil
 }
 
 // Run schedules complete cycles, with at least Interval between attempts.
@@ -80,21 +132,32 @@ func (e *Engine) Run(ctx context.Context) {
 		return
 	}
 	defer owner.Close()
-	e.maintenanceMu.Lock()
-	e.maintenance.Enabled = true
-	e.maintenanceMu.Unlock()
 	defer func() { e.maintenanceMu.Lock(); e.maintenance.Enabled = false; e.maintenanceMu.Unlock() }()
-	if err := e.saveMaintenance(); err != nil {
-		e.failMaintenance("schedule", err)
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = time.Second
+	policy.MaxInterval = 20 * time.Second // Jitter keeps the longest wait at 30 seconds.
+	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+		err := e.importMaintenance(ctx)
+		e.maintenanceMu.Lock()
+		e.maintenance.Enabled = true
+		e.maintenanceMu.Unlock()
+		if err == nil {
+			err = e.saveMaintenance(ctx)
+		}
+		if err != nil && ctx.Err() == nil {
+			e.failMaintenance("schedule", err)
+			if !retryableScheduleError(err) {
+				return struct{}{}, backoff.Permanent(err)
+			}
+		}
+		return struct{}{}, err
+	}, backoff.WithBackOff(policy), backoff.WithMaxElapsedTime(0))
+	if err != nil {
+		return
 	}
 	for {
-		status := e.maintenanceStatus()
-		timer := time.NewTimer(max(0, time.Until(*status.NextRunAt)))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !e.waitForMaintenance(ctx) {
 			return
-		case <-timer.C:
 		}
 		if err := e.runScheduledMaintenance(ctx); err != nil {
 			slog.Error("archive maintenance", "error", err)
@@ -102,6 +165,33 @@ func (e *Engine) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+	}
+}
+
+func retryableScheduleError(err error) bool {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		// Connection failures, aborted transactions, resource shortages,
+		// unavailable locks, and server interruptions can clear without a restart.
+		for _, class := range []string{"08", "40", "53", "55", "57"} {
+			if strings.HasPrefix(pgErr.Code, class) {
+				return true
+			}
+		}
+		return false
+	}
+	var networkError net.Error
+	return pgconn.SafeToRetry(err) || errors.As(err, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+func (e *Engine) waitForMaintenance(ctx context.Context) bool {
+	status := e.maintenanceStatus()
+	timer := time.NewTimer(max(0, time.Until(*status.NextRunAt)))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -114,19 +204,8 @@ func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
 		LastStartedAt: &started, LastSuccessAt: lastSuccess, NextRunAt: new(started.Add(e.cfg.Interval)),
 	}
 	e.maintenanceMu.Unlock()
-	err := e.saveMaintenance()
-	if err != nil {
-		// Orphans may be the reason this volume cannot save the schedule.
-		// Reclaim them before retrying the write that permits new exports.
-		cleanupErr := e.withBuilder(ctx, func() error {
-			removed, cleanupErr := e.cleanup(ctx)
-			e.maintenanceMu.Lock()
-			e.maintenance.RemovedFiles += removed
-			e.maintenanceMu.Unlock()
-			return cleanupErr
-		})
-		err = errors.Join(cleanupErr, e.saveMaintenance())
-	}
+	err := e.saveMaintenance(ctx)
+
 	if err == nil {
 		err = e.runMaintenance(ctx, started.Add(-e.cfg.Settle))
 	}
@@ -146,7 +225,7 @@ func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
 		e.maintenance.Error = "Maintenance failed during " + e.maintenance.Phase + ". See server logs."
 	}
 	e.maintenanceMu.Unlock()
-	if saveErr := e.saveMaintenance(); saveErr != nil {
+	if saveErr := e.saveMaintenance(ctx); saveErr != nil {
 		e.failMaintenance("schedule", saveErr)
 		err = errors.Join(err, saveErr)
 	}

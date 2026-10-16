@@ -118,18 +118,22 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 
 func TestMaintenanceWaitsForScheduledWindow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		e := &Engine{cfg: Config{Dir: t.TempDir(), Interval: time.Hour}}
-		require.NoError(t, e.loadMaintenance())
+		e := &Engine{maintenance: storage.MaintenanceStatus{Enabled: true, State: "scheduled", NextRunAt: new(time.Now().Add(time.Hour))}}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		go e.Run(ctx)
+		done := make(chan bool, 1)
+		go func() { done <- e.waitForMaintenance(ctx) }()
 		synctest.Wait()
 		time.Sleep(59 * time.Minute)
 		synctest.Wait()
-		assert.Equal(t, "scheduled", e.maintenanceStatus().State)
-		assert.Nil(t, e.maintenanceStatus().LastStartedAt)
-		cancel()
+		select {
+		case <-done:
+			require.FailNow(t, "maintenance started before its window")
+		default:
+		}
+		time.Sleep(time.Minute)
 		synctest.Wait()
+		assert.True(t, <-done)
 	})
 }
 
@@ -138,6 +142,7 @@ func TestScheduledMaintenanceRecordsSuccessAndFailure(t *testing.T) {
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), Readers: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	require.NoError(t, e.importMaintenance(ctx))
 	require.NoError(t, e.runScheduledMaintenance(ctx))
 	status := e.maintenanceStatus()
 	assert.Equal(t, "scheduled", status.State)
@@ -159,31 +164,33 @@ func TestScheduledMaintenanceRecordsSuccessAndFailure(t *testing.T) {
 	var pending int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&pending))
 	assert.Positive(t, pending)
-	restarted := &Engine{cfg: e.cfg}
-	require.NoError(t, restarted.loadMaintenance())
+	restarted := &Engine{pg: pool, cfg: e.cfg}
+	require.NoError(t, restarted.loadMaintenance(ctx))
 	assert.Equal(t, "failed", restarted.maintenance.State)
 	assert.Equal(t, failed.NextRunAt, restarted.maintenance.NextRunAt)
 }
 
 func TestMaintenanceScheduleSurvivesRestart(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
 	dir := t.TempDir()
-	first := &Engine{cfg: Config{Dir: dir, Interval: time.Hour}}
-	require.NoError(t, first.loadMaintenance())
+	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	require.NoError(t, first.loadMaintenance(ctx))
+	require.NoError(t, first.importMaintenance(ctx))
 	initial := first.maintenance
 	require.NotNil(t, initial.NextRunAt)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), *initial.NextRunAt, time.Second)
 	first.maintenance.Enabled = true
-	require.NoError(t, first.saveMaintenance())
-	second := &Engine{cfg: first.cfg}
-	require.NoError(t, second.loadMaintenance())
+	require.NoError(t, first.saveMaintenance(ctx))
+	second := &Engine{pg: pool, cfg: first.cfg}
+	require.NoError(t, second.loadMaintenance(ctx))
 	assert.Equal(t, initial.NextRunAt, second.maintenance.NextRunAt, "restart must not postpone or immediately run maintenance")
 
 	started := time.Now().UTC()
 	first.maintenance.State = "running"
 	first.maintenance.LastStartedAt = &started
 	first.maintenance.NextRunAt = new(started.Add(time.Hour))
-	require.NoError(t, first.saveMaintenance())
-	require.NoError(t, second.loadMaintenance())
+	require.NoError(t, first.saveMaintenance(ctx))
+	require.NoError(t, second.loadMaintenance(ctx))
 	assert.Equal(t, "interrupted", second.maintenance.State)
 	assert.Equal(t, first.maintenance.NextRunAt, second.maintenance.NextRunAt)
 }
@@ -231,5 +238,173 @@ func TestMaintenanceIntervalFromEnv(t *testing.T) {
 		t.Setenv("BENCHDB_MAINTENANCE_INTERVAL", invalid)
 		_, err := ConfigFromEnv()
 		assert.ErrorContains(t, err, "BENCHDB_MAINTENANCE_INTERVAL")
+	}
+}
+
+func TestScheduleImportOnce(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	originalNextRun := time.Now().UTC().Add(7 * time.Hour).Truncate(time.Microsecond)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(fmt.Sprintf(`{"state":"scheduled","phase":"idle","next_run_at":%q}`, originalNextRun.Format(time.RFC3339Nano))), 0600))
+	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	require.NoError(t, first.loadMaintenance(ctx))
+	// Run is the writer entry point. Wait for its durable startup save, then
+	// stop it well before the imported window becomes eligible.
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); first.Run(runCtx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	require.Eventually(t, func() bool {
+		var enabled bool
+		err := pool.QueryRow(ctx, `SELECT coalesce((status->>'enabled')::boolean,false) FROM archive_maintenance`).Scan(&enabled)
+		return err == nil && enabled
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	<-done
+	assert.Equal(t, originalNextRun, *first.maintenance.NextRunAt)
+	second, err := Open(ctx, pool, Config{Dir: t.TempDir(), Interval: time.Hour, Readers: 1})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, second.Close()) }()
+	assert.Equal(t, originalNextRun, *second.maintenance.NextRunAt, "discarding local scratch must preserve the schedule")
+}
+
+func TestScheduleReadOnlyStartup(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	cfg := pool.Config()
+	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	readers, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	defer readers.Close()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"running","next_run_at":"2099-01-01T00:00:00Z"}`), 0600))
+	e, err := Open(ctx, readers, Config{Dir: dir, Readers: 1})
+	require.NoError(t, err)
+	require.NoError(t, e.Close())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_maintenance`).Scan(&count))
+	assert.Zero(t, count, "read-only startup must not import")
+	writer := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	require.NoError(t, writer.importMaintenance(ctx))
+	e, err = Open(ctx, readers, Config{Dir: dir, Readers: 1})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, e.Close()) }()
+	assert.Equal(t, "interrupted", e.maintenance.State)
+	assert.Equal(t, time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), *e.maintenance.NextRunAt)
+}
+
+func TestScheduleImportDoesNotAccelerateAfterIntervalReduction(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"running","last_started_at":"2099-01-01T00:00:00Z","next_run_at":"2099-01-02T00:00:00Z"}`), 0600))
+	e := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	require.NoError(t, e.importMaintenance(ctx))
+	assert.Equal(t, time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC), *e.maintenance.NextRunAt)
+	assert.Equal(t, "interrupted", e.maintenance.State)
+	require.NoError(t, e.saveMaintenance(ctx))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"scheduled","next_run_at":"2099-01-01T01:00:00Z"}`), 0600))
+	require.NoError(t, e.importMaintenance(ctx))
+	assert.Equal(t, time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC), *e.maintenance.NextRunAt, "import marker prevents rereading changed legacy state")
+}
+
+func TestScheduleWriteFailurePreventsWork(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	_, err := seed.Run(ctx, db.NewStore(pool))
+	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET arrived_at=now()-interval '1 day'`)
+	var before int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&before))
+	require.Positive(t, before)
+	dir := t.TempDir()
+	writer := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	require.NoError(t, writer.importMaintenance(ctx))
+	e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, e.Close()) }()
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_schedule_update() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'schedule update rejected'; END;
+$$;
+CREATE TRIGGER reject_schedule_update BEFORE UPDATE ON archive_maintenance
+FOR EACH ROW EXECUTE FUNCTION reject_schedule_update()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, e.runScheduledMaintenance(ctx), "schedule update rejected", "the attempt must be saved before export begins")
+	var after, files int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&after))
+	assert.Equal(t, before, after)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files))
+	assert.Zero(t, files)
+	assert.Equal(t, "failed", e.maintenance.State)
+	// Only schedule persistence failed: the same writable engine can export.
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_schedule_update ON archive_maintenance`)
+	require.NoError(t, err)
+	require.NoError(t, e.runScheduledMaintenance(ctx))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&after))
+	assert.Zero(t, after)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files))
+	assert.Positive(t, files)
+}
+
+func TestMaintenanceRetriesInitialization(t *testing.T) {
+	for _, operation := range []string{"INSERT", "UPDATE"} {
+		for _, outcome := range []string{"recover", "cancel"} {
+			t.Run(operation+"/"+outcome, func(t *testing.T) {
+				pool, ctx := dbtest.NewPool(t)
+				_, err := seed.Run(ctx, db.NewStore(pool))
+				require.NoError(t, err)
+				dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET arrived_at=now()-interval '1 day'`)
+				var before int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&before))
+				require.Positive(t, before)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"scheduled","phase":"idle","next_run_at":"2020-01-01T00:00:00Z"}`), 0600))
+				e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, e.Close()) })
+				_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION reject_schedule_write() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'schedule temporarily unavailable' USING ERRCODE='40001'; END;
+$$;
+CREATE TRIGGER reject_schedule_write BEFORE %s ON archive_maintenance
+FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
+				require.NoError(t, err)
+				runCtx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				go func() { defer close(done); e.Run(runCtx) }()
+				t.Cleanup(func() {
+					cancel()
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						assert.Fail(t, "maintenance did not stop after cancellation")
+					}
+				})
+				require.Eventually(t, func() bool { return e.maintenanceStatus().Phase == "schedule" }, 5*time.Second, time.Millisecond)
+				var hot, files int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM benchmark_result), (SELECT count(*) FROM archive_file)`).Scan(&hot, &files))
+				assert.Equal(t, before, hot, "initialization failures must withhold export")
+				assert.Zero(t, files)
+				select {
+				case <-done:
+					require.FailNow(t, "maintenance stopped after a transient initialization failure")
+				default:
+				}
+				if outcome == "recover" {
+					_, err = pool.Exec(ctx, `DROP TRIGGER reject_schedule_write ON archive_maintenance`)
+					require.NoError(t, err)
+					require.Eventually(t, func() bool {
+						var succeeded bool
+						err := pool.QueryRow(ctx, `SELECT status->>'last_success_at' IS NOT NULL FROM archive_maintenance`).Scan(&succeeded)
+						return err == nil && succeeded
+					}, 10*time.Second, 10*time.Millisecond, "the same worker must recover and run its due cycle")
+					require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM benchmark_result), (SELECT sum(row_count) FROM archive_file)`).Scan(&hot, &files))
+					assert.Zero(t, hot)
+					assert.Equal(t, before, files)
+				}
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					require.FailNow(t, "cancellation must interrupt initialization backoff")
+				}
+			})
+		}
 	}
 }
