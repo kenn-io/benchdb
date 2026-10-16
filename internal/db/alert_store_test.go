@@ -142,12 +142,12 @@ func createAlertRuleForRuns(t *testing.T, ctx context.Context, st *db.Store, use
 	return rule
 }
 
-func scoreAlertRun(t *testing.T, ctx context.Context, st *db.Store, rule storage.AlertRule, runID string) {
+func scoreAlertRun(t *testing.T, ctx context.Context, st *db.Store, rule storage.AlertRule, runID string, finalized time.Time) {
 	t.Helper()
 	touch, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
 		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
-		EvaluatedAt: time.Now().UTC(), ScoredRunID: &runID,
+		EvaluatedAt: time.Now().UTC(), ScoredRun: &storage.ScoredAlertRun{RunID: runID, FinalizedAt: finalized},
 	})
 	require.NoError(t, err)
 	require.True(t, touch.Touched)
@@ -189,14 +189,43 @@ func TestSelectAlertRunsScoresEachFinalizedRunSinceTheRuleStarted(t *testing.T) 
 	assert.Equal(t, []string{"run-1", "run-mixed", "run-omitted", "run-pr"}, alertRunIDs(t, ctx, st, anyRule.ID, 10))
 	assert.Equal(t, []string{"run-1"}, alertRunIDs(t, ctx, st, commitRule.ID, 1))
 
-	scoreAlertRun(t, ctx, st, commitRule, "run-1")
-	scoreAlertRun(t, ctx, st, commitRule, "run-mixed")
+	scoreAlertRun(t, ctx, st, commitRule, "run-1", at(1))
+	scoreAlertRun(t, ctx, st, commitRule, "run-mixed", at(2))
 	assert.Empty(t, alertRunIDs(t, ctx, st, commitRule.ID, 10), "a scored run is not scored again")
 
 	// A report finalized earlier can become visible after a newer run was
-	// scored. It is still waiting to be scored.
+	// scored. It is still waiting to be scored, marked late.
 	insertFinalizedReport(t, ctx, pool, "run-late", ciReportRepo, "sha-5", at(1).Add(30*time.Second), reason("commit"))
-	assert.Equal(t, []string{"run-late"}, alertRunIDs(t, ctx, st, commitRule.ID, 10))
+	insertFinalizedReport(t, ctx, pool, "run-next", ciReportRepo, "sha-6", at(7), reason("commit"))
+	runs, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: commitRule.ID, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	assert.Equal(t, "run-late", runs[0].RunID)
+	assert.True(t, runs[0].Late, "a newer run was already scored")
+	assert.Equal(t, "run-next", runs[1].RunID)
+	assert.False(t, runs[1].Late)
+}
+
+func TestClaimAlertRuleLeasesARuleToOneEvaluator(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	rule := createAlertRuleForRuns(t, ctx, st, dbtest.SeedUser(t, ctx, pool), nil)
+	now := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+
+	claimed, ok, err := st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, rule.ID, claimed.ID)
+	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.False(t, ok, "a leased rule is busy")
+	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now.Add(2*time.Minute), now.Add(3*time.Minute))
+	require.NoError(t, err)
+	assert.True(t, ok, "an expired lease can be taken over")
+
+	require.NoError(t, st.ReleaseAlertRule(ctx, rule.ID))
+	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.True(t, ok, "a released rule can be claimed")
 }
 
 func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {
@@ -218,8 +247,8 @@ func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, again.ReportStartAt)
 	assert.True(t, again.ReportStartAt.Equal(at(1)), "starting is a no-op once started")
-	scoreAlertRun(t, ctx, st, again, "run-1")
-	scoreAlertRun(t, ctx, st, again, "run-2")
+	scoreAlertRun(t, ctx, st, again, "run-1", at(1))
+	scoreAlertRun(t, ctx, st, again, "run-2", at(2))
 	assert.Empty(t, alertRunIDs(t, ctx, st, rule.ID, 10))
 
 	reset, err := st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{

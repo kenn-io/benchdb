@@ -42,26 +42,28 @@ type AlertEvent struct {
 }
 
 type AlertRule struct {
-	ID              string
-	UserID          string
-	Name            string
-	Repository      string
-	Baseline        string
-	Threshold       float64
-	ThresholdZ      float64
-	RunReason       *string
-	Enabled         bool
-	State           string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastEvaluatedAt *time.Time
-	ReportStartAt   pgtype.Timestamptz
+	ID                   string
+	UserID               string
+	Name                 string
+	Repository           string
+	Baseline             string
+	Threshold            float64
+	ThresholdZ           float64
+	RunReason            *string
+	Enabled              bool
+	State                string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	LastEvaluatedAt      *time.Time
+	ReportStartAt        pgtype.Timestamptz
+	EvaluationLeaseUntil pgtype.Timestamptz
 }
 
 type AlertScoredRun struct {
-	RuleID   string
-	RunID    string
-	ScoredAt pgtype.Timestamptz
+	RuleID      string
+	RunID       string
+	FinalizedAt pgtype.Timestamptz
+	ScoredAt    pgtype.Timestamptz
 }
 
 type ApiToken struct {

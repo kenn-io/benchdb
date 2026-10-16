@@ -316,8 +316,14 @@ type TouchAlertRuleEvaluationParams struct {
 	ThresholdZ  float64
 	RunReason   *string
 	EvaluatedAt time.Time
-	// ScoredRunID, when set, records that run as scored with the touch.
-	ScoredRunID *string
+	// ScoredRun, when set, records that run as scored with the touch.
+	ScoredRun *ScoredAlertRun
+}
+
+// ScoredAlertRun is a finalized run a rule has scored.
+type ScoredAlertRun struct {
+	RunID       string
+	FinalizedAt time.Time
 }
 
 type AlertRuleTouch struct {
@@ -374,9 +380,10 @@ type TransitionAlertRuleParams struct {
 	CommitSHA    *string
 	ReportURL    string
 	Summary      []byte
-	// EvaluatedAt is also when RunID, the run that caused the transition, is
-	// recorded as scored.
-	EvaluatedAt time.Time
+	EvaluatedAt  time.Time
+	// ScoredRun, when set, records the run that caused the transition as
+	// scored with it.
+	ScoredRun *ScoredAlertRun
 }
 
 type AlertRuleTransition struct {
@@ -397,11 +404,13 @@ type SelectAlertRunsParams struct {
 	Limit  int32
 }
 
-// AlertCandidateRun is a finalized run a rule scores.
+// AlertCandidateRun is a finalized run a rule scores. Late means a run
+// finalized after it was already scored, so its outcome is out of date.
 type AlertCandidateRun struct {
 	RunID       string
 	CommitSHA   string
 	FinalizedAt time.Time
+	Late        bool
 }
 
 // AlertDelivery is the durable delivery ledger row for one alert event and one

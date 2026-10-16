@@ -12,6 +12,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimAlertRule = `-- name: ClaimAlertRule :one
+UPDATE alert_rule
+SET evaluation_lease_until = $1
+WHERE id = $2
+  AND (evaluation_lease_until IS NULL OR evaluation_lease_until < $3)
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
+`
+
+type ClaimAlertRuleParams struct {
+	LeaseUntil pgtype.Timestamptz
+	ID         string
+	Now        pgtype.Timestamptz
+}
+
+// Takes a rule's evaluation lease unless another evaluator holds an unexpired
+// one, and returns the rule as it is now.
+func (q *Queries) ClaimAlertRule(ctx context.Context, arg ClaimAlertRuleParams) (AlertRule, error) {
+	row := q.db.QueryRow(ctx, claimAlertRule, arg.LeaseUntil, arg.ID, arg.Now)
+	var i AlertRule
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Repository,
+		&i.Baseline,
+		&i.Threshold,
+		&i.ThresholdZ,
+		&i.RunReason,
+		&i.Enabled,
+		&i.State,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastEvaluatedAt,
+		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
+	)
+	return i, err
+}
+
 const claimPendingAlertDeliveries = `-- name: ClaimPendingAlertDeliveries :many
 WITH eligible AS (
   SELECT d.id
@@ -185,7 +224,7 @@ func (q *Queries) DeleteAlertScoredRuns(ctx context.Context, ruleID string) erro
 }
 
 const getAlertRule = `-- name: GetAlertRule :one
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at FROM alert_rule WHERE id = $1
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until FROM alert_rule WHERE id = $1
 `
 
 func (q *Queries) GetAlertRule(ctx context.Context, id string) (AlertRule, error) {
@@ -206,6 +245,7 @@ func (q *Queries) GetAlertRule(ctx context.Context, id string) (AlertRule, error
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }
@@ -321,7 +361,7 @@ VALUES (
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, 'inactive', $10, $10
 )
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 `
 
 type InsertAlertRuleParams struct {
@@ -366,24 +406,31 @@ func (q *Queries) InsertAlertRule(ctx context.Context, arg InsertAlertRuleParams
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }
 
 const insertAlertScoredRun = `-- name: InsertAlertScoredRun :exec
-INSERT INTO alert_scored_run (rule_id, run_id, scored_at)
-VALUES ($1, $2, $3)
+INSERT INTO alert_scored_run (rule_id, run_id, finalized_at, scored_at)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (rule_id, run_id) DO NOTHING
 `
 
 type InsertAlertScoredRunParams struct {
-	RuleID   string
-	RunID    string
-	ScoredAt pgtype.Timestamptz
+	RuleID      string
+	RunID       string
+	FinalizedAt pgtype.Timestamptz
+	ScoredAt    pgtype.Timestamptz
 }
 
 func (q *Queries) InsertAlertScoredRun(ctx context.Context, arg InsertAlertScoredRunParams) error {
-	_, err := q.db.Exec(ctx, insertAlertScoredRun, arg.RuleID, arg.RunID, arg.ScoredAt)
+	_, err := q.db.Exec(ctx, insertAlertScoredRun,
+		arg.RuleID,
+		arg.RunID,
+		arg.FinalizedAt,
+		arg.ScoredAt,
+	)
 	return err
 }
 
@@ -432,7 +479,7 @@ func (q *Queries) ListAlertEventsByRule(ctx context.Context, arg ListAlertEvents
 }
 
 const listAlertRulesByUser = `-- name: ListAlertRulesByUser :many
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at FROM alert_rule
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until FROM alert_rule
 WHERE user_id = $1
 ORDER BY created_at DESC, id DESC
 `
@@ -461,6 +508,7 @@ func (q *Queries) ListAlertRulesByUser(ctx context.Context, userID string) ([]Al
 			&i.UpdatedAt,
 			&i.LastEvaluatedAt,
 			&i.ReportStartAt,
+			&i.EvaluationLeaseUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -473,7 +521,7 @@ func (q *Queries) ListAlertRulesByUser(ctx context.Context, userID string) ([]Al
 }
 
 const listEnabledAlertRules = `-- name: ListEnabledAlertRules :many
-SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at FROM alert_rule
+SELECT id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until FROM alert_rule
 WHERE enabled = true
 ORDER BY created_at ASC, id ASC
 `
@@ -502,6 +550,7 @@ func (q *Queries) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error
 			&i.UpdatedAt,
 			&i.LastEvaluatedAt,
 			&i.ReportStartAt,
+			&i.EvaluationLeaseUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -596,6 +645,15 @@ func (q *Queries) MarkAlertDeliveryFailed(ctx context.Context, arg MarkAlertDeli
 	return i, err
 }
 
+const releaseAlertRule = `-- name: ReleaseAlertRule :exec
+UPDATE alert_rule SET evaluation_lease_until = NULL WHERE id = $1
+`
+
+func (q *Queries) ReleaseAlertRule(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, releaseAlertRule, id)
+	return err
+}
+
 const selectAlertEventsWithoutDelivery = `-- name: SelectAlertEventsWithoutDelivery :many
 SELECT e.id, e.rule_id, e.kind, e.status, e.status_reason, e.run_id, e.commit_sha, e.report_url, e.summary, e.created_at, e.repository FROM alert_event e
 WHERE NOT EXISTS (
@@ -652,7 +710,11 @@ const selectAlertRunsToScore = `-- name: SelectAlertRunsToScore :many
 SELECT
   cr.run_id,
   (cr.report->>'commit_sha')::text AS commit_sha,
-  cr.evaluated_at
+  cr.evaluated_at,
+  (cr.evaluated_at < coalesce(
+    (SELECT max(s.finalized_at) FROM alert_scored_run s WHERE s.rule_id = r.id),
+    '-infinity'::timestamptz
+  ))::boolean AS late
 FROM alert_rule r
 JOIN ci_run_report cr ON cr.report->>'repository' = r.repository
 WHERE r.id = $1
@@ -679,12 +741,14 @@ type SelectAlertRunsToScoreRow struct {
 	RunID       string
 	CommitSha   string
 	EvaluatedAt pgtype.Timestamptz
+	Late        bool
 }
 
 // Finalized runs a rule has not scored, finalized at or after its start,
 // oldest first. A run counts when any of its saved runs has the rule's run
 // reason. The ledger, not a timestamp cursor, decides what is left, so a
-// report that becomes visible late is still scored.
+// report that becomes visible late is still recorded. It is late when a run
+// finalized after it was already scored, so its outcome is out of date.
 func (q *Queries) SelectAlertRunsToScore(ctx context.Context, arg SelectAlertRunsToScoreParams) ([]SelectAlertRunsToScoreRow, error) {
 	rows, err := q.db.Query(ctx, selectAlertRunsToScore, arg.RuleID, arg.RowLimit)
 	if err != nil {
@@ -694,7 +758,12 @@ func (q *Queries) SelectAlertRunsToScore(ctx context.Context, arg SelectAlertRun
 	items := []SelectAlertRunsToScoreRow{}
 	for rows.Next() {
 		var i SelectAlertRunsToScoreRow
-		if err := rows.Scan(&i.RunID, &i.CommitSha, &i.EvaluatedAt); err != nil {
+		if err := rows.Scan(
+			&i.RunID,
+			&i.CommitSha,
+			&i.EvaluatedAt,
+			&i.Late,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -718,7 +787,7 @@ SET report_start_at = (
     ))
 )
 WHERE r.id = $1 AND r.report_start_at IS NULL
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 `
 
 // Starts a rule at the finalize time of its newest finalized run, before it
@@ -743,6 +812,7 @@ func (q *Queries) StartAlertRule(ctx context.Context, id string) (AlertRule, err
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }
@@ -760,7 +830,7 @@ WHERE alert_rule.id = $2
   AND alert_rule.threshold = $6
   AND alert_rule.threshold_z = $7
   AND alert_rule.run_reason IS NOT DISTINCT FROM $8
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 `
 
 type TouchAlertRuleEvaluationParams struct {
@@ -801,6 +871,7 @@ func (q *Queries) TouchAlertRuleEvaluation(ctx context.Context, arg TouchAlertRu
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }
@@ -820,7 +891,7 @@ WITH updated_rule AS (
     AND alert_rule.threshold = $7
     AND alert_rule.threshold_z = $8
     AND alert_rule.run_reason IS NOT DISTINCT FROM $9
-  RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+  RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 ),
 inserted_event AS (
   INSERT INTO alert_event (
@@ -979,7 +1050,7 @@ SET
   last_evaluated_at = CASE WHEN $11::boolean THEN NULL ELSE last_evaluated_at END,
   report_start_at = CASE WHEN $11::boolean THEN NULL ELSE report_start_at END
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 `
 
 type UpdateAlertRuleParams struct {
@@ -1026,6 +1097,7 @@ func (q *Queries) UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }
@@ -1034,7 +1106,7 @@ const updateAlertRuleEvaluation = `-- name: UpdateAlertRuleEvaluation :one
 UPDATE alert_rule
 SET state = $2, last_evaluated_at = $3, updated_at = $3
 WHERE id = $1
-RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at
+RETURNING id, user_id, name, repository, baseline, threshold, threshold_z, run_reason, enabled, state, created_at, updated_at, last_evaluated_at, report_start_at, evaluation_lease_until
 `
 
 type UpdateAlertRuleEvaluationParams struct {
@@ -1061,6 +1133,7 @@ func (q *Queries) UpdateAlertRuleEvaluation(ctx context.Context, arg UpdateAlert
 		&i.UpdatedAt,
 		&i.LastEvaluatedAt,
 		&i.ReportStartAt,
+		&i.EvaluationLeaseUntil,
 	)
 	return i, err
 }

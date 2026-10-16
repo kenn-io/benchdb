@@ -120,8 +120,10 @@ is never finalized is never scored.
 
 For each enabled rule, the evaluator:
 
-1. Takes the rule's evaluation lock. If another evaluator holds it, the rule
-   counts as `busy` and is left to that evaluator.
+1. Takes a 30-minute lease on the rule, stored on the rule rather than held
+   on a database connection. If another evaluator holds an unexpired lease,
+   the rule counts as `busy` and is left to that evaluator. A crashed
+   evaluator's lease expires on its own.
 2. Finds every finalized run the rule has not scored, oldest first, in the
    rule's repository. With a `run_reason`, a run counts when any of its saved
    runs has that reason. A rule starts at its newest finalized run, recorded
@@ -150,9 +152,11 @@ larger than the practical tolerance (30 ms by default for timings).
 Because every run is scored in order, a regression in one run is not hidden
 by a later run in the same pass: a regressed run opens the rule, and a later
 clean run resolves it, with an event for each. The rule records each run it
-scores in the same transaction as the state change, so a run is scored once,
-including a report that becomes visible after a newer one. If building a
-report fails, the run stays unscored and is retried on the next pass.
+scores, with its finalize time, in the same transaction as the state change,
+so a run is scored once. A report can become visible after a newer run was
+already scored. Its outcome is out of date, so the evaluator records it as
+`late` without changing the rule. If building a report fails, the run stays
+unscored and is retried on the next pass.
 
 If a rule is disabled, or its repository, baseline, thresholds, or run reason
 change while the evaluator runs, the evaluator leaves that rule alone on that
@@ -168,7 +172,8 @@ when the report URL is absolute. A row regresses only on its lookback check, so
 
 The command prints a summary to stdout. `rules` counts enabled rules and
 `evaluated` counts the runs scored. `opened`, `resolved`, `unchanged`, and
-`skipped` count those runs' outcomes. `no_candidate` counts rules with no new
+`skipped` count those runs' outcomes, and `late` counts runs recorded without
+changing a rule. `no_candidate` counts rules with no new
 finalized run, `busy` counts rules another evaluator was scoring, and `failed`
 counts rules that failed. It prints a warning to stderr for each rule that failed, and exits
 `1` if any rule failed.

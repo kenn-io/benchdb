@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -206,16 +207,13 @@ func (s *fakeAlertStore) ListEnabledAlertRules(context.Context) ([]storage.Alert
 	return out, nil
 }
 
-func (s *fakeAlertStore) GetAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
+func (s *fakeAlertStore) ClaimAlertRule(_ context.Context, id string, _, _ time.Time) (storage.AlertRule, bool, error) {
 	rule, ok := s.rules[id]
-	if !ok {
-		return storage.AlertRule{}, storage.ErrNotFound
-	}
-	return rule, nil
+	return rule, ok, nil
 }
 
-func (s *fakeAlertStore) TryLockAlertRule(context.Context, string) (func(), bool, error) {
-	return func() {}, true, nil
+func (s *fakeAlertStore) ReleaseAlertRule(context.Context, string) error {
+	return nil
 }
 
 func (s *fakeAlertStore) StartAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
@@ -250,8 +248,8 @@ func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.T
 	}
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
-	if p.ScoredRunID != nil {
-		s.scored[*p.ScoredRunID] = true
+	if p.ScoredRun != nil {
+		s.scored[p.ScoredRun.RunID] = true
 	}
 	s.rules[p.ID] = rule
 	return storage.AlertRuleTouch{Rule: rule, Touched: true}, nil
@@ -274,8 +272,8 @@ func (s *fakeAlertStore) TransitionAlertRule(_ context.Context, p storage.Transi
 	rule.State = p.ToState
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
-	if p.RunID != nil {
-		s.scored[*p.RunID] = true
+	if p.ScoredRun != nil {
+		s.scored[p.ScoredRun.RunID] = true
 	}
 	s.rules[p.ID] = rule
 	event := storage.AlertEvent{
@@ -482,6 +480,12 @@ func finalizeAlertRun(t *testing.T, ctx context.Context, store *db.Store, runID 
 // mark a run complete.
 func newAlertScenario(t *testing.T) (context.Context, *db.Store, func(runID string)) {
 	t.Helper()
+	ctx, store, _, finalize := newAlertScenarioWithPool(t)
+	return ctx, store, finalize
+}
+
+func newAlertScenarioWithPool(t *testing.T) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
+	t.Helper()
 	_, store, pool, ctx := newIngester(t)
 	ing := service.NewIngester(store, ciCommitProvider{})
 	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
@@ -495,7 +499,7 @@ func newAlertScenario(t *testing.T) (context.Context, *db.Store, func(runID stri
 		result := ciSubmit(t, ing, ctx, runID, "sha-"+runID, 10)
 		finalizeAlertRun(t, ctx, store, runID, result.ID)
 	}
-	return ctx, store, finalize
+	return ctx, store, pool, finalize
 }
 
 func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
@@ -596,4 +600,58 @@ func TestAlertEvaluatorsDoNotScoreOneRuleAtOnce(t *testing.T) {
 	first := <-firstDone
 	require.NoError(t, first.err)
 	assert.Equal(t, 1, first.summary.Opened)
+}
+
+func TestAlertEvaluatorKeepsANewerRegressionOpenWhenAnOlderRunAppearsLate(t *testing.T) {
+	ctx, store, pool, finalize := newAlertScenarioWithPool(t)
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
+		"first": {Status: service.CIReportStatusSuccess},
+		"newer": {Status: service.CIReportStatusFailure},
+		"older": {Status: service.CIReportStatusSuccess},
+	}}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	finalize("first")
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	finalize("newer")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Opened)
+
+	// A run finalized between the two only becomes visible now.
+	finalize("older")
+	_, err = pool.Exec(ctx, `UPDATE ci_run_report SET evaluated_at = (
+		SELECT evaluated_at - interval '1 millisecond' FROM ci_run_report WHERE run_id = 'newer') WHERE run_id = 'older'`)
+	require.NoError(t, err)
+	reporter.calls = nil
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Late)
+	assert.Zero(t, summary.Resolved, "an out-of-date clean run does not resolve a newer regression")
+	assert.Empty(t, reporter.calls)
+	rules, err := store.ListEnabledAlertRules(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, storage.AlertRuleStateOpen, rules[0].State)
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.NoCandidate, "the late run is recorded as scored")
+}
+
+func TestAlertEvaluatorRunsOnASingleConnectionPool(t *testing.T) {
+	ctx, _, pool, finalize := newAlertScenarioWithPool(t)
+	finalize("run-1")
+	config := pool.Config().Copy()
+	config.MaxConns = 1
+	single, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(single.Close)
+	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusFailure}}
+
+	summary, err := service.NewAlertEvaluator(db.NewStore(single), reporter, fixedAlertNow).
+		Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Opened, "evaluation holds no connection while it works")
 }

@@ -323,7 +323,7 @@ func (s *Store) UpdateAlertRuleEvaluation(
 }
 
 // TouchAlertRuleEvaluation records an evaluation that changed no state and,
-// with ScoredRunID, the run it scored, in one transaction.
+// with ScoredRun, the run it scored, in one transaction.
 func (s *Store) TouchAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.TouchAlertRuleEvaluationParams,
@@ -347,12 +347,7 @@ func (s *Store) TouchAlertRuleEvaluation(
 			return err
 		}
 		touch = storage.AlertRuleTouch{Rule: alertRuleFromRow(row), Touched: true}
-		if p.ScoredRunID == nil {
-			return nil
-		}
-		return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
-			RuleID: p.ID, RunID: *p.ScoredRunID, ScoredAt: timestamptz(p.EvaluatedAt),
-		})
+		return insertScoredRun(ctx, q, p.ID, p.ScoredRun, p.EvaluatedAt)
 	})
 	if err != nil {
 		return storage.AlertRuleTouch{}, err
@@ -429,12 +424,7 @@ func (s *Store) TransitionAlertRule(
 		}
 		result := alertTransitionFromRow(row)
 		transition = &result
-		if p.RunID == nil {
-			return nil
-		}
-		return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
-			RuleID: p.ID, RunID: *p.RunID, ScoredAt: timestamptz(p.EvaluatedAt),
-		})
+		return insertScoredRun(ctx, q, p.ID, p.ScoredRun, p.EvaluatedAt)
 	})
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
@@ -460,26 +450,37 @@ func (s *Store) ListAlertEventsByRule(
 	return alertEventsFromRows(rows), nil
 }
 
-// TryLockAlertRule takes the rule's evaluation lock unless another evaluator
-// holds it, so two evaluators never score one rule's runs at once. The lock
-// lives in a transaction that release ends.
-func (s *Store) TryLockAlertRule(ctx context.Context, ruleID string) (release func(), locked bool, err error) {
-	beginner, ok := s.q.db.(interface {
-		Begin(context.Context) (pgx.Tx, error)
+func insertScoredRun(ctx context.Context, q *Queries, ruleID string, run *storage.ScoredAlertRun, at time.Time) error {
+	if run == nil {
+		return nil
+	}
+	return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
+		RuleID: ruleID, RunID: run.RunID, FinalizedAt: timestamptz(run.FinalizedAt), ScoredAt: timestamptz(at),
 	})
-	if !ok {
-		return nil, false, errors.New("alert rule locks require transaction support")
+}
+
+// ClaimAlertRule takes the rule's evaluation lease until the given time
+// unless another evaluator holds an unexpired one, and returns the rule as it
+// is now. claimed is false when the rule is leased or gone. The lease is a
+// row value, not a held connection.
+func (s *Store) ClaimAlertRule(
+	ctx context.Context, ruleID string, now, until time.Time,
+) (rule storage.AlertRule, claimed bool, err error) {
+	row, err := s.q.ClaimAlertRule(ctx, ClaimAlertRuleParams{
+		ID: ruleID, Now: timestamptz(now), LeaseUntil: timestamptz(until),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.AlertRule{}, false, nil
 	}
-	tx, err := beginner.Begin(ctx)
 	if err != nil {
-		return nil, false, err
+		return storage.AlertRule{}, false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`, "alert-rule:"+ruleID).Scan(&locked)
-	if err != nil || !locked {
-		_ = tx.Rollback(ctx)
-		return nil, false, err
-	}
-	return func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }, true, nil
+	return alertRuleFromRow(row), true, nil
+}
+
+// ReleaseAlertRule ends the rule's evaluation lease.
+func (s *Store) ReleaseAlertRule(ctx context.Context, ruleID string) error {
+	return s.q.ReleaseAlertRule(ctx, ruleID)
 }
 
 // StartAlertRule starts an unstarted rule at its newest finalized run. A rule
@@ -506,7 +507,7 @@ func (s *Store) SelectAlertRuns(
 	out := make([]storage.AlertCandidateRun, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, storage.AlertCandidateRun{
-			RunID: row.RunID, CommitSHA: row.CommitSha, FinalizedAt: row.EvaluatedAt.Time.UTC(),
+			RunID: row.RunID, CommitSHA: row.CommitSha, FinalizedAt: row.EvaluatedAt.Time.UTC(), Late: row.Late,
 		})
 	}
 	return out, nil
