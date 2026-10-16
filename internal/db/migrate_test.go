@@ -2,7 +2,9 @@ package db_test
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +18,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 14
+const latestMigrationVersion = 15
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -376,17 +378,50 @@ func TestMigrateQueuesStoredBenchmarksToFillTheirPreviews(t *testing.T) {
 	assert.Zero(t, points, "existing tracks start empty until the worker recomputes them")
 }
 
+func TestMigrateRescoresStoredRunVerdictsWhenComparisonsNeedTenResults(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for version := 2; version <= 14; version++ {
+		files, err := filepath.Glob(fmt.Sprintf("migrations/%06d_*.up.sql", version))
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		migration, err := os.ReadFile(files[0])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 14, false)
+	_, err := pool.Exec(ctx, `INSERT INTO run_verdict (
+			run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, computed_at)
+		VALUES ('old-run', 'https://example.com/org/repo', now(), 'result-1', false, true, now())`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DELETE FROM verdict_queue`)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+
+	assertCurrentMigration(t, ctx, pool)
+	rows, err := pool.Query(ctx, `SELECT kind || ':' || key FROM verdict_queue ORDER BY 1`)
+	require.NoError(t, err)
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	assert.Equal(t, []string{"run:old-run"}, keys,
+		"a run flagged from a short window is rescored; benchmark statuses already needed ten results")
+}
+
 func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		from int
 		want []string
 	}{
+		// Every upgrade from before 15 also rescores runs: comparisons then began
+		// requiring ten results in their lookback window.
 		{"run and benchmark rules changed", 7, []string{"benchmark:old-bench", "run:old-run"}},
-		{"benchmark rule changed", 8, []string{"benchmark:old-bench"}},
-		{"benchmark previews gained result IDs", 9, []string{"benchmark:old-bench"}},
-		{"benchmark tracks gained a change", 10, []string{"benchmark:old-bench"}},
-		{"benchmark statuses need two results in a row", 11, []string{"benchmark:old-bench"}},
+		{"benchmark rule changed", 8, []string{"benchmark:old-bench", "run:old-run"}},
+		{"benchmark previews gained result IDs", 9, []string{"benchmark:old-bench", "run:old-run"}},
+		{"benchmark tracks gained a change", 10, []string{"benchmark:old-bench", "run:old-run"}},
+		{"benchmark statuses need two results in a row", 11, []string{"benchmark:old-bench", "run:old-run"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pool, ctx := dbtest.NewEmptyPool(t)

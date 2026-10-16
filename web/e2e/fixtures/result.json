@@ -12,10 +12,10 @@
     "memory_bytes": 68719476736,
     "gpu_count": 0
   },
-  "github": {"commit": "commit-06", "repository": "https://github.com/benchdb/demo"},
-  "run_id": "e2e-run-06",
+  "github": {"commit": "commit-12", "repository": "https://github.com/benchdb/demo"},
+  "run_id": "e2e-run-12",
   "run_name": "nightly",
-  "batch_id": "e2e-batch-06",
+  "batch_id": "e2e-batch-12",
   "timestamp": "2026-08-15T12:00:00Z",
   "stats": {"data": [89.1, 89.5, 89.8], "unit": "s"}
 }

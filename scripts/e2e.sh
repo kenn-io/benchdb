@@ -130,7 +130,7 @@ fi
 
 echo "==> shape submitted commit for CI report"
 docker exec "$PG_CONTAINER" psql -U benchdb -d benchdb -v ON_ERROR_STOP=1 \
-  -c "UPDATE commit SET parent = 'commit-05', fork_point_sha = 'commit-05' WHERE repository = 'https://github.com/benchdb/demo' AND sha = 'commit-06'" >/dev/null
+  -c "UPDATE commit SET parent = 'commit-11', fork_point_sha = 'commit-11' WHERE repository = 'https://github.com/benchdb/demo' AND sha = 'commit-12'" >/dev/null
 
 echo "==> CLI compare check"
 COMPARE_OUT="$(./bin/benchdb compare "$RESULT_ID" "$CONTENDER_ID" --server "$BASE_URL")"
@@ -146,8 +146,8 @@ CI_REPORT_OUT="$(./bin/benchdb ci report \
   --server "$BASE_URL" \
   --token "$TOKEN" \
   --repository "https://github.com/benchdb/demo" \
-  --commit "commit-06" \
-  --run-ids "e2e-run-06" \
+  --commit "commit-12" \
+  --run-ids "e2e-run-12" \
   --threshold-z 0.1)"
 CI_REPORT_CODE=$?
 set -e
@@ -157,9 +157,9 @@ CI_REPORT_STATUS="$(printf '%s' "$CI_REPORT_OUT" | jq -r '.status // empty')"
 printf '%s' "$CI_REPORT_OUT" | jq -e \
   --arg repo "https://github.com/benchdb/demo" \
   '.repository == $repo
-    and .commit_sha == "commit-06"
-    and .selected_run_ids == ["e2e-run-06"]
-    and .runs[0].baseline_run_id == "run-commit-05"
+    and .commit_sha == "commit-12"
+    and .selected_run_ids == ["e2e-run-12"]
+    and .runs[0].baseline_run_id == "run-commit-11"
     and .summary.contender_results == 2
     and .summary.compared == 2
     and .summary.analyzed == 2
