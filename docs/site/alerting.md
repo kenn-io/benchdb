@@ -120,18 +120,20 @@ is never finalized is never scored.
 
 For each enabled rule, the evaluator:
 
-1. Finds every run finalized since the rule's last scored run, oldest first,
-   in the rule's repository and limited to its `run_reason` when set. A rule
-   that has scored nothing yet starts from its newest finalized run instead of
-   replaying history. So does a rule whose repository, baseline, thresholds,
-   or run reason changed. A pass scores at most 50 runs per rule; the rest wait
-   for the next pass. A rule with no new finalized run counts as
-   `no_candidate`.
-2. For each run, builds a CI report for that run and its commit, with the
+1. Takes the rule's evaluation lock. If another evaluator holds it, the rule
+   counts as `busy` and is left to that evaluator.
+2. Finds every finalized run the rule has not scored, oldest first, in the
+   rule's repository. With a `run_reason`, a run counts when any of its saved
+   runs has that reason. A rule starts at its newest finalized run, recorded
+   before it scores anything, so it does not replay history. A rule whose
+   repository, baseline, thresholds, or run reason changed starts over the same
+   way. A pass scores at most 50 runs per rule; the rest wait for the next
+   pass. A rule with no new finalized run counts as `no_candidate`.
+3. For each run, builds a CI report for that run and its commit, with the
    rule's baseline and thresholds.
-3. Leaves out contender rows marked as the start of a distribution change. If
+4. Leaves out contender rows marked as the start of a distribution change. If
    that leaves no rows, the report status becomes `skipped`.
-4. Updates the rule from the report status, then moves on to the next run:
+5. Updates the rule from the report status, then moves on to the next run:
 
 | Report status | Rule is `inactive` | Rule is `open` |
 | --- | --- | --- |
@@ -147,10 +149,10 @@ larger than the practical tolerance (30 ms by default for timings).
 
 Because every run is scored in order, a regression in one run is not hidden
 by a later run in the same pass: a regressed run opens the rule, and a later
-clean run resolves it, with an event for each. The rule records the last run
-it scored together with each state change, so a run is scored once. If
-building a report fails, the rule stops at that run and retries it on the next
-pass.
+clean run resolves it, with an event for each. The rule records each run it
+scores in the same transaction as the state change, so a run is scored once,
+including a report that becomes visible after a newer one. If building a
+report fails, the run stays unscored and is retried on the next pass.
 
 If a rule is disabled, or its repository, baseline, thresholds, or run reason
 change while the evaluator runs, the evaluator leaves that rule alone on that
@@ -167,7 +169,8 @@ when the report URL is absolute. A row regresses only on its lookback check, so
 The command prints a summary to stdout. `rules` counts enabled rules and
 `evaluated` counts the runs scored. `opened`, `resolved`, `unchanged`, and
 `skipped` count those runs' outcomes. `no_candidate` counts rules with no new
-finalized run, and `failed` counts rules that failed. It prints a warning to stderr for each rule that failed, and exits
+finalized run, `busy` counts rules another evaluator was scoring, and `failed`
+counts rules that failed. It prints a warning to stderr for each rule that failed, and exits
 `1` if any rule failed.
 
 The evaluator uses commit metadata already in the database, so it does not

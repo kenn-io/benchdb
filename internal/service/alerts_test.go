@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.kenn.io/benchdb/internal/db"
+	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -166,19 +169,25 @@ type fakeAlertStore struct {
 	missingRunFor map[string]bool
 	beforeUpdate  func(*fakeAlertStore, storage.AlertRule)
 	// runs are the finalized runs, oldest first; nil means one run, run-1.
-	runs []storage.AlertCandidateRun
+	runs   []storage.AlertCandidateRun
+	scored map[string]bool
 }
 
 // finalizeRun adds a finalized run after every existing one.
 func (s *fakeAlertStore) finalizeRun(runID, commitSHA string) {
 	at := fixedAlertNow().Add(time.Duration(len(s.runs)) * time.Minute)
-	s.runs = append(s.runs, storage.AlertCandidateRun{
-		RunID: runID, CommitSHA: commitSHA, Cursor: storage.AlertReportCursor{At: at, RunID: runID},
-	})
+	s.runs = append(s.runs, storage.AlertCandidateRun{RunID: runID, CommitSHA: commitSHA, FinalizedAt: at})
+}
+
+func (s *fakeAlertStore) finalizedRuns() []storage.AlertCandidateRun {
+	if s.runs == nil {
+		return []storage.AlertCandidateRun{{RunID: "run-1", CommitSHA: "sha-1", FinalizedAt: fixedAlertNow()}}
+	}
+	return s.runs
 }
 
 func newFakeAlertStore(rules ...storage.AlertRule) *fakeAlertStore {
-	out := &fakeAlertStore{rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{}}
+	out := &fakeAlertStore{rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{}, scored: map[string]bool{}}
 	for _, rule := range rules {
 		out.rules[rule.ID] = rule
 		out.order = append(out.order, rule.ID)
@@ -197,25 +206,33 @@ func (s *fakeAlertStore) ListEnabledAlertRules(context.Context) ([]storage.Alert
 	return out, nil
 }
 
+func (s *fakeAlertStore) GetAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
+	rule, ok := s.rules[id]
+	if !ok {
+		return storage.AlertRule{}, storage.ErrNotFound
+	}
+	return rule, nil
+}
+
+func (s *fakeAlertStore) TryLockAlertRule(context.Context, string) (func(), bool, error) {
+	return func() {}, true, nil
+}
+
+func (s *fakeAlertStore) StartAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
+	rule := s.rules[id]
+	if rule.ReportStartAt == nil && !s.missingRunFor[id] {
+		runs := s.finalizedRuns()
+		rule.ReportStartAt = &runs[len(runs)-1].FinalizedAt
+		s.rules[id] = rule
+	}
+	return rule, nil
+}
+
 func (s *fakeAlertStore) SelectAlertRuns(_ context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error) {
-	for _, rule := range s.rules {
-		if rule.Repository == p.Repository && s.missingRunFor[rule.ID] {
-			return nil, nil
-		}
-	}
-	runs := s.runs
-	if runs == nil {
-		runs = []storage.AlertCandidateRun{{
-			RunID: "run-1", CommitSHA: "sha-1", Cursor: storage.AlertReportCursor{At: fixedAlertNow(), RunID: "run-1"},
-		}}
-	}
-	if p.After == nil {
-		return runs[len(runs)-1:], nil
-	}
+	start := s.rules[p.RuleID].ReportStartAt
 	var out []storage.AlertCandidateRun
-	for _, run := range runs {
-		after := run.Cursor.At.After(p.After.At) || (run.Cursor.At.Equal(p.After.At) && run.Cursor.RunID > p.After.RunID)
-		if after && len(out) < int(p.Limit) {
+	for _, run := range s.finalizedRuns() {
+		if !run.FinalizedAt.Before(*start) && !s.scored[run.RunID] && len(out) < int(p.Limit) {
 			out = append(out, run)
 		}
 	}
@@ -233,8 +250,8 @@ func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.T
 	}
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
-	if p.Cursor != nil {
-		rule.ReportCursor = p.Cursor
+	if p.ScoredRunID != nil {
+		s.scored[*p.ScoredRunID] = true
 	}
 	s.rules[p.ID] = rule
 	return storage.AlertRuleTouch{Rule: rule, Touched: true}, nil
@@ -257,7 +274,9 @@ func (s *fakeAlertStore) TransitionAlertRule(_ context.Context, p storage.Transi
 	rule.State = p.ToState
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
-	rule.ReportCursor = &p.Cursor
+	if p.RunID != nil {
+		s.scored[*p.RunID] = true
+	}
 	s.rules[p.ID] = rule
 	event := storage.AlertEvent{
 		ID:           "event",
@@ -458,40 +477,53 @@ func finalizeAlertRun(t *testing.T, ctx context.Context, store *db.Store, runID 
 	require.NoError(t, err)
 }
 
-func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
-	ctx := context.Background()
-	store := newFakeAlertStore(storage.AlertRule{
-		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+// newAlertScenario is a real store with one alert rule on testRepo. finalize
+// submits one result as its own run and finalizes the run, the way clients
+// mark a run complete.
+func newAlertScenario(t *testing.T) (context.Context, *db.Store, func(runID string)) {
+	t.Helper()
+	_, store, pool, ctx := newIngester(t)
+	ing := service.NewIngester(store, ciCommitProvider{})
+	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
+		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, CreatedAt: fixedAlertNow(),
 	})
-	stable := &service.CIReport{Status: service.CIReportStatusSuccess, Summary: service.CIReportSummary{Compared: 1, Analyzed: 1}}
-	regressed := &service.CIReport{Status: service.CIReportStatusFailure, Summary: service.CIReportSummary{Regressions: 1, Compared: 1, Analyzed: 1}}
+	require.NoError(t, err)
+	finalize := func(runID string) {
+		t.Helper()
+		result := ciSubmit(t, ing, ctx, runID, "sha-"+runID, 10)
+		finalizeAlertRun(t, ctx, store, runID, result.ID)
+	}
+	return ctx, store, finalize
+}
+
+func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	stable := &service.CIReport{Status: service.CIReportStatusSuccess}
+	regressed := &service.CIReport{Status: service.CIReportStatusFailure}
 	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
 		"run-1": stable, "run-2": regressed, "run-3": stable, "run-4": stable,
 	}}
 	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
-	store.finalizeRun("run-1", "sha-1")
+	finalize("run-1")
 	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
 
 	// Three runs land between passes; the middle one regressed.
-	store.finalizeRun("run-2", "sha-2")
-	store.finalizeRun("run-3", "sha-3")
-	store.finalizeRun("run-4", "sha-4")
+	finalize("run-2")
+	finalize("run-3")
+	finalize("run-4")
 	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, summary.Evaluated)
-	assert.Equal(t, 1, summary.Opened, "a regression in an earlier run is not hidden by a later one")
-	assert.Equal(t, 1, summary.Resolved)
 	assert.Equal(t, 1, summary.Unchanged)
-	require.Len(t, store.events, 2)
-	assert.Equal(t, "run-2", *store.events[0].RunID)
-	assert.Equal(t, storage.AlertEventKindOpened, store.events[0].Kind)
-	assert.Equal(t, "run-3", *store.events[1].RunID)
-	assert.Equal(t, storage.AlertEventKindResolved, store.events[1].Kind)
-	assert.Equal(t, "run-4", store.rules["rule-1"].ReportCursor.RunID)
+	require.Len(t, summary.Events, 2, "a regression in an earlier run is not hidden by a later one")
+	assert.Equal(t, storage.AlertEventKindOpened, summary.Events[0].Kind)
+	assert.Equal(t, "run-2", *summary.Events[0].RunID)
+	assert.Equal(t, storage.AlertEventKindResolved, summary.Events[1].Kind)
+	assert.Equal(t, "run-3", *summary.Events[1].RunID)
 
 	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
@@ -499,23 +531,69 @@ func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
 	assert.Equal(t, 1, summary.NoCandidate)
 }
 
-func TestAlertEvaluatorStartsANewRuleFromItsNewestRun(t *testing.T) {
-	ctx := context.Background()
-	store := newFakeAlertStore(storage.AlertRule{
-		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
-		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, State: storage.AlertRuleStateInactive,
-	})
-	for i := 1; i <= 3; i++ {
-		store.finalizeRun(fmt.Sprintf("run-%d", i), fmt.Sprintf("sha-%d", i))
-	}
-	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusFailure}}
+func TestAlertEvaluatorRetriesANewRulesFailedFirstRun(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusSuccess}, err: errors.New("archive unavailable")}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	finalize("run-1")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.Error(t, err)
+	assert.Equal(t, 1, summary.Failed)
 
-	summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+	// Another run finalizes before the retry.
+	finalize("run-2")
+	reporter.err, reporter.calls = nil, nil
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Evaluated, "history before the rule existed is not replayed")
-	require.Len(t, reporter.calls, 1)
-	assert.Equal(t, []string{"run-3"}, reporter.calls[0].RunIDs)
-	assert.Equal(t, "sha-3", reporter.calls[0].CommitSHA)
+	assert.Equal(t, 2, summary.Evaluated)
+	require.Len(t, reporter.calls, 2)
+	assert.Equal(t, []string{"run-1"}, reporter.calls[0].RunIDs, "the failed first run is not passed over")
+	assert.Equal(t, []string{"run-2"}, reporter.calls[1].RunIDs)
+}
+
+// blockingAlertReporter holds its first report until released, so a test can
+// run a second evaluator while the first is mid-rule. Later reports return at
+// once, so a second evaluator that wrongly scores the rule fails the test
+// rather than hanging it.
+type blockingAlertReporter struct {
+	entered, release chan struct{}
+	calls            atomic.Int32
+}
+
+func (r *blockingAlertReporter) Report(context.Context, service.CIReportQuery) (*service.CIReport, error) {
+	if r.calls.Add(1) == 1 {
+		close(r.entered)
+		<-r.release
+	}
+	return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+}
+
+func TestAlertEvaluatorsDoNotScoreOneRuleAtOnce(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &blockingAlertReporter{entered: make(chan struct{}), release: make(chan struct{})}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+	t.Cleanup(releaseFirst)
+	type result struct {
+		summary service.AlertEvaluationSummary
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+		firstDone <- result{summary, err}
+	}()
+	<-reporter.entered
+
+	second, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Busy, "the second evaluator leaves the rule to the first")
+	assert.Zero(t, second.Evaluated)
+	releaseFirst()
+	first := <-firstDone
+	require.NoError(t, first.err)
+	assert.Equal(t, 1, first.summary.Opened)
 }

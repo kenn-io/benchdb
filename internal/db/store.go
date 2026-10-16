@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgtype"
 	"slices"
 	"time"
 
@@ -217,19 +216,29 @@ func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]storage.AlertRule,
 	return alertRulesFromRows(rows), nil
 }
 
+// UpdateAlertRule replaces a rule's fields. A reset also forgets the runs the
+// rule scored, so it starts again from its newest finalized run.
 func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRuleParams) (storage.AlertRule, error) {
-	row, err := s.q.UpdateAlertRule(ctx, UpdateAlertRuleParams{
-		ID:              p.ID,
-		UserID:          p.UserID,
-		Name:            p.Name,
-		Repository:      p.Repository,
-		Baseline:        p.Baseline,
-		Threshold:       p.Threshold,
-		ThresholdZ:      p.ThresholdZ,
-		RunReason:       p.RunReason,
-		Enabled:         p.Enabled,
-		UpdatedAt:       p.UpdatedAt,
-		ResetEvaluation: p.ResetEvaluation,
+	var row AlertRule
+	err := s.inTx(ctx, func(q *Queries) error {
+		var err error
+		row, err = q.UpdateAlertRule(ctx, UpdateAlertRuleParams{
+			ID:              p.ID,
+			UserID:          p.UserID,
+			Name:            p.Name,
+			Repository:      p.Repository,
+			Baseline:        p.Baseline,
+			Threshold:       p.Threshold,
+			ThresholdZ:      p.ThresholdZ,
+			RunReason:       p.RunReason,
+			Enabled:         p.Enabled,
+			UpdatedAt:       p.UpdatedAt,
+			ResetEvaluation: p.ResetEvaluation,
+		})
+		if err != nil || !p.ResetEvaluation {
+			return err
+		}
+		return q.DeleteAlertScoredRuns(ctx, p.ID)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.AlertRule{}, storage.ErrNotFound
@@ -238,6 +247,26 @@ func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRulePa
 		return storage.AlertRule{}, err
 	}
 	return alertRuleFromRow(row), nil
+}
+
+// inTx runs write in one transaction, or in a savepoint when the store
+// already runs inside one.
+func (s *Store) inTx(ctx context.Context, write func(*Queries) error) error {
+	beginner, ok := s.q.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return errors.New("this write requires transaction support")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := write(s.q.WithTx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteAlertRule(ctx context.Context, id, userID string) error {
@@ -293,35 +322,49 @@ func (s *Store) UpdateAlertRuleEvaluation(
 	return alertRuleFromRow(row), nil
 }
 
+// TouchAlertRuleEvaluation records an evaluation that changed no state and,
+// with ScoredRunID, the run it scored, in one transaction.
 func (s *Store) TouchAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.TouchAlertRuleEvaluationParams,
 ) (storage.AlertRuleTouch, error) {
-	params := TouchAlertRuleEvaluationParams{
-		EvaluatedAt: &p.EvaluatedAt,
-		ID:          p.ID,
-		State:       p.State,
-		Repository:  p.Repository,
-		Baseline:    p.Baseline,
-		Threshold:   p.Threshold,
-		ThresholdZ:  p.ThresholdZ,
-		RunReason:   p.RunReason,
-	}
-	if p.Cursor != nil {
-		params.CursorAt, params.CursorRunID = timestamptz(p.Cursor.At), &p.Cursor.RunID
-	}
-	row, err := s.q.TouchAlertRuleEvaluation(ctx, params)
-	if errors.Is(err, pgx.ErrNoRows) {
-		rule, getErr := s.GetAlertRule(ctx, p.ID)
-		if getErr != nil {
-			return storage.AlertRuleTouch{}, getErr
+	var touch storage.AlertRuleTouch
+	err := s.inTx(ctx, func(q *Queries) error {
+		row, err := q.TouchAlertRuleEvaluation(ctx, TouchAlertRuleEvaluationParams{
+			EvaluatedAt: &p.EvaluatedAt,
+			ID:          p.ID,
+			State:       p.State,
+			Repository:  p.Repository,
+			Baseline:    p.Baseline,
+			Threshold:   p.Threshold,
+			ThresholdZ:  p.ThresholdZ,
+			RunReason:   p.RunReason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		return storage.AlertRuleTouch{Rule: rule}, nil
-	}
+		if err != nil {
+			return err
+		}
+		touch = storage.AlertRuleTouch{Rule: alertRuleFromRow(row), Touched: true}
+		if p.ScoredRunID == nil {
+			return nil
+		}
+		return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
+			RuleID: p.ID, RunID: *p.ScoredRunID, ScoredAt: timestamptz(p.EvaluatedAt),
+		})
+	})
 	if err != nil {
 		return storage.AlertRuleTouch{}, err
 	}
-	return storage.AlertRuleTouch{Rule: alertRuleFromRow(row), Touched: true}, nil
+	if !touch.Touched {
+		rule, err := s.GetAlertRule(ctx, p.ID)
+		if err != nil {
+			return storage.AlertRuleTouch{}, err
+		}
+		return storage.AlertRuleTouch{Rule: rule}, nil
+	}
+	return touch, nil
 }
 
 func (s *Store) CreateAlertEvent(ctx context.Context, p storage.InsertAlertEventParams) (storage.AlertEvent, error) {
@@ -347,6 +390,8 @@ func (s *Store) CreateAlertEvent(ctx context.Context, p storage.InsertAlertEvent
 	return alertEventFromRow(row), nil
 }
 
+// TransitionAlertRule changes a rule's state, records the event, and records
+// the event's run as scored, in one transaction.
 func (s *Store) TransitionAlertRule(
 	ctx context.Context,
 	p storage.TransitionAlertRuleParams,
@@ -355,38 +400,53 @@ func (s *Store) TransitionAlertRule(
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}
-	row, err := s.q.TransitionAlertRule(ctx, TransitionAlertRuleParams{
-		ID:           p.ID,
-		FromState:    p.FromState,
-		ToState:      p.ToState,
-		Repository:   p.Repository,
-		Baseline:     p.Baseline,
-		Threshold:    p.Threshold,
-		ThresholdZ:   p.ThresholdZ,
-		RunReason:    p.RunReason,
-		EventID:      eventID,
-		Kind:         p.EventKind,
-		Status:       p.Status,
-		StatusReason: p.StatusReason,
-		RunID:        p.RunID,
-		CommitSha:    p.CommitSHA,
-		ReportUrl:    p.ReportURL,
-		Summary:      p.Summary,
-		EvaluatedAt:  &p.EvaluatedAt,
-		CursorAt:     timestamptz(p.Cursor.At),
-		CursorRunID:  &p.Cursor.RunID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		rule, getErr := s.GetAlertRule(ctx, p.ID)
-		if getErr != nil {
-			return storage.AlertRuleTransition{}, getErr
+	var transition *storage.AlertRuleTransition
+	err = s.inTx(ctx, func(q *Queries) error {
+		row, err := q.TransitionAlertRule(ctx, TransitionAlertRuleParams{
+			ID:           p.ID,
+			FromState:    p.FromState,
+			ToState:      p.ToState,
+			Repository:   p.Repository,
+			Baseline:     p.Baseline,
+			Threshold:    p.Threshold,
+			ThresholdZ:   p.ThresholdZ,
+			RunReason:    p.RunReason,
+			EventID:      eventID,
+			Kind:         p.EventKind,
+			Status:       p.Status,
+			StatusReason: p.StatusReason,
+			RunID:        p.RunID,
+			CommitSha:    p.CommitSHA,
+			ReportUrl:    p.ReportURL,
+			Summary:      p.Summary,
+			EvaluatedAt:  &p.EvaluatedAt,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		return storage.AlertRuleTransition{Rule: rule}, nil
-	}
+		if err != nil {
+			return err
+		}
+		result := alertTransitionFromRow(row)
+		transition = &result
+		if p.RunID == nil {
+			return nil
+		}
+		return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
+			RuleID: p.ID, RunID: *p.RunID, ScoredAt: timestamptz(p.EvaluatedAt),
+		})
+	})
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}
-	return alertTransitionFromRow(row), nil
+	if transition == nil {
+		rule, err := s.GetAlertRule(ctx, p.ID)
+		if err != nil {
+			return storage.AlertRuleTransition{}, err
+		}
+		return storage.AlertRuleTransition{Rule: rule}, nil
+	}
+	return *transition, nil
 }
 
 func (s *Store) ListAlertEventsByRule(
@@ -400,46 +460,56 @@ func (s *Store) ListAlertEventsByRule(
 	return alertEventsFromRows(rows), nil
 }
 
+// TryLockAlertRule takes the rule's evaluation lock unless another evaluator
+// holds it, so two evaluators never score one rule's runs at once. The lock
+// lives in a transaction that release ends.
+func (s *Store) TryLockAlertRule(ctx context.Context, ruleID string) (release func(), locked bool, err error) {
+	beginner, ok := s.q.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return nil, false, errors.New("alert rule locks require transaction support")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	err = tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`, "alert-rule:"+ruleID).Scan(&locked)
+	if err != nil || !locked {
+		_ = tx.Rollback(ctx)
+		return nil, false, err
+	}
+	return func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }, true, nil
+}
+
+// StartAlertRule starts an unstarted rule at its newest finalized run. A rule
+// that is already started, or has no finalized run, is returned unchanged.
+func (s *Store) StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error) {
+	row, err := s.q.StartAlertRule(ctx, ruleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return s.GetAlertRule(ctx, ruleID)
+	}
+	if err != nil {
+		return storage.AlertRule{}, err
+	}
+	return alertRuleFromRow(row), nil
+}
+
 func (s *Store) SelectAlertRuns(
 	ctx context.Context,
 	p storage.SelectAlertRunsParams,
 ) ([]storage.AlertCandidateRun, error) {
-	if p.After == nil {
-		row, err := s.q.SelectLatestAlertReport(ctx, SelectLatestAlertReportParams{
-			Repository: p.Repository,
-			RunReason:  p.RunReason,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		return []storage.AlertCandidateRun{alertCandidateRun(row.RunID, row.CommitSha, row.EvaluatedAt)}, nil
-	}
-	rows, err := s.q.SelectAlertReportsAfter(ctx, SelectAlertReportsAfterParams{
-		Repository: p.Repository,
-		RunReason:  p.RunReason,
-		AfterAt:    timestamptz(p.After.At),
-		AfterRunID: p.After.RunID,
-		RowLimit:   p.Limit,
-	})
+	rows, err := s.q.SelectAlertRunsToScore(ctx, SelectAlertRunsToScoreParams{RuleID: p.RuleID, RowLimit: p.Limit})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]storage.AlertCandidateRun, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, alertCandidateRun(row.RunID, row.CommitSha, row.EvaluatedAt))
+		out = append(out, storage.AlertCandidateRun{
+			RunID: row.RunID, CommitSHA: row.CommitSha, FinalizedAt: row.EvaluatedAt.Time.UTC(),
+		})
 	}
 	return out, nil
-}
-
-func alertCandidateRun(runID, commitSHA string, finalized pgtype.Timestamptz) storage.AlertCandidateRun {
-	return storage.AlertCandidateRun{
-		RunID:     runID,
-		CommitSHA: commitSHA,
-		Cursor:    storage.AlertReportCursor{At: finalized.Time.UTC(), RunID: runID},
-	}
 }
 
 func (s *Store) EnqueueAlertDeliveries(

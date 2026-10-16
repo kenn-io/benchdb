@@ -260,16 +260,10 @@ type AlertRule struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastEvaluatedAt *time.Time
-	// ReportCursor is the last finalized run report the rule has scored, or
-	// nil before its first score and after a change to what it evaluates.
-	ReportCursor *AlertReportCursor
-}
-
-// AlertReportCursor orders finalized run reports by when they were
-// finalized, then by run ID.
-type AlertReportCursor struct {
-	At    time.Time
-	RunID string
+	// ReportStartAt is the finalize time of the newest run when the rule
+	// started scoring runs. It is nil before then and after a change to what
+	// the rule evaluates.
+	ReportStartAt *time.Time
 }
 
 // InsertAlertRuleParams is the column payload for creating an alert rule. The
@@ -322,8 +316,8 @@ type TouchAlertRuleEvaluationParams struct {
 	ThresholdZ  float64
 	RunReason   *string
 	EvaluatedAt time.Time
-	// Cursor, when set, advances the rule's report cursor.
-	Cursor *AlertReportCursor
+	// ScoredRunID, when set, records that run as scored with the touch.
+	ScoredRunID *string
 }
 
 type AlertRuleTouch struct {
@@ -380,8 +374,9 @@ type TransitionAlertRuleParams struct {
 	CommitSHA    *string
 	ReportURL    string
 	Summary      []byte
-	EvaluatedAt  time.Time
-	Cursor       AlertReportCursor
+	// EvaluatedAt is also when RunID, the run that caused the transition, is
+	// recorded as scored.
+	EvaluatedAt time.Time
 }
 
 type AlertRuleTransition struct {
@@ -395,21 +390,18 @@ type ListAlertEventsParams struct {
 	Limit  int32
 }
 
-// SelectAlertRunsParams selects finalized runs for a rule: those finalized
-// after After, oldest first and at most Limit, or the newest one when After
-// is nil.
+// SelectAlertRunsParams selects the finalized runs a started rule has not
+// scored, oldest first and at most Limit.
 type SelectAlertRunsParams struct {
-	Repository string
-	RunReason  *string
-	After      *AlertReportCursor
-	Limit      int32
+	RuleID string
+	Limit  int32
 }
 
 // AlertCandidateRun is a finalized run a rule scores.
 type AlertCandidateRun struct {
-	RunID     string
-	CommitSHA string
-	Cursor    AlertReportCursor
+	RunID       string
+	CommitSHA   string
+	FinalizedAt time.Time
 }
 
 // AlertDelivery is the durable delivery ledger row for one alert event and one

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
@@ -111,12 +112,14 @@ func TestAlertRuleAndEventStorage(t *testing.T) {
 }
 
 // insertFinalizedReport stores a saved run report shaped like the ones
-// clients finalize, with only the fields alert selection reads.
+// clients finalize, with only the fields alert selection reads. Each runs
+// entry is one saved run.
 func insertFinalizedReport(
-	t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID, repository, commitSHA, runReason string, at time.Time,
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID, repository, commitSHA string, at time.Time,
+	runs ...map[string]any,
 ) {
 	t.Helper()
-	report := map[string]any{"repository": repository, "runs": []any{map[string]any{"run_reason": runReason}}}
+	report := map[string]any{"repository": repository, "runs": runs}
 	if commitSHA != "" {
 		report["commit_sha"] = commitSHA
 	}
@@ -127,93 +130,108 @@ func insertFinalizedReport(
 	require.NoError(t, err)
 }
 
-func TestSelectAlertRunsReadsFinalizedRunsAfterTheCursor(t *testing.T) {
-	st, pool, ctx := newTestStore(t)
-	at := func(minute int) time.Time { return time.Date(2026, 6, 18, 9, minute, 0, 0, time.UTC) }
-	insertFinalizedReport(t, ctx, pool, "run-1", ciReportRepo, "sha-1", "commit", at(1))
-	insertFinalizedReport(t, ctx, pool, "run-2b", ciReportRepo, "sha-2", "commit", at(2))
-	insertFinalizedReport(t, ctx, pool, "run-2a", ciReportRepo, "sha-2", "commit", at(2))
-	insertFinalizedReport(t, ctx, pool, "run-pr", ciReportRepo, "sha-pr", "pull-request", at(3))
-	insertFinalizedReport(t, ctx, pool, "run-3", ciReportRepo, "sha-3", "commit", at(4))
-	insertFinalizedReport(t, ctx, pool, "commitless", ciReportRepo, "", "commit", at(5))
-	insertFinalizedReport(t, ctx, pool, "other-repo", "https://github.com/other/project", "sha-x", "commit", at(6))
-	runIDs := func(runs []storage.AlertCandidateRun) []string {
-		out := make([]string, 0, len(runs))
-		for _, run := range runs {
-			out = append(out, run.RunID)
-		}
-		return out
-	}
-	commit := "commit"
+func reason(r string) map[string]any { return map[string]any{"run_reason": r} }
 
-	newest, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{Repository: ciReportRepo, RunReason: &commit, Limit: 10})
-	require.NoError(t, err)
-	require.Len(t, newest, 1, "a rule with no cursor starts from the newest finalized run")
-	assert.Equal(t, storage.AlertCandidateRun{
-		RunID: "run-3", CommitSHA: "sha-3", Cursor: storage.AlertReportCursor{At: at(4), RunID: "run-3"},
-	}, newest[0])
-
-	after, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{
-		Repository: ciReportRepo, RunReason: &commit, After: &storage.AlertReportCursor{At: at(1), RunID: "run-1"}, Limit: 10,
+func createAlertRuleForRuns(t *testing.T, ctx context.Context, st *db.Store, userID string, runReason *string) storage.AlertRule {
+	t.Helper()
+	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
+		UserID: userID, Name: "main", Repository: ciReportRepo, Baseline: string(service.CIReportBaselineParent),
+		Threshold: 5, ThresholdZ: 2, RunReason: runReason, Enabled: true, CreatedAt: time.Now().UTC(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"run-2a", "run-2b", "run-3"}, runIDs(after), "oldest first, ties by run ID")
-
-	limited, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{
-		Repository: ciReportRepo, After: &storage.AlertReportCursor{At: at(2), RunID: "run-2a"}, Limit: 2,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"run-2b", "run-pr"}, runIDs(limited), "no run reason means every run")
-
-	none, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{
-		Repository: ciReportRepo, RunReason: &commit, After: &storage.AlertReportCursor{At: at(4), RunID: "run-3"}, Limit: 10,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, none, "a run without a commit is never scored")
+	return rule
 }
 
-func TestAlertRuleReportCursorFollowsScoringAndResets(t *testing.T) {
+func scoreAlertRun(t *testing.T, ctx context.Context, st *db.Store, rule storage.AlertRule, runID string) {
+	t.Helper()
+	touch, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
+		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
+		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
+		EvaluatedAt: time.Now().UTC(), ScoredRunID: &runID,
+	})
+	require.NoError(t, err)
+	require.True(t, touch.Touched)
+}
+
+func alertRunIDs(t *testing.T, ctx context.Context, st *db.Store, ruleID string, limit int32) []string {
+	t.Helper()
+	runs, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: ruleID, Limit: limit})
+	require.NoError(t, err)
+	out := make([]string, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, run.RunID)
+	}
+	return out
+}
+
+func TestSelectAlertRunsScoresEachFinalizedRunSinceTheRuleStarted(t *testing.T) {
 	st, pool, ctx := newTestStore(t)
 	userID := dbtest.SeedUser(t, ctx, pool)
-	created := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
-	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
-		UserID: userID, Name: "main", Repository: ciReportRepo,
-		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: created,
-	})
-	require.NoError(t, err)
-	assert.Nil(t, rule.ReportCursor)
-	touch := func(cursor *storage.AlertReportCursor) storage.AlertRule {
-		t.Helper()
-		got, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
-			ID: rule.ID, State: storage.AlertRuleStateInactive, Repository: rule.Repository, Baseline: rule.Baseline,
-			Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, EvaluatedAt: created, Cursor: cursor,
-		})
+	at := func(minute int) time.Time { return time.Date(2026, 6, 18, 9, minute, 0, 0, time.UTC) }
+	commitRule := createAlertRuleForRuns(t, ctx, st, userID, new("commit"))
+	anyRule := createAlertRuleForRuns(t, ctx, st, userID, nil)
+	insertFinalizedReport(t, ctx, pool, "run-old", ciReportRepo, "sha-old", at(0), reason("commit"))
+	insertFinalizedReport(t, ctx, pool, "run-1", ciReportRepo, "sha-1", at(1), reason("commit"))
+	for _, rule := range []storage.AlertRule{commitRule, anyRule} {
+		started, err := st.StartAlertRule(ctx, rule.ID)
 		require.NoError(t, err)
-		require.True(t, got.Touched)
-		return got.Rule
+		require.NotNil(t, started.ReportStartAt)
+		assert.True(t, started.ReportStartAt.Equal(at(1)), "a rule starts at its newest finalized run")
 	}
-	first := storage.AlertReportCursor{At: created.Add(time.Minute), RunID: "run-1"}
+	insertFinalizedReport(t, ctx, pool, "run-mixed", ciReportRepo, "sha-2", at(2), reason("pull-request"), reason("commit"))
+	insertFinalizedReport(t, ctx, pool, "run-omitted", ciReportRepo, "sha-3", at(3), map[string]any{})
+	insertFinalizedReport(t, ctx, pool, "run-pr", ciReportRepo, "sha-4", at(4), reason("pull-request"))
+	insertFinalizedReport(t, ctx, pool, "commitless", ciReportRepo, "", at(5), reason("commit"))
+	insertFinalizedReport(t, ctx, pool, "other-repo", "https://github.com/other/project", "sha-x", at(6), reason("commit"))
 
-	assert.Equal(t, &first, touch(&first).ReportCursor)
-	assert.Equal(t, &first, touch(nil).ReportCursor, "a pass with no new run keeps the cursor")
+	assert.Equal(t, []string{"run-1", "run-mixed"}, alertRunIDs(t, ctx, st, commitRule.ID, 10),
+		"a run matches when any of its saved runs has the reason; history before the start is skipped")
+	assert.Equal(t, []string{"run-1", "run-mixed", "run-omitted", "run-pr"}, alertRunIDs(t, ctx, st, anyRule.ID, 10))
+	assert.Equal(t, []string{"run-1"}, alertRunIDs(t, ctx, st, commitRule.ID, 1))
 
-	second := storage.AlertReportCursor{At: created.Add(2 * time.Minute), RunID: "run-2"}
-	transition, err := st.TransitionAlertRule(ctx, storage.TransitionAlertRuleParams{
-		ID: rule.ID, FromState: storage.AlertRuleStateInactive, ToState: storage.AlertRuleStateOpen,
-		Repository: rule.Repository, Baseline: rule.Baseline, Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ,
-		EventKind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
-		RunID: new("run-2"), CommitSHA: new("sha-2"), Summary: []byte(`{}`), EvaluatedAt: created, Cursor: second,
-	})
+	scoreAlertRun(t, ctx, st, commitRule, "run-1")
+	scoreAlertRun(t, ctx, st, commitRule, "run-mixed")
+	assert.Empty(t, alertRunIDs(t, ctx, st, commitRule.ID, 10), "a scored run is not scored again")
+
+	// A report finalized earlier can become visible after a newer run was
+	// scored. It is still waiting to be scored.
+	insertFinalizedReport(t, ctx, pool, "run-late", ciReportRepo, "sha-5", at(1).Add(30*time.Second), reason("commit"))
+	assert.Equal(t, []string{"run-late"}, alertRunIDs(t, ctx, st, commitRule.ID, 10))
+}
+
+func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	userID := dbtest.SeedUser(t, ctx, pool)
+	at := func(minute int) time.Time { return time.Date(2026, 6, 18, 9, minute, 0, 0, time.UTC) }
+	rule := createAlertRuleForRuns(t, ctx, st, userID, nil)
+
+	unstarted, err := st.StartAlertRule(ctx, rule.ID)
 	require.NoError(t, err)
-	require.True(t, transition.Transitioned)
-	assert.Equal(t, &second, transition.Rule.ReportCursor)
+	assert.Nil(t, unstarted.ReportStartAt, "a rule with no finalized run stays unstarted")
+	assert.Empty(t, alertRunIDs(t, ctx, st, rule.ID, 10))
 
-	updated, err := st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
+	insertFinalizedReport(t, ctx, pool, "run-1", ciReportRepo, "sha-1", at(1), reason("commit"))
+	_, err = st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	insertFinalizedReport(t, ctx, pool, "run-2", ciReportRepo, "sha-2", at(2), reason("commit"))
+	again, err := st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	require.NotNil(t, again.ReportStartAt)
+	assert.True(t, again.ReportStartAt.Equal(at(1)), "starting is a no-op once started")
+	scoreAlertRun(t, ctx, st, again, "run-1")
+	scoreAlertRun(t, ctx, st, again, "run-2")
+	assert.Empty(t, alertRunIDs(t, ctx, st, rule.ID, 10))
+
+	reset, err := st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
-		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: created, ResetEvaluation: true,
+		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(3), ResetEvaluation: true,
 	})
 	require.NoError(t, err)
-	assert.Nil(t, updated.ReportCursor, "a rule that evaluates differently starts over from the newest run")
+	assert.Nil(t, reset.ReportStartAt)
+	restarted, err := st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	assert.True(t, restarted.ReportStartAt.Equal(at(2)), "a changed rule starts over from the newest run")
+	assert.Equal(t, []string{"run-2"}, alertRunIDs(t, ctx, st, rule.ID, 10), "and scores it again under its new settings")
 }
 
 func TestTransitionAlertRuleIsConditionalAndSingleEvent(t *testing.T) {

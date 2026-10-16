@@ -11,6 +11,9 @@ import (
 
 type AlertStore interface {
 	ListEnabledAlertRules(ctx context.Context) ([]storage.AlertRule, error)
+	GetAlertRule(ctx context.Context, id string) (storage.AlertRule, error)
+	TryLockAlertRule(ctx context.Context, ruleID string) (release func(), locked bool, err error)
+	StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error)
 	SelectAlertRuns(ctx context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error)
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
 	TransitionAlertRule(ctx context.Context, p storage.TransitionAlertRuleParams) (storage.AlertRuleTransition, error)
@@ -24,7 +27,8 @@ type AlertEvaluationOptions struct{}
 
 // AlertEvaluationSummary counts one evaluation pass. Evaluated counts the
 // finalized runs scored; Opened, Resolved, Unchanged, and Skipped are their
-// outcomes. NoCandidate counts rules with no new finalized run.
+// outcomes. NoCandidate counts rules with no new finalized run, and Busy
+// counts rules another evaluator was already scoring.
 type AlertEvaluationSummary struct {
 	Rules       int                  `json:"rules"`
 	Evaluated   int                  `json:"evaluated"`
@@ -33,6 +37,7 @@ type AlertEvaluationSummary struct {
 	Unchanged   int                  `json:"unchanged"`
 	Skipped     int                  `json:"skipped"`
 	NoCandidate int                  `json:"no_candidate"`
+	Busy        int                  `json:"busy"`
 	Failed      int                  `json:"failed"`
 	Failures    []AlertRuleFailure   `json:"failures,omitempty"`
 	Events      []storage.AlertEvent `json:"events,omitempty"`
@@ -75,23 +80,46 @@ func (e *AlertEvaluator) Evaluate(ctx context.Context, _ AlertEvaluationOptions)
 }
 
 // alertRunsPerPass bounds the runs one rule scores in a pass. A longer
-// backlog continues from the rule's cursor on the next pass.
+// backlog continues on the next pass.
 const alertRunsPerPass = 50
 
-// evaluateRule scores every run finalized since the rule's cursor, oldest
-// first, so a regression in one run is not hidden by a later run. A rule that
-// has scored nothing yet starts from its newest finalized run instead of
-// replaying history.
-func (e *AlertEvaluator) evaluateRule(ctx context.Context, rule storage.AlertRule, summary *AlertEvaluationSummary) error {
-	now := e.now().UTC()
-	runs, err := e.store.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{
-		Repository: rule.Repository,
-		RunReason:  rule.RunReason,
-		After:      rule.ReportCursor,
-		Limit:      alertRunsPerPass,
-	})
+// evaluateRule scores every finalized run the rule has not scored since it
+// started, oldest first, so a regression in one run is not hidden by a later
+// run. A rule starts at its newest finalized run instead of replaying history.
+// It holds the rule's lock throughout, so two evaluators never interleave.
+func (e *AlertEvaluator) evaluateRule(ctx context.Context, listed storage.AlertRule, summary *AlertEvaluationSummary) error {
+	release, locked, err := e.store.TryLockAlertRule(ctx, listed.ID)
 	if err != nil {
 		return err
+	}
+	if !locked {
+		summary.Busy++
+		return nil
+	}
+	defer release()
+	// Another evaluator may have moved the rule on since it was listed.
+	rule, err := e.store.GetAlertRule(ctx, listed.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !rule.Enabled {
+		return nil
+	}
+	if rule.ReportStartAt == nil {
+		if rule, err = e.store.StartAlertRule(ctx, rule.ID); err != nil {
+			return err
+		}
+	}
+	now := e.now().UTC()
+	var runs []storage.AlertCandidateRun
+	if rule.ReportStartAt != nil {
+		runs, err = e.store.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: rule.ID, Limit: alertRunsPerPass})
+		if err != nil {
+			return err
+		}
 	}
 	if len(runs) == 0 {
 		summary.NoCandidate++
@@ -101,8 +129,8 @@ func (e *AlertEvaluator) evaluateRule(ctx context.Context, rule storage.AlertRul
 	for _, run := range runs {
 		next, err := e.evaluateRun(ctx, rule, run, now, summary)
 		if err != nil || next == nil {
-			// A failed run is retried on the next pass; nil means the rule
-			// changed while it was being evaluated.
+			// A failed run stays unscored and is retried on the next pass;
+			// nil means the rule changed while it was being evaluated.
 			return err
 		}
 		rule = *next
@@ -110,9 +138,9 @@ func (e *AlertEvaluator) evaluateRule(ctx context.Context, rule storage.AlertRul
 	return nil
 }
 
-// evaluateRun scores one finalized run and records the outcome together with
-// the rule's cursor. It returns the updated rule, or nil when the rule
-// changed underneath the evaluation.
+// evaluateRun scores one finalized run and records its outcome together with
+// the run as scored. It returns the updated rule, or nil when the rule changed
+// underneath the evaluation.
 func (e *AlertEvaluator) evaluateRun(
 	ctx context.Context,
 	rule storage.AlertRule,
@@ -149,7 +177,7 @@ func (e *AlertEvaluator) evaluateRun(
 	default:
 		summary.Skipped++
 	}
-	touch, err := e.touchRule(ctx, rule, now, &run.Cursor)
+	touch, err := e.touchRule(ctx, rule, now, &run.RunID)
 	if err != nil || !touch.Touched {
 		return nil, err
 	}
@@ -232,7 +260,6 @@ func (e *AlertEvaluator) transitionRule(
 		ReportURL:    report.ReportURL,
 		Summary:      eventSummary,
 		EvaluatedAt:  now,
-		Cursor:       run.Cursor,
 	})
 	if err != nil {
 		return nil, err
@@ -256,7 +283,7 @@ func (e *AlertEvaluator) touchRule(
 	ctx context.Context,
 	rule storage.AlertRule,
 	now time.Time,
-	cursor *storage.AlertReportCursor,
+	scoredRunID *string,
 ) (storage.AlertRuleTouch, error) {
 	return e.store.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID:          rule.ID,
@@ -267,6 +294,6 @@ func (e *AlertEvaluator) touchRule(
 		ThresholdZ:  rule.ThresholdZ,
 		RunReason:   rule.RunReason,
 		EvaluatedAt: now,
-		Cursor:      cursor,
+		ScoredRunID: scoredRunID,
 	})
 }
