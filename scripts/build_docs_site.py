@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import re
 import shutil
+import struct
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,10 @@ class DocsSiteError(Exception):
 
 
 MARKDOWN_LINK_RE = re.compile(r"(?P<prefix>!?\[[^\]\n]*\]\()(?P<target>[^)\n]+)(?P<suffix>\))")
+IMG_TAG_RE = re.compile(r"<img\b[^>]*>")
+IMG_SRC_RE = re.compile(r'\ssrc="(?P<src>[^"]+)"')
+IMG_SIZE_ATTR_RE = re.compile(r'\s+(?:width|height)="[^"]*"')
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -79,6 +84,37 @@ def root_markdown_twin(source: str) -> str:
     return MARKDOWN_LINK_RE.sub(rewrite, source)
 
 
+def png_size(path: Path) -> tuple[int, int]:
+    with path.open("rb") as handle:
+        header = handle.read(24)
+    if len(header) < 24 or header[:8] != PNG_SIGNATURE or header[12:16] != b"IHDR":
+        raise DocsSiteError(f"not a PNG image: {path}")
+    width, height = struct.unpack(">II", header[16:24])
+    return width, height
+
+
+def size_local_images(html: str, site_root: Path) -> str:
+    """Set width and height on root-relative <img> tags from the staged image files.
+
+    Screenshots come from the docs-assets branch at build time, so their size
+    is only known here. Accurate attributes let browsers reserve the right
+    space before the image loads.
+    """
+
+    def rewrite(match: re.Match[str]) -> str:
+        tag = IMG_SIZE_ATTR_RE.sub("", match.group(0))
+        src = IMG_SRC_RE.search(tag)
+        if src is None or not src.group("src").startswith("/") or src.group("src").startswith("//"):
+            return match.group(0)
+        image = site_root / src.group("src").lstrip("/")
+        if not image.is_file():
+            raise DocsSiteError(f"image is missing from the site: {src.group('src')}")
+        width, height = png_size(image)
+        return f'{tag[: src.end()]} width="{width}" height="{height}"{tag[src.end() :]}'
+
+    return IMG_TAG_RE.sub(rewrite, html)
+
+
 def stage_site_root(
     docs_source: Path,
     website_source: Path,
@@ -87,6 +123,9 @@ def stage_site_root(
     config: dict[str, Any],
 ) -> None:
     shutil.copytree(website_source, site_root, dirs_exist_ok=True)
+    for page in sorted(website_source.rglob("*.html")):
+        staged = site_root / page.relative_to(website_source)
+        staged.write_text(size_local_images(staged.read_text(encoding="utf-8"), site_root), encoding="utf-8")
     for page in published_markdown_pages(config):
         source = docs_source / page
         if not source.is_file():
