@@ -164,9 +164,10 @@ WHERE r.id = $1 AND r.report_start_at IS NULL
 RETURNING *;
 
 -- name: SelectAlertRunsToScore :many
--- Finalized runs a rule has not scored, finalized at or after its start,
--- oldest first. A run counts when any of its saved runs has the rule's run
--- reason. The ledger, not a timestamp cursor, decides what is left, so a
+-- Finalized runs a rule has not scored, finalized at or after its start. Runs
+-- never attempted come first, oldest first, then runs retried while their
+-- commit metadata is missing, so retries cannot crowd out newer runs. A run
+-- counts when any of its saved runs has the rule's run reason. The ledger, not a timestamp cursor, decides what is left, so a
 -- report that becomes visible late is still recorded. It is late when a run
 -- ordered after it, by finalize time and then run ID, was already scored, so
 -- its outcome is out of date.
@@ -174,14 +175,15 @@ SELECT
   cr.run_id,
   (cr.report->>'commit_sha')::text AS commit_sha,
   cr.evaluated_at,
-  coalesce((cr.evaluated_at, cr.run_id) < (
-    SELECT s.finalized_at, s.run_id FROM alert_scored_run s
+  coalesce((cr.evaluated_at, cr.run_id COLLATE "C") < (
+    SELECT s.finalized_at, s.run_id COLLATE "C" FROM alert_scored_run s
     WHERE s.rule_id = r.id
-    ORDER BY s.finalized_at DESC, s.run_id DESC
+    ORDER BY s.finalized_at DESC, s.run_id COLLATE "C" DESC
     LIMIT 1
   ), false)::boolean AS late
 FROM alert_rule r
 JOIN ci_run_report cr ON cr.report->>'repository' = r.repository
+LEFT JOIN alert_pending_run p ON p.rule_id = r.id AND p.run_id = cr.run_id
 WHERE r.id = sqlc.arg('rule_id')
   AND r.report_start_at IS NOT NULL
   AND cr.evaluated_at >= r.report_start_at
@@ -193,8 +195,19 @@ WHERE r.id = sqlc.arg('rule_id')
   AND NOT EXISTS (
     SELECT 1 FROM alert_scored_run s WHERE s.rule_id = r.id AND s.run_id = cr.run_id
   )
-ORDER BY cr.evaluated_at, cr.run_id
+ORDER BY (p.run_id IS NOT NULL), cr.evaluated_at, cr.run_id COLLATE "C"
 LIMIT sqlc.arg('row_limit')::int;
+
+-- name: MarkAlertRunPending :exec
+INSERT INTO alert_pending_run (rule_id, run_id, attempted_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (rule_id, run_id) DO UPDATE SET attempted_at = excluded.attempted_at;
+
+-- name: DeleteAlertPendingRun :exec
+DELETE FROM alert_pending_run WHERE rule_id = $1 AND run_id = $2;
+
+-- name: DeleteAlertPendingRuns :exec
+DELETE FROM alert_pending_run WHERE rule_id = $1;
 
 -- name: InsertAlertScoredRun :exec
 INSERT INTO alert_scored_run (rule_id, run_id, finalized_at, scored_at)

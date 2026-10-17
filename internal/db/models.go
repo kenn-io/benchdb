@@ -41,6 +41,12 @@ type AlertEvent struct {
 	Repository   string
 }
 
+type AlertPendingRun struct {
+	RuleID      string
+	RunID       string
+	AttemptedAt pgtype.Timestamptz
+}
+
 type AlertRule struct {
 	ID                   string
 	UserID               string

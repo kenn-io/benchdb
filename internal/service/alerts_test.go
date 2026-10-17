@@ -226,6 +226,10 @@ func (s *fakeAlertStore) ExtendAlertRuleLease(_ context.Context, id, token strin
 	return s.leases[id] == token, nil
 }
 
+func (s *fakeAlertStore) MarkAlertRunPending(context.Context, string, string, time.Time) error {
+	return nil
+}
+
 func (s *fakeAlertStore) ReleaseAlertRule(_ context.Context, id, token string) error {
 	if s.leases[id] == token {
 		delete(s.leases, id)
@@ -746,39 +750,102 @@ func TestAlertEvaluatorStopsWritingOnceItsLeaseIsTakenOver(t *testing.T) {
 // alertLeaseForTest mirrors the evaluator's lease length.
 const alertLeaseForTest = 30 * time.Minute
 
-// awaitingMetadata is the report for a run whose parent commit metadata has
-// not arrived yet, so no baseline can be chosen.
+// awaitingMetadata is the report for a run whose commit metadata has not
+// arrived yet, so no baseline can be chosen.
 func awaitingMetadata() *service.CIReport {
+	return awaitingMetadataCode(service.CIReportBaselineErrorUnknownParent)
+}
+
+func awaitingMetadataCode(code string) *service.CIReport {
 	return &service.CIReport{
 		Status: service.CIReportStatusActionRequired,
-		Runs: []service.CIReportRun{{BaselineError: &service.CIReportBaselineError{
-			Code: service.CIReportBaselineErrorUnknownParent,
-		}}},
+		Runs:   []service.CIReportRun{{BaselineError: &service.CIReportBaselineError{Code: code}}},
 	}
 }
 
 func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
+	for _, code := range []string{
+		service.CIReportBaselineErrorMissingCommitMetadata,
+		service.CIReportBaselineErrorUnknownParent,
+		service.CIReportBaselineErrorUnknownForkPoint,
+		service.CIReportBaselineErrorUnknownLatestDefault,
+	} {
+		t.Run(code, func(t *testing.T) {
+			ctx, store, finalize := newAlertScenario(t)
+			finalize("run-1")
+			reporter := &fakeAlertReporter{next: awaitingMetadataCode(code)}
+			// The evaluator's clock is just after the run was finalized.
+			now := func() time.Time { return time.Now().UTC() }
+			evaluator := service.NewAlertEvaluator(store, reporter, now)
+
+			summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Pending)
+			assert.Empty(t, summary.Events)
+
+			// A commit repair fills in the metadata; the report now finds the
+			// regression.
+			reporter.next = &service.CIReport{Status: service.CIReportStatusFailure}
+			summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Opened, "the repaired run is scored, not lost")
+			require.Len(t, summary.Events, 1)
+			assert.Equal(t, "run-1", *summary.Events[0].RunID)
+		})
+	}
+}
+
+func TestAlertEvaluatorScoresNewRunsBeforeRetryingPendingOnes(t *testing.T) {
 	ctx, store, finalize := newAlertScenario(t)
-	finalize("run-1")
-	reporter := &fakeAlertReporter{next: awaitingMetadata()}
-	// The evaluator's clock is just after the run was finalized.
+	finalize("run-00")
+	reporter := &fakeAlertReporter{next: awaitingMetadata(), byRun: map[string]*service.CIReport{
+		"run-00": {Status: service.CIReportStatusSuccess},
+		"run-51": {Status: service.CIReportStatusFailure},
+	}}
 	now := func() time.Time { return time.Now().UTC() }
 	evaluator := service.NewAlertEvaluator(store, reporter, now)
-
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	// A full batch of runs waiting on metadata, then a regression.
+	for i := 1; i <= 51; i++ {
+		finalize(fmt.Sprintf("run-%02d", i))
+	}
 	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Pending)
-	assert.Empty(t, summary.Events)
+	require.Equal(t, 50, summary.Pending)
 
-	// A commit repair fills in the metadata; the report now finds the
-	// regression.
-	reporter.next = &service.CIReport{Status: service.CIReportStatusFailure}
 	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Opened, "the repaired run is scored, not lost")
+	assert.Equal(t, 1, summary.Opened, "pending retries do not crowd out a newer run")
 	require.Len(t, summary.Events, 1)
-	assert.Equal(t, "run-1", *summary.Events[0].RunID)
+	assert.Equal(t, "run-51", *summary.Events[0].RunID)
+	assert.Equal(t, 49, summary.Late, "the older retries are now out of date")
+}
+
+func TestAlertEvaluatorTreatsARetryAfterANewerRunInThePassAsLate(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{"run-1": awaitingMetadata()}}
+	now := func() time.Time { return time.Now().UTC() }
+	evaluator := service.NewAlertEvaluator(store, reporter, now)
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Pending)
+
+	// run-1's metadata is repaired and shows a regression, but the newer
+	// run-2 is clean and is scored first in the next pass.
+	finalize("run-2")
+	reporter.byRun = map[string]*service.CIReport{
+		"run-1": {Status: service.CIReportStatusFailure},
+		"run-2": {Status: service.CIReportStatusSuccess},
+	}
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Late)
+	assert.Zero(t, summary.Opened, "an out-of-date retry does not override the newer run")
 }
 
 func TestAlertEvaluatorStopsRetryingARunWhoseMetadataNeverArrives(t *testing.T) {

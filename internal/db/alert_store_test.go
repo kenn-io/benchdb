@@ -263,6 +263,35 @@ func TestSelectAlertRunsBreaksFinalizeTimeTiesByRunID(t *testing.T) {
 	assert.False(t, runs[1].Late, "run-c orders after it")
 }
 
+func TestSelectAlertRunsRetriesPendingRunsAfterNewOnes(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	rule := createAlertRuleForRuns(t, ctx, st, dbtest.SeedUser(t, ctx, pool), nil)
+	at := func(minute int) time.Time { return time.Date(2026, 6, 18, 9, minute, 0, 0, time.UTC) }
+	insertFinalizedReport(t, ctx, pool, "run-1", ciReportRepo, "sha-1", at(1), reason("commit"))
+	started, err := st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	insertFinalizedReport(t, ctx, pool, "run-2", ciReportRepo, "sha-2", at(2), reason("commit"))
+	insertFinalizedReport(t, ctx, pool, "run-3", ciReportRepo, "sha-3", at(3), reason("commit"))
+	require.NoError(t, st.MarkAlertRunPending(ctx, rule.ID, "run-1", at(4)))
+	require.NoError(t, st.MarkAlertRunPending(ctx, rule.ID, "run-2", at(4)))
+
+	assert.Equal(t, []string{"run-3", "run-1", "run-2"}, alertRunIDs(t, ctx, st, rule.ID, 10),
+		"runs never attempted come before retries")
+	assert.Equal(t, []string{"run-3"}, alertRunIDs(t, ctx, st, rule.ID, 1))
+
+	scoreAlertRun(t, ctx, st, started, "run-1", at(1))
+	var pending int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_pending_run WHERE rule_id = $1`, rule.ID).Scan(&pending))
+	assert.Equal(t, 1, pending, "scoring a run clears its pending mark")
+	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
+		ID: rule.ID, UserID: rule.UserID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
+		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(5), ResetEvaluation: true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_pending_run WHERE rule_id = $1`, rule.ID).Scan(&pending))
+	assert.Zero(t, pending, "a reset clears pending marks")
+}
+
 func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {
 	st, pool, ctx := newTestStore(t)
 	userID := dbtest.SeedUser(t, ctx, pool)

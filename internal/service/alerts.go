@@ -17,6 +17,7 @@ type AlertStore interface {
 	ReleaseAlertRule(ctx context.Context, ruleID, token string) error
 	StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error)
 	SelectAlertRuns(ctx context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error)
+	MarkAlertRunPending(ctx context.Context, ruleID, runID string, at time.Time) error
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
 	TransitionAlertRule(ctx context.Context, p storage.TransitionAlertRuleParams) (storage.AlertRuleTransition, error)
 }
@@ -103,7 +104,7 @@ func awaitsCommitMetadata(report *CIReport) bool {
 		}
 		switch run.BaselineError.Code {
 		case CIReportBaselineErrorMissingCommitMetadata, CIReportBaselineErrorUnknownParent,
-			CIReportBaselineErrorUnknownForkPoint:
+			CIReportBaselineErrorUnknownForkPoint, CIReportBaselineErrorUnknownLatestDefault:
 			return true
 		}
 	}
@@ -168,7 +169,13 @@ func (e *AlertEvaluator) evaluateRule(
 		_, err := e.touchRule(ctx, rule, lease, now, nil)
 		return err
 	}
+	// Selection retries runs waiting on metadata after newer runs, so a run
+	// scored earlier in this pass can make a later one in the batch late.
+	var newest *storage.ScoredAlertRun
 	for _, run := range runs {
+		if newest != nil && alertRunBefore(run.FinalizedAt, run.RunID, newest.FinalizedAt, newest.RunID) {
+			run.Late = true
+		}
 		renewedAt := e.now().UTC()
 		owned, err := e.store.ExtendAlertRuleLease(ctx, lease.ruleID, lease.token, renewedAt, renewedAt.Add(alertRuleLease))
 		if err != nil || !owned {
@@ -176,20 +183,29 @@ func (e *AlertEvaluator) evaluateRule(
 			// to it.
 			return err
 		}
-		next, err := e.evaluateRun(ctx, rule, lease, run, renewedAt, summary)
+		next, scored, err := e.evaluateRun(ctx, rule, lease, run, renewedAt, summary)
 		if err != nil || next == nil {
 			// A failed run stays unscored and is retried on the next pass;
 			// nil means the rule changed or the lease was lost meanwhile.
 			return err
 		}
 		rule = *next
+		if scored && (newest == nil || alertRunBefore(newest.FinalizedAt, newest.RunID, run.FinalizedAt, run.RunID)) {
+			newest = &storage.ScoredAlertRun{RunID: run.RunID, FinalizedAt: run.FinalizedAt}
+		}
 	}
 	return nil
 }
 
+// alertRunBefore orders runs the way selection does: by finalize time, then
+// by run ID byte by byte.
+func alertRunBefore(at time.Time, runID string, otherAt time.Time, otherRunID string) bool {
+	return at.Before(otherAt) || (at.Equal(otherAt) && runID < otherRunID)
+}
+
 // evaluateRun scores one finalized run and records its outcome together with
 // the run as scored. It returns the updated rule, or nil when the rule changed
-// underneath the evaluation.
+// or the lease was lost, and whether the run was recorded as scored.
 func (e *AlertEvaluator) evaluateRun(
 	ctx context.Context,
 	rule storage.AlertRule,
@@ -197,17 +213,13 @@ func (e *AlertEvaluator) evaluateRun(
 	run storage.AlertCandidateRun,
 	now time.Time,
 	summary *AlertEvaluationSummary,
-) (*storage.AlertRule, error) {
+) (*storage.AlertRule, bool, error) {
 	scored := &storage.ScoredAlertRun{RunID: run.RunID, FinalizedAt: run.FinalizedAt}
 	if run.Late {
 		// A newer run already set the rule's state; this outcome is out of
 		// date, so record the run without changing the rule.
 		summary.Late++
-		touch, err := e.touchRule(ctx, rule, lease, now, scored)
-		if err != nil || !touch.Touched {
-			return nil, err
-		}
-		return &touch.Rule, nil
+		return e.recordRun(ctx, rule, lease, now, scored)
 	}
 	report, err := e.reporter.Report(ctx, CIReportQuery{
 		Repository: rule.Repository,
@@ -218,38 +230,50 @@ func (e *AlertEvaluator) evaluateRun(
 		ThresholdZ: rule.ThresholdZ,
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if report == nil {
-		return nil, errors.New("nil CI report")
+		return nil, false, errors.New("nil CI report")
 	}
 	summary.Evaluated++
 	alertReport := automatedAlertReport(report)
 	if alertReport.Status == CIReportStatusActionRequired && awaitsCommitMetadata(report) &&
 		now.Sub(run.FinalizedAt) < alertMetadataRetryWindow {
-		// Leave the run unscored so the next pass retries it once its
+		// Leave the run unscored so a later pass retries it once its
 		// metadata is repaired. Newer runs are still scored meanwhile.
 		summary.Pending++
-		return &rule, nil
+		if err := e.store.MarkAlertRunPending(ctx, rule.ID, run.RunID, now); err != nil {
+			return nil, false, err
+		}
+		return &rule, false, nil
 	}
 	open := rule.State == storage.AlertRuleStateOpen
 	switch {
 	case alertReport.Status == CIReportStatusFailure && !open:
-		return e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateOpen,
+		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateOpen,
 			storage.AlertEventKindOpened, now, summary)
+		return next, next != nil, err
 	case alertReport.Status == CIReportStatusSuccess && open:
-		return e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateInactive,
+		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateInactive,
 			storage.AlertEventKindResolved, now, summary)
+		return next, next != nil, err
 	case alertReport.Status == CIReportStatusFailure || alertReport.Status == CIReportStatusSuccess:
 		summary.Unchanged++
 	default:
 		summary.Skipped++
 	}
+	return e.recordRun(ctx, rule, lease, now, scored)
+}
+
+// recordRun records a run as scored without changing the rule's state.
+func (e *AlertEvaluator) recordRun(
+	ctx context.Context, rule storage.AlertRule, lease alertRuleLeaseHolder, now time.Time, scored *storage.ScoredAlertRun,
+) (*storage.AlertRule, bool, error) {
 	touch, err := e.touchRule(ctx, rule, lease, now, scored)
 	if err != nil || !touch.Touched {
-		return nil, err
+		return nil, false, err
 	}
-	return &touch.Rule, nil
+	return &touch.Rule, true, nil
 }
 
 // automatedAlertReport removes explicit distribution-boundary contenders from

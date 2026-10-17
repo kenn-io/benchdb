@@ -18,3 +18,13 @@ CREATE TABLE alert_scored_run (
   scored_at timestamptz NOT NULL,
   PRIMARY KEY (rule_id, run_id)
 );
+
+-- Runs left unscored while their commit metadata is missing. Selection puts
+-- runs never attempted ahead of these retries, so a backlog of runs waiting
+-- on metadata cannot crowd out newer runs.
+CREATE TABLE alert_pending_run (
+  rule_id character varying(50) NOT NULL REFERENCES alert_rule (id) ON DELETE CASCADE,
+  run_id text NOT NULL,
+  attempted_at timestamptz NOT NULL,
+  PRIMARY KEY (rule_id, run_id)
+);

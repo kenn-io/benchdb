@@ -160,9 +160,12 @@ already scored. Its outcome is out of date, so the evaluator records it as
 `late` without changing the rule. If building a report fails, the run stays
 unscored and is retried on the next pass. So does a run whose report is
 `action_required` only because its commit metadata has not arrived yet
-(`missing_commit_metadata`, `unknown_parent`, or `unknown_fork_point`): it
-counts as `pending` until a commit repair fills the metadata in. After 24
-hours it is recorded as skipped instead. Newer runs are scored meanwhile.
+(`missing_commit_metadata`, `unknown_parent`, `unknown_fork_point`, or
+`unknown_latest_default`): it counts as `pending` until a commit repair fills
+the metadata in. After 24 hours it is recorded as skipped instead. A pass
+scores runs it has never tried before retrying pending ones, so pending runs
+cannot crowd out newer runs. Once a newer run is scored, a pending run's
+outcome is out of date and it is recorded as `late`.
 
 If a rule is disabled, or its repository, baseline, thresholds, or run reason
 change while the evaluator runs, the evaluator leaves that rule alone on that

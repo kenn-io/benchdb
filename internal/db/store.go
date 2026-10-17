@@ -238,6 +238,9 @@ func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRulePa
 		if err != nil || !p.ResetEvaluation {
 			return err
 		}
+		if err := q.DeleteAlertPendingRuns(ctx, p.ID); err != nil {
+			return err
+		}
 		return q.DeleteAlertScoredRuns(ctx, p.ID)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -456,9 +459,19 @@ func insertScoredRun(ctx context.Context, q *Queries, ruleID string, run *storag
 	if run == nil {
 		return nil
 	}
-	return q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
+	err := q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
 		RuleID: ruleID, RunID: run.RunID, FinalizedAt: timestamptz(run.FinalizedAt), ScoredAt: timestamptz(at),
 	})
+	if err != nil {
+		return err
+	}
+	return q.DeleteAlertPendingRun(ctx, DeleteAlertPendingRunParams{RuleID: ruleID, RunID: run.RunID})
+}
+
+// MarkAlertRunPending records that a run is waiting for its commit metadata,
+// so selection retries it after runs never attempted.
+func (s *Store) MarkAlertRunPending(ctx context.Context, ruleID, runID string, at time.Time) error {
+	return s.q.MarkAlertRunPending(ctx, MarkAlertRunPendingParams{RuleID: ruleID, RunID: runID, AttemptedAt: timestamptz(at)})
 }
 
 // ClaimAlertRule takes the rule's evaluation lease, identified by token, until
