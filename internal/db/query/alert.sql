@@ -198,6 +198,21 @@ WHERE r.id = sqlc.arg('rule_id')
 ORDER BY (p.run_id IS NOT NULL), cr.evaluated_at, cr.run_id COLLATE "C"
 LIMIT sqlc.arg('row_limit')::int;
 
+-- name: LockAlertRuleForPending :one
+-- Locks a rule for its lease holder while it still evaluates the same way.
+-- A reset updates the same row before it clears pending marks, so the lock
+-- orders a pending write against it.
+SELECT id FROM alert_rule
+WHERE id = sqlc.arg('id')
+  AND evaluation_lease_token = sqlc.arg('lease_token')
+  AND enabled = true
+  AND repository = sqlc.arg('repository')
+  AND baseline = sqlc.arg('baseline')
+  AND threshold = sqlc.arg('threshold')
+  AND threshold_z = sqlc.arg('threshold_z')
+  AND run_reason IS NOT DISTINCT FROM sqlc.narg('run_reason')
+FOR UPDATE;
+
 -- name: MarkAlertRunPending :exec
 INSERT INTO alert_pending_run (rule_id, run_id, attempted_at)
 VALUES ($1, $2, $3)

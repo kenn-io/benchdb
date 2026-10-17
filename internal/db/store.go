@@ -469,9 +469,28 @@ func insertScoredRun(ctx context.Context, q *Queries, ruleID string, run *storag
 }
 
 // MarkAlertRunPending records that a run is waiting for its commit metadata,
-// so selection retries it after runs never attempted.
-func (s *Store) MarkAlertRunPending(ctx context.Context, ruleID, runID string, at time.Time) error {
-	return s.q.MarkAlertRunPending(ctx, MarkAlertRunPendingParams{RuleID: ruleID, RunID: runID, AttemptedAt: timestamptz(at)})
+// so selection retries it after runs never attempted. marked is false when
+// the lease is no longer the caller's or the rule's settings changed; the
+// rule row stays locked until the mark is written, so a concurrent reset
+// cannot be undone by it.
+func (s *Store) MarkAlertRunPending(ctx context.Context, p storage.MarkAlertRunPendingParams) (marked bool, err error) {
+	err = s.inTx(ctx, func(q *Queries) error {
+		_, err := q.LockAlertRuleForPending(ctx, LockAlertRuleForPendingParams{
+			ID: p.RuleID, LeaseToken: &p.LeaseToken, Repository: p.Repository, Baseline: p.Baseline,
+			Threshold: p.Threshold, ThresholdZ: p.ThresholdZ, RunReason: p.RunReason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		marked = true
+		return q.MarkAlertRunPending(ctx, MarkAlertRunPendingParams{
+			RuleID: p.RuleID, RunID: p.RunID, AttemptedAt: timestamptz(p.AttemptedAt),
+		})
+	})
+	return marked && err == nil, err
 }
 
 // ClaimAlertRule takes the rule's evaluation lease, identified by token, until

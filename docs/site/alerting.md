@@ -159,10 +159,10 @@ so a run is scored once. A report can become visible after a newer run was
 already scored. Its outcome is out of date, so the evaluator records it as
 `late` without changing the rule. If building a report fails, the run stays
 unscored and is retried on the next pass. So does a run whose report is
-`action_required` only because its commit metadata has not arrived yet
-(`missing_commit_metadata`, `unknown_parent`, `unknown_fork_point`, or
-`unknown_latest_default`): it counts as `pending` until a commit repair fills
-the metadata in. After 24 hours it is recorded as skipped instead. A pass
+`action_required` only because its commit metadata or ancestry has not
+arrived yet (`unknown_parent`, `unknown_fork_point`, `unknown_latest_default`,
+or `unknown_baseline_candidate`): it counts as `pending` until a commit repair
+or ancestry backfill fills it in. After 24 hours it is recorded as skipped instead. A pass
 scores runs it has never tried before retrying pending ones, so pending runs
 cannot crowd out newer runs. Once a newer run is scored, a pending run's
 outcome is out of date and it is recorded as `late`.

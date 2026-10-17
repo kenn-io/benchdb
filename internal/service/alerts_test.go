@@ -226,8 +226,8 @@ func (s *fakeAlertStore) ExtendAlertRuleLease(_ context.Context, id, token strin
 	return s.leases[id] == token, nil
 }
 
-func (s *fakeAlertStore) MarkAlertRunPending(context.Context, string, string, time.Time) error {
-	return nil
+func (s *fakeAlertStore) MarkAlertRunPending(_ context.Context, p storage.MarkAlertRunPendingParams) (bool, error) {
+	return s.leases[p.RuleID] == p.LeaseToken, nil
 }
 
 func (s *fakeAlertStore) ReleaseAlertRule(_ context.Context, id, token string) error {
@@ -588,6 +588,8 @@ func TestAlertEvaluatorRetriesANewRulesFailedFirstRun(t *testing.T) {
 type blockingAlertReporter struct {
 	entered, release chan struct{}
 	calls            atomic.Int32
+	// first, when set, is the held report; it is a regression otherwise.
+	first *service.CIReport
 	// later, when set, is the status of every report after the first.
 	later service.CIReportStatus
 }
@@ -596,6 +598,9 @@ func (r *blockingAlertReporter) Report(context.Context, service.CIReportQuery) (
 	if r.calls.Add(1) == 1 {
 		close(r.entered)
 		<-r.release
+		if r.first != nil {
+			return r.first, nil
+		}
 		return &service.CIReport{Status: service.CIReportStatusFailure}, nil
 	}
 	if r.later != "" {
@@ -765,10 +770,10 @@ func awaitingMetadataCode(code string) *service.CIReport {
 
 func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
 	for _, code := range []string{
-		service.CIReportBaselineErrorMissingCommitMetadata,
 		service.CIReportBaselineErrorUnknownParent,
 		service.CIReportBaselineErrorUnknownForkPoint,
 		service.CIReportBaselineErrorUnknownLatestDefault,
+		service.CIReportBaselineErrorUnknownCandidate,
 	} {
 		t.Run(code, func(t *testing.T) {
 			ctx, store, finalize := newAlertScenario(t)
@@ -863,4 +868,54 @@ func TestAlertEvaluatorStopsRetryingARunWhoseMetadataNeverArrives(t *testing.T) 
 	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.NoCandidate)
+}
+
+func TestAlertEvaluatorDoesNotMarkARunPendingAfterLosingTheRule(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		meanwhile func(t *testing.T, ctx context.Context, store *db.Store, reporter service.AlertReporter)
+	}{
+		{"lease taken over", func(t *testing.T, ctx context.Context, store *db.Store, reporter service.AlertReporter) {
+			later := func() time.Time { return fixedAlertNow().Add(alertLeaseForTest + time.Minute) }
+			_, err := service.NewAlertEvaluator(store, reporter, later).Evaluate(ctx, service.AlertEvaluationOptions{})
+			require.NoError(t, err)
+		}},
+		{"rule reset", func(t *testing.T, ctx context.Context, store *db.Store, _ service.AlertReporter) {
+			rules, err := store.ListEnabledAlertRules(ctx)
+			require.NoError(t, err)
+			rule := rules[0]
+			_, err = store.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
+				ID: rule.ID, UserID: rule.UserID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
+				Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: fixedAlertNow(), ResetEvaluation: true,
+			})
+			require.NoError(t, err)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, store, pool, finalize := newAlertScenarioWithPool(t)
+			finalize("run-1")
+			reporter := &blockingAlertReporter{
+				entered: make(chan struct{}), release: make(chan struct{}),
+				first: awaitingMetadata(), later: service.CIReportStatusSuccess,
+			}
+			var releaseOnce sync.Once
+			releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+			t.Cleanup(releaseFirst)
+			staleDone := make(chan service.AlertEvaluationSummary, 1)
+			go func() {
+				summary, _ := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+				staleDone <- summary
+			}()
+			<-reporter.entered
+
+			tt.meanwhile(t, ctx, store, reporter)
+			releaseFirst()
+			stale := <-staleDone
+
+			assert.Zero(t, stale.Pending)
+			var pending int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_pending_run`).Scan(&pending))
+			assert.Zero(t, pending, "an evaluator that lost the rule does not mark runs pending")
+		})
+	}
 }

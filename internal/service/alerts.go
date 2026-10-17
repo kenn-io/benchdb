@@ -17,7 +17,7 @@ type AlertStore interface {
 	ReleaseAlertRule(ctx context.Context, ruleID, token string) error
 	StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error)
 	SelectAlertRuns(ctx context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error)
-	MarkAlertRunPending(ctx context.Context, ruleID, runID string, at time.Time) error
+	MarkAlertRunPending(ctx context.Context, p storage.MarkAlertRunPendingParams) (bool, error)
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
 	TransitionAlertRule(ctx context.Context, p storage.TransitionAlertRuleParams) (storage.AlertRuleTransition, error)
 }
@@ -96,15 +96,16 @@ const alertRunsPerPass = 50
 const alertMetadataRetryWindow = 24 * time.Hour
 
 // awaitsCommitMetadata reports whether a report could not pick a baseline only
-// because commit metadata has not arrived yet, which a commit repair fixes.
+// because commit metadata or ancestry has not arrived yet, which a commit
+// repair or backfill fixes.
 func awaitsCommitMetadata(report *CIReport) bool {
 	for _, run := range report.Runs {
 		if run.BaselineError == nil {
 			continue
 		}
 		switch run.BaselineError.Code {
-		case CIReportBaselineErrorMissingCommitMetadata, CIReportBaselineErrorUnknownParent,
-			CIReportBaselineErrorUnknownForkPoint, CIReportBaselineErrorUnknownLatestDefault:
+		case CIReportBaselineErrorUnknownParent, CIReportBaselineErrorUnknownForkPoint,
+			CIReportBaselineErrorUnknownLatestDefault, CIReportBaselineErrorUnknownCandidate:
 			return true
 		}
 	}
@@ -241,10 +242,16 @@ func (e *AlertEvaluator) evaluateRun(
 		now.Sub(run.FinalizedAt) < alertMetadataRetryWindow {
 		// Leave the run unscored so a later pass retries it once its
 		// metadata is repaired. Newer runs are still scored meanwhile.
-		summary.Pending++
-		if err := e.store.MarkAlertRunPending(ctx, rule.ID, run.RunID, now); err != nil {
+		marked, err := e.store.MarkAlertRunPending(ctx, storage.MarkAlertRunPendingParams{
+			RuleID: rule.ID, RunID: run.RunID, AttemptedAt: now, LeaseToken: lease.token,
+			Repository: rule.Repository, Baseline: rule.Baseline, Threshold: rule.Threshold,
+			ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
+		})
+		if err != nil || !marked {
+			// The lease was lost or the rule changed; leave it alone.
 			return nil, false, err
 		}
+		summary.Pending++
 		return &rule, false, nil
 	}
 	open := rule.State == storage.AlertRuleStateOpen

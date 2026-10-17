@@ -272,8 +272,28 @@ func TestSelectAlertRunsRetriesPendingRunsAfterNewOnes(t *testing.T) {
 	require.NoError(t, err)
 	insertFinalizedReport(t, ctx, pool, "run-2", ciReportRepo, "sha-2", at(2), reason("commit"))
 	insertFinalizedReport(t, ctx, pool, "run-3", ciReportRepo, "sha-3", at(3), reason("commit"))
-	require.NoError(t, st.MarkAlertRunPending(ctx, rule.ID, "run-1", at(4)))
-	require.NoError(t, st.MarkAlertRunPending(ctx, rule.ID, "run-2", at(4)))
+	_, claimed, err := st.ClaimAlertRule(ctx, rule.ID, "lease", at(4), at(30))
+	require.NoError(t, err)
+	require.True(t, claimed)
+	pendingParams := func(runID, token string, threshold float64) storage.MarkAlertRunPendingParams {
+		return storage.MarkAlertRunPendingParams{
+			RuleID: rule.ID, RunID: runID, AttemptedAt: at(4), LeaseToken: token, Repository: rule.Repository,
+			Baseline: rule.Baseline, Threshold: threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
+		}
+	}
+	for _, runID := range []string{"run-1", "run-2"} {
+		marked, err := st.MarkAlertRunPending(ctx, pendingParams(runID, "lease", rule.Threshold))
+		require.NoError(t, err)
+		require.True(t, marked)
+	}
+	for name, params := range map[string]storage.MarkAlertRunPendingParams{
+		"another lease":    pendingParams("run-3", "stale", rule.Threshold),
+		"changed settings": pendingParams("run-3", "lease", rule.Threshold+1),
+	} {
+		marked, err := st.MarkAlertRunPending(ctx, params)
+		require.NoError(t, err)
+		assert.False(t, marked, name)
+	}
 
 	assert.Equal(t, []string{"run-3", "run-1", "run-2"}, alertRunIDs(t, ctx, st, rule.ID, 10),
 		"runs never attempted come before retries")

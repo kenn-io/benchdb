@@ -625,6 +625,47 @@ func (q *Queries) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error
 	return items, nil
 }
 
+const lockAlertRuleForPending = `-- name: LockAlertRuleForPending :one
+SELECT id FROM alert_rule
+WHERE id = $1
+  AND evaluation_lease_token = $2
+  AND enabled = true
+  AND repository = $3
+  AND baseline = $4
+  AND threshold = $5
+  AND threshold_z = $6
+  AND run_reason IS NOT DISTINCT FROM $7
+FOR UPDATE
+`
+
+type LockAlertRuleForPendingParams struct {
+	ID         string
+	LeaseToken *string
+	Repository string
+	Baseline   string
+	Threshold  float64
+	ThresholdZ float64
+	RunReason  *string
+}
+
+// Locks a rule for its lease holder while it still evaluates the same way.
+// A reset updates the same row before it clears pending marks, so the lock
+// orders a pending write against it.
+func (q *Queries) LockAlertRuleForPending(ctx context.Context, arg LockAlertRuleForPendingParams) (string, error) {
+	row := q.db.QueryRow(ctx, lockAlertRuleForPending,
+		arg.ID,
+		arg.LeaseToken,
+		arg.Repository,
+		arg.Baseline,
+		arg.Threshold,
+		arg.ThresholdZ,
+		arg.RunReason,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const markAlertDeliveryDelivered = `-- name: MarkAlertDeliveryDelivered :one
 UPDATE alert_delivery
 SET

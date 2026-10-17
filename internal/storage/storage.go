@@ -409,6 +409,21 @@ type SelectAlertRunsParams struct {
 	Limit  int32
 }
 
+// MarkAlertRunPendingParams marks a run as waiting on commit metadata. It
+// applies only for the lease holder while the rule still has the given
+// settings.
+type MarkAlertRunPendingParams struct {
+	RuleID      string
+	RunID       string
+	AttemptedAt time.Time
+	LeaseToken  string
+	Repository  string
+	Baseline    string
+	Threshold   float64
+	ThresholdZ  float64
+	RunReason   *string
+}
+
 // AlertCandidateRun is a finalized run a rule scores. Late means a run
 // finalized after it was already scored, so its outcome is out of date.
 type AlertCandidateRun struct {
