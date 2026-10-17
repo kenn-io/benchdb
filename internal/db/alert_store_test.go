@@ -210,22 +210,57 @@ func TestClaimAlertRuleLeasesARuleToOneEvaluator(t *testing.T) {
 	st, pool, ctx := newTestStore(t)
 	rule := createAlertRuleForRuns(t, ctx, st, dbtest.SeedUser(t, ctx, pool), nil)
 	now := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	claim := func(token string, at time.Time) bool {
+		t.Helper()
+		_, ok, err := st.ClaimAlertRule(ctx, rule.ID, token, at, at.Add(time.Minute))
+		require.NoError(t, err)
+		return ok
+	}
 
-	claimed, ok, err := st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
+	require.True(t, claim("first", now))
+	assert.False(t, claim("second", now), "a leased rule is busy")
+	owned, err := st.ExtendAlertRuleLease(ctx, rule.ID, "first", now, now.Add(time.Minute))
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, rule.ID, claimed.ID)
-	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
-	require.NoError(t, err)
-	assert.False(t, ok, "a leased rule is busy")
-	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now.Add(2*time.Minute), now.Add(3*time.Minute))
-	require.NoError(t, err)
-	assert.True(t, ok, "an expired lease can be taken over")
+	assert.True(t, owned)
 
-	require.NoError(t, st.ReleaseAlertRule(ctx, rule.ID))
-	_, ok, err = st.ClaimAlertRule(ctx, rule.ID, now, now.Add(time.Minute))
+	later := now.Add(2 * time.Minute)
+	require.True(t, claim("second", later), "an expired lease can be taken over")
+	owned, err = st.ExtendAlertRuleLease(ctx, rule.ID, "first", later, later.Add(time.Minute))
 	require.NoError(t, err)
-	assert.True(t, ok, "a released rule can be claimed")
+	assert.False(t, owned, "the former holder cannot renew")
+	require.NoError(t, st.ReleaseAlertRule(ctx, rule.ID, "first"))
+	assert.False(t, claim("third", later), "the former holder cannot end its successor's lease")
+
+	require.NoError(t, st.ReleaseAlertRule(ctx, rule.ID, "second"))
+	assert.True(t, claim("third", later), "a released rule can be claimed")
+	touch, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
+		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
+		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, EvaluatedAt: later, LeaseToken: new("second"),
+	})
+	require.NoError(t, err)
+	assert.False(t, touch.Touched, "a write with a lost lease does not apply")
+}
+
+func TestSelectAlertRunsBreaksFinalizeTimeTiesByRunID(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	rule := createAlertRuleForRuns(t, ctx, st, dbtest.SeedUser(t, ctx, pool), nil)
+	at := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	insertFinalizedReport(t, ctx, pool, "run-b", ciReportRepo, "sha-b", at, reason("commit"))
+	started, err := st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	scoreAlertRun(t, ctx, st, started, "run-b", at)
+
+	// Two reports with the same finalize time become visible after run-b.
+	insertFinalizedReport(t, ctx, pool, "run-a", ciReportRepo, "sha-a", at, reason("commit"))
+	insertFinalizedReport(t, ctx, pool, "run-c", ciReportRepo, "sha-c", at, reason("commit"))
+	runs, err := st.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: rule.ID, Limit: 10})
+
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	assert.Equal(t, "run-a", runs[0].RunID)
+	assert.True(t, runs[0].Late, "run-a orders before the scored run-b")
+	assert.Equal(t, "run-c", runs[1].RunID)
+	assert.False(t, runs[1].Late, "run-c orders after it")
 }
 
 func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {

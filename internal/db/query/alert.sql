@@ -49,11 +49,13 @@ WHERE id = $1
 RETURNING *;
 
 -- name: TouchAlertRuleEvaluation :one
+-- With a lease token, only that lease's holder can write.
 UPDATE alert_rule
 SET
   last_evaluated_at = sqlc.arg('evaluated_at'),
   updated_at = sqlc.arg('evaluated_at')
 WHERE alert_rule.id = sqlc.arg('id')
+  AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
   AND alert_rule.state = sqlc.arg('state')
   AND alert_rule.enabled = true
   AND alert_rule.repository = sqlc.arg('repository')
@@ -84,6 +86,7 @@ WITH updated_rule AS (
     last_evaluated_at = sqlc.arg('evaluated_at'),
     updated_at = sqlc.arg('evaluated_at')
   WHERE alert_rule.id = sqlc.arg('id')
+    AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
     AND state = sqlc.arg('from_state')
     AND alert_rule.enabled = true
     AND alert_rule.repository = sqlc.arg('repository')
@@ -165,15 +168,18 @@ RETURNING *;
 -- oldest first. A run counts when any of its saved runs has the rule's run
 -- reason. The ledger, not a timestamp cursor, decides what is left, so a
 -- report that becomes visible late is still recorded. It is late when a run
--- finalized after it was already scored, so its outcome is out of date.
+-- ordered after it, by finalize time and then run ID, was already scored, so
+-- its outcome is out of date.
 SELECT
   cr.run_id,
   (cr.report->>'commit_sha')::text AS commit_sha,
   cr.evaluated_at,
-  (cr.evaluated_at < coalesce(
-    (SELECT max(s.finalized_at) FROM alert_scored_run s WHERE s.rule_id = r.id),
-    '-infinity'::timestamptz
-  ))::boolean AS late
+  coalesce((cr.evaluated_at, cr.run_id) < (
+    SELECT s.finalized_at, s.run_id FROM alert_scored_run s
+    WHERE s.rule_id = r.id
+    ORDER BY s.finalized_at DESC, s.run_id DESC
+    LIMIT 1
+  ), false)::boolean AS late
 FROM alert_rule r
 JOIN ci_run_report cr ON cr.report->>'repository' = r.repository
 WHERE r.id = sqlc.arg('rule_id')
@@ -196,16 +202,28 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (rule_id, run_id) DO NOTHING;
 
 -- name: ClaimAlertRule :one
--- Takes a rule's evaluation lease unless another evaluator holds an unexpired
--- one, and returns the rule as it is now.
+-- Takes a rule's evaluation lease, identified by a token, unless another
+-- evaluator holds an unexpired one, and returns the rule as it is now.
 UPDATE alert_rule
-SET evaluation_lease_until = sqlc.arg('lease_until')
+SET evaluation_lease_until = sqlc.arg('lease_until'), evaluation_lease_token = sqlc.arg('lease_token')
 WHERE id = sqlc.arg('id')
   AND (evaluation_lease_until IS NULL OR evaluation_lease_until < sqlc.arg('now'))
 RETURNING *;
 
+-- name: ExtendAlertRuleLease :execrows
+-- Renews a lease its holder still owns and has not let expire.
+UPDATE alert_rule
+SET evaluation_lease_until = sqlc.arg('lease_until')
+WHERE id = sqlc.arg('id')
+  AND evaluation_lease_token = sqlc.arg('lease_token')
+  AND evaluation_lease_until >= sqlc.arg('now');
+
 -- name: ReleaseAlertRule :exec
-UPDATE alert_rule SET evaluation_lease_until = NULL WHERE id = $1;
+-- Ends a lease only for its holder, so a holder that lost it cannot end its
+-- successor's.
+UPDATE alert_rule
+SET evaluation_lease_until = NULL, evaluation_lease_token = NULL
+WHERE id = $1 AND evaluation_lease_token = $2;
 
 -- name: DeleteAlertScoredRuns :exec
 DELETE FROM alert_scored_run WHERE rule_id = $1;

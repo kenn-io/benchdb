@@ -121,9 +121,11 @@ is never finalized is never scored.
 For each enabled rule, the evaluator:
 
 1. Takes a 30-minute lease on the rule, stored on the rule rather than held
-   on a database connection. If another evaluator holds an unexpired lease,
-   the rule counts as `busy` and is left to that evaluator. A crashed
-   evaluator's lease expires on its own.
+   on a database connection, and renews it before each run. If another
+   evaluator holds an unexpired lease, the rule counts as `busy` and is left
+   to that evaluator. A crashed evaluator's lease expires on its own. Every
+   write carries the lease's token, so an evaluator whose lease expired and
+   passed to another stops writing.
 2. Finds every finalized run the rule has not scored, oldest first, in the
    rule's repository. With a `run_reason`, a run counts when any of its saved
    runs has that reason. A rule starts at its newest finalized run, recorded

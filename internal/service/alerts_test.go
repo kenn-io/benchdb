@@ -172,6 +172,9 @@ type fakeAlertStore struct {
 	// runs are the finalized runs, oldest first; nil means one run, run-1.
 	runs   []storage.AlertCandidateRun
 	scored map[string]bool
+	leases map[string]string
+	// startErr, when set, fails the next StartAlertRule.
+	startErr error
 }
 
 // finalizeRun adds a finalized run after every existing one.
@@ -188,7 +191,10 @@ func (s *fakeAlertStore) finalizedRuns() []storage.AlertCandidateRun {
 }
 
 func newFakeAlertStore(rules ...storage.AlertRule) *fakeAlertStore {
-	out := &fakeAlertStore{rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{}, scored: map[string]bool{}}
+	out := &fakeAlertStore{
+		rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{},
+		scored: map[string]bool{}, leases: map[string]string{},
+	}
 	for _, rule := range rules {
 		out.rules[rule.ID] = rule
 		out.order = append(out.order, rule.ID)
@@ -207,16 +213,31 @@ func (s *fakeAlertStore) ListEnabledAlertRules(context.Context) ([]storage.Alert
 	return out, nil
 }
 
-func (s *fakeAlertStore) ClaimAlertRule(_ context.Context, id string, _, _ time.Time) (storage.AlertRule, bool, error) {
+func (s *fakeAlertStore) ClaimAlertRule(_ context.Context, id, token string, _, _ time.Time) (storage.AlertRule, bool, error) {
 	rule, ok := s.rules[id]
-	return rule, ok, nil
+	if !ok || s.leases[id] != "" {
+		return storage.AlertRule{}, false, nil
+	}
+	s.leases[id] = token
+	return rule, true, nil
 }
 
-func (s *fakeAlertStore) ReleaseAlertRule(context.Context, string) error {
+func (s *fakeAlertStore) ExtendAlertRuleLease(_ context.Context, id, token string, _, _ time.Time) (bool, error) {
+	return s.leases[id] == token, nil
+}
+
+func (s *fakeAlertStore) ReleaseAlertRule(_ context.Context, id, token string) error {
+	if s.leases[id] == token {
+		delete(s.leases, id)
+	}
 	return nil
 }
 
 func (s *fakeAlertStore) StartAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
+	if err := s.startErr; err != nil {
+		s.startErr = nil
+		return storage.AlertRule{}, err
+	}
 	rule := s.rules[id]
 	if rule.ReportStartAt == nil && !s.missingRunFor[id] {
 		runs := s.finalizedRuns()
@@ -563,12 +584,18 @@ func TestAlertEvaluatorRetriesANewRulesFailedFirstRun(t *testing.T) {
 type blockingAlertReporter struct {
 	entered, release chan struct{}
 	calls            atomic.Int32
+	// later, when set, is the status of every report after the first.
+	later service.CIReportStatus
 }
 
 func (r *blockingAlertReporter) Report(context.Context, service.CIReportQuery) (*service.CIReport, error) {
 	if r.calls.Add(1) == 1 {
 		close(r.entered)
 		<-r.release
+		return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+	}
+	if r.later != "" {
+		return &service.CIReport{Status: r.later}, nil
 	}
 	return &service.CIReport{Status: service.CIReportStatusFailure}, nil
 }
@@ -655,3 +682,66 @@ func TestAlertEvaluatorRunsOnASingleConnectionPool(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Opened, "evaluation holds no connection while it works")
 }
+
+func TestAlertEvaluatorReleasesItsLeaseWhenStartingARuleFails(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	store.startErr = errors.New("database restarting")
+	evaluator := service.NewAlertEvaluator(store, &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusSuccess}}, fixedAlertNow)
+
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.Error(t, err)
+	assert.Equal(t, 1, summary.Failed)
+	assert.Empty(t, store.leases, "the claimed rule's lease is released")
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Busy, "an immediate retry is not blocked")
+	assert.Equal(t, 1, summary.Evaluated)
+}
+
+func TestAlertEvaluatorStopsWritingOnceItsLeaseIsTakenOver(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	// The stalled evaluator's report is a regression; its successor's is clean.
+	reporter := &blockingAlertReporter{
+		entered: make(chan struct{}), release: make(chan struct{}), later: service.CIReportStatusSuccess,
+	}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+	t.Cleanup(releaseFirst)
+	type result struct {
+		summary service.AlertEvaluationSummary
+		err     error
+	}
+	staleDone := make(chan result, 1)
+	go func() {
+		summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+		staleDone <- result{summary, err}
+	}()
+	<-reporter.entered
+
+	// The first evaluator stalls past its lease; a later one takes over.
+	later := func() time.Time { return fixedAlertNow().Add(alertLeaseForTest + time.Minute) }
+	successor, err := service.NewAlertEvaluator(store, reporter, later).Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, successor.Unchanged, "the successor scores the run as clean")
+	releaseFirst()
+	stale := <-staleDone
+
+	require.NoError(t, stale.err)
+	assert.Zero(t, stale.summary.Opened, "an evaluator that lost its lease does not write its out-of-date outcome")
+	rules, err := store.ListEnabledAlertRules(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, storage.AlertRuleStateInactive, rules[0].State)
+	history, err := store.ListAlertEventsByRule(ctx, storage.ListAlertEventsParams{RuleID: rules[0].ID, Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, history)
+}
+
+// alertLeaseForTest mirrors the evaluator's lease length.
+const alertLeaseForTest = 30 * time.Minute

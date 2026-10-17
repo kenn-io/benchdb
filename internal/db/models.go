@@ -57,6 +57,7 @@ type AlertRule struct {
 	LastEvaluatedAt      *time.Time
 	ReportStartAt        pgtype.Timestamptz
 	EvaluationLeaseUntil pgtype.Timestamptz
+	EvaluationLeaseToken *string
 }
 
 type AlertScoredRun struct {

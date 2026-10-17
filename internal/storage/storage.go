@@ -318,6 +318,8 @@ type TouchAlertRuleEvaluationParams struct {
 	EvaluatedAt time.Time
 	// ScoredRun, when set, records that run as scored with the touch.
 	ScoredRun *ScoredAlertRun
+	// LeaseToken, when set, makes the touch apply only for that lease's holder.
+	LeaseToken *string
 }
 
 // ScoredAlertRun is a finalized run a rule has scored.
@@ -384,6 +386,9 @@ type TransitionAlertRuleParams struct {
 	// ScoredRun, when set, records the run that caused the transition as
 	// scored with it.
 	ScoredRun *ScoredAlertRun
+	// LeaseToken, when set, makes the transition apply only for that lease's
+	// holder.
+	LeaseToken *string
 }
 
 type AlertRuleTransition struct {

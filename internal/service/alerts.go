@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
 	"time"
@@ -11,8 +12,9 @@ import (
 
 type AlertStore interface {
 	ListEnabledAlertRules(ctx context.Context) ([]storage.AlertRule, error)
-	ClaimAlertRule(ctx context.Context, ruleID string, now, until time.Time) (storage.AlertRule, bool, error)
-	ReleaseAlertRule(ctx context.Context, ruleID string) error
+	ClaimAlertRule(ctx context.Context, ruleID, token string, now, until time.Time) (storage.AlertRule, bool, error)
+	ExtendAlertRuleLease(ctx context.Context, ruleID, token string, now, until time.Time) (bool, error)
+	ReleaseAlertRule(ctx context.Context, ruleID, token string) error
 	StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error)
 	SelectAlertRuns(ctx context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error)
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
@@ -85,9 +87,18 @@ func (e *AlertEvaluator) Evaluate(ctx context.Context, _ AlertEvaluationOptions)
 // backlog continues on the next pass.
 const alertRunsPerPass = 50
 
-// alertRuleLease is how long an evaluator holds a rule. A crashed evaluator's
-// lease expires after it, so the rule is not stuck.
+// alertRuleLease is how long an evaluator holds a rule before it must renew
+// the lease. It renews before each run, and a crashed evaluator's lease
+// expires, so the rule is not stuck.
 const alertRuleLease = 30 * time.Minute
+
+// alertRuleLeaseHolder is one evaluator's hold on one rule. Every write it
+// makes carries the token, so once the lease expires or passes to another
+// evaluator, its writes stop applying.
+type alertRuleLeaseHolder struct {
+	ruleID string
+	token  string
+}
 
 // evaluateRule scores every finalized run the rule has not scored since it
 // started, oldest first, so a regression in one run is not hidden by a later
@@ -96,8 +107,9 @@ const alertRuleLease = 30 * time.Minute
 func (e *AlertEvaluator) evaluateRule(
 	ctx context.Context, listed storage.AlertRule, summary *AlertEvaluationSummary,
 ) (err error) {
+	lease := alertRuleLeaseHolder{ruleID: listed.ID, token: rand.Text()}
 	now := e.now().UTC()
-	rule, claimed, err := e.store.ClaimAlertRule(ctx, listed.ID, now, now.Add(alertRuleLease))
+	rule, claimed, err := e.store.ClaimAlertRule(ctx, lease.ruleID, lease.token, now, now.Add(alertRuleLease))
 	if err != nil {
 		return err
 	}
@@ -106,7 +118,8 @@ func (e *AlertEvaluator) evaluateRule(
 		return nil
 	}
 	defer func() {
-		if releaseErr := e.store.ReleaseAlertRule(context.WithoutCancel(ctx), rule.ID); releaseErr != nil && err == nil {
+		releaseErr := e.store.ReleaseAlertRule(context.WithoutCancel(ctx), lease.ruleID, lease.token)
+		if releaseErr != nil && err == nil {
 			err = releaseErr
 		}
 	}()
@@ -114,27 +127,36 @@ func (e *AlertEvaluator) evaluateRule(
 		return nil
 	}
 	if rule.ReportStartAt == nil {
-		if rule, err = e.store.StartAlertRule(ctx, rule.ID); err != nil {
+		started, err := e.store.StartAlertRule(ctx, lease.ruleID)
+		if err != nil {
 			return err
 		}
+		rule = started
 	}
 	var runs []storage.AlertCandidateRun
 	if rule.ReportStartAt != nil {
-		runs, err = e.store.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: rule.ID, Limit: alertRunsPerPass})
+		runs, err = e.store.SelectAlertRuns(ctx, storage.SelectAlertRunsParams{RuleID: lease.ruleID, Limit: alertRunsPerPass})
 		if err != nil {
 			return err
 		}
 	}
 	if len(runs) == 0 {
 		summary.NoCandidate++
-		_, err := e.touchRule(ctx, rule, now, nil)
+		_, err := e.touchRule(ctx, rule, lease, now, nil)
 		return err
 	}
 	for _, run := range runs {
-		next, err := e.evaluateRun(ctx, rule, run, now, summary)
+		renewedAt := e.now().UTC()
+		owned, err := e.store.ExtendAlertRuleLease(ctx, lease.ruleID, lease.token, renewedAt, renewedAt.Add(alertRuleLease))
+		if err != nil || !owned {
+			// Another evaluator took over an expired lease; leave the rule
+			// to it.
+			return err
+		}
+		next, err := e.evaluateRun(ctx, rule, lease, run, renewedAt, summary)
 		if err != nil || next == nil {
 			// A failed run stays unscored and is retried on the next pass;
-			// nil means the rule changed while it was being evaluated.
+			// nil means the rule changed or the lease was lost meanwhile.
 			return err
 		}
 		rule = *next
@@ -148,6 +170,7 @@ func (e *AlertEvaluator) evaluateRule(
 func (e *AlertEvaluator) evaluateRun(
 	ctx context.Context,
 	rule storage.AlertRule,
+	lease alertRuleLeaseHolder,
 	run storage.AlertCandidateRun,
 	now time.Time,
 	summary *AlertEvaluationSummary,
@@ -157,7 +180,7 @@ func (e *AlertEvaluator) evaluateRun(
 		// A newer run already set the rule's state; this outcome is out of
 		// date, so record the run without changing the rule.
 		summary.Late++
-		touch, err := e.touchRule(ctx, rule, now, scored)
+		touch, err := e.touchRule(ctx, rule, lease, now, scored)
 		if err != nil || !touch.Touched {
 			return nil, err
 		}
@@ -182,17 +205,17 @@ func (e *AlertEvaluator) evaluateRun(
 	open := rule.State == storage.AlertRuleStateOpen
 	switch {
 	case alertReport.Status == CIReportStatusFailure && !open:
-		return e.transitionRule(ctx, rule, run, alertReport, storage.AlertRuleStateOpen,
+		return e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateOpen,
 			storage.AlertEventKindOpened, now, summary)
 	case alertReport.Status == CIReportStatusSuccess && open:
-		return e.transitionRule(ctx, rule, run, alertReport, storage.AlertRuleStateInactive,
+		return e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateInactive,
 			storage.AlertEventKindResolved, now, summary)
 	case alertReport.Status == CIReportStatusFailure || alertReport.Status == CIReportStatusSuccess:
 		summary.Unchanged++
 	default:
 		summary.Skipped++
 	}
-	touch, err := e.touchRule(ctx, rule, now, scored)
+	touch, err := e.touchRule(ctx, rule, lease, now, scored)
 	if err != nil || !touch.Touched {
 		return nil, err
 	}
@@ -247,6 +270,7 @@ func automatedAlertReport(report *CIReport) *CIReport {
 func (e *AlertEvaluator) transitionRule(
 	ctx context.Context,
 	rule storage.AlertRule,
+	lease alertRuleLeaseHolder,
 	run storage.AlertCandidateRun,
 	report *CIReport,
 	toState string,
@@ -276,6 +300,7 @@ func (e *AlertEvaluator) transitionRule(
 		Summary:      eventSummary,
 		EvaluatedAt:  now,
 		ScoredRun:    &storage.ScoredAlertRun{RunID: run.RunID, FinalizedAt: run.FinalizedAt},
+		LeaseToken:   &lease.token,
 	})
 	if err != nil {
 		return nil, err
@@ -298,6 +323,7 @@ func (e *AlertEvaluator) transitionRule(
 func (e *AlertEvaluator) touchRule(
 	ctx context.Context,
 	rule storage.AlertRule,
+	lease alertRuleLeaseHolder,
 	now time.Time,
 	scored *storage.ScoredAlertRun,
 ) (storage.AlertRuleTouch, error) {
@@ -311,5 +337,6 @@ func (e *AlertEvaluator) touchRule(
 		RunReason:   rule.RunReason,
 		EvaluatedAt: now,
 		ScoredRun:   scored,
+		LeaseToken:  &lease.token,
 	})
 }

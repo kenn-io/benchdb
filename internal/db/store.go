@@ -339,6 +339,7 @@ func (s *Store) TouchAlertRuleEvaluation(
 			Threshold:   p.Threshold,
 			ThresholdZ:  p.ThresholdZ,
 			RunReason:   p.RunReason,
+			LeaseToken:  p.LeaseToken,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -415,6 +416,7 @@ func (s *Store) TransitionAlertRule(
 			ReportUrl:    p.ReportURL,
 			Summary:      p.Summary,
 			EvaluatedAt:  &p.EvaluatedAt,
+			LeaseToken:   p.LeaseToken,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -459,15 +461,15 @@ func insertScoredRun(ctx context.Context, q *Queries, ruleID string, run *storag
 	})
 }
 
-// ClaimAlertRule takes the rule's evaluation lease until the given time
-// unless another evaluator holds an unexpired one, and returns the rule as it
-// is now. claimed is false when the rule is leased or gone. The lease is a
-// row value, not a held connection.
+// ClaimAlertRule takes the rule's evaluation lease, identified by token, until
+// the given time unless another evaluator holds an unexpired one, and returns
+// the rule as it is now. claimed is false when the rule is leased or gone. The
+// lease is a row value, not a held connection.
 func (s *Store) ClaimAlertRule(
-	ctx context.Context, ruleID string, now, until time.Time,
+	ctx context.Context, ruleID, token string, now, until time.Time,
 ) (rule storage.AlertRule, claimed bool, err error) {
 	row, err := s.q.ClaimAlertRule(ctx, ClaimAlertRuleParams{
-		ID: ruleID, Now: timestamptz(now), LeaseUntil: timestamptz(until),
+		ID: ruleID, LeaseToken: &token, Now: timestamptz(now), LeaseUntil: timestamptz(until),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.AlertRule{}, false, nil
@@ -478,9 +480,20 @@ func (s *Store) ClaimAlertRule(
 	return alertRuleFromRow(row), true, nil
 }
 
-// ReleaseAlertRule ends the rule's evaluation lease.
-func (s *Store) ReleaseAlertRule(ctx context.Context, ruleID string) error {
-	return s.q.ReleaseAlertRule(ctx, ruleID)
+// ExtendAlertRuleLease renews a lease its holder still owns and has not let
+// expire. owned is false when the lease expired or another evaluator took it.
+func (s *Store) ExtendAlertRuleLease(
+	ctx context.Context, ruleID, token string, now, until time.Time,
+) (owned bool, err error) {
+	n, err := s.q.ExtendAlertRuleLease(ctx, ExtendAlertRuleLeaseParams{
+		ID: ruleID, LeaseToken: &token, Now: timestamptz(now), LeaseUntil: timestamptz(until),
+	})
+	return n == 1, err
+}
+
+// ReleaseAlertRule ends the lease if token still holds it.
+func (s *Store) ReleaseAlertRule(ctx context.Context, ruleID, token string) error {
+	return s.q.ReleaseAlertRule(ctx, ReleaseAlertRuleParams{ID: ruleID, EvaluationLeaseToken: &token})
 }
 
 // StartAlertRule starts an unstarted rule at its newest finalized run. A rule
