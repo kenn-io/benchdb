@@ -158,7 +158,11 @@ scores, with its finalize time, in the same transaction as the state change,
 so a run is scored once. A report can become visible after a newer run was
 already scored. Its outcome is out of date, so the evaluator records it as
 `late` without changing the rule. If building a report fails, the run stays
-unscored and is retried on the next pass.
+unscored and is retried on the next pass. So does a run whose report is
+`action_required` only because its commit metadata has not arrived yet
+(`missing_commit_metadata`, `unknown_parent`, or `unknown_fork_point`): it
+counts as `pending` until a commit repair fills the metadata in. After 24
+hours it is recorded as skipped instead. Newer runs are scored meanwhile.
 
 If a rule is disabled, or its repository, baseline, thresholds, or run reason
 change while the evaluator runs, the evaluator leaves that rule alone on that
@@ -174,8 +178,9 @@ when the report URL is absolute. A row regresses only on its lookback check, so
 
 The command prints a summary to stdout. `rules` counts enabled rules and
 `evaluated` counts the runs scored. `opened`, `resolved`, `unchanged`, and
-`skipped` count those runs' outcomes, and `late` counts runs recorded without
-changing a rule. `no_candidate` counts rules with no new
+`skipped` count those runs' outcomes. `late` counts runs recorded without
+changing a rule, and `pending` counts runs left unscored until their commit
+metadata arrives. `no_candidate` counts rules with no new
 finalized run, `busy` counts rules another evaluator was scoring, and `failed`
 counts rules that failed. It prints a warning to stderr for each rule that failed, and exits
 `1` if any rule failed.

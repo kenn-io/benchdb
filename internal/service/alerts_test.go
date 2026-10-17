@@ -745,3 +745,55 @@ func TestAlertEvaluatorStopsWritingOnceItsLeaseIsTakenOver(t *testing.T) {
 
 // alertLeaseForTest mirrors the evaluator's lease length.
 const alertLeaseForTest = 30 * time.Minute
+
+// awaitingMetadata is the report for a run whose parent commit metadata has
+// not arrived yet, so no baseline can be chosen.
+func awaitingMetadata() *service.CIReport {
+	return &service.CIReport{
+		Status: service.CIReportStatusActionRequired,
+		Runs: []service.CIReportRun{{BaselineError: &service.CIReportBaselineError{
+			Code: service.CIReportBaselineErrorUnknownParent,
+		}}},
+	}
+}
+
+func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &fakeAlertReporter{next: awaitingMetadata()}
+	// The evaluator's clock is just after the run was finalized.
+	now := func() time.Time { return time.Now().UTC() }
+	evaluator := service.NewAlertEvaluator(store, reporter, now)
+
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Pending)
+	assert.Empty(t, summary.Events)
+
+	// A commit repair fills in the metadata; the report now finds the
+	// regression.
+	reporter.next = &service.CIReport{Status: service.CIReportStatusFailure}
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Opened, "the repaired run is scored, not lost")
+	require.Len(t, summary.Events, 1)
+	assert.Equal(t, "run-1", *summary.Events[0].RunID)
+}
+
+func TestAlertEvaluatorStopsRetryingARunWhoseMetadataNeverArrives(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &fakeAlertReporter{next: awaitingMetadata()}
+	dayLater := func() time.Time { return time.Now().UTC().Add(25 * time.Hour) }
+	evaluator := service.NewAlertEvaluator(store, reporter, dayLater)
+
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Pending)
+	assert.Equal(t, 1, summary.Skipped, "after a day the run is recorded as skipped")
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.NoCandidate)
+}

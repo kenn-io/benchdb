@@ -734,6 +734,28 @@ func TestAdminAlertsEvaluateRunnerConfigAndJSONOutput(t *testing.T) {
 	assert.Equal(t, 1, summary.Events[0].Summary.Regressions)
 }
 
+func TestAdminAlertsEvaluateReportsWhyWorkWasSkipped(t *testing.T) {
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	t.Setenv("BENCHDB_DB_URL", "postgres://db")
+	runAdminAlertsEvaluate = func(context.Context, adminAlertsEvaluateConfig, io.Writer, io.Writer) (service.AlertEvaluationSummary, error) {
+		return service.AlertEvaluationSummary{Rules: 3, Evaluated: 4, Late: 1, Pending: 2, Busy: 1}, nil
+	}
+	t.Cleanup(func() { runAdminAlertsEvaluate = runAdminAlertsEvaluateReal })
+
+	var jsonOut, stderr bytes.Buffer
+	require.Equal(t, 0, run([]string{"admin", "alerts", "evaluate", "--format", "json"}, &jsonOut, &stderr), stderr.String())
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(jsonOut.Bytes(), &summary))
+	assert.InDelta(t, 1.0, summary["late"], 0)
+	assert.InDelta(t, 2.0, summary["pending"], 0)
+	assert.InDelta(t, 1.0, summary["busy"], 0)
+
+	var textOut bytes.Buffer
+	require.Equal(t, 0, run([]string{"admin", "alerts", "evaluate"}, &textOut, &stderr), stderr.String())
+	assert.Contains(t, textOut.String(), "late=1 pending=2")
+	assert.Contains(t, textOut.String(), "busy=1")
+}
+
 func TestAdminAlertsEvaluatePrintsSummaryWhenRunnerReturnsError(t *testing.T) {
 	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
 	runAdminAlertsEvaluate = func(

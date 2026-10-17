@@ -30,7 +30,8 @@ type AlertEvaluationOptions struct{}
 // AlertEvaluationSummary counts one evaluation pass. Evaluated counts the
 // finalized runs scored; Opened, Resolved, Unchanged, and Skipped are their
 // outcomes. Late counts runs recorded without changing a rule because a newer
-// run was already scored. NoCandidate counts rules with no new finalized run,
+// run was already scored, and Pending counts runs left unscored until their
+// commit metadata arrives. NoCandidate counts rules with no new finalized run,
 // and Busy counts rules another evaluator was already scoring.
 type AlertEvaluationSummary struct {
 	Rules       int                  `json:"rules"`
@@ -40,6 +41,7 @@ type AlertEvaluationSummary struct {
 	Unchanged   int                  `json:"unchanged"`
 	Skipped     int                  `json:"skipped"`
 	Late        int                  `json:"late"`
+	Pending     int                  `json:"pending"`
 	NoCandidate int                  `json:"no_candidate"`
 	Busy        int                  `json:"busy"`
 	Failed      int                  `json:"failed"`
@@ -86,6 +88,27 @@ func (e *AlertEvaluator) Evaluate(ctx context.Context, _ AlertEvaluationOptions)
 // alertRunsPerPass bounds the runs one rule scores in a pass. A longer
 // backlog continues on the next pass.
 const alertRunsPerPass = 50
+
+// alertMetadataRetryWindow is how long a run whose commit metadata is missing
+// stays unscored and is retried. Commit repair usually fills the metadata in;
+// after this the run is recorded as skipped so it does not hold its place.
+const alertMetadataRetryWindow = 24 * time.Hour
+
+// awaitsCommitMetadata reports whether a report could not pick a baseline only
+// because commit metadata has not arrived yet, which a commit repair fixes.
+func awaitsCommitMetadata(report *CIReport) bool {
+	for _, run := range report.Runs {
+		if run.BaselineError == nil {
+			continue
+		}
+		switch run.BaselineError.Code {
+		case CIReportBaselineErrorMissingCommitMetadata, CIReportBaselineErrorUnknownParent,
+			CIReportBaselineErrorUnknownForkPoint:
+			return true
+		}
+	}
+	return false
+}
 
 // alertRuleLease is how long an evaluator holds a rule before it must renew
 // the lease. It renews before each run, and a crashed evaluator's lease
@@ -202,6 +225,13 @@ func (e *AlertEvaluator) evaluateRun(
 	}
 	summary.Evaluated++
 	alertReport := automatedAlertReport(report)
+	if alertReport.Status == CIReportStatusActionRequired && awaitsCommitMetadata(report) &&
+		now.Sub(run.FinalizedAt) < alertMetadataRetryWindow {
+		// Leave the run unscored so the next pass retries it once its
+		// metadata is repaired. Newer runs are still scored meanwhile.
+		summary.Pending++
+		return &rule, nil
+	}
 	open := rule.State == storage.AlertRuleStateOpen
 	switch {
 	case alertReport.Status == CIReportStatusFailure && !open:
