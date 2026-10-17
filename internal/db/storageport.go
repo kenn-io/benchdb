@@ -1,6 +1,7 @@
 package db
 
 import (
+	"github.com/jackc/pgx/v5/pgtype"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -157,7 +158,16 @@ func alertRuleFromRow(r AlertRule) storage.AlertRule {
 		CreatedAt:       r.CreatedAt,
 		UpdatedAt:       r.UpdatedAt,
 		LastEvaluatedAt: r.LastEvaluatedAt,
+		ReportStartAt:   optionalTime(r.ReportStartAt),
 	}
+}
+
+func optionalTime(at pgtype.Timestamptz) *time.Time {
+	if !at.Valid {
+		return nil
+	}
+	t := at.Time.UTC()
+	return &t
 }
 
 func alertRulesFromRows(rows []AlertRule) []storage.AlertRule {
@@ -277,6 +287,7 @@ func alertTransitionFromRow(r TransitionAlertRuleRow) storage.AlertRuleTransitio
 			CreatedAt:       r.RuleCreatedAt,
 			UpdatedAt:       r.RuleUpdatedAt,
 			LastEvaluatedAt: r.RuleLastEvaluatedAt,
+			ReportStartAt:   optionalTime(r.RuleReportStartAt),
 		},
 		Event: &event,
 	}

@@ -127,16 +127,6 @@ ORDER BY br.side_order,br.run_id,br.history_fingerprint,br."timestamp",br.id`,
 		})
 }
 
-func (s *Store) SelectLatestAlertRun(ctx context.Context, p storage.SelectLatestAlertRunParams) (storage.AlertCandidateRun, error) {
-	return readOne(ctx, s, `SELECT br.run_id,c.sha,br."timestamp"
-FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
-WHERE br.commit_repo_url=$1 AND ($2::VARCHAR IS NULL OR br.run_reason=$2)
-ORDER BY br."timestamp" DESC,br.id DESC LIMIT 1`, []any{p.Repository, p.RunReason}, func(row rowScanner) (out storage.AlertCandidateRun, err error) {
-		err = row.Scan(&out.RunID, &out.CommitSHA, &out.LastResultTimestamp)
-		return
-	})
-}
-
 func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error) {
 	return readRows(ctx, s, `SELECT DISTINCT br.run_id FROM benchmark_result br
 LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.commit_repo_url=$1 AND br."timestamp">=$2

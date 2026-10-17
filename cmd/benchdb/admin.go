@@ -613,14 +613,18 @@ func writeAdminAlertsSummary(stdout io.Writer, format string, summary service.Al
 		fmt.Fprintln(stdout, string(out))
 	default:
 		fmt.Fprintf(stdout,
-			"rules=%d evaluated=%d opened=%d resolved=%d unchanged=%d skipped=%d no_candidate=%d failed=%d\n",
+			"rules=%d evaluated=%d opened=%d resolved=%d unchanged=%d skipped=%d late=%d pending=%d "+
+				"no_candidate=%d busy=%d failed=%d\n",
 			summary.Rules,
 			summary.Evaluated,
 			summary.Opened,
 			summary.Resolved,
 			summary.Unchanged,
 			summary.Skipped,
+			summary.Late,
+			summary.Pending,
 			summary.NoCandidate,
+			summary.Busy,
 			summary.Failed,
 		)
 	}
@@ -634,7 +638,10 @@ type adminAlertsSummaryOutput struct {
 	Resolved    int                        `json:"resolved"`
 	Unchanged   int                        `json:"unchanged"`
 	Skipped     int                        `json:"skipped"`
+	Late        int                        `json:"late"`
+	Pending     int                        `json:"pending"`
 	NoCandidate int                        `json:"no_candidate"`
+	Busy        int                        `json:"busy"`
 	Failed      int                        `json:"failed"`
 	Failures    []service.AlertRuleFailure `json:"failures,omitempty"`
 	Events      []adminAlertEventOutput    `json:"events,omitempty"`
@@ -662,7 +669,10 @@ func adminAlertsSummaryOutputOf(summary service.AlertEvaluationSummary) adminAle
 		Resolved:    summary.Resolved,
 		Unchanged:   summary.Unchanged,
 		Skipped:     summary.Skipped,
+		Late:        summary.Late,
+		Pending:     summary.Pending,
 		NoCandidate: summary.NoCandidate,
+		Busy:        summary.Busy,
 		Failed:      summary.Failed,
 		Failures:    summary.Failures,
 	}

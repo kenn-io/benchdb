@@ -260,6 +260,10 @@ type AlertRule struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastEvaluatedAt *time.Time
+	// ReportStartAt is the finalize time of the newest run when the rule
+	// started scoring runs. It is nil before then and after a change to what
+	// the rule evaluates.
+	ReportStartAt *time.Time
 }
 
 // InsertAlertRuleParams is the column payload for creating an alert rule. The
@@ -312,6 +316,16 @@ type TouchAlertRuleEvaluationParams struct {
 	ThresholdZ  float64
 	RunReason   *string
 	EvaluatedAt time.Time
+	// ScoredRun, when set, records that run as scored with the touch.
+	ScoredRun *ScoredAlertRun
+	// LeaseToken, when set, makes the touch apply only for that lease's holder.
+	LeaseToken *string
+}
+
+// ScoredAlertRun is a finalized run a rule has scored.
+type ScoredAlertRun struct {
+	RunID       string
+	FinalizedAt time.Time
 }
 
 type AlertRuleTouch struct {
@@ -369,6 +383,12 @@ type TransitionAlertRuleParams struct {
 	ReportURL    string
 	Summary      []byte
 	EvaluatedAt  time.Time
+	// ScoredRun, when set, records the run that caused the transition as
+	// scored with it.
+	ScoredRun *ScoredAlertRun
+	// LeaseToken, when set, makes the transition apply only for that lease's
+	// holder.
+	LeaseToken *string
 }
 
 type AlertRuleTransition struct {
@@ -382,16 +402,35 @@ type ListAlertEventsParams struct {
 	Limit  int32
 }
 
-type SelectLatestAlertRunParams struct {
-	Repository string
-	RunReason  *string
+// SelectAlertRunsParams selects the finalized runs a started rule has not
+// scored, oldest first and at most Limit.
+type SelectAlertRunsParams struct {
+	RuleID string
+	Limit  int32
 }
 
-// AlertCandidateRun is the newest run selected for an enabled rule.
+// MarkAlertRunPendingParams marks a run as waiting on commit metadata. It
+// applies only for the lease holder while the rule still has the given
+// settings.
+type MarkAlertRunPendingParams struct {
+	RuleID      string
+	RunID       string
+	AttemptedAt time.Time
+	LeaseToken  string
+	Repository  string
+	Baseline    string
+	Threshold   float64
+	ThresholdZ  float64
+	RunReason   *string
+}
+
+// AlertCandidateRun is a finalized run a rule scores. Late means a run
+// finalized after it was already scored, so its outcome is out of date.
 type AlertCandidateRun struct {
-	RunID               string
-	CommitSHA           string
-	LastResultTimestamp time.Time
+	RunID       string
+	CommitSHA   string
+	FinalizedAt time.Time
+	Late        bool
 }
 
 // AlertDelivery is the durable delivery ledger row for one alert event and one
