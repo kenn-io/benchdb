@@ -78,6 +78,7 @@ type alertRuleView struct {
 	Baseline        string     `json:"baseline"`
 	Threshold       float64    `json:"threshold"`
 	ThresholdZ      float64    `json:"threshold_z"`
+	ConfirmRuns     int        `json:"confirm_runs" doc:"Consecutive scored runs a benchmark must regress in before the rule opens."`
 	RunReason       *string    `json:"run_reason,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	State           string     `json:"state"`
@@ -106,8 +107,10 @@ type alertRuleBody struct {
 	Baseline   string   `json:"baseline,omitempty"`
 	Threshold  *float64 `json:"threshold,omitempty"`
 	ThresholdZ *float64 `json:"threshold_z,omitempty"`
-	RunReason  *string  `json:"run_reason,omitempty"`
-	Enabled    *bool    `json:"enabled,omitempty"`
+	// ConfirmRuns defaults to 2 and must be between 1 and 10.
+	ConfirmRuns *int    `json:"confirm_runs,omitempty" minimum:"1" maximum:"10" doc:"Consecutive scored runs a benchmark must regress in before the rule opens. Defaults to 2."`
+	RunReason   *string `json:"run_reason,omitempty"`
+	Enabled     *bool   `json:"enabled,omitempty"`
 }
 
 type createAlertRuleInput struct {
@@ -133,7 +136,7 @@ func (h *AlertHandler) create(ctx context.Context, in *createAlertRuleInput) (*a
 	rule, err := h.store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: p.UserID, Name: body.Name, Repository: body.Repository, Baseline: body.Baseline,
 		Threshold: body.Threshold, ThresholdZ: body.ThresholdZ, RunReason: body.RunReason,
-		Enabled: body.Enabled, CreatedAt: now,
+		Enabled: body.Enabled, CreatedAt: now, ConfirmRuns: body.ConfirmRuns,
 	})
 	if err != nil {
 		return nil, err
@@ -207,6 +210,7 @@ func (h *AlertHandler) update(ctx context.Context, in *updateAlertRuleInput) (*a
 		ID: in.ID, UserID: p.UserID, Name: body.Name, Repository: body.Repository,
 		Baseline: body.Baseline, Threshold: body.Threshold, ThresholdZ: body.ThresholdZ,
 		RunReason: body.RunReason, Enabled: body.Enabled, UpdatedAt: time.Now().UTC(),
+		ConfirmRuns:     body.ConfirmRuns,
 		ResetEvaluation: service.AlertRuleEvaluationChanged(existing, body),
 	})
 	if err != nil {
@@ -291,7 +295,7 @@ func (h *AlertHandler) ownedRuleForPrincipal(ctx context.Context, p auth.Princip
 func validateAlertRuleBody(in alertRuleBody) (service.AlertRuleConfig, error) {
 	cfg, err := service.NormalizeAlertRule(service.AlertRuleSpec{
 		Name: in.Name, Repository: in.Repository, Baseline: in.Baseline, Threshold: in.Threshold,
-		ThresholdZ: in.ThresholdZ, RunReason: in.RunReason, Enabled: in.Enabled,
+		ThresholdZ: in.ThresholdZ, ConfirmRuns: in.ConfirmRuns, RunReason: in.RunReason, Enabled: in.Enabled,
 	})
 	if ve, ok := errors.AsType[*service.ValidationError](err); ok {
 		return service.AlertRuleConfig{}, huma.Error422UnprocessableEntity(ve.Message)
@@ -302,7 +306,7 @@ func validateAlertRuleBody(in alertRuleBody) (service.AlertRuleConfig, error) {
 func alertRuleViewOf(r storage.AlertRule) alertRuleView {
 	return alertRuleView{
 		ID: r.ID, UserID: r.UserID, Name: r.Name, Repository: r.Repository,
-		Baseline: r.Baseline, Threshold: r.Threshold, ThresholdZ: r.ThresholdZ,
+		Baseline: r.Baseline, Threshold: r.Threshold, ThresholdZ: r.ThresholdZ, ConfirmRuns: r.ConfirmRuns,
 		RunReason: r.RunReason, Enabled: r.Enabled, State: r.State,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastEvaluatedAt: r.LastEvaluatedAt,
 	}

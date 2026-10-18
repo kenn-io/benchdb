@@ -264,35 +264,43 @@ type AlertRule struct {
 	// started scoring runs. It is nil before then and after a change to what
 	// the rule evaluates.
 	ReportStartAt *time.Time
+	// ConfirmRuns is how many consecutive scored runs a benchmark must
+	// regress in before the rule opens.
+	ConfirmRuns int
+	// RegressionStreaks maps each benchmark series that regressed in the
+	// latest scored run to how many scored runs in a row it has regressed.
+	RegressionStreaks map[string]int
 }
 
 // InsertAlertRuleParams is the column payload for creating an alert rule. The
 // data layer generates ID; State starts inactive and LastEvaluatedAt starts nil.
 type InsertAlertRuleParams struct {
-	UserID     string
-	Name       string
-	Repository string
-	Baseline   string
-	Threshold  float64
-	ThresholdZ float64
-	RunReason  *string
-	Enabled    bool
-	CreatedAt  time.Time
+	UserID      string
+	Name        string
+	Repository  string
+	Baseline    string
+	Threshold   float64
+	ThresholdZ  float64
+	RunReason   *string
+	Enabled     bool
+	CreatedAt   time.Time
+	ConfirmRuns int
 }
 
 // UpdateAlertRuleParams replaces the editable fields of a user-owned rule.
 // Missing or wrong-owner rows map to ErrNotFound.
 type UpdateAlertRuleParams struct {
-	ID         string
-	UserID     string
-	Name       string
-	Repository string
-	Baseline   string
-	Threshold  float64
-	ThresholdZ float64
-	RunReason  *string
-	Enabled    bool
-	UpdatedAt  time.Time
+	ID          string
+	UserID      string
+	Name        string
+	Repository  string
+	Baseline    string
+	Threshold   float64
+	ThresholdZ  float64
+	RunReason   *string
+	Enabled     bool
+	UpdatedAt   time.Time
+	ConfirmRuns int
 	// ResetEvaluation clears stale state when the selector or thresholds change.
 	ResetEvaluation bool
 }
@@ -320,6 +328,10 @@ type TouchAlertRuleEvaluationParams struct {
 	ScoredRun *ScoredAlertRun
 	// LeaseToken, when set, makes the touch apply only for that lease's holder.
 	LeaseToken *string
+	// ConfirmRuns is part of the snapshot the touch requires.
+	ConfirmRuns int
+	// RegressionStreaks, when non-nil, replaces the rule's streaks.
+	RegressionStreaks map[string]int
 }
 
 // ScoredAlertRun is a finalized run a rule has scored.
@@ -389,6 +401,10 @@ type TransitionAlertRuleParams struct {
 	// LeaseToken, when set, makes the transition apply only for that lease's
 	// holder.
 	LeaseToken *string
+	// ConfirmRuns is part of the snapshot the transition requires.
+	ConfirmRuns int
+	// RegressionStreaks replaces the rule's streaks.
+	RegressionStreaks map[string]int
 }
 
 type AlertRuleTransition struct {
@@ -422,6 +438,7 @@ type MarkAlertRunPendingParams struct {
 	Threshold   float64
 	ThresholdZ  float64
 	RunReason   *string
+	ConfirmRuns int
 }
 
 // AlertCandidateRun is a finalized run a rule scores. Late means a run

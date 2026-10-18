@@ -30,8 +30,10 @@ type AlertEvaluationOptions struct{}
 
 // AlertEvaluationSummary counts one evaluation pass. Evaluated counts the
 // finalized runs scored; Opened, Resolved, Unchanged, and Skipped are their
-// outcomes. Late counts runs recorded without changing a rule because a newer
-// run was already scored, and Pending counts runs left unscored until their
+// outcomes. Unconfirmed counts regressed runs that did not open a rule because
+// no benchmark had regressed in enough consecutive runs yet. Late counts runs
+// recorded without changing a rule because a newer run was already scored, and
+// Pending counts runs left unscored until their
 // commit metadata arrives. NoCandidate counts rules with no new finalized run,
 // and Busy counts rules another evaluator was already scoring.
 type AlertEvaluationSummary struct {
@@ -42,6 +44,7 @@ type AlertEvaluationSummary struct {
 	Unchanged   int                  `json:"unchanged"`
 	Skipped     int                  `json:"skipped"`
 	Late        int                  `json:"late"`
+	Unconfirmed int                  `json:"unconfirmed"`
 	Pending     int                  `json:"pending"`
 	NoCandidate int                  `json:"no_candidate"`
 	Busy        int                  `json:"busy"`
@@ -168,7 +171,7 @@ func (e *AlertEvaluator) evaluateRule(
 	}
 	if len(runs) == 0 {
 		summary.NoCandidate++
-		_, err := e.touchRule(ctx, rule, lease, now, nil)
+		_, err := e.touchRule(ctx, rule, lease, now, nil, nil)
 		return err
 	}
 	// Selection retries runs waiting on metadata after newer runs, so a run
@@ -221,7 +224,7 @@ func (e *AlertEvaluator) evaluateRun(
 		// A newer run already set the rule's state; this outcome is out of
 		// date, so record the run without changing the rule.
 		summary.Late++
-		return e.recordRun(ctx, rule, lease, now, scored)
+		return e.recordRun(ctx, rule, lease, now, scored, nil)
 	}
 	report, err := e.reporter.Report(ctx, CIReportQuery{
 		Repository: rule.Repository,
@@ -246,7 +249,7 @@ func (e *AlertEvaluator) evaluateRun(
 		marked, err := e.store.MarkAlertRunPending(ctx, storage.MarkAlertRunPendingParams{
 			RuleID: rule.ID, RunID: run.RunID, AttemptedAt: now, LeaseToken: lease.token,
 			Repository: rule.Repository, Baseline: rule.Baseline, Threshold: rule.Threshold,
-			ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
+			ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason, ConfirmRuns: rule.ConfirmRuns,
 		})
 		if err != nil || !marked {
 			// The lease was lost or the rule changed; leave it alone.
@@ -256,28 +259,71 @@ func (e *AlertEvaluator) evaluateRun(
 		return &rule, false, nil
 	}
 	open := rule.State == storage.AlertRuleStateOpen
-	switch {
-	case alertReport.Status == CIReportStatusFailure && !open:
-		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateOpen,
-			storage.AlertEventKindOpened, now, summary)
-		return next, next != nil, err
-	case alertReport.Status == CIReportStatusSuccess && open:
-		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, storage.AlertRuleStateInactive,
-			storage.AlertEventKindResolved, now, summary)
-		return next, next != nil, err
-	case alertReport.Status == CIReportStatusFailure || alertReport.Status == CIReportStatusSuccess:
+	switch alertReport.Status {
+	case CIReportStatusFailure:
+		streaks := advanceRegressionStreaks(rule.RegressionStreaks, alertReport)
+		if confirmed := confirmedRegressions(streaks, rule.ConfirmRuns); !open && len(confirmed) > 0 {
+			next, err := e.transitionRule(ctx, rule, lease, run, alertReport, confirmed, streaks,
+				storage.AlertRuleStateOpen, storage.AlertEventKindOpened, now, summary)
+			return next, next != nil, err
+		}
+		if open {
+			summary.Unchanged++
+		} else {
+			// Regressed, but no benchmark has done so in enough runs in a row.
+			summary.Unconfirmed++
+		}
+		return e.recordRun(ctx, rule, lease, now, scored, streaks)
+	case CIReportStatusSuccess:
+		cleared := map[string]int{}
+		if open {
+			next, err := e.transitionRule(ctx, rule, lease, run, alertReport, nil, cleared,
+				storage.AlertRuleStateInactive, storage.AlertEventKindResolved, now, summary)
+			return next, next != nil, err
+		}
 		summary.Unchanged++
+		return e.recordRun(ctx, rule, lease, now, scored, cleared)
 	default:
+		// No usable analysis: say nothing about the streaks.
 		summary.Skipped++
+		return e.recordRun(ctx, rule, lease, now, scored, nil)
 	}
-	return e.recordRun(ctx, rule, lease, now, scored)
 }
 
-// recordRun records a run as scored without changing the rule's state.
+// advanceRegressionStreaks extends the streak of every benchmark series that
+// regressed in this run and drops the rest: a series that did not regress
+// this run starts over.
+func advanceRegressionStreaks(previous map[string]int, report *CIReport) map[string]int {
+	next := map[string]int{}
+	for _, run := range report.Runs {
+		for _, comparison := range run.Comparisons {
+			if comparison.Status == CIReportRowStatusRegressed {
+				next[comparison.HistoryFingerprint] = previous[comparison.HistoryFingerprint] + 1
+			}
+		}
+	}
+	return next
+}
+
+// confirmedRegressions are the series that have regressed in at least
+// confirmRuns consecutive scored runs.
+func confirmedRegressions(streaks map[string]int, confirmRuns int) map[string]bool {
+	confirmed := map[string]bool{}
+	for fingerprint, streak := range streaks {
+		if streak >= confirmRuns {
+			confirmed[fingerprint] = true
+		}
+	}
+	return confirmed
+}
+
+// recordRun records a run as scored without changing the rule's state. Non-nil
+// streaks replace the rule's.
 func (e *AlertEvaluator) recordRun(
-	ctx context.Context, rule storage.AlertRule, lease alertRuleLeaseHolder, now time.Time, scored *storage.ScoredAlertRun,
+	ctx context.Context, rule storage.AlertRule, lease alertRuleLeaseHolder, now time.Time,
+	scored *storage.ScoredAlertRun, streaks map[string]int,
 ) (*storage.AlertRule, bool, error) {
-	touch, err := e.touchRule(ctx, rule, lease, now, scored)
+	touch, err := e.touchRule(ctx, rule, lease, now, scored, streaks)
 	if err != nil || !touch.Touched {
 		return nil, false, err
 	}
@@ -335,34 +381,38 @@ func (e *AlertEvaluator) transitionRule(
 	lease alertRuleLeaseHolder,
 	run storage.AlertCandidateRun,
 	report *CIReport,
+	confirmed map[string]bool,
+	streaks map[string]int,
 	toState string,
 	kind string,
 	now time.Time,
 	summary *AlertEvaluationSummary,
 ) (*storage.AlertRule, error) {
-	eventSummary, err := json.Marshal(newAlertEventSummary(report))
+	eventSummary, err := json.Marshal(newAlertEventSummary(report, confirmed))
 	if err != nil {
 		return nil, err
 	}
 	transition, err := e.store.TransitionAlertRule(ctx, storage.TransitionAlertRuleParams{
-		ID:           rule.ID,
-		FromState:    rule.State,
-		ToState:      toState,
-		Repository:   rule.Repository,
-		Baseline:     rule.Baseline,
-		Threshold:    rule.Threshold,
-		ThresholdZ:   rule.ThresholdZ,
-		RunReason:    rule.RunReason,
-		EventKind:    kind,
-		Status:       string(report.Status),
-		StatusReason: report.StatusReason,
-		RunID:        &run.RunID,
-		CommitSHA:    &run.CommitSHA,
-		ReportURL:    report.ReportURL,
-		Summary:      eventSummary,
-		EvaluatedAt:  now,
-		ScoredRun:    &storage.ScoredAlertRun{RunID: run.RunID, FinalizedAt: run.FinalizedAt},
-		LeaseToken:   &lease.token,
+		ID:                rule.ID,
+		FromState:         rule.State,
+		ToState:           toState,
+		Repository:        rule.Repository,
+		Baseline:          rule.Baseline,
+		Threshold:         rule.Threshold,
+		ThresholdZ:        rule.ThresholdZ,
+		RunReason:         rule.RunReason,
+		EventKind:         kind,
+		Status:            string(report.Status),
+		StatusReason:      report.StatusReason,
+		RunID:             &run.RunID,
+		CommitSHA:         &run.CommitSHA,
+		ReportURL:         report.ReportURL,
+		Summary:           eventSummary,
+		EvaluatedAt:       now,
+		ScoredRun:         &storage.ScoredAlertRun{RunID: run.RunID, FinalizedAt: run.FinalizedAt},
+		LeaseToken:        &lease.token,
+		ConfirmRuns:       rule.ConfirmRuns,
+		RegressionStreaks: streaks,
 	})
 	if err != nil {
 		return nil, err
@@ -388,17 +438,20 @@ func (e *AlertEvaluator) touchRule(
 	lease alertRuleLeaseHolder,
 	now time.Time,
 	scored *storage.ScoredAlertRun,
+	streaks map[string]int,
 ) (storage.AlertRuleTouch, error) {
 	return e.store.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
-		ID:          rule.ID,
-		State:       rule.State,
-		Repository:  rule.Repository,
-		Baseline:    rule.Baseline,
-		Threshold:   rule.Threshold,
-		ThresholdZ:  rule.ThresholdZ,
-		RunReason:   rule.RunReason,
-		EvaluatedAt: now,
-		ScoredRun:   scored,
-		LeaseToken:  &lease.token,
+		ID:                rule.ID,
+		State:             rule.State,
+		Repository:        rule.Repository,
+		Baseline:          rule.Baseline,
+		Threshold:         rule.Threshold,
+		ThresholdZ:        rule.ThresholdZ,
+		RunReason:         rule.RunReason,
+		EvaluatedAt:       now,
+		ScoredRun:         scored,
+		LeaseToken:        &lease.token,
+		ConfirmRuns:       rule.ConfirmRuns,
+		RegressionStreaks: streaks,
 	})
 }

@@ -151,7 +151,7 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 	rule, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Seeded PR regression", Repository: targets.Repository,
 		Baseline: string(service.CIReportBaselineForkPoint), Threshold: 5, ThresholdZ: 5,
-		RunReason: &targets.CIRegressionRunReason, Enabled: true, CreatedAt: dayForSmokeTest(),
+		RunReason: &targets.CIRegressionRunReason, Enabled: true, CreatedAt: dayForSmokeTest(), ConfirmRuns: 1,
 	})
 	require.NoError(t, err)
 	// Alert rules score finalized runs, so finalize the pull request's run the

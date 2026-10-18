@@ -75,6 +75,12 @@ export interface AlertRuleBody {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
   baseline?: string;
+  /**
+     * Consecutive scored runs a benchmark must regress in before the rule opens. Defaults to 2.
+     * @minimum 1
+     * @maximum 10
+     */
+  confirm_runs?: number;
   enabled?: boolean;
   name: string;
   repository: string;
@@ -87,6 +93,8 @@ export interface AlertRuleView {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
   baseline: string;
+  /** Consecutive scored runs a benchmark must regress in before the rule opens. */
+  confirm_runs: number;
   created_at: string;
   enabled: boolean;
   id: string;

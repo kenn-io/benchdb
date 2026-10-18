@@ -39,6 +39,7 @@
   let ruleRunReason = $state("");
   let ruleThreshold = $state("5");
   let ruleThresholdZ = $state("2");
+  let ruleConfirmRuns = $state("2");
   let ruleEnabled = $state(true);
   let eventRequestToken = 0;
 
@@ -174,6 +175,7 @@
       enabled: boolean;
       threshold?: number;
       threshold_z?: number;
+      confirm_runs?: number;
       run_reason?: string;
     } = {
       name,
@@ -186,6 +188,8 @@
     const runReason = ruleRunReason.trim();
     if (threshold !== null) body.threshold = threshold;
     if (thresholdZ !== null) body.threshold_z = thresholdZ;
+    const confirmRuns = wholeNumber(ruleConfirmRuns);
+    if (confirmRuns !== null) body.confirm_runs = confirmRuns;
     if (runReason !== "") body.run_reason = runReason;
 
     let res;
@@ -207,6 +211,7 @@
     ruleBaseline = "fork_point";
     ruleThreshold = "5";
     ruleThresholdZ = "2";
+    ruleConfirmRuns = "2";
     ruleEnabled = true;
   }
 
@@ -308,6 +313,13 @@
     if (text === "") return null;
     const n = Number(text);
     return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function wholeNumber(raw: string | number): number | null {
+    const text = String(raw).trim();
+    if (text === "") return null;
+    const n = Number(text);
+    return Number.isInteger(n) && n > 0 ? n : null;
   }
 
   function dateText(value: string | undefined | null): string {
@@ -475,6 +487,10 @@
           <span>Z-score threshold</span>
           <input type="number" min="0" step="0.1" bind:value={ruleThresholdZ} />
         </label>
+        <label>
+          <span>Confirm runs</span>
+          <input type="number" min="1" max="10" step="1" bind:value={ruleConfirmRuns} />
+        </label>
         <label class="check-field">
           <input type="checkbox" bind:checked={ruleEnabled} />
           <span>Enabled</span>
@@ -497,6 +513,7 @@
                 <th>Repository</th>
                 <th>Baseline</th>
                 <th>Thresholds</th>
+                <th>Confirm</th>
                 <th>State</th>
                 <th>Evaluated</th>
                 <th><span class="sr-only">Actions</span></th>
@@ -514,6 +531,7 @@
                   <td class="repo-cell">{rule.repository}</td>
                   <td><code>{rule.baseline}</code></td>
                   <td>{rule.threshold}% / {rule.threshold_z}z</td>
+                  <td>{rule.confirm_runs} {rule.confirm_runs === 1 ? "run" : "runs"}</td>
                   <td>
                     <span class:status-open={rule.state === "open"} class:status-disabled={!rule.enabled}>
                       {rule.enabled ? rule.state : "disabled"}

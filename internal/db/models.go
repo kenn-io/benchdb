@@ -64,6 +64,8 @@ type AlertRule struct {
 	ReportStartAt        pgtype.Timestamptz
 	EvaluationLeaseUntil pgtype.Timestamptz
 	EvaluationLeaseToken *string
+	ConfirmRuns          int32
+	RegressionStreaks    []byte
 }
 
 type AlertScoredRun struct {

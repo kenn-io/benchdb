@@ -39,18 +39,20 @@ func TestAlertRuleAPIUserOwnedCRUDAndEvents(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
 	var created struct {
-		ID         string
-		UserID     string `json:"user_id"`
-		Name       string
-		Repository string
-		Baseline   string
-		Threshold  float64
-		ThresholdZ float64 `json:"threshold_z"`
-		RunReason  *string `json:"run_reason"`
-		Enabled    bool
-		State      string
+		ID          string
+		UserID      string `json:"user_id"`
+		Name        string
+		Repository  string
+		Baseline    string
+		Threshold   float64
+		ThresholdZ  float64 `json:"threshold_z"`
+		ConfirmRuns int     `json:"confirm_runs"`
+		RunReason   *string `json:"run_reason"`
+		Enabled     bool
+		State       string
 	}
 	decode(t, resp.Body.Bytes(), &created)
+	assert.Equal(t, service.AlertConfirmRunsDefault, created.ConfirmRuns, "a rule waits for a repeat by default")
 	require.NotEmpty(t, created.ID)
 	assert.Equal(t, u1, created.UserID)
 	assert.Equal(t, "https://github.com/apache/arrow", created.Repository)
@@ -147,6 +149,8 @@ func TestAlertRuleAPIRequiresUserPrincipalAndValidInput(t *testing.T) {
 		{"name": "x", "repository": "https://github.com/org/repo", "baseline": "bogus"},
 		{"name": "x", "repository": "https://github.com/org/repo", "threshold": 0},
 		{"name": "x", "repository": "https://github.com/org/repo", "threshold_z": -1},
+		{"name": "x", "repository": "https://github.com/org/repo", "confirm_runs": 0},
+		{"name": "x", "repository": "https://github.com/org/repo", "confirm_runs": 11},
 	} {
 		resp = tapi.Post("/api/alert-rules", s, body)
 		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, "body %#v", body)

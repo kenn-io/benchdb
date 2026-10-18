@@ -23,7 +23,7 @@ func TestSyncAlertRulesMatchesOneOwnersRulesToTheList(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: other, Name: "app main", Repository: "https://github.com/example/app",
-		Baseline: "parent", Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: time.Now().UTC(),
+		Baseline: "parent", Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: time.Now().UTC(), ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
@@ -119,7 +119,7 @@ func TestSyncAlertRulesKeepsTheOldestOfSameNamedRules(t *testing.T) {
 		rule, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 			UserID: owner, Name: "app main", Repository: "https://github.com/example/app",
 			Baseline: "fork_point", Threshold: 5, ThresholdZ: 2, Enabled: true,
-			CreatedAt: start.Add(time.Duration(2-i) * time.Hour),
+			CreatedAt: start.Add(time.Duration(2-i) * time.Hour), ConfirmRuns: 2,
 		})
 		require.NoError(t, err)
 		oldest = rule.ID
@@ -234,4 +234,40 @@ func syncRules(
 		return err
 	})
 	return synced, err
+}
+
+func TestSyncAlertRulesResetsARuleWhoseConfirmRunsChanged(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	owner, err := store.GetOrCreateUserByEmail(ctx, "alerts@example.com", "Alerts", "!")
+	require.NoError(t, err)
+	now := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+	rules := []service.AlertRuleSpec{{Name: "app main", Repository: "https://github.com/example/app"}}
+	_, err = syncRules(ctx, store, owner, rules, now)
+	require.NoError(t, err)
+	created := ownerRules(t, store, owner)["app main"]
+	assert.Equal(t, service.AlertConfirmRunsDefault, created.ConfirmRuns)
+	_, err = store.UpdateAlertRuleEvaluation(ctx, storage.UpdateAlertRuleEvaluationParams{
+		ID: created.ID, State: storage.AlertRuleStateOpen, EvaluatedAt: now,
+	})
+	require.NoError(t, err)
+
+	three := 3
+	rules[0].ConfirmRuns = &three
+	synced, err := syncRules(ctx, store, owner, rules, now)
+
+	require.NoError(t, err)
+	assert.Equal(t, service.AlertRulesSynced{Updated: 1}, synced)
+	updated := ownerRules(t, store, owner)["app main"]
+	assert.Equal(t, 3, updated.ConfirmRuns)
+	assert.Equal(t, storage.AlertRuleStateInactive, updated.State, "a new confirm_runs evaluates differently")
+}
+
+func TestNormalizeAlertRuleBoundsConfirmRuns(t *testing.T) {
+	for _, n := range []int{0, 11} {
+		_, err := service.NormalizeAlertRule(service.AlertRuleSpec{
+			Name: "x", Repository: "https://github.com/example/app", ConfirmRuns: &n,
+		})
+		var ve *service.ValidationError
+		require.ErrorAs(t, err, &ve, "confirm_runs %d", n)
+	}
 }

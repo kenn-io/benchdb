@@ -27,7 +27,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1,
 	})
 	reporter := &fakeAlertReporter{}
 	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
@@ -35,8 +35,8 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "regressions detected",
-		ReportURL: "/ci/report?run_ids=run-1",
-		Summary:   service.CIReportSummary{Regressions: 2, Compared: 4},
+		ReportURL: "/ci/report?run_ids=run-1", Runs: regressedReport("bench").Runs,
+		Summary: service.CIReportSummary{Regressions: 2, Compared: 4},
 	}
 	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
@@ -50,14 +50,14 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	require.Len(t, store.events, 1)
 	assert.Equal(t, storage.AlertEventKindOpened, store.events[0].Kind)
 	assert.Equal(t, string(service.CIReportStatusFailure), store.events[0].Status)
-	assert.JSONEq(t, `{"runs":0,"missing_runs":0,"contender_results":0,"compared":4,"analyzed":0,"regressions":2,"improvements":0,"benchmark_errors":0,"missing_baseline":0,"not_comparable":0}`, string(store.events[0].Summary))
+	assert.JSONEq(t, `{"runs":0,"missing_runs":0,"contender_results":0,"compared":4,"analyzed":0,"regressions":2,"improvements":0,"benchmark_errors":0,"missing_baseline":0,"not_comparable":0,"confirmed":1}`, string(store.events[0].Summary))
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State)
 
 	store.finalizeRun("run-2", "sha-2")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "still regressed",
-		ReportURL: "/ci/report?run_ids=run-1",
-		Summary:   service.CIReportSummary{Regressions: 1, Compared: 4},
+		ReportURL: "/ci/report?run_ids=run-1", Runs: regressedReport("bench").Runs,
+		Summary: service.CIReportSummary{Regressions: 1, Compared: 4},
 	}
 	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 	require.NoError(t, err)
@@ -92,8 +92,8 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 func TestAlertEvaluatorReportsRuleFailuresAndContinues(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeAlertStore(
-		storage.AlertRule{ID: "no-run", Repository: "https://github.com/no/run", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive},
-		storage.AlertRule{ID: "bad-report", Repository: "https://github.com/org/repo", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive},
+		storage.AlertRule{ID: "no-run", Repository: "https://github.com/no/run", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1},
+		storage.AlertRule{ID: "bad-report", Repository: "https://github.com/org/repo", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1},
 	)
 	store.missingRunFor["no-run"] = true
 	reporter := &fakeAlertReporter{err: errors.New("report boom")}
@@ -113,7 +113,7 @@ func TestAlertEvaluatorIgnoresBoundaryRegressionAndEvaluatesStableRows(t *testin
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1,
 	})
 	reporter := &fakeAlertReporter{next: &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "lookback regression detected",
@@ -139,7 +139,7 @@ func TestAlertEvaluatorSkipsAllBoundaryRowsWithoutResolving(t *testing.T) {
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, State: storage.AlertRuleStateOpen,
+		Enabled: true, State: storage.AlertRuleStateOpen, ConfirmRuns: 1,
 	})
 	reporter := &fakeAlertReporter{next: &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "lookback regression detected",
@@ -385,7 +385,7 @@ func TestAlertEvaluatorRecordsWhatRegressedForDelivery(t *testing.T) {
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1,
 	})
 	improved := lookbackRegression("faster", "s", 0.2, 0.1)
 	improved.Status = service.CIReportRowStatusImproved
@@ -428,7 +428,7 @@ func TestAlertEvaluatorKeepsOnlyTheWorstRegressedRows(t *testing.T) {
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1,
 	})
 	var rows []service.CIReportComparison
 	for i := 1; i <= 8; i++ {
@@ -475,7 +475,7 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: owner, Name: "main", Repository: testRepo, Baseline: string(service.CIReportBaselineParent),
-		Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: t0,
+		Threshold: 5, ThresholdZ: 2, Enabled: true, CreatedAt: t0, ConfirmRuns: 1,
 	})
 	require.NoError(t, err)
 	reporter := service.NewCIReporter(store, "https://benchdb.example")
@@ -526,12 +526,22 @@ func newAlertScenarioFor(
 	t *testing.T, baseline service.CIReportBaseline,
 ) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
 	t.Helper()
+	// Most evaluator tests are about one run's outcome, so they open on one.
+	return newAlertScenarioConfirming(t, baseline, 1)
+}
+
+// newAlertScenarioConfirming is newAlertScenarioFor with a rule that opens
+// after confirmRuns consecutive regressed runs.
+func newAlertScenarioConfirming(
+	t *testing.T, baseline service.CIReportBaseline, confirmRuns int,
+) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
+	t.Helper()
 	_, store, pool, ctx := newIngester(t)
 	ing := service.NewIngester(store, ciCommitProvider{})
 	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
 		Baseline: string(baseline), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, CreatedAt: fixedAlertNow(),
+		Enabled: true, CreatedAt: fixedAlertNow(), ConfirmRuns: confirmRuns,
 	})
 	require.NoError(t, err)
 	finalize := func(runID string) {
@@ -545,7 +555,7 @@ func newAlertScenarioFor(
 func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
 	ctx, store, finalize := newAlertScenario(t)
 	stable := &service.CIReport{Status: service.CIReportStatusSuccess}
-	regressed := &service.CIReport{Status: service.CIReportStatusFailure}
+	regressed := regressedReport("bench")
 	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
 		"run-1": stable, "run-2": regressed, "run-3": stable, "run-4": stable,
 	}}
@@ -616,12 +626,12 @@ func (r *blockingAlertReporter) Report(context.Context, service.CIReportQuery) (
 		if r.first != nil {
 			return r.first, nil
 		}
-		return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+		return regressedReport("bench"), nil
 	}
 	if r.later != "" {
 		return &service.CIReport{Status: r.later}, nil
 	}
-	return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+	return regressedReport("bench"), nil
 }
 
 func TestAlertEvaluatorsDoNotScoreOneRuleAtOnce(t *testing.T) {
@@ -657,7 +667,7 @@ func TestAlertEvaluatorKeepsANewerRegressionOpenWhenAnOlderRunAppearsLate(t *tes
 	ctx, store, pool, finalize := newAlertScenarioWithPool(t)
 	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
 		"first": {Status: service.CIReportStatusSuccess},
-		"newer": {Status: service.CIReportStatusFailure},
+		"newer": regressedReport("bench"),
 		"older": {Status: service.CIReportStatusSuccess},
 	}}
 	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
@@ -698,7 +708,7 @@ func TestAlertEvaluatorRunsOnASingleConnectionPool(t *testing.T) {
 	single, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(single.Close)
-	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusFailure}}
+	reporter := &fakeAlertReporter{next: regressedReport("bench")}
 
 	summary, err := service.NewAlertEvaluator(db.NewStore(single), reporter, fixedAlertNow).
 		Evaluate(ctx, service.AlertEvaluationOptions{})
@@ -712,7 +722,7 @@ func TestAlertEvaluatorReleasesItsLeaseWhenStartingARuleFails(t *testing.T) {
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
-		Enabled: true, State: storage.AlertRuleStateInactive,
+		Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1,
 	})
 	store.startErr = errors.New("database restarting")
 	evaluator := service.NewAlertEvaluator(store, &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusSuccess}}, fixedAlertNow)
@@ -810,7 +820,7 @@ func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
 
 			// A commit repair fills in the metadata; the report now finds the
 			// regression.
-			reporter.next = &service.CIReport{Status: service.CIReportStatusFailure}
+			reporter.next = regressedReport("bench")
 			summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
 
 			require.NoError(t, err)
@@ -826,7 +836,7 @@ func TestAlertEvaluatorScoresNewRunsBeforeRetryingPendingOnes(t *testing.T) {
 	finalize("run-00")
 	reporter := &fakeAlertReporter{next: awaitingMetadata(), byRun: map[string]*service.CIReport{
 		"run-00": {Status: service.CIReportStatusSuccess},
-		"run-51": {Status: service.CIReportStatusFailure},
+		"run-51": regressedReport("bench"),
 	}}
 	now := func() time.Time { return time.Now().UTC() }
 	evaluator := service.NewAlertEvaluator(store, reporter, now)
@@ -863,7 +873,7 @@ func TestAlertEvaluatorTreatsARetryAfterANewerRunInThePassAsLate(t *testing.T) {
 	// run-2 is clean and is scored first in the next pass.
 	finalize("run-2")
 	reporter.byRun = map[string]*service.CIReport{
-		"run-1": {Status: service.CIReportStatusFailure},
+		"run-1": regressedReport("bench"),
 		"run-2": {Status: service.CIReportStatusSuccess},
 	}
 	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
@@ -906,7 +916,7 @@ func TestAlertEvaluatorDoesNotMarkARunPendingAfterLosingTheRule(t *testing.T) {
 			rule := rules[0]
 			_, err = store.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 				ID: rule.ID, UserID: rule.UserID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
-				Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: fixedAlertNow(), ResetEvaluation: true,
+				Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: fixedAlertNow(), ResetEvaluation: true, ConfirmRuns: rule.ConfirmRuns,
 			})
 			require.NoError(t, err)
 		}},
@@ -938,4 +948,92 @@ func TestAlertEvaluatorDoesNotMarkARunPendingAfterLosingTheRule(t *testing.T) {
 			assert.Zero(t, pending, "an evaluator that lost the rule does not mark runs pending")
 		})
 	}
+}
+
+// regressedReport is a failure report in which each named benchmark series
+// regressed, as a real failure report always has at least one regressed row.
+func regressedReport(fingerprints ...string) *service.CIReport {
+	rows := make([]service.CIReportComparison, 0, len(fingerprints))
+	for _, fingerprint := range fingerprints {
+		rows = append(rows, service.CIReportComparison{
+			Status: service.CIReportRowStatusRegressed, Name: fingerprint, HistoryFingerprint: fingerprint,
+		})
+	}
+	return &service.CIReport{
+		Status:  service.CIReportStatusFailure,
+		Summary: service.CIReportSummary{Regressions: len(rows), Compared: len(rows), Analyzed: len(rows)},
+		Runs:    []service.CIReportRun{{Comparisons: rows}},
+	}
+}
+
+// confirmedScenario runs one pass per finalized run against a rule with the
+// default confirm_runs, returning each pass's summary.
+func confirmedScenario(t *testing.T, reports map[string]*service.CIReport, runs ...string) []service.AlertEvaluationSummary {
+	t.Helper()
+	ctx, store, _, finalize := newAlertScenarioConfirming(t, service.CIReportBaselineParent, service.AlertConfirmRunsDefault)
+	evaluator := service.NewAlertEvaluator(store, &fakeAlertReporter{byRun: reports}, fixedAlertNow)
+	summaries := make([]service.AlertEvaluationSummary, 0, len(runs))
+	for _, run := range runs {
+		finalize(run)
+		summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+		require.NoError(t, err)
+		summaries = append(summaries, summary)
+	}
+	return summaries
+}
+
+func TestAlertEvaluatorOpensOnlyWhenABenchmarkRegressesTwiceInARow(t *testing.T) {
+	both := regressedReport("a", "b")
+	for i := range both.Runs[0].Comparisons {
+		row := lookbackRegression(both.Runs[0].Comparisons[i].Name, "s", 1, 2)
+		row.HistoryFingerprint = row.Name
+		both.Runs[0].Comparisons[i] = row
+	}
+	summaries := confirmedScenario(t, map[string]*service.CIReport{
+		"run-1": regressedReport("a"), "run-2": both,
+	}, "run-1", "run-2")
+
+	assert.Equal(t, 1, summaries[0].Unconfirmed, "one regressed run is not enough")
+	assert.Empty(t, summaries[0].Events)
+	assert.Equal(t, 1, summaries[1].Opened, "a's second regression in a row opens the rule")
+	require.Len(t, summaries[1].Events, 1)
+	var event service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(summaries[1].Events[0].Summary, &event))
+	assert.Equal(t, 1, event.Confirmed)
+	require.Len(t, event.Regressed, 1, "b regressed only once, so the alert lists only a")
+	assert.Equal(t, "a", event.Regressed[0].Name)
+}
+
+func TestAlertEvaluatorIgnoresOneRunBlips(t *testing.T) {
+	clean := &service.CIReport{Status: service.CIReportStatusSuccess}
+	for name, tt := range map[string]struct {
+		reports map[string]*service.CIReport
+		runs    []string
+	}{
+		"a blip then a clean run": {
+			reports: map[string]*service.CIReport{"run-1": regressedReport("a"), "run-2": clean, "run-3": regressedReport("a")},
+			runs:    []string{"run-1", "run-2", "run-3"},
+		},
+		"different benchmarks in a row": {
+			reports: map[string]*service.CIReport{"run-1": regressedReport("a"), "run-2": regressedReport("b")},
+			runs:    []string{"run-1", "run-2"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, summary := range confirmedScenario(t, tt.reports, tt.runs...) {
+				assert.Zero(t, summary.Opened)
+				assert.Empty(t, summary.Events)
+			}
+		})
+	}
+}
+
+func TestAlertEvaluatorKeepsAStreakAcrossARunWithNoAnalysis(t *testing.T) {
+	skipped := &service.CIReport{Status: service.CIReportStatusSkipped}
+	summaries := confirmedScenario(t, map[string]*service.CIReport{
+		"run-1": regressedReport("a"), "run-2": skipped, "run-3": regressedReport("a"),
+	}, "run-1", "run-2", "run-3")
+
+	assert.Equal(t, 1, summaries[1].Skipped)
+	assert.Equal(t, 1, summaries[2].Opened, "a skipped run says nothing about the streak")
 }
