@@ -34,7 +34,8 @@ SET
   enabled = $9,
   updated_at = $10,
   state = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN 'inactive' ELSE state END,
-  last_evaluated_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE last_evaluated_at END
+  last_evaluated_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE last_evaluated_at END,
+  report_start_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE report_start_at END
 WHERE id = $1 AND user_id = $2
 RETURNING *;
 
@@ -48,11 +49,13 @@ WHERE id = $1
 RETURNING *;
 
 -- name: TouchAlertRuleEvaluation :one
+-- With a lease token, only that lease's holder can write.
 UPDATE alert_rule
 SET
   last_evaluated_at = sqlc.arg('evaluated_at'),
   updated_at = sqlc.arg('evaluated_at')
 WHERE alert_rule.id = sqlc.arg('id')
+  AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
   AND alert_rule.state = sqlc.arg('state')
   AND alert_rule.enabled = true
   AND alert_rule.repository = sqlc.arg('repository')
@@ -83,6 +86,7 @@ WITH updated_rule AS (
     last_evaluated_at = sqlc.arg('evaluated_at'),
     updated_at = sqlc.arg('evaluated_at')
   WHERE alert_rule.id = sqlc.arg('id')
+    AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
     AND state = sqlc.arg('from_state')
     AND alert_rule.enabled = true
     AND alert_rule.repository = sqlc.arg('repository')
@@ -119,6 +123,7 @@ SELECT
   updated_rule.created_at AS rule_created_at,
   updated_rule.updated_at AS rule_updated_at,
   updated_rule.last_evaluated_at AS rule_last_evaluated_at,
+  updated_rule.report_start_at AS rule_report_start_at,
   inserted_event.id AS event_id,
   inserted_event.rule_id AS event_rule_id,
   inserted_event.kind AS event_kind,
@@ -139,17 +144,117 @@ WHERE rule_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2;
 
--- name: SelectLatestAlertRun :one
+-- name: StartAlertRule :one
+-- Starts a rule at the finalize time of its newest finalized run, before it
+-- scores anything, so history is not replayed and a failed first score is
+-- retried rather than passed over by a newer run. A rule with no finalized
+-- run stays unstarted.
+UPDATE alert_rule r
+SET report_start_at = (
+  SELECT max(cr.evaluated_at)
+  FROM ci_run_report cr
+  WHERE cr.report->>'repository' = r.repository
+    AND cr.report->>'commit_sha' IS NOT NULL
+    AND (r.run_reason IS NULL OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements(cr.report->'runs') AS run
+      WHERE run->>'run_reason' = r.run_reason
+    ))
+)
+WHERE r.id = $1 AND r.report_start_at IS NULL
+RETURNING *;
+
+-- name: SelectAlertRunsToScore :many
+-- Finalized runs a rule has not scored, finalized at or after its start. Runs
+-- never attempted come first, oldest first, then runs retried while their
+-- commit metadata is missing, so retries cannot crowd out newer runs. A run
+-- counts when any of its saved runs has the rule's run reason. The ledger, not a timestamp cursor, decides what is left, so a
+-- report that becomes visible late is still recorded. It is late when a run
+-- ordered after it, by finalize time and then run ID, was already scored, so
+-- its outcome is out of date.
 SELECT
-  br.run_id,
-  c.sha AS commit_sha,
-  br."timestamp" AS last_result_timestamp
-FROM benchmark_result_local br
-JOIN commit c ON c.id = br.commit_id
-WHERE br.commit_repo_url = sqlc.arg('repository')
-  AND (sqlc.narg('run_reason')::text IS NULL OR br.run_reason = sqlc.narg('run_reason'))
-ORDER BY br."timestamp" DESC, br.id DESC
-LIMIT 1;
+  cr.run_id,
+  (cr.report->>'commit_sha')::text AS commit_sha,
+  cr.evaluated_at,
+  coalesce((cr.evaluated_at, cr.run_id COLLATE "C") < (
+    SELECT s.finalized_at, s.run_id COLLATE "C" FROM alert_scored_run s
+    WHERE s.rule_id = r.id
+    ORDER BY s.finalized_at DESC, s.run_id COLLATE "C" DESC
+    LIMIT 1
+  ), false)::boolean AS late
+FROM alert_rule r
+JOIN ci_run_report cr ON cr.report->>'repository' = r.repository
+LEFT JOIN alert_pending_run p ON p.rule_id = r.id AND p.run_id = cr.run_id
+WHERE r.id = sqlc.arg('rule_id')
+  AND r.report_start_at IS NOT NULL
+  AND cr.evaluated_at >= r.report_start_at
+  AND cr.report->>'commit_sha' IS NOT NULL
+  AND (r.run_reason IS NULL OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(cr.report->'runs') AS run
+    WHERE run->>'run_reason' = r.run_reason
+  ))
+  AND NOT EXISTS (
+    SELECT 1 FROM alert_scored_run s WHERE s.rule_id = r.id AND s.run_id = cr.run_id
+  )
+ORDER BY (p.run_id IS NOT NULL), cr.evaluated_at, cr.run_id COLLATE "C"
+LIMIT sqlc.arg('row_limit')::int;
+
+-- name: LockAlertRuleForPending :one
+-- Locks a rule for its lease holder while it still evaluates the same way.
+-- A reset updates the same row before it clears pending marks, so the lock
+-- orders a pending write against it.
+SELECT id FROM alert_rule
+WHERE id = sqlc.arg('id')
+  AND evaluation_lease_token = sqlc.arg('lease_token')
+  AND enabled = true
+  AND repository = sqlc.arg('repository')
+  AND baseline = sqlc.arg('baseline')
+  AND threshold = sqlc.arg('threshold')
+  AND threshold_z = sqlc.arg('threshold_z')
+  AND run_reason IS NOT DISTINCT FROM sqlc.narg('run_reason')
+FOR UPDATE;
+
+-- name: MarkAlertRunPending :exec
+INSERT INTO alert_pending_run (rule_id, run_id, attempted_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (rule_id, run_id) DO UPDATE SET attempted_at = excluded.attempted_at;
+
+-- name: DeleteAlertPendingRun :exec
+DELETE FROM alert_pending_run WHERE rule_id = $1 AND run_id = $2;
+
+-- name: DeleteAlertPendingRuns :exec
+DELETE FROM alert_pending_run WHERE rule_id = $1;
+
+-- name: InsertAlertScoredRun :exec
+INSERT INTO alert_scored_run (rule_id, run_id, finalized_at, scored_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (rule_id, run_id) DO NOTHING;
+
+-- name: ClaimAlertRule :one
+-- Takes a rule's evaluation lease, identified by a token, unless another
+-- evaluator holds an unexpired one, and returns the rule as it is now.
+UPDATE alert_rule
+SET evaluation_lease_until = sqlc.arg('lease_until'), evaluation_lease_token = sqlc.arg('lease_token')
+WHERE id = sqlc.arg('id')
+  AND (evaluation_lease_until IS NULL OR evaluation_lease_until < sqlc.arg('now'))
+RETURNING *;
+
+-- name: ExtendAlertRuleLease :execrows
+-- Renews a lease its holder still owns and has not let expire.
+UPDATE alert_rule
+SET evaluation_lease_until = sqlc.arg('lease_until')
+WHERE id = sqlc.arg('id')
+  AND evaluation_lease_token = sqlc.arg('lease_token')
+  AND evaluation_lease_until >= sqlc.arg('now');
+
+-- name: ReleaseAlertRule :exec
+-- Ends a lease only for its holder, so a holder that lost it cannot end its
+-- successor's.
+UPDATE alert_rule
+SET evaluation_lease_until = NULL, evaluation_lease_token = NULL
+WHERE id = $1 AND evaluation_lease_token = $2;
+
+-- name: DeleteAlertScoredRuns :exec
+DELETE FROM alert_scored_run WHERE rule_id = $1;
 
 -- name: SelectAlertEventsWithoutDelivery :many
 SELECT e.* FROM alert_event e

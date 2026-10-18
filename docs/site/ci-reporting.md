@@ -146,8 +146,13 @@ charged to it. This works even when BenchDB never recorded the fork point. If no
 run is found from `base-sha`, the search falls back to the fork point.
 
 When no baseline run is found, the run carries a `baseline_error` with a code,
-a message, and the commits searched. If the 20-commit search runs out, narrow
-the report with `--run-ids` or pass `--baseline-run-ids`.
+a message, and the commits searched. The code is `no_baseline_run` when the
+search reached a root commit or its 20-commit limit. If the 20-commit search
+runs out, narrow the report with `--run-ids` or pass `--baseline-run-ids`. The
+code is `incomplete_ancestry` when the search stopped earlier at a commit whose
+parent is not in BenchDB yet, or at a commit known only by its SHA whose
+metadata a commit repair has not filled in. Backfilling or repairing that
+history lets the search continue.
 
 ## Report status and exit codes
 
@@ -156,9 +161,9 @@ BenchDB picks one status for the whole report. The first matching rule wins:
 1. A request, authentication, transport, or decode error produces no report.
    The CLI exits `2`.
 1. `action_required` when requested runs are missing, the runs have no results,
-   a result carries an error payload, or the baseline search cannot start. Missing
-   commit metadata and a `fork_point` report on a default-branch commit both stop
-   the search.
+   a result carries an error payload, or the baseline search cannot start or
+   finish. Missing commit metadata, missing ancestry, and a `fork_point` report
+   on a default-branch commit all stop the search.
 1. `failure` when at least one row is `regressed`.
 1. `action_required` when one or more contender results have no matching
    baseline. A regression found elsewhere in the report still wins.

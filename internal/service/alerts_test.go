@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
@@ -27,6 +31,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	})
 	reporter := &fakeAlertReporter{}
 	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	store.finalizeRun("run-1", "sha-1")
 
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "regressions detected",
@@ -48,6 +53,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.JSONEq(t, `{"runs":0,"missing_runs":0,"contender_results":0,"compared":4,"analyzed":0,"regressions":2,"improvements":0,"benchmark_errors":0,"missing_baseline":0,"not_comparable":0}`, string(store.events[0].Summary))
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State)
 
+	store.finalizeRun("run-2", "sha-2")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusFailure, StatusReason: "still regressed",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -58,6 +64,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.Equal(t, 1, summary.Unchanged)
 	assert.Len(t, store.events, 1, "open alerts do not emit repeat failure events")
 
+	store.finalizeRun("run-3", "sha-3")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusSkipped, StatusReason: "not enough history",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -68,6 +75,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State, "skipped reports do not resolve an open alert")
 	assert.Len(t, store.events, 1)
 
+	store.finalizeRun("run-4", "sha-4")
 	reporter.next = &service.CIReport{
 		Status: service.CIReportStatusSuccess, StatusReason: "all compared rows stable",
 		ReportURL: "/ci/report?run_ids=run-1",
@@ -151,35 +159,6 @@ func TestAlertEvaluatorSkipsAllBoundaryRowsWithoutResolving(t *testing.T) {
 	assert.Equal(t, storage.AlertRuleStateOpen, store.rules["rule-1"].State)
 }
 
-func TestAlertEvaluatorConstrainsDuplicateRunIDByCommit(t *testing.T) {
-	_, store, pool, ctx := newIngester(t)
-	t0 := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
-	provider := ciCommitProvider{
-		"base":  ciCommitInfo("base", nil, "base", t0),
-		"head":  ciCommitInfo("head", new("base"), "base", t0.Add(24*time.Hour)),
-		"later": ciCommitInfo("later", new("head"), "later", t0.Add(48*time.Hour)),
-	}
-	ing := service.NewIngester(store, provider)
-	ciSubmit(t, ing, ctx, "baseline-run", "base", 10)
-	ciSubmit(t, ing, ctx, "ci-run", "head", 20)
-	ciSubmit(t, ing, ctx, "ci-run", "later", 30)
-
-	userID := dbtest.SeedUser(t, ctx, pool)
-	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
-		UserID: userID, Name: "duplicate run ids", Repository: testRepo,
-		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: fixedAlertNow(),
-	})
-	require.NoError(t, err)
-
-	evaluator := service.NewAlertEvaluator(store, service.NewCIReporter(store, ""), fixedAlertNow)
-	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Rules)
-	assert.Equal(t, 1, summary.Evaluated)
-	assert.Equal(t, 0, summary.Failed)
-}
-
 func fixedAlertNow() time.Time {
 	return time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 }
@@ -190,10 +169,32 @@ type fakeAlertStore struct {
 	events        []storage.InsertAlertEventParams
 	missingRunFor map[string]bool
 	beforeUpdate  func(*fakeAlertStore, storage.AlertRule)
+	// runs are the finalized runs, oldest first; nil means one run, run-1.
+	runs   []storage.AlertCandidateRun
+	scored map[string]bool
+	leases map[string]string
+	// startErr, when set, fails the next StartAlertRule.
+	startErr error
+}
+
+// finalizeRun adds a finalized run after every existing one.
+func (s *fakeAlertStore) finalizeRun(runID, commitSHA string) {
+	at := fixedAlertNow().Add(time.Duration(len(s.runs)) * time.Minute)
+	s.runs = append(s.runs, storage.AlertCandidateRun{RunID: runID, CommitSHA: commitSHA, FinalizedAt: at})
+}
+
+func (s *fakeAlertStore) finalizedRuns() []storage.AlertCandidateRun {
+	if s.runs == nil {
+		return []storage.AlertCandidateRun{{RunID: "run-1", CommitSHA: "sha-1", FinalizedAt: fixedAlertNow()}}
+	}
+	return s.runs
 }
 
 func newFakeAlertStore(rules ...storage.AlertRule) *fakeAlertStore {
-	out := &fakeAlertStore{rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{}}
+	out := &fakeAlertStore{
+		rules: map[string]storage.AlertRule{}, missingRunFor: map[string]bool{},
+		scored: map[string]bool{}, leases: map[string]string{},
+	}
 	for _, rule := range rules {
 		out.rules[rule.ID] = rule
 		out.order = append(out.order, rule.ID)
@@ -212,13 +213,53 @@ func (s *fakeAlertStore) ListEnabledAlertRules(context.Context) ([]storage.Alert
 	return out, nil
 }
 
-func (s *fakeAlertStore) SelectLatestAlertRun(_ context.Context, p storage.SelectLatestAlertRunParams) (storage.AlertCandidateRun, error) {
-	for _, rule := range s.rules {
-		if rule.Repository == p.Repository && s.missingRunFor[rule.ID] {
-			return storage.AlertCandidateRun{}, storage.ErrNotFound
+func (s *fakeAlertStore) ClaimAlertRule(_ context.Context, id, token string, _, _ time.Time) (storage.AlertRule, bool, error) {
+	rule, ok := s.rules[id]
+	if !ok || s.leases[id] != "" {
+		return storage.AlertRule{}, false, nil
+	}
+	s.leases[id] = token
+	return rule, true, nil
+}
+
+func (s *fakeAlertStore) ExtendAlertRuleLease(_ context.Context, id, token string, _, _ time.Time) (bool, error) {
+	return s.leases[id] == token, nil
+}
+
+func (s *fakeAlertStore) MarkAlertRunPending(_ context.Context, p storage.MarkAlertRunPendingParams) (bool, error) {
+	return s.leases[p.RuleID] == p.LeaseToken, nil
+}
+
+func (s *fakeAlertStore) ReleaseAlertRule(_ context.Context, id, token string) error {
+	if s.leases[id] == token {
+		delete(s.leases, id)
+	}
+	return nil
+}
+
+func (s *fakeAlertStore) StartAlertRule(_ context.Context, id string) (storage.AlertRule, error) {
+	if err := s.startErr; err != nil {
+		s.startErr = nil
+		return storage.AlertRule{}, err
+	}
+	rule := s.rules[id]
+	if rule.ReportStartAt == nil && !s.missingRunFor[id] {
+		runs := s.finalizedRuns()
+		rule.ReportStartAt = &runs[len(runs)-1].FinalizedAt
+		s.rules[id] = rule
+	}
+	return rule, nil
+}
+
+func (s *fakeAlertStore) SelectAlertRuns(_ context.Context, p storage.SelectAlertRunsParams) ([]storage.AlertCandidateRun, error) {
+	start := s.rules[p.RuleID].ReportStartAt
+	var out []storage.AlertCandidateRun
+	for _, run := range s.finalizedRuns() {
+		if !run.FinalizedAt.Before(*start) && !s.scored[run.RunID] && len(out) < int(p.Limit) {
+			out = append(out, run)
 		}
 	}
-	return storage.AlertCandidateRun{RunID: "run-1", CommitSHA: "sha-1", LastResultTimestamp: fixedAlertNow()}, nil
+	return out, nil
 }
 
 func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error) {
@@ -232,6 +273,9 @@ func (s *fakeAlertStore) TouchAlertRuleEvaluation(_ context.Context, p storage.T
 	}
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
+	if p.ScoredRun != nil {
+		s.scored[p.ScoredRun.RunID] = true
+	}
 	s.rules[p.ID] = rule
 	return storage.AlertRuleTouch{Rule: rule, Touched: true}, nil
 }
@@ -253,6 +297,9 @@ func (s *fakeAlertStore) TransitionAlertRule(_ context.Context, p storage.Transi
 	rule.State = p.ToState
 	rule.LastEvaluatedAt = &p.EvaluatedAt
 	rule.UpdatedAt = p.EvaluatedAt
+	if p.ScoredRun != nil {
+		s.scored[p.ScoredRun.RunID] = true
+	}
 	s.rules[p.ID] = rule
 	event := storage.AlertEvent{
 		ID:           "event",
@@ -299,14 +346,24 @@ func alertSnapshotMatches(
 
 type fakeAlertReporter struct {
 	next  *service.CIReport
+	byRun map[string]*service.CIReport
 	err   error
 	calls []service.CIReportQuery
+	// baseline, when set, is the only baseline the reporter accepts, so a
+	// test fails if evaluation asks for a different one.
+	baseline service.CIReportBaseline
 }
 
 func (r *fakeAlertReporter) Report(_ context.Context, q service.CIReportQuery) (*service.CIReport, error) {
 	r.calls = append(r.calls, q)
+	if r.baseline != "" && q.Baseline != r.baseline {
+		return nil, fmt.Errorf("report requested baseline %q, want %q", q.Baseline, r.baseline)
+	}
 	if r.err != nil {
 		return nil, r.err
+	}
+	if report, ok := r.byRun[q.RunIDs[0]]; ok {
+		return report, nil
 	}
 	return r.next, nil
 }
@@ -412,7 +469,8 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 	ciSubmit(t, ing, ctx, "main-c1", "c1", 10)
 	ciSubmit(t, ing, ctx, "main-c2", "c2", 20)
 	ciSubmit(t, ing, ctx, "main-c3", "c3", 30)
-	ciSubmit(t, ing, ctx, "main-c4", "c4", 100)
+	contender := ciSubmit(t, ing, ctx, "main-c4", "c4", 100)
+	finalizeAlertRun(t, ctx, store, "main-c4", contender.ID)
 	owner, err := store.GetOrCreateUserByEmail(ctx, "alerts@example.com", "Alerts", "!")
 	require.NoError(t, err)
 	_, err = store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
@@ -438,4 +496,446 @@ func TestAlertEvaluatorStoresTheCommitSubjectFromTheRealReport(t *testing.T) {
 func roundRow(row service.AlertEventRow) service.AlertEventRow {
 	row.PercentChange = math.Round(row.PercentChange*10) / 10
 	return row
+}
+
+// finalizeAlertRun marks a run complete the way clients do, which makes it a
+// run alert rules score.
+func finalizeAlertRun(t *testing.T, ctx context.Context, store *db.Store, runID string, resultIDs ...string) {
+	t.Helper()
+	_, err := service.NewRunReports(store, "").Finalize(ctx, runID, resultIDs, service.CIReportBaselineLatestDefault, "")
+	require.NoError(t, err)
+}
+
+// newAlertScenario is a real store with one alert rule on testRepo. finalize
+// submits one result as its own run and finalizes the run, the way clients
+// mark a run complete.
+func newAlertScenario(t *testing.T) (context.Context, *db.Store, func(runID string)) {
+	t.Helper()
+	ctx, store, _, finalize := newAlertScenarioWithPool(t)
+	return ctx, store, finalize
+}
+
+func newAlertScenarioWithPool(t *testing.T) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
+	t.Helper()
+	return newAlertScenarioFor(t, service.CIReportBaselineParent)
+}
+
+// newAlertScenarioFor is newAlertScenarioWithPool with a rule comparing
+// against the given baseline.
+func newAlertScenarioFor(
+	t *testing.T, baseline service.CIReportBaseline,
+) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
+	t.Helper()
+	_, store, pool, ctx := newIngester(t)
+	ing := service.NewIngester(store, ciCommitProvider{})
+	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
+		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
+		Baseline: string(baseline), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, CreatedAt: fixedAlertNow(),
+	})
+	require.NoError(t, err)
+	finalize := func(runID string) {
+		t.Helper()
+		result := ciSubmit(t, ing, ctx, runID, "sha-"+runID, 10)
+		finalizeAlertRun(t, ctx, store, runID, result.ID)
+	}
+	return ctx, store, pool, finalize
+}
+
+func TestAlertEvaluatorScoresEveryRunFinalizedSinceTheLastPass(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	stable := &service.CIReport{Status: service.CIReportStatusSuccess}
+	regressed := &service.CIReport{Status: service.CIReportStatusFailure}
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
+		"run-1": stable, "run-2": regressed, "run-3": stable, "run-4": stable,
+	}}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	finalize("run-1")
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+
+	// Three runs land between passes; the middle one regressed.
+	finalize("run-2")
+	finalize("run-3")
+	finalize("run-4")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, summary.Evaluated)
+	assert.Equal(t, 1, summary.Unchanged)
+	require.Len(t, summary.Events, 2, "a regression in an earlier run is not hidden by a later one")
+	assert.Equal(t, storage.AlertEventKindOpened, summary.Events[0].Kind)
+	assert.Equal(t, "run-2", *summary.Events[0].RunID)
+	assert.Equal(t, storage.AlertEventKindResolved, summary.Events[1].Kind)
+	assert.Equal(t, "run-3", *summary.Events[1].RunID)
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Evaluated, "a run is scored once")
+	assert.Equal(t, 1, summary.NoCandidate)
+}
+
+func TestAlertEvaluatorRetriesANewRulesFailedFirstRun(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusSuccess}, err: errors.New("archive unavailable")}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	finalize("run-1")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.Error(t, err)
+	assert.Equal(t, 1, summary.Failed)
+
+	// Another run finalizes before the retry.
+	finalize("run-2")
+	reporter.err, reporter.calls = nil, nil
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, summary.Evaluated)
+	require.Len(t, reporter.calls, 2)
+	assert.Equal(t, []string{"run-1"}, reporter.calls[0].RunIDs, "the failed first run is not passed over")
+	assert.Equal(t, []string{"run-2"}, reporter.calls[1].RunIDs)
+}
+
+// blockingAlertReporter holds its first report until released, so a test can
+// run a second evaluator while the first is mid-rule. Later reports return at
+// once, so a second evaluator that wrongly scores the rule fails the test
+// rather than hanging it.
+type blockingAlertReporter struct {
+	entered, release chan struct{}
+	calls            atomic.Int32
+	// first, when set, is the held report; it is a regression otherwise.
+	first *service.CIReport
+	// later, when set, is the status of every report after the first.
+	later service.CIReportStatus
+}
+
+func (r *blockingAlertReporter) Report(context.Context, service.CIReportQuery) (*service.CIReport, error) {
+	if r.calls.Add(1) == 1 {
+		close(r.entered)
+		<-r.release
+		if r.first != nil {
+			return r.first, nil
+		}
+		return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+	}
+	if r.later != "" {
+		return &service.CIReport{Status: r.later}, nil
+	}
+	return &service.CIReport{Status: service.CIReportStatusFailure}, nil
+}
+
+func TestAlertEvaluatorsDoNotScoreOneRuleAtOnce(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &blockingAlertReporter{entered: make(chan struct{}), release: make(chan struct{})}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+	t.Cleanup(releaseFirst)
+	type result struct {
+		summary service.AlertEvaluationSummary
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+		firstDone <- result{summary, err}
+	}()
+	<-reporter.entered
+
+	second, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Busy, "the second evaluator leaves the rule to the first")
+	assert.Zero(t, second.Evaluated)
+	releaseFirst()
+	first := <-firstDone
+	require.NoError(t, first.err)
+	assert.Equal(t, 1, first.summary.Opened)
+}
+
+func TestAlertEvaluatorKeepsANewerRegressionOpenWhenAnOlderRunAppearsLate(t *testing.T) {
+	ctx, store, pool, finalize := newAlertScenarioWithPool(t)
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{
+		"first": {Status: service.CIReportStatusSuccess},
+		"newer": {Status: service.CIReportStatusFailure},
+		"older": {Status: service.CIReportStatusSuccess},
+	}}
+	evaluator := service.NewAlertEvaluator(store, reporter, fixedAlertNow)
+	finalize("first")
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	finalize("newer")
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Opened)
+
+	// A run finalized between the two only becomes visible now.
+	finalize("older")
+	_, err = pool.Exec(ctx, `UPDATE ci_run_report SET evaluated_at = (
+		SELECT evaluated_at - interval '1 millisecond' FROM ci_run_report WHERE run_id = 'newer') WHERE run_id = 'older'`)
+	require.NoError(t, err)
+	reporter.calls = nil
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Late)
+	assert.Zero(t, summary.Resolved, "an out-of-date clean run does not resolve a newer regression")
+	assert.Empty(t, reporter.calls)
+	rules, err := store.ListEnabledAlertRules(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, storage.AlertRuleStateOpen, rules[0].State)
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.NoCandidate, "the late run is recorded as scored")
+}
+
+func TestAlertEvaluatorRunsOnASingleConnectionPool(t *testing.T) {
+	ctx, _, pool, finalize := newAlertScenarioWithPool(t)
+	finalize("run-1")
+	config := pool.Config().Copy()
+	config.MaxConns = 1
+	single, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(single.Close)
+	reporter := &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusFailure}}
+
+	summary, err := service.NewAlertEvaluator(db.NewStore(single), reporter, fixedAlertNow).
+		Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Opened, "evaluation holds no connection while it works")
+}
+
+func TestAlertEvaluatorReleasesItsLeaseWhenStartingARuleFails(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeAlertStore(storage.AlertRule{
+		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, State: storage.AlertRuleStateInactive,
+	})
+	store.startErr = errors.New("database restarting")
+	evaluator := service.NewAlertEvaluator(store, &fakeAlertReporter{next: &service.CIReport{Status: service.CIReportStatusSuccess}}, fixedAlertNow)
+
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.Error(t, err)
+	assert.Equal(t, 1, summary.Failed)
+	assert.Empty(t, store.leases, "the claimed rule's lease is released")
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Busy, "an immediate retry is not blocked")
+	assert.Equal(t, 1, summary.Evaluated)
+}
+
+func TestAlertEvaluatorStopsWritingOnceItsLeaseIsTakenOver(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	// The stalled evaluator's report is a regression; its successor's is clean.
+	reporter := &blockingAlertReporter{
+		entered: make(chan struct{}), release: make(chan struct{}), later: service.CIReportStatusSuccess,
+	}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+	t.Cleanup(releaseFirst)
+	type result struct {
+		summary service.AlertEvaluationSummary
+		err     error
+	}
+	staleDone := make(chan result, 1)
+	go func() {
+		summary, err := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+		staleDone <- result{summary, err}
+	}()
+	<-reporter.entered
+
+	// The first evaluator stalls past its lease; a later one takes over.
+	later := func() time.Time { return fixedAlertNow().Add(alertLeaseForTest + time.Minute) }
+	successor, err := service.NewAlertEvaluator(store, reporter, later).Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, successor.Unchanged, "the successor scores the run as clean")
+	releaseFirst()
+	stale := <-staleDone
+
+	require.NoError(t, stale.err)
+	assert.Zero(t, stale.summary.Opened, "an evaluator that lost its lease does not write its out-of-date outcome")
+	rules, err := store.ListEnabledAlertRules(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, storage.AlertRuleStateInactive, rules[0].State)
+	history, err := store.ListAlertEventsByRule(ctx, storage.ListAlertEventsParams{RuleID: rules[0].ID, Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, history)
+}
+
+// alertLeaseForTest mirrors the evaluator's lease length.
+const alertLeaseForTest = 30 * time.Minute
+
+// awaitingMetadata is the report for a run whose commit metadata has not
+// arrived yet, so no baseline can be chosen.
+func awaitingMetadata() *service.CIReport {
+	return awaitingMetadataCode(service.CIReportBaselineErrorUnknownParent)
+}
+
+func awaitingMetadataCode(code string) *service.CIReport {
+	return &service.CIReport{
+		Status: service.CIReportStatusActionRequired,
+		Runs:   []service.CIReportRun{{BaselineError: &service.CIReportBaselineError{Code: code}}},
+	}
+}
+
+func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
+	// Each error comes from the baseline that can produce it.
+	for _, tt := range []struct {
+		code     string
+		baseline service.CIReportBaseline
+	}{
+		{service.CIReportBaselineErrorUnknownParent, service.CIReportBaselineParent},
+		{service.CIReportBaselineErrorUnknownForkPoint, service.CIReportBaselineForkPoint},
+		{service.CIReportBaselineErrorUnknownLatestDefault, service.CIReportBaselineLatestDefault},
+		{service.CIReportBaselineErrorUnknownCandidate, service.CIReportBaselineParent},
+		{service.CIReportBaselineErrorIncompleteAncestry, service.CIReportBaselineForkPoint},
+	} {
+		t.Run(tt.code, func(t *testing.T) {
+			ctx, store, _, finalize := newAlertScenarioFor(t, tt.baseline)
+			finalize("run-1")
+			reporter := &fakeAlertReporter{next: awaitingMetadataCode(tt.code), baseline: tt.baseline}
+			// The evaluator's clock is just after the run was finalized.
+			now := func() time.Time { return time.Now().UTC() }
+			evaluator := service.NewAlertEvaluator(store, reporter, now)
+
+			summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Pending)
+			assert.Empty(t, summary.Events)
+
+			// A commit repair fills in the metadata; the report now finds the
+			// regression.
+			reporter.next = &service.CIReport{Status: service.CIReportStatusFailure}
+			summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Opened, "the repaired run is scored, not lost")
+			require.Len(t, summary.Events, 1)
+			assert.Equal(t, "run-1", *summary.Events[0].RunID)
+		})
+	}
+}
+
+func TestAlertEvaluatorScoresNewRunsBeforeRetryingPendingOnes(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-00")
+	reporter := &fakeAlertReporter{next: awaitingMetadata(), byRun: map[string]*service.CIReport{
+		"run-00": {Status: service.CIReportStatusSuccess},
+		"run-51": {Status: service.CIReportStatusFailure},
+	}}
+	now := func() time.Time { return time.Now().UTC() }
+	evaluator := service.NewAlertEvaluator(store, reporter, now)
+	_, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	// A full batch of runs waiting on metadata, then a regression.
+	for i := 1; i <= 51; i++ {
+		finalize(fmt.Sprintf("run-%02d", i))
+	}
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 50, summary.Pending)
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Opened, "pending retries do not crowd out a newer run")
+	require.Len(t, summary.Events, 1)
+	assert.Equal(t, "run-51", *summary.Events[0].RunID)
+	assert.Equal(t, 49, summary.Late, "the older retries are now out of date")
+}
+
+func TestAlertEvaluatorTreatsARetryAfterANewerRunInThePassAsLate(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &fakeAlertReporter{byRun: map[string]*service.CIReport{"run-1": awaitingMetadata()}}
+	now := func() time.Time { return time.Now().UTC() }
+	evaluator := service.NewAlertEvaluator(store, reporter, now)
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Pending)
+
+	// run-1's metadata is repaired and shows a regression, but the newer
+	// run-2 is clean and is scored first in the next pass.
+	finalize("run-2")
+	reporter.byRun = map[string]*service.CIReport{
+		"run-1": {Status: service.CIReportStatusFailure},
+		"run-2": {Status: service.CIReportStatusSuccess},
+	}
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Late)
+	assert.Zero(t, summary.Opened, "an out-of-date retry does not override the newer run")
+}
+
+func TestAlertEvaluatorStopsRetryingARunWhoseMetadataNeverArrives(t *testing.T) {
+	ctx, store, finalize := newAlertScenario(t)
+	finalize("run-1")
+	reporter := &fakeAlertReporter{next: awaitingMetadata()}
+	dayLater := func() time.Time { return time.Now().UTC().Add(25 * time.Hour) }
+	evaluator := service.NewAlertEvaluator(store, reporter, dayLater)
+
+	summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Zero(t, summary.Pending)
+	assert.Equal(t, 1, summary.Skipped, "after a day the run is recorded as skipped")
+
+	summary, err = evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.NoCandidate)
+}
+
+func TestAlertEvaluatorDoesNotMarkARunPendingAfterLosingTheRule(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		meanwhile func(t *testing.T, ctx context.Context, store *db.Store, reporter service.AlertReporter)
+	}{
+		{"lease taken over", func(t *testing.T, ctx context.Context, store *db.Store, reporter service.AlertReporter) {
+			later := func() time.Time { return fixedAlertNow().Add(alertLeaseForTest + time.Minute) }
+			_, err := service.NewAlertEvaluator(store, reporter, later).Evaluate(ctx, service.AlertEvaluationOptions{})
+			require.NoError(t, err)
+		}},
+		{"rule reset", func(t *testing.T, ctx context.Context, store *db.Store, _ service.AlertReporter) {
+			rules, err := store.ListEnabledAlertRules(ctx)
+			require.NoError(t, err)
+			rule := rules[0]
+			_, err = store.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
+				ID: rule.ID, UserID: rule.UserID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
+				Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: fixedAlertNow(), ResetEvaluation: true,
+			})
+			require.NoError(t, err)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, store, pool, finalize := newAlertScenarioWithPool(t)
+			finalize("run-1")
+			reporter := &blockingAlertReporter{
+				entered: make(chan struct{}), release: make(chan struct{}),
+				first: awaitingMetadata(), later: service.CIReportStatusSuccess,
+			}
+			var releaseOnce sync.Once
+			releaseFirst := func() { releaseOnce.Do(func() { close(reporter.release) }) }
+			t.Cleanup(releaseFirst)
+			staleDone := make(chan service.AlertEvaluationSummary, 1)
+			go func() {
+				summary, _ := service.NewAlertEvaluator(store, reporter, fixedAlertNow).Evaluate(ctx, service.AlertEvaluationOptions{})
+				staleDone <- summary
+			}()
+			<-reporter.entered
+
+			tt.meanwhile(t, ctx, store, reporter)
+			releaseFirst()
+			stale := <-staleDone
+
+			assert.Zero(t, stale.Pending)
+			var pending int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_pending_run`).Scan(&pending))
+			assert.Zero(t, pending, "an evaluator that lost the rule does not mark runs pending")
+		})
+	}
 }

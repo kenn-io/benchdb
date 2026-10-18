@@ -51,13 +51,17 @@ const (
 const (
 	CIReportBaselineErrorMissingCommitMetadata = "missing_commit_metadata"
 	CIReportBaselineErrorNoBaselineRun         = "no_baseline_run"
-	CIReportBaselineErrorUnknownParent         = "unknown_parent"
-	CIReportBaselineErrorUnknownForkPoint      = "unknown_fork_point"
-	CIReportBaselineErrorDefaultBranchRun      = "default_branch_run"
-	CIReportBaselineErrorUnknownLatestDefault  = "unknown_latest_default"
-	CIReportBaselineErrorUnknownCandidate      = "unknown_baseline_candidate"
-	CIReportBaselineErrorExplicitRunNotFound   = "explicit_baseline_run_not_found"
-	CIReportBaselineErrorAmbiguousBaselineRun  = "ambiguous_baseline_run"
+	// CIReportBaselineErrorIncompleteAncestry means the search ran out of
+	// known ancestors before its limit: a commit's parent is not in BenchDB
+	// yet. Backfilling the ancestry lets the search continue.
+	CIReportBaselineErrorIncompleteAncestry   = "incomplete_ancestry"
+	CIReportBaselineErrorUnknownParent        = "unknown_parent"
+	CIReportBaselineErrorUnknownForkPoint     = "unknown_fork_point"
+	CIReportBaselineErrorDefaultBranchRun     = "default_branch_run"
+	CIReportBaselineErrorUnknownLatestDefault = "unknown_latest_default"
+	CIReportBaselineErrorUnknownCandidate     = "unknown_baseline_candidate"
+	CIReportBaselineErrorExplicitRunNotFound  = "explicit_baseline_run_not_found"
+	CIReportBaselineErrorAmbiguousBaselineRun = "ambiguous_baseline_run"
 )
 
 type CIReportQuery struct {
@@ -558,19 +562,43 @@ func (r *CIReporter) selectBaselineRuns(
 			selection.commit = &candidate.commit
 			selection.commitsSkipped = ciReportSkippedCommits(ancestry, candidate.depth)
 		} else {
-			selection.baselineError = &CIReportBaselineError{
-				Code:                  CIReportBaselineErrorNoBaselineRun,
-				Message:               fmt.Sprintf("searched %d ancestors, no baseline run found", CIReportBaselineAncestorLimit),
-				RunID:                 run.RunID,
-				Baseline:              baseline,
-				CommitSHA:             run.CommitSha,
-				SearchedAncestorLimit: CIReportBaselineAncestorLimit,
-				SearchedCommitSHAs:    ciReportCommitSHAs(ancestry),
-			}
+			selection.baselineError = noBaselineRunError(run, baseline, ancestry)
 		}
 		selections[run.RunID] = selection
 	}
 	return selections, nil
+}
+
+// noBaselineRunError explains a search that found no baseline run. A search
+// that stopped before its limit is incomplete, not finished, when it stopped at
+// a commit whose parent BenchDB does not have yet, or at a commit known only by
+// its SHA. Such a commit has no timestamp or fork point until a commit repair
+// fills them in, the same test the repair itself uses.
+func noBaselineRunError(
+	run storage.CIReportRunRow, baseline CIReportBaseline, ancestry []storage.CIReportCommitRow,
+) *CIReportBaselineError {
+	out := &CIReportBaselineError{
+		Code:                  CIReportBaselineErrorNoBaselineRun,
+		Message:               fmt.Sprintf("searched %d ancestors, no baseline run found", CIReportBaselineAncestorLimit),
+		RunID:                 run.RunID,
+		Baseline:              baseline,
+		CommitSHA:             run.CommitSha,
+		SearchedAncestorLimit: CIReportBaselineAncestorLimit,
+		SearchedCommitSHAs:    ciReportCommitSHAs(ancestry),
+	}
+	if len(ancestry) >= CIReportBaselineAncestorLimit {
+		return out
+	}
+	last := ancestry[len(ancestry)-1]
+	switch {
+	case last.Parent != nil && *last.Parent != "":
+		out.Code = CIReportBaselineErrorIncompleteAncestry
+		out.Message = fmt.Sprintf("ancestry stops at %s: its parent %s is not in BenchDB yet", last.CommitSha, *last.Parent)
+	case last.Timestamp == nil && last.ForkPointSha == nil:
+		out.Code = CIReportBaselineErrorIncompleteAncestry
+		out.Message = fmt.Sprintf("ancestry stops at %s: its commit metadata has not been filled in yet", last.CommitSha)
+	}
+	return out
 }
 
 func (r *CIReporter) selectExplicitBaselineRuns(

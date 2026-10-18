@@ -154,6 +154,11 @@ func TestServerServesSeededProductSmokeCorpus(t *testing.T) {
 		RunReason: &targets.CIRegressionRunReason, Enabled: true, CreatedAt: dayForSmokeTest(),
 	})
 	require.NoError(t, err)
+	// Alert rules score finalized runs, so finalize the pull request's run the
+	// way its client would.
+	_, err = service.NewRunReports(store, "").Finalize(ctx, targets.CIRegressionRunID,
+		[]string{targets.CIRegressionResultID}, service.CIReportBaselineLatestDefault, "")
+	require.NoError(t, err)
 	alertSummary, err := service.NewAlertEvaluator(
 		store, service.NewCIReporter(store, ""), func() time.Time { return dayForSmokeTest().Add(time.Hour) },
 	).Evaluate(ctx, service.AlertEvaluationOptions{})

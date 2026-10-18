@@ -780,3 +780,92 @@ func TestCIReportNeedsTenEarlierResults(t *testing.T) {
 		})
 	}
 }
+
+func TestCIReportReportsAnAncestrySearchCutShortByMissingCommits(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"head":      ciCommitInfo("head", new("x1"), "head", t0.Add(48*time.Hour)),
+		"gap":       ciCommitInfo("gap", nil, "gap", t0),
+		"root-head": ciCommitInfo("root-head", new("root"), "root-head", t0.Add(48*time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	// x1 is known without results, but its parent gap is not in BenchDB yet.
+	// root is a real root commit, also without results.
+	for _, c := range []storage.InsertCommitParams{
+		{Sha: "x1", Parent: new("gap"), ForkPointSha: new("x1"), Timestamp: new(t0.Add(24 * time.Hour))},
+		{Sha: "root", ForkPointSha: new("root"), Timestamp: new(t0.Add(24 * time.Hour))},
+	} {
+		c.Repository = testRepo
+		_, err := store.GetOrCreateCommit(ctx, c)
+		require.NoError(t, err)
+	}
+	ciSubmit(t, ing, ctx, "head-run", "head", 10)
+	ciSubmit(t, ing, ctx, "root-head-run", "root-head", 10)
+	reporter := service.NewCIReporter(store, "")
+	report := func(runID string) *service.CIReport {
+		t.Helper()
+		out, err := reporter.Report(ctx, service.CIReportQuery{RunIDs: []string{runID}, Baseline: service.CIReportBaselineParent})
+		require.NoError(t, err)
+		require.Len(t, out.Runs, 1)
+		return out
+	}
+
+	cutShort := report("head-run")
+	assert.Equal(t, service.CIReportStatusActionRequired, cutShort.Status)
+	require.NotNil(t, cutShort.Runs[0].BaselineError)
+	assert.Equal(t, service.CIReportBaselineErrorIncompleteAncestry, cutShort.Runs[0].BaselineError.Code)
+	finished := report("root-head-run")
+	require.NotNil(t, finished.Runs[0].BaselineError)
+	assert.Equal(t, service.CIReportBaselineErrorNoBaselineRun, finished.Runs[0].BaselineError.Code,
+		"a search that reaches a root commit is complete")
+
+	// Backfill brings in the missing commit, with a run on it.
+	ciSubmit(t, ing, ctx, "gap-run", "gap", 10)
+	repaired := report("head-run")
+
+	assert.Nil(t, repaired.Runs[0].BaselineError)
+	require.NotNil(t, repaired.Runs[0].BaselineRunID)
+	assert.Equal(t, "gap-run", *repaired.Runs[0].BaselineRunID)
+}
+
+func TestCIReportTreatsAnUnenrichedAncestorAsIncomplete(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"head": ciCommitInfo("head", new("bare"), "head", t0.Add(48*time.Hour)),
+		"gap":  ciCommitInfo("gap", nil, "gap", t0),
+	}
+	ing := service.NewIngester(store, provider)
+	// bare is known only by its SHA: no parent, timestamp, or fork point yet.
+	bareID, err := store.GetOrCreateCommit(ctx, storage.InsertCommitParams{Repository: testRepo, Sha: "bare"})
+	require.NoError(t, err)
+	ciSubmit(t, ing, ctx, "head-run", "head", 10)
+	reporter := service.NewCIReporter(store, "")
+	report := func() *service.CIReport {
+		t.Helper()
+		out, err := reporter.Report(ctx, service.CIReportQuery{RunIDs: []string{"head-run"}, Baseline: service.CIReportBaselineParent})
+		require.NoError(t, err)
+		require.Len(t, out.Runs, 1)
+		return out
+	}
+
+	unenriched := report()
+	assert.Equal(t, service.CIReportStatusActionRequired, unenriched.Status)
+	require.NotNil(t, unenriched.Runs[0].BaselineError)
+	assert.Equal(t, service.CIReportBaselineErrorIncompleteAncestry, unenriched.Runs[0].BaselineError.Code,
+		"a commit known only by its SHA is not a root")
+
+	// A commit repair fills bare in, and its parent has a run.
+	ciSubmit(t, ing, ctx, "gap-run", "gap", 10)
+	updated, err := store.UpdateUnknownCommit(ctx, storage.UpdateUnknownCommitParams{
+		ID: bareID, Parent: new("gap"), ForkPointSha: new("bare"), Timestamp: t0.Add(24 * time.Hour), Message: "bare",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, updated)
+	repaired := report()
+
+	assert.Nil(t, repaired.Runs[0].BaselineError)
+	require.NotNil(t, repaired.Runs[0].BaselineRunID)
+	assert.Equal(t, "gap-run", *repaired.Runs[0].BaselineRunID)
+}

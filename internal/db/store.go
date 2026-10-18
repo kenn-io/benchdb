@@ -216,19 +216,32 @@ func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]storage.AlertRule,
 	return alertRulesFromRows(rows), nil
 }
 
+// UpdateAlertRule replaces a rule's fields. A reset also forgets the runs the
+// rule scored, so it starts again from its newest finalized run.
 func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRuleParams) (storage.AlertRule, error) {
-	row, err := s.q.UpdateAlertRule(ctx, UpdateAlertRuleParams{
-		ID:              p.ID,
-		UserID:          p.UserID,
-		Name:            p.Name,
-		Repository:      p.Repository,
-		Baseline:        p.Baseline,
-		Threshold:       p.Threshold,
-		ThresholdZ:      p.ThresholdZ,
-		RunReason:       p.RunReason,
-		Enabled:         p.Enabled,
-		UpdatedAt:       p.UpdatedAt,
-		ResetEvaluation: p.ResetEvaluation,
+	var row AlertRule
+	err := s.inTx(ctx, func(q *Queries) error {
+		var err error
+		row, err = q.UpdateAlertRule(ctx, UpdateAlertRuleParams{
+			ID:              p.ID,
+			UserID:          p.UserID,
+			Name:            p.Name,
+			Repository:      p.Repository,
+			Baseline:        p.Baseline,
+			Threshold:       p.Threshold,
+			ThresholdZ:      p.ThresholdZ,
+			RunReason:       p.RunReason,
+			Enabled:         p.Enabled,
+			UpdatedAt:       p.UpdatedAt,
+			ResetEvaluation: p.ResetEvaluation,
+		})
+		if err != nil || !p.ResetEvaluation {
+			return err
+		}
+		if err := q.DeleteAlertPendingRuns(ctx, p.ID); err != nil {
+			return err
+		}
+		return q.DeleteAlertScoredRuns(ctx, p.ID)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.AlertRule{}, storage.ErrNotFound
@@ -237,6 +250,26 @@ func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRulePa
 		return storage.AlertRule{}, err
 	}
 	return alertRuleFromRow(row), nil
+}
+
+// inTx runs write in one transaction, or in a savepoint when the store
+// already runs inside one.
+func (s *Store) inTx(ctx context.Context, write func(*Queries) error) error {
+	beginner, ok := s.q.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return errors.New("this write requires transaction support")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := write(s.q.WithTx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteAlertRule(ctx context.Context, id, userID string) error {
@@ -292,31 +325,45 @@ func (s *Store) UpdateAlertRuleEvaluation(
 	return alertRuleFromRow(row), nil
 }
 
+// TouchAlertRuleEvaluation records an evaluation that changed no state and,
+// with ScoredRun, the run it scored, in one transaction.
 func (s *Store) TouchAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.TouchAlertRuleEvaluationParams,
 ) (storage.AlertRuleTouch, error) {
-	row, err := s.q.TouchAlertRuleEvaluation(ctx, TouchAlertRuleEvaluationParams{
-		EvaluatedAt: &p.EvaluatedAt,
-		ID:          p.ID,
-		State:       p.State,
-		Repository:  p.Repository,
-		Baseline:    p.Baseline,
-		Threshold:   p.Threshold,
-		ThresholdZ:  p.ThresholdZ,
-		RunReason:   p.RunReason,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		rule, getErr := s.GetAlertRule(ctx, p.ID)
-		if getErr != nil {
-			return storage.AlertRuleTouch{}, getErr
+	var touch storage.AlertRuleTouch
+	err := s.inTx(ctx, func(q *Queries) error {
+		row, err := q.TouchAlertRuleEvaluation(ctx, TouchAlertRuleEvaluationParams{
+			EvaluatedAt: &p.EvaluatedAt,
+			ID:          p.ID,
+			State:       p.State,
+			Repository:  p.Repository,
+			Baseline:    p.Baseline,
+			Threshold:   p.Threshold,
+			ThresholdZ:  p.ThresholdZ,
+			RunReason:   p.RunReason,
+			LeaseToken:  p.LeaseToken,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		return storage.AlertRuleTouch{Rule: rule}, nil
-	}
+		if err != nil {
+			return err
+		}
+		touch = storage.AlertRuleTouch{Rule: alertRuleFromRow(row), Touched: true}
+		return insertScoredRun(ctx, q, p.ID, p.ScoredRun, p.EvaluatedAt)
+	})
 	if err != nil {
 		return storage.AlertRuleTouch{}, err
 	}
-	return storage.AlertRuleTouch{Rule: alertRuleFromRow(row), Touched: true}, nil
+	if !touch.Touched {
+		rule, err := s.GetAlertRule(ctx, p.ID)
+		if err != nil {
+			return storage.AlertRuleTouch{}, err
+		}
+		return storage.AlertRuleTouch{Rule: rule}, nil
+	}
+	return touch, nil
 }
 
 func (s *Store) CreateAlertEvent(ctx context.Context, p storage.InsertAlertEventParams) (storage.AlertEvent, error) {
@@ -342,6 +389,8 @@ func (s *Store) CreateAlertEvent(ctx context.Context, p storage.InsertAlertEvent
 	return alertEventFromRow(row), nil
 }
 
+// TransitionAlertRule changes a rule's state, records the event, and records
+// the event's run as scored, in one transaction.
 func (s *Store) TransitionAlertRule(
 	ctx context.Context,
 	p storage.TransitionAlertRuleParams,
@@ -350,36 +399,49 @@ func (s *Store) TransitionAlertRule(
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}
-	row, err := s.q.TransitionAlertRule(ctx, TransitionAlertRuleParams{
-		ID:           p.ID,
-		FromState:    p.FromState,
-		ToState:      p.ToState,
-		Repository:   p.Repository,
-		Baseline:     p.Baseline,
-		Threshold:    p.Threshold,
-		ThresholdZ:   p.ThresholdZ,
-		RunReason:    p.RunReason,
-		EventID:      eventID,
-		Kind:         p.EventKind,
-		Status:       p.Status,
-		StatusReason: p.StatusReason,
-		RunID:        p.RunID,
-		CommitSha:    p.CommitSHA,
-		ReportUrl:    p.ReportURL,
-		Summary:      p.Summary,
-		EvaluatedAt:  &p.EvaluatedAt,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		rule, getErr := s.GetAlertRule(ctx, p.ID)
-		if getErr != nil {
-			return storage.AlertRuleTransition{}, getErr
+	var transition *storage.AlertRuleTransition
+	err = s.inTx(ctx, func(q *Queries) error {
+		row, err := q.TransitionAlertRule(ctx, TransitionAlertRuleParams{
+			ID:           p.ID,
+			FromState:    p.FromState,
+			ToState:      p.ToState,
+			Repository:   p.Repository,
+			Baseline:     p.Baseline,
+			Threshold:    p.Threshold,
+			ThresholdZ:   p.ThresholdZ,
+			RunReason:    p.RunReason,
+			EventID:      eventID,
+			Kind:         p.EventKind,
+			Status:       p.Status,
+			StatusReason: p.StatusReason,
+			RunID:        p.RunID,
+			CommitSha:    p.CommitSHA,
+			ReportUrl:    p.ReportURL,
+			Summary:      p.Summary,
+			EvaluatedAt:  &p.EvaluatedAt,
+			LeaseToken:   p.LeaseToken,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		return storage.AlertRuleTransition{Rule: rule}, nil
-	}
+		if err != nil {
+			return err
+		}
+		result := alertTransitionFromRow(row)
+		transition = &result
+		return insertScoredRun(ctx, q, p.ID, p.ScoredRun, p.EvaluatedAt)
+	})
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}
-	return alertTransitionFromRow(row), nil
+	if transition == nil {
+		rule, err := s.GetAlertRule(ctx, p.ID)
+		if err != nil {
+			return storage.AlertRuleTransition{}, err
+		}
+		return storage.AlertRuleTransition{Rule: rule}, nil
+	}
+	return *transition, nil
 }
 
 func (s *Store) ListAlertEventsByRule(
@@ -393,25 +455,107 @@ func (s *Store) ListAlertEventsByRule(
 	return alertEventsFromRows(rows), nil
 }
 
-func (s *Store) SelectLatestAlertRun(
-	ctx context.Context,
-	p storage.SelectLatestAlertRunParams,
-) (storage.AlertCandidateRun, error) {
-	row, err := s.q.SelectLatestAlertRun(ctx, SelectLatestAlertRunParams{
-		Repository: p.Repository,
-		RunReason:  p.RunReason,
+func insertScoredRun(ctx context.Context, q *Queries, ruleID string, run *storage.ScoredAlertRun, at time.Time) error {
+	if run == nil {
+		return nil
+	}
+	err := q.InsertAlertScoredRun(ctx, InsertAlertScoredRunParams{
+		RuleID: ruleID, RunID: run.RunID, FinalizedAt: timestamptz(run.FinalizedAt), ScoredAt: timestamptz(at),
+	})
+	if err != nil {
+		return err
+	}
+	return q.DeleteAlertPendingRun(ctx, DeleteAlertPendingRunParams{RuleID: ruleID, RunID: run.RunID})
+}
+
+// MarkAlertRunPending records that a run is waiting for its commit metadata,
+// so selection retries it after runs never attempted. marked is false when
+// the lease is no longer the caller's or the rule's settings changed; the
+// rule row stays locked until the mark is written, so a concurrent reset
+// cannot be undone by it.
+func (s *Store) MarkAlertRunPending(ctx context.Context, p storage.MarkAlertRunPendingParams) (marked bool, err error) {
+	err = s.inTx(ctx, func(q *Queries) error {
+		_, err := q.LockAlertRuleForPending(ctx, LockAlertRuleForPendingParams{
+			ID: p.RuleID, LeaseToken: &p.LeaseToken, Repository: p.Repository, Baseline: p.Baseline,
+			Threshold: p.Threshold, ThresholdZ: p.ThresholdZ, RunReason: p.RunReason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		marked = true
+		return q.MarkAlertRunPending(ctx, MarkAlertRunPendingParams{
+			RuleID: p.RuleID, RunID: p.RunID, AttemptedAt: timestamptz(p.AttemptedAt),
+		})
+	})
+	return marked && err == nil, err
+}
+
+// ClaimAlertRule takes the rule's evaluation lease, identified by token, until
+// the given time unless another evaluator holds an unexpired one, and returns
+// the rule as it is now. claimed is false when the rule is leased or gone. The
+// lease is a row value, not a held connection.
+func (s *Store) ClaimAlertRule(
+	ctx context.Context, ruleID, token string, now, until time.Time,
+) (rule storage.AlertRule, claimed bool, err error) {
+	row, err := s.q.ClaimAlertRule(ctx, ClaimAlertRuleParams{
+		ID: ruleID, LeaseToken: &token, Now: timestamptz(now), LeaseUntil: timestamptz(until),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return storage.AlertCandidateRun{}, storage.ErrNotFound
+		return storage.AlertRule{}, false, nil
 	}
 	if err != nil {
-		return storage.AlertCandidateRun{}, err
+		return storage.AlertRule{}, false, err
 	}
-	return storage.AlertCandidateRun{
-		RunID:               row.RunID,
-		CommitSHA:           row.CommitSha,
-		LastResultTimestamp: row.LastResultTimestamp,
-	}, nil
+	return alertRuleFromRow(row), true, nil
+}
+
+// ExtendAlertRuleLease renews a lease its holder still owns and has not let
+// expire. owned is false when the lease expired or another evaluator took it.
+func (s *Store) ExtendAlertRuleLease(
+	ctx context.Context, ruleID, token string, now, until time.Time,
+) (owned bool, err error) {
+	n, err := s.q.ExtendAlertRuleLease(ctx, ExtendAlertRuleLeaseParams{
+		ID: ruleID, LeaseToken: &token, Now: timestamptz(now), LeaseUntil: timestamptz(until),
+	})
+	return n == 1, err
+}
+
+// ReleaseAlertRule ends the lease if token still holds it.
+func (s *Store) ReleaseAlertRule(ctx context.Context, ruleID, token string) error {
+	return s.q.ReleaseAlertRule(ctx, ReleaseAlertRuleParams{ID: ruleID, EvaluationLeaseToken: &token})
+}
+
+// StartAlertRule starts an unstarted rule at its newest finalized run. A rule
+// that is already started, or has no finalized run, is returned unchanged.
+func (s *Store) StartAlertRule(ctx context.Context, ruleID string) (storage.AlertRule, error) {
+	row, err := s.q.StartAlertRule(ctx, ruleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return s.GetAlertRule(ctx, ruleID)
+	}
+	if err != nil {
+		return storage.AlertRule{}, err
+	}
+	return alertRuleFromRow(row), nil
+}
+
+func (s *Store) SelectAlertRuns(
+	ctx context.Context,
+	p storage.SelectAlertRunsParams,
+) ([]storage.AlertCandidateRun, error) {
+	rows, err := s.q.SelectAlertRunsToScore(ctx, SelectAlertRunsToScoreParams{RuleID: p.RuleID, RowLimit: p.Limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]storage.AlertCandidateRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, storage.AlertCandidateRun{
+			RunID: row.RunID, CommitSHA: row.CommitSha, FinalizedAt: row.EvaluatedAt.Time.UTC(), Late: row.Late,
+		})
+	}
+	return out, nil
 }
 
 func (s *Store) EnqueueAlertDeliveries(
