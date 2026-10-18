@@ -828,3 +828,44 @@ func TestCIReportReportsAnAncestrySearchCutShortByMissingCommits(t *testing.T) {
 	require.NotNil(t, repaired.Runs[0].BaselineRunID)
 	assert.Equal(t, "gap-run", *repaired.Runs[0].BaselineRunID)
 }
+
+func TestCIReportTreatsAnUnenrichedAncestorAsIncomplete(t *testing.T) {
+	_, store, _, ctx := newIngester(t)
+	t0 := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{
+		"head": ciCommitInfo("head", new("bare"), "head", t0.Add(48*time.Hour)),
+		"gap":  ciCommitInfo("gap", nil, "gap", t0),
+	}
+	ing := service.NewIngester(store, provider)
+	// bare is known only by its SHA: no parent, timestamp, or fork point yet.
+	bareID, err := store.GetOrCreateCommit(ctx, storage.InsertCommitParams{Repository: testRepo, Sha: "bare"})
+	require.NoError(t, err)
+	ciSubmit(t, ing, ctx, "head-run", "head", 10)
+	reporter := service.NewCIReporter(store, "")
+	report := func() *service.CIReport {
+		t.Helper()
+		out, err := reporter.Report(ctx, service.CIReportQuery{RunIDs: []string{"head-run"}, Baseline: service.CIReportBaselineParent})
+		require.NoError(t, err)
+		require.Len(t, out.Runs, 1)
+		return out
+	}
+
+	unenriched := report()
+	assert.Equal(t, service.CIReportStatusActionRequired, unenriched.Status)
+	require.NotNil(t, unenriched.Runs[0].BaselineError)
+	assert.Equal(t, service.CIReportBaselineErrorIncompleteAncestry, unenriched.Runs[0].BaselineError.Code,
+		"a commit known only by its SHA is not a root")
+
+	// A commit repair fills bare in, and its parent has a run.
+	ciSubmit(t, ing, ctx, "gap-run", "gap", 10)
+	updated, err := store.UpdateUnknownCommit(ctx, storage.UpdateUnknownCommitParams{
+		ID: bareID, Parent: new("gap"), ForkPointSha: new("bare"), Timestamp: t0.Add(24 * time.Hour), Message: "bare",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, updated)
+	repaired := report()
+
+	assert.Nil(t, repaired.Runs[0].BaselineError)
+	require.NotNil(t, repaired.Runs[0].BaselineRunID)
+	assert.Equal(t, "gap-run", *repaired.Runs[0].BaselineRunID)
+}

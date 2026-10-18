@@ -150,7 +150,9 @@ a message, and the commits searched. The code is `no_baseline_run` when the
 search reached a root commit or its 20-commit limit. If the 20-commit search
 runs out, narrow the report with `--run-ids` or pass `--baseline-run-ids`. The
 code is `incomplete_ancestry` when the search stopped earlier at a commit whose
-parent is not in BenchDB yet; backfilling that history lets it continue.
+parent is not in BenchDB yet, or at a commit known only by its SHA whose
+metadata a commit repair has not filled in. Backfilling or repairing that
+history lets the search continue.
 
 ## Report status and exit codes
 

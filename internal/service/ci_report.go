@@ -570,8 +570,10 @@ func (r *CIReporter) selectBaselineRuns(
 }
 
 // noBaselineRunError explains a search that found no baseline run. A search
-// that stopped before its limit at a commit whose parent BenchDB does not have
-// yet is incomplete, not finished.
+// that stopped before its limit is incomplete, not finished, when it stopped at
+// a commit whose parent BenchDB does not have yet, or at a commit known only by
+// its SHA. Such a commit has no timestamp or fork point until a commit repair
+// fills them in, the same test the repair itself uses.
 func noBaselineRunError(
 	run storage.CIReportRunRow, baseline CIReportBaseline, ancestry []storage.CIReportCommitRow,
 ) *CIReportBaselineError {
@@ -584,10 +586,17 @@ func noBaselineRunError(
 		SearchedAncestorLimit: CIReportBaselineAncestorLimit,
 		SearchedCommitSHAs:    ciReportCommitSHAs(ancestry),
 	}
+	if len(ancestry) >= CIReportBaselineAncestorLimit {
+		return out
+	}
 	last := ancestry[len(ancestry)-1]
-	if len(ancestry) < CIReportBaselineAncestorLimit && last.Parent != nil && *last.Parent != "" {
+	switch {
+	case last.Parent != nil && *last.Parent != "":
 		out.Code = CIReportBaselineErrorIncompleteAncestry
 		out.Message = fmt.Sprintf("ancestry stops at %s: its parent %s is not in BenchDB yet", last.CommitSha, *last.Parent)
+	case last.Timestamp == nil && last.ForkPointSha == nil:
+		out.Code = CIReportBaselineErrorIncompleteAncestry
+		out.Message = fmt.Sprintf("ancestry stops at %s: its commit metadata has not been filled in yet", last.CommitSha)
 	}
 	return out
 }
