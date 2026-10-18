@@ -349,10 +349,16 @@ type fakeAlertReporter struct {
 	byRun map[string]*service.CIReport
 	err   error
 	calls []service.CIReportQuery
+	// baseline, when set, is the only baseline the reporter accepts, so a
+	// test fails if evaluation asks for a different one.
+	baseline service.CIReportBaseline
 }
 
 func (r *fakeAlertReporter) Report(_ context.Context, q service.CIReportQuery) (*service.CIReport, error) {
 	r.calls = append(r.calls, q)
+	if r.baseline != "" && q.Baseline != r.baseline {
+		return nil, fmt.Errorf("report requested baseline %q, want %q", q.Baseline, r.baseline)
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -511,11 +517,20 @@ func newAlertScenario(t *testing.T) (context.Context, *db.Store, func(runID stri
 
 func newAlertScenarioWithPool(t *testing.T) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
 	t.Helper()
+	return newAlertScenarioFor(t, service.CIReportBaselineParent)
+}
+
+// newAlertScenarioFor is newAlertScenarioWithPool with a rule comparing
+// against the given baseline.
+func newAlertScenarioFor(
+	t *testing.T, baseline service.CIReportBaseline,
+) (context.Context, *db.Store, *pgxpool.Pool, func(runID string)) {
+	t.Helper()
 	_, store, pool, ctx := newIngester(t)
 	ing := service.NewIngester(store, ciCommitProvider{})
 	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
-		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Baseline: string(baseline), Threshold: 5, ThresholdZ: 2,
 		Enabled: true, CreatedAt: fixedAlertNow(),
 	})
 	require.NoError(t, err)
@@ -769,17 +784,21 @@ func awaitingMetadataCode(code string) *service.CIReport {
 }
 
 func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
-	for _, code := range []string{
-		service.CIReportBaselineErrorUnknownParent,
-		service.CIReportBaselineErrorUnknownForkPoint,
-		service.CIReportBaselineErrorUnknownLatestDefault,
-		service.CIReportBaselineErrorUnknownCandidate,
-		service.CIReportBaselineErrorIncompleteAncestry,
+	// Each error comes from the baseline that can produce it.
+	for _, tt := range []struct {
+		code     string
+		baseline service.CIReportBaseline
+	}{
+		{service.CIReportBaselineErrorUnknownParent, service.CIReportBaselineParent},
+		{service.CIReportBaselineErrorUnknownForkPoint, service.CIReportBaselineForkPoint},
+		{service.CIReportBaselineErrorUnknownLatestDefault, service.CIReportBaselineLatestDefault},
+		{service.CIReportBaselineErrorUnknownCandidate, service.CIReportBaselineParent},
+		{service.CIReportBaselineErrorIncompleteAncestry, service.CIReportBaselineForkPoint},
 	} {
-		t.Run(code, func(t *testing.T) {
-			ctx, store, finalize := newAlertScenario(t)
+		t.Run(tt.code, func(t *testing.T) {
+			ctx, store, _, finalize := newAlertScenarioFor(t, tt.baseline)
 			finalize("run-1")
-			reporter := &fakeAlertReporter{next: awaitingMetadataCode(code)}
+			reporter := &fakeAlertReporter{next: awaitingMetadataCode(tt.code), baseline: tt.baseline}
 			// The evaluator's clock is just after the run was finalized.
 			now := func() time.Time { return time.Now().UTC() }
 			evaluator := service.NewAlertEvaluator(store, reporter, now)
