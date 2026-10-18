@@ -105,7 +105,8 @@ func awaitsCommitMetadata(report *CIReport) bool {
 		}
 		switch run.BaselineError.Code {
 		case CIReportBaselineErrorUnknownParent, CIReportBaselineErrorUnknownForkPoint,
-			CIReportBaselineErrorUnknownLatestDefault, CIReportBaselineErrorUnknownCandidate:
+			CIReportBaselineErrorUnknownLatestDefault, CIReportBaselineErrorUnknownCandidate,
+			CIReportBaselineErrorIncompleteAncestry:
 			return true
 		}
 	}

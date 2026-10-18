@@ -774,6 +774,7 @@ func TestAlertEvaluatorRetriesARunUntilItsCommitMetadataArrives(t *testing.T) {
 		service.CIReportBaselineErrorUnknownForkPoint,
 		service.CIReportBaselineErrorUnknownLatestDefault,
 		service.CIReportBaselineErrorUnknownCandidate,
+		service.CIReportBaselineErrorIncompleteAncestry,
 	} {
 		t.Run(code, func(t *testing.T) {
 			ctx, store, finalize := newAlertScenario(t)
