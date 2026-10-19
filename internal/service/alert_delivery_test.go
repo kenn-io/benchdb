@@ -665,3 +665,34 @@ func TestSlackAlertWithLongBenchmarkNamesStaysWithinSlackLimits(t *testing.T) {
 	assert.Equal(t, 5, rowLines, "every row is still delivered")
 	assert.Contains(t, blocks[1], "…", "long names are cut short")
 }
+
+func TestGitHubCheckConclusionFollowsTheAlertNotItsReport(t *testing.T) {
+	for _, tt := range []struct {
+		kind, status, want string
+	}{
+		// A sustained slowdown can open a rule on a report that is clean
+		// against its slow parent.
+		{storage.AlertEventKindOpened, string(service.CIReportStatusSuccess), "failure"},
+		{storage.AlertEventKindOpened, string(service.CIReportStatusFailure), "failure"},
+		{storage.AlertEventKindResolved, string(service.CIReportStatusSuccess), "success"},
+	} {
+		t.Run(tt.kind+"/"+tt.status, func(t *testing.T) {
+			var got map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+				w.WriteHeader(http.StatusCreated)
+			}))
+			t.Cleanup(server.Close)
+			err := service.NewGitHubCheckAlertDeliverySender(server.Client(), "ghs_secret", server.URL).SendAlertDelivery(
+				context.Background(), service.AlertDeliveryPayload{
+					Channel: service.AlertDeliveryChannelGitHubCheck, Target: "https://github.com/org/repo",
+					Event: service.AlertDeliveryEvent{
+						ID: "event-1", Kind: tt.kind, Status: tt.status, CommitSHA: new("sha-1"),
+						Repository: "https://github.com/org/repo",
+					},
+				})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got["conclusion"])
+		})
+	}
+}

@@ -146,16 +146,19 @@ For each enabled rule, the evaluator:
 | `skipped` or `action_required` | No change. | No change. |
 
 Each benchmark series keeps its own streak. A streak starts when the series
-regresses. It continues while each later run is still worse than the series'
-recent history: past the lookback threshold, beyond the practical tolerance,
-and more than 2% from the history mean, the same test the Benchmarks page
-uses. It ends at the first run that is not.
+regresses. It continues while each later run that measures the series is
+still worse than the series' recent history: past the lookback threshold,
+beyond the practical tolerance, and more than 2% from the history mean, the
+same test the Benchmarks page uses. It ends at the first such run that is not. A run that does not measure
+the series, such as one from another suite or machine, leaves its streak as it
+was.
 
 A streak continues on the series' history, not on each run's own verdict,
 because of the `parent` baseline. After a slowdown, the next commit matches its
 already slow parent and is not a regression of its own, though the slowdown
-persists. For the same reason, an open rule resolves only once every series is
-back inside its history, not at the first run that matches its parent.
+persists. For the same reason, while a rule is open any series still worse than
+its history keeps it open, and the rule resolves only once every series is back
+inside its history, not at the first run that matches its parent.
 
 Two different benchmarks that each regress once in back-to-back runs do not
 open a rule, and a one-run blip followed by a run inside the history never
@@ -334,9 +337,10 @@ The token needs `checks:write` on the repository. The CLI reads
 `GITHUB_API_TOKEN`.
 
 BenchDB creates a completed Check Run named `BenchDB alert` on the event's
-commit. A `failure` report becomes a failing check, `success` a passing check,
-and any other status a neutral check. The check's title and summary carry the
-same message as Slack.
+commit. An `opened` event becomes a failing check and a `resolved` event a
+passing check, whatever the status of the report. With confirmation, a rule can
+open on a run that only matches its slow parent, so the report alone would
+pass. The check's title and summary carry the same message as Slack.
 
 The target is a repository URL, not a webhook. BenchDB only queues events
 whose rule repository matches the target, so one repository's alerts never

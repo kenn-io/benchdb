@@ -518,7 +518,7 @@ func (s *GitHubCheckAlertDeliverySender) SendAlertDelivery(
 		Name:       "BenchDB alert",
 		HeadSHA:    *payload.Event.CommitSHA,
 		Status:     "completed",
-		Conclusion: githubCheckConclusion(payload.Event.Status),
+		Conclusion: githubCheckConclusion(payload.Event.Kind),
 		ExternalID: payload.Event.ID,
 		Output: githubCheckRunOutput{
 			Title:   newAlertMessage(payload.Event).headline(),
@@ -619,12 +619,15 @@ func githubRepositorySpec(raw string) (string, error) {
 	return url.PathEscape(owner) + "/" + url.PathEscape(repo), nil
 }
 
-func githubCheckConclusion(status string) string {
-	switch status {
-	case string(CIReportStatusSuccess):
-		return "success"
-	case string(CIReportStatusFailure):
+// githubCheckConclusion follows the alert, not its report: a rule can open on
+// a sustained slowdown whose latest report, compared with a slow parent, is
+// itself clean.
+func githubCheckConclusion(kind string) string {
+	switch kind {
+	case storage.AlertEventKindOpened:
 		return "failure"
+	case storage.AlertEventKindResolved:
+		return "success"
 	default:
 		return "neutral"
 	}

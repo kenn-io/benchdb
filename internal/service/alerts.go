@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"time"
 
-	"go.kenn.io/benchdb/internal/stats"
 	"go.kenn.io/benchdb/internal/storage"
 )
 
@@ -265,7 +265,7 @@ func (e *AlertEvaluator) evaluateRun(
 		summary.Skipped++
 		return e.recordRun(ctx, rule, lease, now, scored, nil)
 	}
-	streaks := advanceRegressionStreaks(rule.RegressionStreaks, alertReport)
+	streaks, regressedNow := advanceRegressionStreaks(rule.RegressionStreaks, alertReport, open)
 	confirmed := confirmedRegressions(streaks, rule.ConfirmRuns)
 	switch {
 	case !open && len(confirmed) > 0:
@@ -277,7 +277,7 @@ func (e *AlertEvaluator) evaluateRun(
 		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, nil, streaks,
 			storage.AlertRuleStateInactive, storage.AlertEventKindResolved, now, summary)
 		return next, next != nil, err
-	case !open && len(streaks) > 0:
+	case !open && regressedNow:
 		// Regressed, but no benchmark has done so in enough runs in a row.
 		summary.Unconfirmed++
 	default:
@@ -286,37 +286,49 @@ func (e *AlertEvaluator) evaluateRun(
 	return e.recordRun(ctx, rule, lease, now, scored, streaks)
 }
 
-// advanceRegressionStreaks extends the streak of every benchmark series that
-// regressed in this run, or that is on a streak and still outside its recent
-// history, and drops the rest. A streak continues on its history rather than on
-// this run's own verdict because a parent-baseline report compares each commit
-// with its parent: after a slowdown, the next commit matches its already slow
-// parent and is no regression of its own, though the slowdown persists.
-func advanceRegressionStreaks(previous map[string]int, report *CIReport) map[string]int {
-	next := map[string]int{}
+// advanceRegressionStreaks updates the streaks of the benchmark series this run
+// measured, and reports whether any of them regressed. A series the run did not
+// measure with a usable lookback, such as one from another suite or machine,
+// keeps its streak.
+//
+// A measured series' streak grows when it regresses, or when it is still
+// worse than its recent history and is on a streak or the rule is open, and
+// ends otherwise. It continues on history rather than on this run's own
+// verdict because a parent-baseline report compares each commit with its
+// parent: after a slowdown, the next commit matches its already slow parent
+// and is no regression of its own, though the slowdown persists. An open rule
+// counts every series still worse than its history, so a rule that opened
+// before streaks were kept is not resolved by such a commit.
+func advanceRegressionStreaks(
+	previous map[string]int, report *CIReport, open bool,
+) (next map[string]int, regressedNow bool) {
+	next = maps.Clone(previous)
+	if next == nil {
+		next = map[string]int{}
+	}
 	for _, run := range report.Runs {
 		for _, comparison := range run.Comparisons {
+			if comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil {
+				continue
+			}
 			fingerprint := comparison.HistoryFingerprint
-			if comparison.Status == CIReportRowStatusRegressed ||
-				(previous[fingerprint] > 0 && outsideHistoryWorse(comparison)) {
+			regressed := comparison.Status == CIReportRowStatusRegressed
+			regressedNow = regressedNow || regressed
+			if regressed || ((open || previous[fingerprint] > 0) && outsideHistoryWorse(comparison)) {
 				next[fingerprint] = previous[fingerprint] + 1
+			} else {
+				delete(next, fingerprint)
 			}
 		}
 	}
-	return next
+	return next, regressedNow
 }
 
 // outsideHistoryWorse reports whether a row is still worse than its recent
-// history by the series rule: past the lookback threshold, beyond the
-// practical tolerance, and more than the minimum change from the history mean.
+// history, by the lookback analysis's own unrounded verdict.
 func outsideHistoryWorse(comparison CIReportComparison) bool {
-	if comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil || comparison.Contender.SVS == nil {
-		return false
-	}
-	lookback := comparison.Analysis.LookbackZScore
-	return lookback.Tolerance != nil && lookback.ZScore <= -lookback.ZThreshold &&
-		!lookback.Tolerance.WithinTolerance &&
-		stats.ExceedsMinimumChange(*comparison.Contender.SVS, lookback.Tolerance.Reference)
+	return comparison.Analysis != nil && comparison.Analysis.LookbackZScore != nil &&
+		comparison.Analysis.LookbackZScore.WorseThanHistory
 }
 
 // confirmedRegressions are the series that have regressed in at least
