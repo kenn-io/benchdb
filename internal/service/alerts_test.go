@@ -376,7 +376,8 @@ func lookbackRegression(name, unit string, before, after float64) service.CIRepo
 		Analysis: &service.CIReportAnalysis{LookbackZScore: &service.LookbackAnalysis{
 			RegressionIndicated: true, Tolerance: &service.ChangeTolerance{Reference: before},
 		}},
-		Links: service.CIReportRowLinks{Series: "/series/" + name},
+		Links:              service.CIReportRowLinks{Series: "/series/" + name},
+		HistoryFingerprint: name,
 	}
 }
 
@@ -985,9 +986,7 @@ func confirmedScenario(t *testing.T, reports map[string]*service.CIReport, runs 
 func TestAlertEvaluatorOpensOnlyWhenABenchmarkRegressesTwiceInARow(t *testing.T) {
 	both := regressedReport("a", "b")
 	for i := range both.Runs[0].Comparisons {
-		row := lookbackRegression(both.Runs[0].Comparisons[i].Name, "s", 1, 2)
-		row.HistoryFingerprint = row.Name
-		both.Runs[0].Comparisons[i] = row
+		both.Runs[0].Comparisons[i] = lookbackRegression(both.Runs[0].Comparisons[i].Name, "s", 1, 2)
 	}
 	summaries := confirmedScenario(t, map[string]*service.CIReport{
 		"run-1": regressedReport("a"), "run-2": both,
@@ -1036,4 +1035,58 @@ func TestAlertEvaluatorKeepsAStreakAcrossARunWithNoAnalysis(t *testing.T) {
 
 	assert.Equal(t, 1, summaries[1].Skipped)
 	assert.Equal(t, 1, summaries[2].Opened, "a skipped run says nothing about the streak")
+}
+
+// TestAlertEvaluatorConfirmsASustainedSlowdownAgainstItsParent covers a
+// parent-baseline rule. The second slow commit compares with its already slow
+// parent, so its own report is not a regression; it is still well outside the
+// benchmark's recent history, so the slowdown is confirmed.
+func TestAlertEvaluatorConfirmsASustainedSlowdownAgainstItsParent(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	t0 := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
+	provider := ciCommitProvider{}
+	ing := service.NewIngester(store, provider)
+	var parent *string
+	day := 0
+	commitRun := func(sha string, value float64) *service.Result {
+		t.Helper()
+		provider[sha] = ciCommitInfo(sha, parent, sha, t0.Add(time.Duration(day)*24*time.Hour))
+		parent, day = &sha, day+1
+		return ciSubmit(t, ing, ctx, "run-"+sha, sha, value)
+	}
+	for i, value := range []float64{10, 10.4, 9.6, 10.2, 9.8, 10, 10.4, 9.6, 10.2, 9.8, 10} {
+		commitRun(fmt.Sprintf("steady-%02d", i), value)
+	}
+	_, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
+		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
+		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
+		Enabled: true, CreatedAt: fixedAlertNow(), ConfirmRuns: service.AlertConfirmRunsDefault,
+	})
+	require.NoError(t, err)
+	evaluator := service.NewAlertEvaluator(store, service.NewCIReporter(store, "https://benchdb.example"), fixedAlertNow)
+	pass := func(sha string, value float64) service.AlertEvaluationSummary {
+		t.Helper()
+		result := commitRun(sha, value)
+		finalizeAlertRun(t, ctx, store, "run-"+sha, result.ID)
+		summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+		require.NoError(t, err)
+		return summary
+	}
+
+	first := pass("slow-1", 20)
+	assert.Equal(t, 1, first.Unconfirmed, "one slow run is not enough")
+
+	second := pass("slow-2", 20)
+	assert.Equal(t, 1, second.Opened, "the slowdown persisted, though slow-2 matches its slow parent")
+	require.Len(t, second.Events, 1)
+	var event service.AlertEventSummary
+	require.NoError(t, jsonv2.Unmarshal(second.Events[0].Summary, &event))
+	require.Len(t, event.Regressed, 1, "the confirmed benchmark is listed")
+
+	third := pass("slow-3", 20)
+	assert.Zero(t, third.Resolved, "still slow, though no slower than its parent")
+	assert.Equal(t, 1, third.Unchanged)
+
+	fixed := pass("fixed", 10)
+	assert.Equal(t, 1, fixed.Resolved, "back inside its history, the benchmark no longer holds the rule open")
 }

@@ -50,7 +50,13 @@ func newAlertEventSummary(report *CIReport, confirmed map[string]bool) AlertEven
 			summary.CommitSubject, _, _ = strings.Cut(strings.TrimSpace(run.Commit.Message), "\n")
 		}
 		for _, comparison := range run.Comparisons {
-			if confirmed != nil && !confirmed[comparison.HistoryFingerprint] {
+			// A confirmed series is listed even when this run did not regress
+			// against its own baseline, as when it matches a slow parent.
+			listed := comparison.Status == CIReportRowStatusRegressed
+			if confirmed != nil {
+				listed = confirmed[comparison.HistoryFingerprint]
+			}
+			if !listed {
 				continue
 			}
 			if row, ok := alertEventRow(comparison, base); ok {
@@ -69,7 +75,7 @@ func newAlertEventSummary(report *CIReport, confirmed map[string]bool) AlertEven
 }
 
 func alertEventRow(comparison CIReportComparison, base string) (AlertEventRow, bool) {
-	if comparison.Status != CIReportRowStatusRegressed || comparison.Contender.SVS == nil ||
+	if comparison.Contender.SVS == nil ||
 		comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil ||
 		comparison.Analysis.LookbackZScore.Tolerance == nil {
 		return AlertEventRow{}, false

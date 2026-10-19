@@ -142,18 +142,27 @@ For each enabled rule, the evaluator:
 
 | Report status | Rule is `inactive` | Rule is `open` |
 | --- | --- | --- |
-| `failure` | Record an `opened` event and set the rule to `open` if a benchmark has now regressed in `confirm_runs` consecutive scored runs. Otherwise no change. | No change. |
-| `success` | No change. | Record a `resolved` event and set the rule to `inactive`. |
+| `failure` or `success` | Record an `opened` event and set the rule to `open` once a benchmark is on a streak of `confirm_runs` scored runs. Otherwise no change. | Record a `resolved` event and set the rule to `inactive` once no benchmark is on a streak. Otherwise no change. |
 | `skipped` or `action_required` | No change. | No change. |
 
-The confirmation follows each benchmark series separately, so two different
-benchmarks that each regress once in back-to-back runs do not open a rule. A
-`success` report clears every streak, so a one-run blip followed by a clean run
-never alerts. A run with no usable analysis, or one recorded as `late` or
-`pending`, leaves the streaks as they were. With the default of 2, a real
-regression alerts one run later than it otherwise would, and the `opened` event
-lists only the confirmed benchmarks. The Benchmarks page uses the same
-two-in-a-row rule for a series status.
+Each benchmark series keeps its own streak. A streak starts when the series
+regresses. It continues while each later run is still worse than the series'
+recent history: past the lookback threshold, beyond the practical tolerance,
+and more than 2% from the history mean, the same test the Benchmarks page
+uses. It ends at the first run that is not.
+
+A streak continues on the series' history, not on each run's own verdict,
+because of the `parent` baseline. After a slowdown, the next commit matches its
+already slow parent and is not a regression of its own, though the slowdown
+persists. For the same reason, an open rule resolves only once every series is
+back inside its history, not at the first run that matches its parent.
+
+Two different benchmarks that each regress once in back-to-back runs do not
+open a rule, and a one-run blip followed by a run inside the history never
+alerts. A run with no usable analysis, or one recorded as `late` or `pending`,
+leaves the streaks as they were. With the default of 2, a real regression
+alerts one run later than it otherwise would, and the `opened` event lists only
+the confirmed benchmarks.
 
 A report is `failure` when at least one row is a lookback regression. That
 requires the contender to be outside the history band, at least 3 standard

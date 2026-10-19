@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"go.kenn.io/benchdb/internal/stats"
 	"go.kenn.io/benchdb/internal/storage"
 )
 
@@ -259,50 +260,63 @@ func (e *AlertEvaluator) evaluateRun(
 		return &rule, false, nil
 	}
 	open := rule.State == storage.AlertRuleStateOpen
-	switch alertReport.Status {
-	case CIReportStatusFailure:
-		streaks := advanceRegressionStreaks(rule.RegressionStreaks, alertReport)
-		if confirmed := confirmedRegressions(streaks, rule.ConfirmRuns); !open && len(confirmed) > 0 {
-			next, err := e.transitionRule(ctx, rule, lease, run, alertReport, confirmed, streaks,
-				storage.AlertRuleStateOpen, storage.AlertEventKindOpened, now, summary)
-			return next, next != nil, err
-		}
-		if open {
-			summary.Unchanged++
-		} else {
-			// Regressed, but no benchmark has done so in enough runs in a row.
-			summary.Unconfirmed++
-		}
-		return e.recordRun(ctx, rule, lease, now, scored, streaks)
-	case CIReportStatusSuccess:
-		cleared := map[string]int{}
-		if open {
-			next, err := e.transitionRule(ctx, rule, lease, run, alertReport, nil, cleared,
-				storage.AlertRuleStateInactive, storage.AlertEventKindResolved, now, summary)
-			return next, next != nil, err
-		}
-		summary.Unchanged++
-		return e.recordRun(ctx, rule, lease, now, scored, cleared)
-	default:
+	if alertReport.Status != CIReportStatusFailure && alertReport.Status != CIReportStatusSuccess {
 		// No usable analysis: say nothing about the streaks.
 		summary.Skipped++
 		return e.recordRun(ctx, rule, lease, now, scored, nil)
 	}
+	streaks := advanceRegressionStreaks(rule.RegressionStreaks, alertReport)
+	confirmed := confirmedRegressions(streaks, rule.ConfirmRuns)
+	switch {
+	case !open && len(confirmed) > 0:
+		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, confirmed, streaks,
+			storage.AlertRuleStateOpen, storage.AlertEventKindOpened, now, summary)
+		return next, next != nil, err
+	case open && len(streaks) == 0:
+		// Every benchmark is back inside its recent history.
+		next, err := e.transitionRule(ctx, rule, lease, run, alertReport, nil, streaks,
+			storage.AlertRuleStateInactive, storage.AlertEventKindResolved, now, summary)
+		return next, next != nil, err
+	case !open && len(streaks) > 0:
+		// Regressed, but no benchmark has done so in enough runs in a row.
+		summary.Unconfirmed++
+	default:
+		summary.Unchanged++
+	}
+	return e.recordRun(ctx, rule, lease, now, scored, streaks)
 }
 
 // advanceRegressionStreaks extends the streak of every benchmark series that
-// regressed in this run and drops the rest: a series that did not regress
-// this run starts over.
+// regressed in this run, or that is on a streak and still outside its recent
+// history, and drops the rest. A streak continues on its history rather than on
+// this run's own verdict because a parent-baseline report compares each commit
+// with its parent: after a slowdown, the next commit matches its already slow
+// parent and is no regression of its own, though the slowdown persists.
 func advanceRegressionStreaks(previous map[string]int, report *CIReport) map[string]int {
 	next := map[string]int{}
 	for _, run := range report.Runs {
 		for _, comparison := range run.Comparisons {
-			if comparison.Status == CIReportRowStatusRegressed {
-				next[comparison.HistoryFingerprint] = previous[comparison.HistoryFingerprint] + 1
+			fingerprint := comparison.HistoryFingerprint
+			if comparison.Status == CIReportRowStatusRegressed ||
+				(previous[fingerprint] > 0 && outsideHistoryWorse(comparison)) {
+				next[fingerprint] = previous[fingerprint] + 1
 			}
 		}
 	}
 	return next
+}
+
+// outsideHistoryWorse reports whether a row is still worse than its recent
+// history by the series rule: past the lookback threshold, beyond the
+// practical tolerance, and more than the minimum change from the history mean.
+func outsideHistoryWorse(comparison CIReportComparison) bool {
+	if comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil || comparison.Contender.SVS == nil {
+		return false
+	}
+	lookback := comparison.Analysis.LookbackZScore
+	return lookback.Tolerance != nil && lookback.ZScore <= -lookback.ZThreshold &&
+		!lookback.Tolerance.WithinTolerance &&
+		stats.ExceedsMinimumChange(*comparison.Contender.SVS, lookback.Tolerance.Reference)
 }
 
 // confirmedRegressions are the series that have regressed in at least
