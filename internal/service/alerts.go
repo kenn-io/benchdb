@@ -296,8 +296,13 @@ func (e *AlertEvaluator) evaluateRun(
 // openingStreaks rebuilds the streaks of a rule that opened before streaks
 // were kept, from the run that opened it. Without them, the first run that
 // analyzed anything would resolve the rule, even one that never measured the
-// series that opened it. Each series that regressed in the opening run is
-// treated as confirmed. The rule keeps no streaks when the opening run
+// series that opened it.
+//
+// The rebuild does not trust a rerun's verdicts: a latest_default baseline,
+// or later results that mark a distribution change, can clear the regression
+// that opened the rule. Every series the opening run measured is treated as
+// confirmed instead, so the rule resolves only once each of them is measured
+// back inside its history. The rule keeps no streaks when the opening run
 // cannot be found.
 func (e *AlertEvaluator) openingStreaks(ctx context.Context, rule storage.AlertRule) (map[string]int, error) {
 	events, err := e.store.ListAlertEventsByRule(ctx, storage.ListAlertEventsParams{RuleID: rule.ID, Limit: 1})
@@ -321,9 +326,9 @@ func (e *AlertEvaluator) openingStreaks(ctx context.Context, rule storage.AlertR
 		return nil, err
 	}
 	streaks := map[string]int{}
-	for _, run := range automatedAlertReport(report).Runs {
+	for _, run := range report.Runs {
 		for _, comparison := range run.Comparisons {
-			if comparison.Status == CIReportRowStatusRegressed {
+			if comparison.HistoryFingerprint != "" {
 				streaks[comparison.HistoryFingerprint] = rule.ConfirmRuns
 			}
 		}
