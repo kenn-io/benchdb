@@ -2,6 +2,7 @@
 _build/
 _kpbuild/
 /var/
+/tmp/
 /site/
 /.vercel/
 /website/assets/*.png
