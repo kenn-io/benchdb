@@ -21,6 +21,7 @@ type AlertStore interface {
 	MarkAlertRunPending(ctx context.Context, p storage.MarkAlertRunPendingParams) (bool, error)
 	TouchAlertRuleEvaluation(ctx context.Context, p storage.TouchAlertRuleEvaluationParams) (storage.AlertRuleTouch, error)
 	TransitionAlertRule(ctx context.Context, p storage.TransitionAlertRuleParams) (storage.AlertRuleTransition, error)
+	ListAlertEventsByRule(ctx context.Context, p storage.ListAlertEventsParams) ([]storage.AlertEvent, error)
 }
 
 type AlertReporter interface {
@@ -265,7 +266,13 @@ func (e *AlertEvaluator) evaluateRun(
 		summary.Skipped++
 		return e.recordRun(ctx, rule, lease, now, scored, nil)
 	}
-	streaks, regressedNow := advanceRegressionStreaks(rule.RegressionStreaks, alertReport, open)
+	previous := rule.RegressionStreaks
+	if open && len(previous) == 0 {
+		if previous, err = e.openingStreaks(ctx, rule); err != nil {
+			return nil, false, err
+		}
+	}
+	streaks, regressedNow := advanceRegressionStreaks(previous, alertReport)
 	confirmed := confirmedRegressions(streaks, rule.ConfirmRuns)
 	switch {
 	case !open && len(confirmed) > 0:
@@ -286,26 +293,58 @@ func (e *AlertEvaluator) evaluateRun(
 	return e.recordRun(ctx, rule, lease, now, scored, streaks)
 }
 
+// openingStreaks rebuilds the streaks of a rule that opened before streaks
+// were kept, from the run that opened it. Without them, the first run that
+// analyzed anything would resolve the rule, even one that never measured the
+// series that opened it. Each series that regressed in the opening run is
+// treated as confirmed. The rule keeps no streaks when the opening run
+// cannot be found.
+func (e *AlertEvaluator) openingStreaks(ctx context.Context, rule storage.AlertRule) (map[string]int, error) {
+	events, err := e.store.ListAlertEventsByRule(ctx, storage.ListAlertEventsParams{RuleID: rule.ID, Limit: 1})
+	if err != nil || len(events) == 0 || events[0].Kind != storage.AlertEventKindOpened || events[0].RunID == nil {
+		return nil, err
+	}
+	opening := events[0]
+	var commitSHA string
+	if opening.CommitSHA != nil {
+		commitSHA = *opening.CommitSHA
+	}
+	report, err := e.reporter.Report(ctx, CIReportQuery{
+		Repository: rule.Repository,
+		CommitSHA:  commitSHA,
+		RunIDs:     []string{*opening.RunID},
+		Baseline:   CIReportBaseline(rule.Baseline),
+		Threshold:  rule.Threshold,
+		ThresholdZ: rule.ThresholdZ,
+	})
+	if err != nil || report == nil {
+		return nil, err
+	}
+	streaks := map[string]int{}
+	for _, run := range automatedAlertReport(report).Runs {
+		for _, comparison := range run.Comparisons {
+			if comparison.Status == CIReportRowStatusRegressed {
+				streaks[comparison.HistoryFingerprint] = rule.ConfirmRuns
+			}
+		}
+	}
+	return streaks, nil
+}
+
 // advanceRegressionStreaks updates the streaks of the benchmark series this run
 // measured, and reports whether any of them regressed. A series the run did not
 // measure with a usable lookback, such as one from another suite or machine,
-// keeps its streak.
+// keeps its streak. A series measured more than once in the run counts once,
+// as regressed or still worse when any of its measurements is.
 //
-// A measured series' streak grows when it regresses, or when it is still
-// worse than its recent history and is on a streak or the rule is open, and
-// ends otherwise. It continues on history rather than on this run's own
-// verdict because a parent-baseline report compares each commit with its
-// parent: after a slowdown, the next commit matches its already slow parent
-// and is no regression of its own, though the slowdown persists. An open rule
-// counts every series still worse than its history, so a rule that opened
-// before streaks were kept is not resolved by such a commit.
-func advanceRegressionStreaks(
-	previous map[string]int, report *CIReport, open bool,
-) (next map[string]int, regressedNow bool) {
-	next = maps.Clone(previous)
-	if next == nil {
-		next = map[string]int{}
-	}
+// A measured series' streak grows when it regresses, or when it is on a
+// streak and still worse than its recent history, and ends otherwise. It
+// continues on history rather than on this run's own verdict because a
+// parent-baseline report compares each commit with its parent: after a
+// slowdown, the next commit matches its already slow parent and is no
+// regression of its own, though the slowdown persists.
+func advanceRegressionStreaks(previous map[string]int, report *CIReport) (next map[string]int, regressedNow bool) {
+	worse := map[string]bool{}
 	for _, run := range report.Runs {
 		for _, comparison := range run.Comparisons {
 			if comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil {
@@ -314,11 +353,19 @@ func advanceRegressionStreaks(
 			fingerprint := comparison.HistoryFingerprint
 			regressed := comparison.Status == CIReportRowStatusRegressed
 			regressedNow = regressedNow || regressed
-			if regressed || ((open || previous[fingerprint] > 0) && outsideHistoryWorse(comparison)) {
-				next[fingerprint] = previous[fingerprint] + 1
-			} else {
-				delete(next, fingerprint)
-			}
+			worse[fingerprint] = worse[fingerprint] || regressed ||
+				(previous[fingerprint] > 0 && outsideHistoryWorse(comparison))
+		}
+	}
+	next = maps.Clone(previous)
+	if next == nil {
+		next = map[string]int{}
+	}
+	for fingerprint, isWorse := range worse {
+		if isWorse {
+			next[fingerprint] = previous[fingerprint] + 1
+		} else {
+			delete(next, fingerprint)
 		}
 	}
 	return next, regressedNow

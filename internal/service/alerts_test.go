@@ -227,6 +227,10 @@ func (s *fakeAlertStore) MarkAlertRunPending(_ context.Context, p storage.MarkAl
 	return s.leases[p.RuleID] == p.LeaseToken, nil
 }
 
+func (s *fakeAlertStore) ListAlertEventsByRule(context.Context, storage.ListAlertEventsParams) ([]storage.AlertEvent, error) {
+	return nil, nil
+}
+
 func (s *fakeAlertStore) ReleaseAlertRule(_ context.Context, id, token string) error {
 	if s.leases[id] == token {
 		delete(s.leases, id)
@@ -1137,26 +1141,35 @@ func TestAlertEvaluatorKeepsAStreakAcrossAnotherSuitesRun(t *testing.T) {
 	assert.Equal(t, 1, summaries[2].Opened)
 }
 
-// TestAlertEvaluatorKeepsARuleOpenedBeforeStreaksWhileItsSlowdownLasts covers
-// a rule that was already open when streaks were introduced, so it has none.
-// A commit as slow as its slow parent must not resolve it.
-func TestAlertEvaluatorKeepsARuleOpenedBeforeStreaksWhileItsSlowdownLasts(t *testing.T) {
+// TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem covers a rule
+// that was already open when streaks were introduced, so it has none. Neither
+// a healthy run of another benchmark nor a commit as slow as its slow parent
+// may resolve it; recovering the benchmark that opened it does.
+func TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem(t *testing.T) {
 	_, store, pool, ctx := newIngester(t)
 	t0 := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
 	provider := ciCommitProvider{}
 	ing := service.NewIngester(store, provider)
 	var parent *string
 	day := 0
-	commitRun := func(sha string, value float64) *service.Result {
+	// commit adds a commit and submits the slowing benchmark and another one
+	// on it, each as its own run.
+	commit := func(sha string, value, other float64) (*service.Result, *service.Result) {
 		t.Helper()
 		provider[sha] = ciCommitInfo(sha, parent, sha, t0.Add(time.Duration(day)*24*time.Hour))
 		parent, day = &sha, day+1
-		return ciSubmit(t, ing, ctx, "run-"+sha, sha, value)
+		req := machineReq(samples(other, other+1, other+2), "s")
+		req.Tags = map[string]any{"name": "other", "source": "test"}
+		req.RunID, req.BatchID, req.GitHub.Commit = "run-other-"+sha, "batch-other-"+sha, sha
+		otherResult, err := ing.Submit(ctx, req)
+		require.NoError(t, err)
+		return ciSubmit(t, ing, ctx, "run-"+sha, sha, value), otherResult
 	}
-	for i, value := range []float64{10, 10.4, 9.6, 10.2, 9.8, 10, 10.4, 9.6, 10.2, 9.8, 10} {
-		commitRun(fmt.Sprintf("steady-%02d", i), value)
+	steady := []float64{10, 10.4, 9.6, 10.2, 9.8, 10, 10.4, 9.6, 10.2, 9.8, 10}
+	for i, value := range steady {
+		commit(fmt.Sprintf("steady-%02d", i), value, value)
 	}
-	commitRun("slow-1", 20)
+	commit("slow-1", 20, 10)
 	rule, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
@@ -1168,13 +1181,66 @@ func TestAlertEvaluatorKeepsARuleOpenedBeforeStreaksWhileItsSlowdownLasts(t *tes
 		ID: rule.ID, State: storage.AlertRuleStateOpen, EvaluatedAt: fixedAlertNow(),
 	})
 	require.NoError(t, err)
-	slow := commitRun("slow-2", 20)
-	finalizeAlertRun(t, ctx, store, "run-slow-2", slow.ID)
-
-	summary, err := service.NewAlertEvaluator(store, service.NewCIReporter(store, ""), fixedAlertNow).
-		Evaluate(ctx, service.AlertEvaluationOptions{})
-
+	_, err = store.CreateAlertEvent(ctx, storage.InsertAlertEventParams{
+		RuleID: rule.ID, Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
+		StatusReason: "regressed", RunID: new("run-slow-1"), CommitSHA: new("slow-1"),
+		Summary: []byte(`{}`), CreatedAt: fixedAlertNow(),
+	})
 	require.NoError(t, err)
-	assert.Zero(t, summary.Resolved, "slow-2 matches its slow parent but is still worse than its history")
-	assert.Equal(t, 1, summary.Unchanged)
+	evaluator := service.NewAlertEvaluator(store, service.NewCIReporter(store, ""), fixedAlertNow)
+	pass := func(run *service.Result, runID string) service.AlertEvaluationSummary {
+		t.Helper()
+		finalizeAlertRun(t, ctx, store, runID, run.ID)
+		summary, err := evaluator.Evaluate(ctx, service.AlertEvaluationOptions{})
+		require.NoError(t, err)
+		return summary
+	}
+
+	slow, other := commit("slow-2", 20, 10)
+	healthy := pass(other, "run-other-slow-2")
+	assert.Zero(t, healthy.Resolved, "another benchmark's healthy run says nothing about the slow one")
+	assert.Equal(t, 1, healthy.Unchanged)
+
+	stillSlow := pass(slow, "run-slow-2")
+	assert.Zero(t, stillSlow.Resolved, "slow-2 matches its slow parent but is still worse than its history")
+	assert.Equal(t, 1, stillSlow.Unchanged)
+
+	fixed, _ := commit("fixed", 10, 10)
+	assert.Equal(t, 1, pass(fixed, "run-fixed").Resolved)
+}
+
+// TestAlertEvaluatorCountsASeriesMeasuredTwiceInARunOnce covers a run that
+// measured one benchmark twice, once regressed and once not. The regression
+// counts, whichever measurement comes first.
+func TestAlertEvaluatorCountsASeriesMeasuredTwiceInARunOnce(t *testing.T) {
+	mixed := func(regressedFirst bool) *service.CIReport {
+		report := regressedReport("a")
+		clean := cleanReport("a").Runs[0].Comparisons[0]
+		if regressedFirst {
+			report.Runs = append(report.Runs, service.CIReportRun{Comparisons: []service.CIReportComparison{clean}})
+		} else {
+			report.Runs = append([]service.CIReportRun{{Comparisons: []service.CIReportComparison{clean}}}, report.Runs...)
+		}
+		return report
+	}
+	for name, regressedFirst := range map[string]bool{"regressed first": true, "clean first": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Run("opens a rule confirming one run", func(t *testing.T) {
+				ctx, store, _, finalize := newAlertScenarioConfirming(t, service.CIReportBaselineParent, 1)
+				finalize("run-1")
+				summary, err := service.NewAlertEvaluator(store, &fakeAlertReporter{next: mixed(regressedFirst)}, fixedAlertNow).
+					Evaluate(ctx, service.AlertEvaluationOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, 1, summary.Opened)
+			})
+			t.Run("keeps an open rule open", func(t *testing.T) {
+				summaries := confirmedScenario(t, map[string]*service.CIReport{
+					"run-1": regressedReport("a"), "run-2": regressedReport("a"), "run-3": mixed(regressedFirst),
+				}, "run-1", "run-2", "run-3")
+				assert.Equal(t, 1, summaries[1].Opened)
+				assert.Zero(t, summaries[2].Resolved)
+				assert.Equal(t, 1, summaries[2].Unchanged)
+			})
+		})
+	}
 }

@@ -149,16 +149,21 @@ Each benchmark series keeps its own streak. A streak starts when the series
 regresses. It continues while each later run that measures the series is
 still worse than the series' recent history: past the lookback threshold,
 beyond the practical tolerance, and more than 2% from the history mean, the
-same test the Benchmarks page uses. It ends at the first such run that is not. A run that does not measure
-the series, such as one from another suite or machine, leaves its streak as it
-was.
+same test the Benchmarks page uses. It ends at the first such run that is
+not. A run that does not measure the series, such as one from another suite or
+machine, leaves its streak as it was.
 
 A streak continues on the series' history, not on each run's own verdict,
 because of the `parent` baseline. After a slowdown, the next commit matches its
 already slow parent and is not a regression of its own, though the slowdown
-persists. For the same reason, while a rule is open any series still worse than
-its history keeps it open, and the rule resolves only once every series is back
-inside its history, not at the first run that matches its parent.
+persists. For the same reason, an open rule resolves only once every series
+on a streak is back inside its history, not at the first run that matches its
+parent. A series measured more than once in a run counts once, and continues
+its streak when any of its results would.
+
+A rule that was already open when streaks were introduced has none. Before
+scoring its next run, BenchDB reruns the report of the run that opened it and
+treats each series that regressed there as confirmed.
 
 Two different benchmarks that each regress once in back-to-back runs do not
 open a rule, and a one-run blip followed by a run inside the history never

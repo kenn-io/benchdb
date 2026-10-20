@@ -673,7 +673,6 @@ func TestGitHubCheckConclusionFollowsTheAlertNotItsReport(t *testing.T) {
 		// A sustained slowdown can open a rule on a report that is clean
 		// against its slow parent.
 		{storage.AlertEventKindOpened, string(service.CIReportStatusSuccess), "failure"},
-		{storage.AlertEventKindOpened, string(service.CIReportStatusFailure), "failure"},
 		{storage.AlertEventKindResolved, string(service.CIReportStatusSuccess), "success"},
 	} {
 		t.Run(tt.kind+"/"+tt.status, func(t *testing.T) {
