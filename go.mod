@@ -1,6 +1,6 @@
 module go.kenn.io/benchdb
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/cenkalti/backoff/v7 v7.0.1
