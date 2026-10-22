@@ -162,10 +162,12 @@ parent. A series measured more than once in a run counts once, and continues
 its streak when any of its results would.
 
 A rule that was already open when streaks were introduced has none. Before
-scoring its next run, BenchDB treats every series the run that opened it
-measured as confirmed. It does not rely on that run's verdict today, which can
-change once a `latest_default` baseline moves. The rule resolves once each of
-those series is measured back inside its history.
+scoring its next run, BenchDB treats the benchmarks its `opened` event lists as
+confirmed. It does not rerun that run's verdict, which can change once a
+`latest_default` baseline moves. An event lists only the largest few
+regressions, and older events list none; then every series the opening run
+could analyze counts. The rule resolves once each of those series is measured
+back inside its history.
 
 Two different benchmarks that each regress once in back-to-back runs do not
 open a rule, and a one-run blip followed by a run inside the history never

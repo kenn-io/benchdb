@@ -298,12 +298,15 @@ func (e *AlertEvaluator) evaluateRun(
 // analyzed anything would resolve the rule, even one that never measured the
 // series that opened it.
 //
-// The rebuild does not trust a rerun's verdicts: a latest_default baseline,
-// or later results that mark a distribution change, can clear the regression
-// that opened the rule. Every series the opening run measured is treated as
-// confirmed instead, so the rule resolves only once each of them is measured
-// back inside its history. The rule keeps no streaks when the opening run
-// cannot be found.
+// The opened event lists the regressed benchmarks by name and machine, as
+// judged when the rule opened; a rerun's verdicts are not used, because a
+// latest_default baseline or later results that mark a distribution change
+// can clear that regression. The rerun only maps the listed benchmarks to
+// their series. An event lists only the largest few regressions, and older
+// events list none, so when the list is short every series the opening run
+// could analyze counts instead. A series with no lookback analysis, such as
+// a constant one, is never counted: no later run could clear it. The rule
+// keeps no streaks when the opening run cannot be found.
 func (e *AlertEvaluator) openingStreaks(ctx context.Context, rule storage.AlertRule) (map[string]int, error) {
 	events, err := e.store.ListAlertEventsByRule(ctx, storage.ListAlertEventsParams{RuleID: rule.ID, Limit: 1})
 	if err != nil || len(events) == 0 || events[0].Kind != storage.AlertEventKindOpened || events[0].RunID == nil {
@@ -325,10 +328,21 @@ func (e *AlertEvaluator) openingStreaks(ctx context.Context, rule storage.AlertR
 	if err != nil || report == nil {
 		return nil, err
 	}
+	var opened AlertEventSummary
+	// An unreadable summary lists nothing, so every analyzed series counts.
+	_ = json.Unmarshal(opening.Summary, &opened)
+	type benchmark struct{ name, machine string }
+	listed := map[benchmark]bool{}
+	for _, row := range opened.Regressed {
+		listed[benchmark{row.Name, row.Machine}] = true
+	}
+	partial := len(opened.Regressed) == 0 || len(opened.Regressed) < opened.Regressions
 	streaks := map[string]int{}
 	for _, run := range report.Runs {
 		for _, comparison := range run.Comparisons {
-			if comparison.HistoryFingerprint != "" {
+			analyzed := comparison.Analysis != nil && comparison.Analysis.LookbackZScore != nil
+			if comparison.HistoryFingerprint != "" &&
+				(listed[benchmark{comparison.Name, comparison.Hardware.Name}] || (partial && analyzed)) {
 				streaks[comparison.HistoryFingerprint] = rule.ConfirmRuns
 			}
 		}
