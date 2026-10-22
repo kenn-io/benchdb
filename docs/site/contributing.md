@@ -55,7 +55,7 @@ requests to `kenn-io/benchdb`, not to the original Conbench repository.
 | golangci-lint | `make go-lint` and `make go-lint-ci` | Pinned in `.github/workflows/ci.yml` |
 | sqlc | `make sqlc` and `make sqlc-check` | Pinned in `.github/workflows/ci.yml` |
 | uv | Docs checks and the docs build | Pinned in `.github/workflows/ci.yml` |
-| prek | Git hooks from `prek.toml` | Not pinned |
+| prek | Git hooks from `prek.toml` | `minimum_prek_version` in `prek.toml` |
 
 ## Run BenchDB locally
 
