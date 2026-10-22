@@ -27,6 +27,7 @@ provides browsing, comparison, and regression analysis.
   requests without explicit authorization.
 - Pull requests must have a user-facing benefit or improve the developer
   experience, and the body must say which one.
+- Write issues and pull requests in English.
 - Commit completed repository changes. Create new commits only; do not amend,
   squash, rebase, or rewrite published history without explicit authorization.
 - Keep changes focused. Do not add compatibility aliases, legacy fallbacks, or
