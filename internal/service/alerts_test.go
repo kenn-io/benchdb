@@ -1145,16 +1145,29 @@ func TestAlertEvaluatorKeepsAStreakAcrossAnotherSuitesRun(t *testing.T) {
 // that was already open when streaks were introduced, so it has none. It
 // opened on a pull request's slow run; the slowdown then merged. Neither a
 // healthy run of another benchmark nor the equally slow merge may resolve it;
-// recovering the benchmark does, though a constant benchmark in the same runs
-// never gets an analysis. With latest_default, the merge becomes the opening
-// run's baseline, so a rerun of that run no longer shows a regression.
+// recovering the benchmark does, though a constant variant of it with other
+// tags, in the same runs, never gets an analysis. With latest_default, the
+// merge becomes the opening run's baseline, so a rerun of that run no longer
+// shows a regression.
 func TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem(t *testing.T) {
-	summaries := map[string]service.AlertEventSummary{
-		"listing the regression": {
-			CIReportSummary: service.CIReportSummary{Regressions: 1},
-			Regressed:       []service.AlertEventRow{{Name: "bench", Machine: "m1"}},
+	summaries := map[string]func(fingerprint string) service.AlertEventSummary{
+		"linking the regressed series": func(fingerprint string) service.AlertEventSummary {
+			return service.AlertEventSummary{
+				Regressions: 1,
+				Regressed: []service.AlertEventRow{{
+					Name: "bench", Machine: "m1", SeriesURL: "https://benchdb.example/series/" + fingerprint,
+				}},
+			}
 		},
-		"counting it only": {CIReportSummary: service.CIReportSummary{Regressions: 1}},
+		"naming the regressed benchmark": func(string) service.AlertEventSummary {
+			return service.AlertEventSummary{
+				Regressions: 1,
+				Regressed:   []service.AlertEventRow{{Name: "bench", Machine: "m1"}},
+			}
+		},
+		"counting it only": func(string) service.AlertEventSummary {
+			return service.AlertEventSummary{Regressions: 1}
+		},
 	}
 	for _, baseline := range []service.CIReportBaseline{service.CIReportBaselineParent, service.CIReportBaselineLatestDefault} {
 		for name, opened := range summaries {
@@ -1164,28 +1177,31 @@ func TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem(t *testing.T) {
 				provider := ciCommitProvider{}
 				ing := service.NewIngester(store, provider)
 				day := 0
-				submit := func(runID, sha, benchmark string, data []*float64) *service.Result {
+				submit := func(runID, sha string, tags map[string]any, data []*float64) *service.Result {
 					t.Helper()
 					req := machineReq(data, "s")
-					req.Tags = map[string]any{"name": benchmark, "source": "test"}
-					req.RunID, req.BatchID, req.GitHub.Commit = runID, runID+"-"+benchmark, sha
+					req.Tags = tags
+					req.RunID, req.BatchID, req.GitHub.Commit = runID, fmt.Sprintf("%s-%d", runID, len(tags)), sha
 					result, err := ing.Submit(ctx, req)
 					require.NoError(t, err)
 					return result
 				}
-				// commit adds a commit with two runs: the slowing benchmark
-				// with a constant one, and another benchmark on its own.
-				type commitRuns struct{ main, other []string }
+				// commit adds a commit with two runs: the slowing benchmark with
+				// a constant variant of it, and another benchmark on its own.
+				type commitRuns struct {
+					main, other []string
+					fingerprint string
+				}
 				commit := func(sha string, parent *string, forkPoint string, value, other float64) commitRuns {
 					t.Helper()
 					provider[sha] = ciCommitInfo(sha, parent, forkPoint, t0.Add(time.Duration(day)*24*time.Hour))
 					day++
+					bench := submit("run-"+sha, sha, map[string]any{"name": "bench", "source": "test"}, samples(value, value+1, value+2))
+					constant := submit("run-"+sha, sha, map[string]any{"name": "bench", "source": "test", "mode": "constant"}, samples(5, 5, 5))
 					return commitRuns{
-						main: []string{
-							submit("run-"+sha, sha, "bench", samples(value, value+1, value+2)).ID,
-							submit("run-"+sha, sha, "constant", samples(5, 5, 5)).ID,
-						},
-						other: []string{submit("run-other-"+sha, sha, "other", samples(other, other+1, other+2)).ID},
+						main:        []string{bench.ID, constant.ID},
+						other:       []string{submit("run-other-"+sha, sha, map[string]any{"name": "other"}, samples(other, other+1, other+2)).ID},
+						fingerprint: bench.HistoryFingerprint,
 					}
 				}
 				var parent *string
@@ -1194,7 +1210,7 @@ func TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem(t *testing.T) {
 					commit(sha, parent, sha, value, value)
 					parent = &sha
 				}
-				commit("pr-slow", parent, *parent, 20, 10)
+				opening := commit("pr-slow", parent, *parent, 20, 10)
 				rule, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 					UserID: dbtest.SeedUser(t, ctx, pool), Name: "main", Repository: testRepo,
 					Baseline: string(baseline), Threshold: 5, ThresholdZ: 2,
@@ -1206,7 +1222,7 @@ func TestAlertEvaluatorRebuildsStreaksForARuleOpenedBeforeThem(t *testing.T) {
 					ID: rule.ID, State: storage.AlertRuleStateOpen, EvaluatedAt: fixedAlertNow(),
 				})
 				require.NoError(t, err)
-				summary, err := jsonv2.Marshal(opened)
+				summary, err := jsonv2.Marshal(opened(opening.fingerprint))
 				require.NoError(t, err)
 				_, err = store.CreateAlertEvent(ctx, storage.InsertAlertEventParams{
 					RuleID: rule.ID, Kind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),

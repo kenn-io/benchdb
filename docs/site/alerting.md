@@ -162,9 +162,12 @@ parent. A series measured more than once in a run counts once, and continues
 its streak when any of its results would.
 
 A rule that was already open when streaks were introduced has none. Before
-scoring its next run, BenchDB treats the benchmarks its `opened` event lists as
+scoring its next run, BenchDB treats the series its `opened` event lists as
 confirmed. It does not rerun that run's verdict, which can change once a
-`latest_default` baseline moves. An event lists only the largest few
+`latest_default` baseline moves. A listed row names its series by its series
+link; a row without one, when no public URL is configured, is matched by
+benchmark name and machine, and among several series with that name only those
+the opening run could analyze count. An event lists only the largest few
 regressions, and older events list none; then every series the opening run
 could analyze counts. The rule resolves once each of those series is measured
 back inside its history.
