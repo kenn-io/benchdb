@@ -158,7 +158,12 @@
     if (!drawerShown || sidebarElement?.parentElement == null) return;
     const background = [...sidebarElement.parentElement.children].filter(
       (element): element is HTMLElement =>
-        element instanceof HTMLElement && element !== sidebarElement && !element.classList.contains("drawer-backdrop"),
+        element instanceof HTMLElement &&
+        element !== sidebarElement &&
+        !element.classList.contains("drawer-backdrop") &&
+        // Kit UI's focus trap adds a tab stop on each side of the drawer.
+        // Those stops have to stay active, or Tab leaves the drawer.
+        !element.hasAttribute("data-kit-focus-guard"),
     );
     for (const element of background) element.toggleAttribute("inert", true);
     return () => {

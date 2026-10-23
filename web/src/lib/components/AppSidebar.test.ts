@@ -139,9 +139,13 @@ describe("AppSidebar", () => {
       await waitFor(() => expect(within(sidebar).getByRole("button", { name: "Close navigation" })).toHaveFocus());
 
       // The page behind the open drawer is inert; the backdrop stays live.
+      // The focus-trap guards stay active so Tab can wrap inside the drawer.
       expect(content).toHaveAttribute("inert");
       expect(menu.closest("header")).toHaveAttribute("inert");
       expect(document.querySelector(".drawer-backdrop")).not.toHaveAttribute("inert");
+      const guards = document.querySelectorAll("[data-kit-focus-guard]");
+      expect(guards).toHaveLength(2);
+      for (const guard of guards) expect(guard).not.toHaveAttribute("inert");
 
       await fireEvent.keyDown(window, { key: "Escape" });
       expect(sidebar).not.toHaveClass("drawer-open");
