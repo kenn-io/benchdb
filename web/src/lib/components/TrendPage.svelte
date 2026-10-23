@@ -4,12 +4,10 @@
   import {
     DateRangePicker,
     localDateStr,
-    type RangeSelection,
-  } from "@kenn-io/kit-ui/date-range-picker";
-  import {
     SelectDropdown,
+    type RangeSelection,
     type SelectDropdownOption,
-  } from "@kenn-io/kit-ui/select-dropdown";
+  } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";

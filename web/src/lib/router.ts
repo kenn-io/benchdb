@@ -1,5 +1,5 @@
 import { appURL, basePath } from "./base-path";
-import type { RangeSelection } from "@kenn-io/kit-ui/date-range-picker";
+import type { RangeSelection } from "@kenn-io/kit-ui";
 
 export interface LeafRoute {
   name: "series-leaf";

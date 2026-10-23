@@ -32,12 +32,10 @@ separate subsystem.
 
 The extraction starts from Kit v0.35.1's `packstore/s3store`, including
 `Inventory`'s pagination and separation of recognized keys from unknown objects.
-BenchDB supplies its own key recognition and deletion policy. That Kit release
-has no GCS backend; BenchDB currently pins v0.32.0. The new package and GCS client
-must ship in Kit before BenchDB updates its dependency. Make the dependency
-bump a separate reviewable change before archive integration. Review the
-intervening v0.33–v0.35 changes and the new release, inspect the module-graph
-diff, and run BenchDB's required checks against that version.
+BenchDB supplies its own key recognition and deletion policy. Kit v0.42.0,
+which BenchDB pins, ships `objectstore` for local disk, S3, and GCS. Archive
+integration stays a separate change. It should review the module graph and run
+BenchDB's required checks.
 
 The abstraction is a small object API. Local rename, hard-link, and lock
 operations are not requirements imposed on cloud buckets. Do not expose
