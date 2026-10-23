@@ -22,6 +22,7 @@ rule:
 | `baseline` | no | `fork_point` | `fork_point`, `parent`, or `latest_default`. |
 | `threshold` | no | `5` | Pairwise percent-change threshold. Must be greater than zero. |
 | `threshold_z` | no | `2` | Lookback z-score threshold. Must be greater than zero. |
+| `confirm_runs` | no | `2` | Consecutive scored runs a benchmark must regress in before the rule opens. 1 to 10. |
 | `run_reason` | no | none | Only consider results with this run reason. A blank value means no filter. |
 | `enabled` | no | `true` | The evaluator skips disabled rules. |
 
@@ -29,9 +30,9 @@ BenchDB also returns `id`, `user_id`, `state` (`inactive` or `open`),
 `created_at`, `updated_at`, and `last_evaluated_at`. An invalid field returns
 `422`.
 
-If an update changes `repository`, `baseline`, `threshold`, `threshold_z`, or
-`run_reason`, BenchDB sets the rule back to `inactive` and clears
-`last_evaluated_at`. Changing only `name` or `enabled` keeps the state.
+If an update changes `repository`, `baseline`, `threshold`, `threshold_z`,
+`confirm_runs`, or `run_reason`, BenchDB sets the rule back to `inactive` and
+clears `last_evaluated_at`. Changing only `name` or `enabled` keeps the state.
 
 Signed-in users can create rules, see their state, delete rules, and view
 recent events on the `/account` page.
@@ -141,9 +142,42 @@ For each enabled rule, the evaluator:
 
 | Report status | Rule is `inactive` | Rule is `open` |
 | --- | --- | --- |
-| `failure` | Record an `opened` event and set the rule to `open`. | No change. |
-| `success` | No change. | Record a `resolved` event and set the rule to `inactive`. |
+| `failure` or `success` | Record an `opened` event and set the rule to `open` once a benchmark is on a streak of `confirm_runs` scored runs. Otherwise no change. | Record a `resolved` event and set the rule to `inactive` once no benchmark is on a streak. Otherwise no change. |
 | `skipped` or `action_required` | No change. | No change. |
+
+Each benchmark series keeps its own streak. A streak starts when the series
+regresses. It continues while each later run that measures the series is
+still worse than the series' recent history: past the lookback threshold,
+beyond the practical tolerance, and more than 2% from the history mean, the
+same test the Benchmarks page uses. It ends at the first such run that is
+not. A run that does not measure the series, such as one from another suite or
+machine, leaves its streak as it was.
+
+A streak continues on the series' history, not on each run's own verdict,
+because of the `parent` baseline. After a slowdown, the next commit matches its
+already slow parent and is not a regression of its own, though the slowdown
+persists. For the same reason, an open rule resolves only once every series
+on a streak is back inside its history, not at the first run that matches its
+parent. A series measured more than once in a run counts once, and continues
+its streak when any of its results would.
+
+A rule that was already open when streaks were introduced has none. Before
+scoring its next run, BenchDB treats the series its `opened` event lists as
+confirmed. It does not rerun that run's verdict, which can change once a
+`latest_default` baseline moves. A listed row names its series by its series
+link; a row without one, when no public URL is configured, is matched by
+benchmark name and machine, and among several series with that name only those
+the opening run could analyze count. An event lists only the largest few
+regressions, and older events list none; then every series the opening run
+could analyze counts. The rule resolves once each of those series is measured
+back inside its history.
+
+Two different benchmarks that each regress once in back-to-back runs do not
+open a rule, and a one-run blip followed by a run inside the history never
+alerts. A run with no usable analysis, or one recorded as `late` or `pending`,
+leaves the streaks as they were. With the default of 2, a real regression
+alerts one run later than it otherwise would, and the `opened` event lists only
+the confirmed benchmarks.
 
 A report is `failure` when at least one row is a lookback regression. That
 requires the contender to be outside the history band, at least 3 standard
@@ -181,7 +215,9 @@ when the report URL is absolute. A row regresses only on its lookback check, so
 
 The command prints a summary to stdout. `rules` counts enabled rules and
 `evaluated` counts the runs scored. `opened`, `resolved`, `unchanged`, and
-`skipped` count those runs' outcomes. `late` counts runs recorded without
+`skipped` count those runs' outcomes, and `unconfirmed` counts regressed runs
+that did not open a rule because no benchmark had regressed in enough
+consecutive runs yet. `late` counts runs recorded without
 changing a rule, and `pending` counts runs left unscored until their commit
 metadata arrives. `no_candidate` counts rules with no new
 finalized run, `busy` counts rules another evaluator was scoring, and `failed`
@@ -313,9 +349,10 @@ The token needs `checks:write` on the repository. The CLI reads
 `GITHUB_API_TOKEN`.
 
 BenchDB creates a completed Check Run named `BenchDB alert` on the event's
-commit. A `failure` report becomes a failing check, `success` a passing check,
-and any other status a neutral check. The check's title and summary carry the
-same message as Slack.
+commit. An `opened` event becomes a failing check and a `resolved` event a
+passing check, whatever the status of the report. With confirmation, a rule can
+open on a run that only matches its slow parent, so the report alone would
+pass. The check's title and summary carry the same message as Slack.
 
 The target is a repository URL, not a webhook. BenchDB only queues events
 whose rule repository matches the target, so one repository's alerts never

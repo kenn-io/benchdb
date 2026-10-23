@@ -4697,14 +4697,17 @@ func (a AlertEventView) Validate() error {
 
 type AlertRuleBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema     *string  `json:"$schema,omitempty"`
-	Baseline   *string  `json:"baseline,omitempty"`
-	Enabled    *bool    `json:"enabled,omitempty"`
-	Name       string   `json:"name" validate:"required"`
-	Repository string   `json:"repository" validate:"required"`
-	RunReason  *string  `json:"run_reason,omitempty"`
-	Threshold  *float64 `json:"threshold,omitempty"`
-	ThresholdZ *float64 `json:"threshold_z,omitempty"`
+	Schema   *string `json:"$schema,omitempty"`
+	Baseline *string `json:"baseline,omitempty"`
+
+	// ConfirmRuns Consecutive scored runs a benchmark must regress in before the rule opens. Defaults to 2.
+	ConfirmRuns *int64   `json:"confirm_runs,omitempty" validate:"omitempty,gte=1,lte=10"`
+	Enabled     *bool    `json:"enabled,omitempty"`
+	Name        string   `json:"name" validate:"required"`
+	Repository  string   `json:"repository" validate:"required"`
+	RunReason   *string  `json:"run_reason,omitempty"`
+	Threshold   *float64 `json:"threshold,omitempty"`
+	ThresholdZ  *float64 `json:"threshold_z,omitempty"`
 }
 
 func (a AlertRuleBody) Validate() error {
@@ -4713,8 +4716,11 @@ func (a AlertRuleBody) Validate() error {
 
 type AlertRuleView struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema          *string    `json:"$schema,omitempty"`
-	Baseline        string     `json:"baseline" validate:"required"`
+	Schema   *string `json:"$schema,omitempty"`
+	Baseline string  `json:"baseline" validate:"required"`
+
+	// ConfirmRuns Consecutive scored runs a benchmark must regress in before the rule opens.
+	ConfirmRuns     int64      `json:"confirm_runs"`
 	CreatedAt       time.Time  `json:"created_at" validate:"required"`
 	Enabled         bool       `json:"enabled"`
 	ID              string     `json:"id" validate:"required"`

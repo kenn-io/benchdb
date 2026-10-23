@@ -51,6 +51,13 @@ type LookbackAnalysis struct {
 	ZThreshold           float64  `json:"z_threshold"`
 	RegressionIndicated  bool     `json:"regression_indicated"`
 	ImprovementIndicated bool     `json:"improvement_indicated"`
+	// WorseThanHistory reports whether the contender is worse than its
+	// history window alone: past the z threshold by the unrounded score,
+	// beyond the tolerance, and more than the minimum change from the window
+	// mean. Unlike RegressionIndicated it ignores the baseline result, so a
+	// commit as slow as its slow parent still counts. It is computed for
+	// alert evaluation and is not part of the API.
+	WorseThanHistory bool `json:"-"`
 }
 
 // CompareAnalysis holds the two verdicts; either may be null.
@@ -269,6 +276,8 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 		ZThreshold:           v.ZThreshold,
 		RegressionIndicated:  v.RegressionIndicated && regressed && !tolerance.WithinTolerance,
 		ImprovementIndicated: v.ImprovementIndicated && improved && !tolerance.WithinTolerance,
+		WorseThanHistory: v.RegressionIndicated && !tolerance.WithinTolerance &&
+			stats.ExceedsMinimumChange(in.contSVS, *mean),
 	}
 	if fromBaseline != nil {
 		rounded := round4SigFigs(*fromBaseline)

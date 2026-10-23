@@ -172,16 +172,17 @@ func (s *Store) CreateAlertRule(ctx context.Context, p storage.InsertAlertRulePa
 		return storage.AlertRule{}, err
 	}
 	row, err := s.q.InsertAlertRule(ctx, InsertAlertRuleParams{
-		ID:         id,
-		UserID:     p.UserID,
-		Name:       p.Name,
-		Repository: p.Repository,
-		Baseline:   p.Baseline,
-		Threshold:  p.Threshold,
-		ThresholdZ: p.ThresholdZ,
-		RunReason:  p.RunReason,
-		Enabled:    p.Enabled,
-		CreatedAt:  p.CreatedAt,
+		ID:          id,
+		UserID:      p.UserID,
+		Name:        p.Name,
+		Repository:  p.Repository,
+		Baseline:    p.Baseline,
+		Threshold:   p.Threshold,
+		ThresholdZ:  p.ThresholdZ,
+		RunReason:   p.RunReason,
+		Enabled:     p.Enabled,
+		CreatedAt:   p.CreatedAt,
+		ConfirmRuns: int32(p.ConfirmRuns),
 	})
 	if err != nil {
 		return storage.AlertRule{}, err
@@ -233,6 +234,7 @@ func (s *Store) UpdateAlertRule(ctx context.Context, p storage.UpdateAlertRulePa
 			RunReason:       p.RunReason,
 			Enabled:         p.Enabled,
 			UpdatedAt:       p.UpdatedAt,
+			ConfirmRuns:     int32(p.ConfirmRuns),
 			ResetEvaluation: p.ResetEvaluation,
 		})
 		if err != nil || !p.ResetEvaluation {
@@ -331,18 +333,24 @@ func (s *Store) TouchAlertRuleEvaluation(
 	ctx context.Context,
 	p storage.TouchAlertRuleEvaluationParams,
 ) (storage.AlertRuleTouch, error) {
+	streaks, err := encodeRegressionStreaks(p.RegressionStreaks)
+	if err != nil {
+		return storage.AlertRuleTouch{}, err
+	}
 	var touch storage.AlertRuleTouch
-	err := s.inTx(ctx, func(q *Queries) error {
+	err = s.inTx(ctx, func(q *Queries) error {
 		row, err := q.TouchAlertRuleEvaluation(ctx, TouchAlertRuleEvaluationParams{
-			EvaluatedAt: &p.EvaluatedAt,
-			ID:          p.ID,
-			State:       p.State,
-			Repository:  p.Repository,
-			Baseline:    p.Baseline,
-			Threshold:   p.Threshold,
-			ThresholdZ:  p.ThresholdZ,
-			RunReason:   p.RunReason,
-			LeaseToken:  p.LeaseToken,
+			EvaluatedAt:       &p.EvaluatedAt,
+			ID:                p.ID,
+			State:             p.State,
+			Repository:        p.Repository,
+			Baseline:          p.Baseline,
+			Threshold:         p.Threshold,
+			ThresholdZ:        p.ThresholdZ,
+			RunReason:         p.RunReason,
+			LeaseToken:        p.LeaseToken,
+			ConfirmRuns:       int32(p.ConfirmRuns),
+			RegressionStreaks: streaks,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -399,27 +407,36 @@ func (s *Store) TransitionAlertRule(
 	if err != nil {
 		return storage.AlertRuleTransition{}, err
 	}
+	streaks, err := encodeRegressionStreaks(p.RegressionStreaks)
+	if err != nil {
+		return storage.AlertRuleTransition{}, err
+	}
+	if streaks == nil {
+		streaks = []byte("{}")
+	}
 	var transition *storage.AlertRuleTransition
 	err = s.inTx(ctx, func(q *Queries) error {
 		row, err := q.TransitionAlertRule(ctx, TransitionAlertRuleParams{
-			ID:           p.ID,
-			FromState:    p.FromState,
-			ToState:      p.ToState,
-			Repository:   p.Repository,
-			Baseline:     p.Baseline,
-			Threshold:    p.Threshold,
-			ThresholdZ:   p.ThresholdZ,
-			RunReason:    p.RunReason,
-			EventID:      eventID,
-			Kind:         p.EventKind,
-			Status:       p.Status,
-			StatusReason: p.StatusReason,
-			RunID:        p.RunID,
-			CommitSha:    p.CommitSHA,
-			ReportUrl:    p.ReportURL,
-			Summary:      p.Summary,
-			EvaluatedAt:  &p.EvaluatedAt,
-			LeaseToken:   p.LeaseToken,
+			ID:                p.ID,
+			FromState:         p.FromState,
+			ToState:           p.ToState,
+			Repository:        p.Repository,
+			Baseline:          p.Baseline,
+			Threshold:         p.Threshold,
+			ThresholdZ:        p.ThresholdZ,
+			RunReason:         p.RunReason,
+			EventID:           eventID,
+			Kind:              p.EventKind,
+			Status:            p.Status,
+			StatusReason:      p.StatusReason,
+			RunID:             p.RunID,
+			CommitSha:         p.CommitSHA,
+			ReportUrl:         p.ReportURL,
+			Summary:           p.Summary,
+			EvaluatedAt:       &p.EvaluatedAt,
+			LeaseToken:        p.LeaseToken,
+			ConfirmRuns:       int32(p.ConfirmRuns),
+			RegressionStreaks: streaks,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -478,6 +495,7 @@ func (s *Store) MarkAlertRunPending(ctx context.Context, p storage.MarkAlertRunP
 		_, err := q.LockAlertRuleForPending(ctx, LockAlertRuleForPendingParams{
 			ID: p.RuleID, LeaseToken: &p.LeaseToken, Repository: p.Repository, Baseline: p.Baseline,
 			Threshold: p.Threshold, ThresholdZ: p.ThresholdZ, RunReason: p.RunReason,
+			ConfirmRuns: int32(p.ConfirmRuns),
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

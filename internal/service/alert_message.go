@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"encoding/json/v2"
 	"fmt"
 	"math"
@@ -35,7 +36,7 @@ func newAlertMessage(event AlertDeliveryEvent) alertMessage {
 		repository: shortRepository(event.Repository),
 		subject:    summary.CommitSubject,
 		rows:       summary.Regressed,
-		more:       max(summary.Regressions-len(summary.Regressed), 0),
+		more:       max(cmp.Or(summary.Confirmed, summary.Regressions)-len(summary.Regressed), 0),
 		counts:     alertRunCounts(summary.CIReportSummary),
 	}
 	if event.CommitSHA != nil && *event.CommitSHA != "" {

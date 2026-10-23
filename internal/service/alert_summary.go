@@ -16,8 +16,11 @@ const alertEventRowLimit = 5
 // opening the report.
 type AlertEventSummary struct {
 	CIReportSummary
-	CommitSubject string          `json:"commit_subject,omitempty"`
-	Regressed     []AlertEventRow `json:"regressed_rows,omitempty"`
+	CommitSubject string `json:"commit_subject,omitempty"`
+	// Confirmed counts the benchmarks that regressed in enough consecutive
+	// runs to open the rule. Regressed lists only those.
+	Confirmed int             `json:"confirmed,omitempty"`
+	Regressed []AlertEventRow `json:"regressed_rows,omitempty"`
 }
 
 // AlertEventRow is one regressed benchmark. A row regresses only on its
@@ -33,8 +36,10 @@ type AlertEventRow struct {
 	SeriesURL     string  `json:"series_url,omitempty"`
 }
 
-func newAlertEventSummary(report *CIReport) AlertEventSummary {
-	summary := AlertEventSummary{CIReportSummary: report.Summary}
+// newAlertEventSummary summarizes a report for an event. A non-nil confirmed
+// set limits the listed rows to those benchmark series.
+func newAlertEventSummary(report *CIReport, confirmed map[string]bool) AlertEventSummary {
+	summary := AlertEventSummary{CIReportSummary: report.Summary, Confirmed: len(confirmed)}
 	base, _, found := strings.Cut(report.ReportURL, "/ci/report")
 	if !found || !isAbsoluteHTTPURL(base) {
 		base = ""
@@ -45,6 +50,15 @@ func newAlertEventSummary(report *CIReport) AlertEventSummary {
 			summary.CommitSubject, _, _ = strings.Cut(strings.TrimSpace(run.Commit.Message), "\n")
 		}
 		for _, comparison := range run.Comparisons {
+			// A confirmed series is listed even when this run did not regress
+			// against its own baseline, as when it matches a slow parent.
+			listed := comparison.Status == CIReportRowStatusRegressed
+			if confirmed != nil {
+				listed = confirmed[comparison.HistoryFingerprint]
+			}
+			if !listed {
+				continue
+			}
 			if row, ok := alertEventRow(comparison, base); ok {
 				rows = append(rows, row)
 			}
@@ -61,7 +75,7 @@ func newAlertEventSummary(report *CIReport) AlertEventSummary {
 }
 
 func alertEventRow(comparison CIReportComparison, base string) (AlertEventRow, bool) {
-	if comparison.Status != CIReportRowStatusRegressed || comparison.Contender.SVS == nil ||
+	if comparison.Contender.SVS == nil ||
 		comparison.Analysis == nil || comparison.Analysis.LookbackZScore == nil ||
 		comparison.Analysis.LookbackZScore.Tolerance == nil {
 		return AlertEventRow{}, false

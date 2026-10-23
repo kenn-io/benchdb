@@ -1,11 +1,11 @@
 -- name: InsertAlertRule :one
 INSERT INTO alert_rule (
   id, user_id, name, repository, baseline, threshold, threshold_z,
-  run_reason, enabled, state, created_at, updated_at
+  run_reason, enabled, state, created_at, updated_at, confirm_runs
 )
 VALUES (
   $1, $2, $3, $4, $5, $6, $7,
-  $8, $9, 'inactive', $10, $10
+  $8, $9, 'inactive', $10, $10, sqlc.arg('confirm_runs')
 )
 RETURNING *;
 
@@ -33,6 +33,8 @@ SET
   run_reason = $8,
   enabled = $9,
   updated_at = $10,
+  confirm_runs = sqlc.arg('confirm_runs'),
+  regression_streaks = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN '{}'::jsonb ELSE regression_streaks END,
   state = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN 'inactive' ELSE state END,
   last_evaluated_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE last_evaluated_at END,
   report_start_at = CASE WHEN sqlc.arg('reset_evaluation')::boolean THEN NULL ELSE report_start_at END
@@ -53,9 +55,11 @@ RETURNING *;
 UPDATE alert_rule
 SET
   last_evaluated_at = sqlc.arg('evaluated_at'),
-  updated_at = sqlc.arg('evaluated_at')
+  updated_at = sqlc.arg('evaluated_at'),
+  regression_streaks = coalesce(sqlc.narg('regression_streaks')::jsonb, regression_streaks)
 WHERE alert_rule.id = sqlc.arg('id')
   AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
+  AND alert_rule.confirm_runs = sqlc.arg('confirm_runs')
   AND alert_rule.state = sqlc.arg('state')
   AND alert_rule.enabled = true
   AND alert_rule.repository = sqlc.arg('repository')
@@ -84,9 +88,11 @@ WITH updated_rule AS (
   SET
     state = sqlc.arg('to_state'),
     last_evaluated_at = sqlc.arg('evaluated_at'),
-    updated_at = sqlc.arg('evaluated_at')
+    updated_at = sqlc.arg('evaluated_at'),
+    regression_streaks = sqlc.arg('regression_streaks')::jsonb
   WHERE alert_rule.id = sqlc.arg('id')
     AND (sqlc.narg('lease_token')::text IS NULL OR alert_rule.evaluation_lease_token = sqlc.narg('lease_token')::text)
+    AND alert_rule.confirm_runs = sqlc.arg('confirm_runs')
     AND state = sqlc.arg('from_state')
     AND alert_rule.enabled = true
     AND alert_rule.repository = sqlc.arg('repository')
@@ -124,6 +130,8 @@ SELECT
   updated_rule.updated_at AS rule_updated_at,
   updated_rule.last_evaluated_at AS rule_last_evaluated_at,
   updated_rule.report_start_at AS rule_report_start_at,
+  updated_rule.confirm_runs AS rule_confirm_runs,
+  updated_rule.regression_streaks AS rule_regression_streaks,
   inserted_event.id AS event_id,
   inserted_event.rule_id AS event_rule_id,
   inserted_event.kind AS event_kind,
@@ -211,6 +219,7 @@ WHERE id = sqlc.arg('id')
   AND threshold = sqlc.arg('threshold')
   AND threshold_z = sqlc.arg('threshold_z')
   AND run_reason IS NOT DISTINCT FROM sqlc.narg('run_reason')
+  AND confirm_runs = sqlc.arg('confirm_runs')
 FOR UPDATE;
 
 -- name: MarkAlertRunPending :exec

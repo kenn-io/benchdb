@@ -26,7 +26,7 @@ func TestAlertRuleAndEventStorage(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 4, ThresholdZ: 6,
-		RunReason: new("nightly"), Enabled: true, CreatedAt: created,
+		RunReason: new("nightly"), Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, rule.ID)
@@ -56,7 +56,7 @@ func TestAlertRuleAndEventStorage(t *testing.T) {
 	updated, err := st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: "Arrow PR", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineForkPoint), Threshold: 5, ThresholdZ: 5,
-		RunReason: nil, Enabled: false, UpdatedAt: updatedAt,
+		RunReason: nil, Enabled: false, UpdatedAt: updatedAt, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Arrow PR", updated.Name)
@@ -68,7 +68,7 @@ func TestAlertRuleAndEventStorage(t *testing.T) {
 	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: otherUserID, Name: "steal", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, UpdatedAt: updatedAt,
+		Enabled: true, UpdatedAt: updatedAt, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.ErrorIs(t, err, storage.ErrNotFound)
 
@@ -136,7 +136,7 @@ func createAlertRuleForRuns(t *testing.T, ctx context.Context, st *db.Store, use
 	t.Helper()
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "main", Repository: ciReportRepo, Baseline: string(service.CIReportBaselineParent),
-		Threshold: 5, ThresholdZ: 2, RunReason: runReason, Enabled: true, CreatedAt: time.Now().UTC(),
+		Threshold: 5, ThresholdZ: 2, RunReason: runReason, Enabled: true, CreatedAt: time.Now().UTC(), ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	return rule
@@ -147,7 +147,7 @@ func scoreAlertRun(t *testing.T, ctx context.Context, st *db.Store, rule storage
 	touch, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
 		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
-		EvaluatedAt: time.Now().UTC(), ScoredRun: &storage.ScoredAlertRun{RunID: runID, FinalizedAt: finalized},
+		EvaluatedAt: time.Now().UTC(), ScoredRun: &storage.ScoredAlertRun{RunID: runID, FinalizedAt: finalized}, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	require.True(t, touch.Touched)
@@ -235,7 +235,7 @@ func TestClaimAlertRuleLeasesARuleToOneEvaluator(t *testing.T) {
 	assert.True(t, claim("third", later), "a released rule can be claimed")
 	touch, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
-		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, EvaluatedAt: later, LeaseToken: new("second"),
+		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, EvaluatedAt: later, LeaseToken: new("second"), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.False(t, touch.Touched, "a write with a lost lease does not apply")
@@ -278,7 +278,7 @@ func TestSelectAlertRunsRetriesPendingRunsAfterNewOnes(t *testing.T) {
 	pendingParams := func(runID, token string, threshold float64) storage.MarkAlertRunPendingParams {
 		return storage.MarkAlertRunPendingParams{
 			RuleID: rule.ID, RunID: runID, AttemptedAt: at(4), LeaseToken: token, Repository: rule.Repository,
-			Baseline: rule.Baseline, Threshold: threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
+			Baseline: rule.Baseline, Threshold: threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason, ConfirmRuns: rule.ConfirmRuns,
 		}
 	}
 	for _, runID := range []string{"run-1", "run-2"} {
@@ -305,7 +305,7 @@ func TestSelectAlertRunsRetriesPendingRunsAfterNewOnes(t *testing.T) {
 	assert.Equal(t, 1, pending, "scoring a run clears its pending mark")
 	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: rule.UserID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
-		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(5), ResetEvaluation: true,
+		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(5), ResetEvaluation: true, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_pending_run WHERE rule_id = $1`, rule.ID).Scan(&pending))
@@ -337,7 +337,7 @@ func TestStartAlertRuleOnceAndRestartAfterAReset(t *testing.T) {
 
 	reset, err := st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: rule.Name, Repository: rule.Repository, Baseline: rule.Baseline,
-		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(3), ResetEvaluation: true,
+		Threshold: 9, ThresholdZ: rule.ThresholdZ, Enabled: true, UpdatedAt: at(3), ResetEvaluation: true, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.Nil(t, reset.ReportStartAt)
@@ -354,7 +354,7 @@ func TestTransitionAlertRuleIsConditionalAndSingleEvent(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 
@@ -365,7 +365,7 @@ func TestTransitionAlertRuleIsConditionalAndSingleEvent(t *testing.T) {
 		EventKind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
 		StatusReason: "regressions detected", RunID: new("run-1"), CommitSHA: new("sha-1"),
 		ReportURL: "/ci/report?run_ids=run-1", Summary: []byte(`{"regressions":1}`),
-		EvaluatedAt: created.Add(time.Hour),
+		EvaluatedAt: created.Add(time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.True(t, transitioned.Transitioned)
@@ -380,7 +380,7 @@ func TestTransitionAlertRuleIsConditionalAndSingleEvent(t *testing.T) {
 		EventKind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
 		StatusReason: "still regressed", RunID: new("run-1"), CommitSHA: new("sha-1"),
 		ReportURL: "/ci/report?run_ids=run-1", Summary: []byte(`{"regressions":1}`),
-		EvaluatedAt: created.Add(2 * time.Hour),
+		EvaluatedAt: created.Add(2 * time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.False(t, duplicate.Transitioned)
@@ -400,21 +400,21 @@ func TestAlertRuleEvaluationTouchIsConditionalOnSnapshot(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 
 	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: rule.Name, Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 10, ThresholdZ: 5,
-		Enabled: true, UpdatedAt: created.Add(time.Minute), ResetEvaluation: true,
+		Enabled: true, UpdatedAt: created.Add(time.Minute), ResetEvaluation: true, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 
 	touched, err := st.TouchAlertRuleEvaluation(ctx, storage.TouchAlertRuleEvaluationParams{
 		ID: rule.ID, State: rule.State, Repository: rule.Repository, Baseline: rule.Baseline,
 		Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ, RunReason: rule.RunReason,
-		EvaluatedAt: created.Add(time.Hour),
+		EvaluatedAt: created.Add(time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.False(t, touched.Touched)
@@ -429,14 +429,14 @@ func TestTransitionAlertRuleIsConditionalOnSnapshot(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 
 	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: rule.Name, Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 10, ThresholdZ: 5,
-		Enabled: true, UpdatedAt: created.Add(time.Minute), ResetEvaluation: true,
+		Enabled: true, UpdatedAt: created.Add(time.Minute), ResetEvaluation: true, ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 
@@ -447,7 +447,7 @@ func TestTransitionAlertRuleIsConditionalOnSnapshot(t *testing.T) {
 		EventKind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
 		StatusReason: "regressions detected", RunID: new("run-1"), CommitSHA: new("sha-1"),
 		ReportURL: "/ci/report?run_ids=run-1", Summary: []byte(`{"regressions":1}`),
-		EvaluatedAt: created.Add(time.Hour),
+		EvaluatedAt: created.Add(time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 	assert.False(t, transitioned.Transitioned)
@@ -463,7 +463,7 @@ func TestTransitionAlertRuleRollsBackWhenEventInsertFails(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 
@@ -474,7 +474,7 @@ func TestTransitionAlertRuleRollsBackWhenEventInsertFails(t *testing.T) {
 		EventKind: storage.AlertEventKindOpened, Status: string(service.CIReportStatusFailure),
 		StatusReason: "regressions detected", RunID: new("run-1"), CommitSHA: new("sha-1"),
 		ReportURL: "/ci/report?run_ids=run-1", Summary: []byte(`{`),
-		EvaluatedAt: created.Add(time.Hour),
+		EvaluatedAt: created.Add(time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.Error(t, err)
 
@@ -494,7 +494,7 @@ func TestAlertDeliveryOutboxStorage(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	event, err := st.CreateAlertEvent(ctx, storage.InsertAlertEventParams{
@@ -580,13 +580,13 @@ func TestGitHubAlertDeliveryOutboxFiltersByEventRepository(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	otherRule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Other nightly", Repository: otherRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 	event, err := st.CreateAlertEvent(ctx, storage.InsertAlertEventParams{
@@ -605,7 +605,7 @@ func TestGitHubAlertDeliveryOutboxFiltersByEventRepository(t *testing.T) {
 	_, err = st.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 		ID: rule.ID, UserID: userID, Name: rule.Name, Repository: retargetedRepo,
 		Baseline: rule.Baseline, Threshold: rule.Threshold, ThresholdZ: rule.ThresholdZ,
-		RunReason: rule.RunReason, Enabled: true, UpdatedAt: created.Add(time.Hour),
+		RunReason: rule.RunReason, Enabled: true, UpdatedAt: created.Add(time.Hour), ConfirmRuns: rule.ConfirmRuns,
 	})
 	require.NoError(t, err)
 
@@ -658,7 +658,7 @@ func TestClaimPendingAlertDeliveriesNeverClaimsRowTwice(t *testing.T) {
 	rule, err := st.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 		UserID: userID, Name: "Arrow nightly", Repository: ciReportRepo,
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
-		Enabled: true, CreatedAt: created,
+		Enabled: true, CreatedAt: created, ConfirmRuns: 2,
 	})
 	require.NoError(t, err)
 

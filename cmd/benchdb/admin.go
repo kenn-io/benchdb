@@ -613,13 +613,14 @@ func writeAdminAlertsSummary(stdout io.Writer, format string, summary service.Al
 		fmt.Fprintln(stdout, string(out))
 	default:
 		fmt.Fprintf(stdout,
-			"rules=%d evaluated=%d opened=%d resolved=%d unchanged=%d skipped=%d late=%d pending=%d "+
-				"no_candidate=%d busy=%d failed=%d\n",
+			"rules=%d evaluated=%d opened=%d resolved=%d unchanged=%d unconfirmed=%d skipped=%d late=%d "+
+				"pending=%d no_candidate=%d busy=%d failed=%d\n",
 			summary.Rules,
 			summary.Evaluated,
 			summary.Opened,
 			summary.Resolved,
 			summary.Unchanged,
+			summary.Unconfirmed,
 			summary.Skipped,
 			summary.Late,
 			summary.Pending,
@@ -637,6 +638,7 @@ type adminAlertsSummaryOutput struct {
 	Opened      int                        `json:"opened"`
 	Resolved    int                        `json:"resolved"`
 	Unchanged   int                        `json:"unchanged"`
+	Unconfirmed int                        `json:"unconfirmed"`
 	Skipped     int                        `json:"skipped"`
 	Late        int                        `json:"late"`
 	Pending     int                        `json:"pending"`
@@ -668,6 +670,7 @@ func adminAlertsSummaryOutputOf(summary service.AlertEvaluationSummary) adminAle
 		Opened:      summary.Opened,
 		Resolved:    summary.Resolved,
 		Unchanged:   summary.Unchanged,
+		Unconfirmed: summary.Unconfirmed,
 		Skipped:     summary.Skipped,
 		Late:        summary.Late,
 		Pending:     summary.Pending,

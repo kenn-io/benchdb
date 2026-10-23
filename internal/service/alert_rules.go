@@ -15,26 +15,37 @@ import (
 )
 
 // AlertRuleSpec is a requested alert rule. Omitted fields take their
-// defaults: baseline fork_point, threshold 5, threshold_z 2, enabled.
+// defaults: baseline fork_point, threshold 5, threshold_z 2, confirm_runs 2,
+// enabled.
 type AlertRuleSpec struct {
-	Name       string   `json:"name"`
-	Repository string   `json:"repository"`
-	Baseline   string   `json:"baseline,omitempty"`
-	Threshold  *float64 `json:"threshold,omitempty"`
-	ThresholdZ *float64 `json:"threshold_z,omitempty"`
-	RunReason  *string  `json:"run_reason,omitempty"`
-	Enabled    *bool    `json:"enabled,omitempty"`
+	Name        string   `json:"name"`
+	Repository  string   `json:"repository"`
+	Baseline    string   `json:"baseline,omitempty"`
+	Threshold   *float64 `json:"threshold,omitempty"`
+	ThresholdZ  *float64 `json:"threshold_z,omitempty"`
+	ConfirmRuns *int     `json:"confirm_runs,omitempty"`
+	RunReason   *string  `json:"run_reason,omitempty"`
+	Enabled     *bool    `json:"enabled,omitempty"`
 }
+
+// AlertConfirmRunsDefault is how many consecutive scored runs a benchmark must
+// regress in before a rule opens, unless the rule says otherwise. One run
+// would alert on every blip; two matches the Benchmarks page's rule.
+const AlertConfirmRunsDefault = 2
+
+// alertConfirmRunsMax bounds confirm_runs; a longer wait defeats an alert.
+const alertConfirmRunsMax = 10
 
 // AlertRuleConfig is a validated alert rule with its defaults synced.
 type AlertRuleConfig struct {
-	Name       string
-	Repository string
-	Baseline   string
-	Threshold  float64
-	ThresholdZ float64
-	RunReason  *string
-	Enabled    bool
+	Name        string
+	Repository  string
+	Baseline    string
+	Threshold   float64
+	ThresholdZ  float64
+	ConfirmRuns int
+	RunReason   *string
+	Enabled     bool
 }
 
 // NormalizeAlertRule validates a rule and applies its defaults. Invalid
@@ -63,6 +74,15 @@ func NormalizeAlertRule(in AlertRuleSpec) (AlertRuleConfig, error) {
 	if err != nil {
 		return AlertRuleConfig{}, err
 	}
+	confirmRuns := AlertConfirmRunsDefault
+	if in.ConfirmRuns != nil {
+		confirmRuns = *in.ConfirmRuns
+	}
+	if confirmRuns < 1 || confirmRuns > alertConfirmRunsMax {
+		return AlertRuleConfig{}, &ValidationError{
+			Message: fmt.Sprintf("confirm_runs must be between 1 and %d", alertConfirmRunsMax),
+		}
+	}
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
@@ -75,7 +95,8 @@ func NormalizeAlertRule(in AlertRuleSpec) (AlertRuleConfig, error) {
 	}
 	return AlertRuleConfig{
 		Name: name, Repository: commit.NormalizeRepoURL(repository), Baseline: baseline,
-		Threshold: threshold, ThresholdZ: thresholdZ, RunReason: runReason, Enabled: enabled,
+		Threshold: threshold, ThresholdZ: thresholdZ, ConfirmRuns: confirmRuns, RunReason: runReason,
+		Enabled: enabled,
 	}, nil
 }
 
@@ -103,6 +124,7 @@ func AlertRuleEvaluationChanged(rule storage.AlertRule, cfg AlertRuleConfig) boo
 		rule.Baseline != cfg.Baseline ||
 		rule.Threshold != cfg.Threshold ||
 		rule.ThresholdZ != cfg.ThresholdZ ||
+		rule.ConfirmRuns != cfg.ConfirmRuns ||
 		!sameStringPtr(rule.RunReason, cfg.RunReason)
 }
 
@@ -172,7 +194,7 @@ func SyncAlertRules(
 			if _, err := store.CreateAlertRule(ctx, storage.InsertAlertRuleParams{
 				UserID: ownerID, Name: cfg.Name, Repository: cfg.Repository, Baseline: cfg.Baseline,
 				Threshold: cfg.Threshold, ThresholdZ: cfg.ThresholdZ, RunReason: cfg.RunReason,
-				Enabled: cfg.Enabled, CreatedAt: now,
+				Enabled: cfg.Enabled, CreatedAt: now, ConfirmRuns: cfg.ConfirmRuns,
 			}); err != nil {
 				return synced, fmt.Errorf("create alert rule %q: %w", cfg.Name, err)
 			}
@@ -187,7 +209,7 @@ func SyncAlertRules(
 		if _, err := store.UpdateAlertRule(ctx, storage.UpdateAlertRuleParams{
 			ID: rule.ID, UserID: ownerID, Name: cfg.Name, Repository: cfg.Repository, Baseline: cfg.Baseline,
 			Threshold: cfg.Threshold, ThresholdZ: cfg.ThresholdZ, RunReason: cfg.RunReason,
-			Enabled: cfg.Enabled, UpdatedAt: now, ResetEvaluation: reset,
+			Enabled: cfg.Enabled, UpdatedAt: now, ConfirmRuns: cfg.ConfirmRuns, ResetEvaluation: reset,
 		}); err != nil {
 			return synced, fmt.Errorf("update alert rule %q: %w", cfg.Name, err)
 		}

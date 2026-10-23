@@ -1,6 +1,8 @@
 package db
 
 import (
+	"encoding/json/v2"
+	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
 	"time"
 
@@ -145,21 +147,45 @@ func benchmarkResultFromRow(r GetBenchmarkResultByIDRow) storage.BenchmarkResult
 
 func alertRuleFromRow(r AlertRule) storage.AlertRule {
 	return storage.AlertRule{
-		ID:              r.ID,
-		UserID:          r.UserID,
-		Name:            r.Name,
-		Repository:      r.Repository,
-		Baseline:        r.Baseline,
-		Threshold:       r.Threshold,
-		ThresholdZ:      r.ThresholdZ,
-		RunReason:       r.RunReason,
-		Enabled:         r.Enabled,
-		State:           r.State,
-		CreatedAt:       r.CreatedAt,
-		UpdatedAt:       r.UpdatedAt,
-		LastEvaluatedAt: r.LastEvaluatedAt,
-		ReportStartAt:   optionalTime(r.ReportStartAt),
+		ID:                r.ID,
+		UserID:            r.UserID,
+		Name:              r.Name,
+		Repository:        r.Repository,
+		Baseline:          r.Baseline,
+		Threshold:         r.Threshold,
+		ThresholdZ:        r.ThresholdZ,
+		RunReason:         r.RunReason,
+		Enabled:           r.Enabled,
+		State:             r.State,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+		LastEvaluatedAt:   r.LastEvaluatedAt,
+		ReportStartAt:     optionalTime(r.ReportStartAt),
+		ConfirmRuns:       int(r.ConfirmRuns),
+		RegressionStreaks: regressionStreaks(r.RegressionStreaks),
 	}
+}
+
+// regressionStreaks decodes the stored streaks. The column is always a JSON
+// object of counts, so a decode failure means corrupt data; it reads as no
+// streaks, which can only delay an alert, never invent one.
+func regressionStreaks(raw []byte) map[string]int {
+	streaks := map[string]int{}
+	_ = json.Unmarshal(raw, &streaks)
+	return streaks
+}
+
+// encodeRegressionStreaks encodes streaks for a write; nil stays nil, which
+// a touch reads as "keep the stored streaks".
+func encodeRegressionStreaks(streaks map[string]int) ([]byte, error) {
+	if streaks == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(streaks)
+	if err != nil {
+		return nil, fmt.Errorf("encode regression streaks: %w", err)
+	}
+	return raw, nil
 }
 
 func optionalTime(at pgtype.Timestamptz) *time.Time {
@@ -274,20 +300,22 @@ func alertTransitionFromRow(r TransitionAlertRuleRow) storage.AlertRuleTransitio
 	return storage.AlertRuleTransition{
 		Transitioned: true,
 		Rule: storage.AlertRule{
-			ID:              r.RuleID,
-			UserID:          r.RuleUserID,
-			Name:            r.RuleName,
-			Repository:      r.RuleRepository,
-			Baseline:        r.RuleBaseline,
-			Threshold:       r.RuleThreshold,
-			ThresholdZ:      r.RuleThresholdZ,
-			RunReason:       r.RuleRunReason,
-			Enabled:         r.RuleEnabled,
-			State:           r.RuleState,
-			CreatedAt:       r.RuleCreatedAt,
-			UpdatedAt:       r.RuleUpdatedAt,
-			LastEvaluatedAt: r.RuleLastEvaluatedAt,
-			ReportStartAt:   optionalTime(r.RuleReportStartAt),
+			ID:                r.RuleID,
+			UserID:            r.RuleUserID,
+			Name:              r.RuleName,
+			Repository:        r.RuleRepository,
+			Baseline:          r.RuleBaseline,
+			Threshold:         r.RuleThreshold,
+			ThresholdZ:        r.RuleThresholdZ,
+			RunReason:         r.RuleRunReason,
+			Enabled:           r.RuleEnabled,
+			State:             r.RuleState,
+			CreatedAt:         r.RuleCreatedAt,
+			UpdatedAt:         r.RuleUpdatedAt,
+			LastEvaluatedAt:   r.RuleLastEvaluatedAt,
+			ReportStartAt:     optionalTime(r.RuleReportStartAt),
+			ConfirmRuns:       int(r.RuleConfirmRuns),
+			RegressionStreaks: regressionStreaks(r.RuleRegressionStreaks),
 		},
 		Event: &event,
 	}

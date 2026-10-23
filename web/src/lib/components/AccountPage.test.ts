@@ -35,6 +35,7 @@ const alertRule = {
   baseline: "fork_point",
   threshold: 5,
   threshold_z: 5,
+  confirm_runs: 2,
   enabled: true,
   state: "open",
   created_at: "2026-01-02T00:00:00Z",
@@ -153,7 +154,11 @@ describe("AccountPage", () => {
       await fireEvent.submit(screen.getByTestId("alert-create-form"));
 
       await waitFor(() => expect(screen.getByText(name)).toBeInTheDocument());
-      expect(POST).toHaveBeenLastCalledWith("/api/alert-rules", expect.objectContaining({ name, threshold_z: 2 }), undefined);
+      expect(POST).toHaveBeenLastCalledWith(
+        "/api/alert-rules",
+        expect.objectContaining({ name, threshold_z: 2, confirm_runs: 2 }),
+        undefined,
+      );
     }
   });
 
@@ -168,6 +173,7 @@ describe("AccountPage", () => {
         baseline: "parent",
         threshold: 3,
         threshold_z: 4,
+        confirm_runs: 3,
         enabled: false,
         state: "inactive",
       },
@@ -207,6 +213,7 @@ describe("AccountPage", () => {
     await fireEvent.change(screen.getByLabelText(/baseline/i), { target: { value: "parent" } });
     await fireEvent.input(screen.getByLabelText(/^pairwise threshold/i), { target: { value: "3" } });
     await fireEvent.input(screen.getByLabelText(/z-score threshold/i), { target: { value: "4" } });
+    await fireEvent.input(screen.getByLabelText(/confirm runs/i), { target: { value: "3" } });
     await fireEvent.click(screen.getByLabelText(/enabled/i));
     await fireEvent.submit(screen.getByTestId("alert-create-form"));
 
@@ -217,8 +224,10 @@ describe("AccountPage", () => {
         baseline: "parent",
         threshold: 3,
         threshold_z: 4,
+        confirm_runs: 3,
         enabled: false,
       }, undefined);
+    expect(screen.getByText("3 runs")).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole("button", { name: /events for arrow nightly/i }));
     await waitFor(() => expect(screen.getByText("lookback regression detected")).toBeInTheDocument());

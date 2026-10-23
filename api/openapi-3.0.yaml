@@ -95,6 +95,12 @@ components:
           type: string
         baseline:
           type: string
+        confirm_runs:
+          description: Consecutive scored runs a benchmark must regress in before the rule opens. Defaults to 2.
+          format: int64
+          maximum: 10
+          minimum: 1
+          type: integer
         enabled:
           type: boolean
         name:
@@ -124,6 +130,10 @@ components:
           type: string
         baseline:
           type: string
+        confirm_runs:
+          description: Consecutive scored runs a benchmark must regress in before the rule opens.
+          format: int64
+          type: integer
         created_at:
           format: date-time
           type: string
@@ -161,6 +171,7 @@ components:
         - baseline
         - threshold
         - threshold_z
+        - confirm_runs
         - enabled
         - state
         - created_at
