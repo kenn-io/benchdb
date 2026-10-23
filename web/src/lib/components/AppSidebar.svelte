@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
-  import { trapFocus } from "@kenn-io/kit-ui/utils/focus-trap";
+  import { SelectDropdown, trapFocus, type SelectDropdownOption } from "@kenn-io/kit-ui";
   import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import ChartLineIcon from "@lucide/svelte/icons/chart-line";
   import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";

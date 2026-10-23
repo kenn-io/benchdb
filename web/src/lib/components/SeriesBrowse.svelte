@@ -1,7 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { SearchInput } from "@kenn-io/kit-ui/search-input";
-  import { SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui/select-dropdown";
+  import { SearchInput, SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui";
   import { onDestroy } from "svelte";
 
   import { createBenchDBClient } from "../api/client";

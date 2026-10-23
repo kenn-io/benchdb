@@ -4,7 +4,7 @@
   import {
     SelectDropdown,
     type SelectDropdownOption,
-  } from "@kenn-io/kit-ui/select-dropdown";
+  } from "@kenn-io/kit-ui";
 
   import { createBenchDBClient } from "../api/client";
   import { listSeries } from "../browse/loader";

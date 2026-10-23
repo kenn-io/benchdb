@@ -2,7 +2,7 @@ import {
   localDateStr,
   resolveRange,
   type RangeSelection,
-} from "@kenn-io/kit-ui/date-range-picker";
+} from "@kenn-io/kit-ui";
 
 import type { HistorySample, ZScoreStats } from "../api/benchdb";
 import { formatDate } from "../browse/transform";
