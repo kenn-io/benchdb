@@ -626,12 +626,15 @@ type HistoryRow struct {
 	RunTags            []byte
 	InfoTags           []byte
 	ChangeAnnotations  []byte
-	HardwareHash       string
-	HardwareName       string
-	CommitSha          string
-	CommitRepository   string
-	CommitMessage      string
-	CommitTimestamp    *time.Time
+	// OptionalBenchmarkInfo is the result's optional_benchmark_info object,
+	// which can carry the practical tolerance that status scoring honors.
+	OptionalBenchmarkInfo []byte
+	HardwareHash          string
+	HardwareName          string
+	CommitSha             string
+	CommitRepository      string
+	CommitMessage         string
+	CommitTimestamp       *time.Time
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,
@@ -752,6 +755,16 @@ type SeriesMembersParams struct {
 	Fingerprints []string
 	ActiveSince  *time.Time
 	ActiveUntil  *time.Time
+	// Through keeps members ordered at or before this result, before the tail
+	// limit applies, so an older page row is scored against its own history.
+	Through *SeriesMemberBound
+}
+
+// SeriesMemberBound is a member's position in history order: commit time,
+// then result ID.
+type SeriesMemberBound struct {
+	CommitTimestamp time.Time
+	ResultID        string
 }
 
 // SeriesPageRow is one series in the list: identity plus the newest-commit

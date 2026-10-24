@@ -1993,6 +1993,11 @@ components:
     SeriesListItem:
       additionalProperties: false
       properties:
+        change_percent:
+          description: How far the latest result moved from its history window's mean, in percent of that mean; positive means a higher value. Null without a nonzero window mean.
+          format: double
+          nullable: true
+          type: number
         context:
           additionalProperties: true
           type: object
@@ -2051,6 +2056,11 @@ components:
         unit:
           nullable: true
           type: string
+        window_mean:
+          description: Mean of the history window the latest result is scored against. Null when there are no earlier results to score against.
+          format: double
+          nullable: true
+          type: number
       required:
         - history_fingerprint
         - name
@@ -2061,6 +2071,8 @@ components:
         - unit
         - less_is_better
         - status
+        - change_percent
+        - window_mean
         - latest_result_id
         - latest_single_value_summary
         - latest_single_value_summary_type
@@ -3607,6 +3619,18 @@ paths:
           name: fingerprint
           schema:
             description: Filter by history fingerprint.
+            type: string
+        - description: Only series with this status.
+          explode: false
+          in: query
+          name: status
+          schema:
+            description: Only series with this status.
+            enum:
+              - regressed
+              - improved
+              - stable
+              - insufficient
             type: string
         - description: Latest commit at or after this instant, RFC3339.
           explode: false

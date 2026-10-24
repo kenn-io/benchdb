@@ -96,3 +96,21 @@ func (p TolerancePolicy) evaluate(reference, measured float64) *ChangeTolerance 
 		WithinTolerance: math.Abs(delta) <= minimum,
 	}
 }
+
+// explicitTolerance returns the policy a result stored in
+// optional_benchmark_info.tolerance, or nil when it stored none. Statuses use
+// only explicit policies, so metric-kind defaults never change a status.
+func explicitTolerance(raw []byte, unit string) (*TolerancePolicy, error) {
+	var info map[string]any
+	if len(raw) == 0 || json.Unmarshal(raw, &info) != nil {
+		return nil, nil // no object, so no tolerance
+	}
+	if _, ok := info["tolerance"]; !ok {
+		return nil, nil
+	}
+	policy, err := resolveTolerance(info, unit)
+	if err != nil {
+		return nil, err
+	}
+	return &policy, nil
+}
