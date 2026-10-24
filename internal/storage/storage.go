@@ -755,6 +755,16 @@ type SeriesMembersParams struct {
 	Fingerprints []string
 	ActiveSince  *time.Time
 	ActiveUntil  *time.Time
+	// Through keeps members ordered at or before this result, before the tail
+	// limit applies, so an older page row is scored against its own history.
+	Through *SeriesMemberBound
+}
+
+// SeriesMemberBound is a member's position in history order: commit time,
+// then result ID.
+type SeriesMemberBound struct {
+	CommitTimestamp time.Time
+	ResultID        string
 }
 
 // SeriesPageRow is one series in the list: identity plus the newest-commit

@@ -98,6 +98,10 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, series, 1)
 	seriesCursor := series[0].LatestCommitTimestamp
+	boundHistory, err := pg.SelectHistoryForFingerprint(ctx, summary.Fingerprint)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(boundHistory), 3, "the bound needs members on both sides")
+	through := boundHistory[len(boundHistory)/2]
 	benchmarks, err := pg.SelectBenchmarkList(ctx, storage.BenchmarkListParams{PageSize: 1})
 	require.NoError(t, err)
 	require.Len(t, benchmarks.Rows, 1)
@@ -122,6 +126,12 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 		{"benchmark-history", func(st storage.Store) (any, error) { return st.SelectHistoryForBenchmark(ctx, benchmarkID) }},
 		{"series-members", func(st storage.Store) (any, error) {
 			return st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{summary.Fingerprint}})
+		}},
+		{"series-members-through", func(st storage.Store) (any, error) {
+			return st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+				Fingerprints: []string{summary.Fingerprint},
+				Through:      &storage.SeriesMemberBound{CommitTimestamp: *through.CommitTimestamp, ResultID: through.ID},
+			})
 		}},
 		{"series", func(st storage.Store) (any, error) {
 			return st.SelectSeriesPage(ctx, storage.SeriesListParams{PageSize: 100})

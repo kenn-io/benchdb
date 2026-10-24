@@ -542,6 +542,9 @@ members AS MATERIALIZED (
         AND (sqlc.narg('active_until')::timestamp IS NULL OR "timestamp" <= sqlc.narg('active_until')::timestamp)
       OFFSET 0
     ) c
+    WHERE sqlc.narg('through_commit_timestamp')::timestamp IS NULL
+       OR (c."timestamp", br.id)
+          <= (sqlc.narg('through_commit_timestamp')::timestamp, sqlc.narg('through_result_id')::text)
     ORDER BY c."timestamp" DESC, br.id DESC
     LIMIT sqlc.arg('per_fingerprint_limit')::integer
   ) m

@@ -85,8 +85,11 @@ members AS MATERIALIZED (
         AND ($3::timestamp IS NULL OR "timestamp" <= $3::timestamp)
       OFFSET 0
     ) c
+    WHERE $4::timestamp IS NULL
+       OR (c."timestamp", br.id)
+          <= ($4::timestamp, $5::text)
     ORDER BY c."timestamp" DESC, br.id DESC
-    LIMIT $4::integer
+    LIMIT $6::integer
   ) m
 )
 SELECT
@@ -109,10 +112,12 @@ ORDER BY history_fingerprint, commit_timestamp, id
 `
 
 type SelectSeriesMembersParams struct {
-	Fingerprints        []string
-	ActiveSince         *time.Time
-	ActiveUntil         *time.Time
-	PerFingerprintLimit int32
+	Fingerprints           []string
+	ActiveSince            *time.Time
+	ActiveUntil            *time.Time
+	ThroughCommitTimestamp *time.Time
+	ThroughResultID        *string
+	PerFingerprintLimit    int32
 }
 
 type SelectSeriesMembersRow struct {
@@ -142,6 +147,8 @@ func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembe
 		arg.Fingerprints,
 		arg.ActiveSince,
 		arg.ActiveUntil,
+		arg.ThroughCommitTimestamp,
+		arg.ThroughResultID,
 		arg.PerFingerprintLimit,
 	)
 	if err != nil {

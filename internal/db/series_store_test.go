@@ -676,6 +676,33 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
 }
 
+func TestSelectSeriesMembersThroughBoundsBeforeTailLimit(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+
+	members := make([]seriesMember, 300)
+	for i := range members {
+		members[i] = seriesMember{ts: day(i), value: float64(i)}
+	}
+	seedSeries(t, st, ctx, "fp-through", "through-history", `{}`, "m5", members)
+	all, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-through"}})
+	require.NoError(t, err)
+	history, err := st.SelectHistoryForFingerprint(ctx, "fp-through")
+	require.NoError(t, err)
+	require.Len(t, history, 300)
+	bound := history[20]
+	require.NotEqual(t, bound.ID, all[0].ID, "the bound lies before the unbounded tail")
+
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		Fingerprints: []string{"fp-through"},
+		Through:      &storage.SeriesMemberBound{CommitTimestamp: *bound.CommitTimestamp, ResultID: bound.ID},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 21, "every member up to the bound, not the latest tail")
+	assert.Equal(t, day(0), *got[0].CommitTimestamp)
+	assert.Equal(t, bound.ID, got[len(got)-1].ID)
+}
+
 func TestSelectSeriesMembersCarriesOptionalBenchmarkInfo(t *testing.T) {
 	st, _, ctx := newTestStore(t)
 	tolerance := []byte(`{"tolerance":{"absolute":120,"relative_percent":50}}`)

@@ -173,7 +173,12 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
-	verdict := seriesVerdict{status: statusInsufficient, windowMean: mean}
+	verdict := seriesVerdict{status: statusInsufficient}
+	// Finite results can still sum past the float64 range, and an infinite
+	// mean cannot be sent as JSON.
+	if mean != nil && !math.IsInf(*mean, 0) && !math.IsNaN(*mean) {
+		verdict.windowMean = mean
+	}
 	if mean != nil && *mean != 0 {
 		// Finite values can still overflow, as with a huge latest point over a
 		// tiny mean; an infinite change cannot be stored or sent as JSON.
@@ -273,11 +278,19 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 		for i, row := range rows {
 			fingerprints[i] = row.HistoryFingerprint
 		}
-		members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+		membersParams := storage.SeriesMembersParams{
 			Fingerprints: fingerprints,
 			ActiveSince:  q.ActiveSince,
 			ActiveUntil:  q.ActiveUntil,
-		})
+		}
+		// A fingerprint cursor shows the series as of an earlier result, so
+		// score that row against the history up to that result.
+		if q.Fingerprint != nil && len(rows) == 1 {
+			membersParams.Through = &storage.SeriesMemberBound{
+				CommitTimestamp: rows[0].LatestCommitTimestamp, ResultID: rows[0].LatestResultID,
+			}
+		}
+		members, err := r.store.SelectSeriesMembers(ctx, membersParams)
 		if err != nil {
 			return nil, fmt.Errorf("list series members: %w", err)
 		}
@@ -297,7 +310,9 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 				break
 			}
 		}
-		if len(rows) < pageSize {
+		// A fingerprint's next page is an earlier point of the same series, not
+		// another series, so a filter checks only the row already read.
+		if len(rows) < pageSize || q.Fingerprint != nil {
 			break
 		}
 		tail := rows[len(rows)-1]

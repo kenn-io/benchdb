@@ -375,3 +375,63 @@ func TestListSeriesHonorsSubmittedTolerance(t *testing.T) {
 	assert.Equal(t, "regressed", findSeries(t, page, "flagged").Status)
 	assert.Equal(t, "stable", findSeries(t, page, "tolerant").Status)
 }
+
+// TestListSeriesOmitsAnOverflowingWindowMean asserts that finite results whose
+// window sum overflows still produce a valid series response, without a mean.
+func TestListSeriesOmitsAnOverflowingWindowMean(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	for i := range 3 {
+		seedResult(t, tapi, seedOpts{name: "huge", sha: "huge" + shaN(i), ts: day(i + 1), data: []float64{1e308}})
+	}
+
+	huge := findSeries(t, listSeries(t, tapi, ""), "huge")
+	assert.Nil(t, huge.WindowMean)
+	assert.Nil(t, huge.ChangePercent)
+}
+
+// TestListSeriesScoresAFingerprintCursorPageAtItsOwnLatestResult asserts that a
+// fingerprint page reached through a cursor, which shows the series as of an
+// earlier result, scores that result against the history before it rather than
+// against the series' newest results.
+func TestListSeriesScoresAFingerprintCursorPageAtItsOwnLatestResult(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	for i, v := range []float64{1, 1, 2} {
+		seedResult(t, tapi, seedOpts{name: "stepped", sha: "stepped" + shaN(i), ts: day(i + 1), data: []float64{v}})
+	}
+	fingerprint := findSeries(t, listSeries(t, tapi, ""), "stepped").HistoryFingerprint
+
+	first := listSeries(t, tapi, "?page_size=1&fingerprint="+fingerprint)
+	require.Len(t, first.Series, 1)
+	require.NotNil(t, first.NextPageCursor)
+	require.NotNil(t, first.Series[0].ChangePercent)
+	assert.InDelta(t, 100, *first.Series[0].ChangePercent, 1e-9, "2 against a window mean of 1")
+
+	earlier := listSeries(t, tapi, "?page_size=1&fingerprint="+fingerprint+"&cursor="+*first.NextPageCursor)
+	require.Len(t, earlier.Series, 1)
+	row := earlier.Series[0]
+	require.NotNil(t, row.LatestSVS)
+	assert.InDelta(t, 1, *row.LatestSVS, 1e-9, "the page shows the series as of its second result")
+	require.NotNil(t, row.WindowMean)
+	require.NotNil(t, row.ChangePercent)
+	assert.InDelta(t, 1, *row.WindowMean, 1e-9, "only the result before it")
+	assert.InDelta(t, 0, *row.ChangePercent, 1e-9)
+}
+
+// TestListSeriesStatusFilterWithAFingerprintChecksOnlyItsRow asserts that a
+// status filter on a fingerprint lookup checks the returned row instead of
+// stepping back through the series' history for an earlier match.
+func TestListSeriesStatusFilterWithAFingerprintChecksOnlyItsRow(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedSeriesWithLatest(t, tapi, "regressed-bench", 1.20)
+	fingerprint := findSeries(t, listSeries(t, tapi, ""), "regressed-bench").HistoryFingerprint
+
+	match := listSeries(t, tapi, "?page_size=1&status=regressed&fingerprint="+fingerprint)
+	require.Len(t, match.Series, 1)
+	assert.Equal(t, "regressed", match.Series[0].Status)
+
+	// Earlier points of this series score stable, but a stable filter must not
+	// return one of them in place of the series' current state.
+	other := listSeries(t, tapi, "?page_size=1&status=stable&fingerprint="+fingerprint)
+	assert.Empty(t, other.Series)
+	assert.Nil(t, other.NextPageCursor)
+}

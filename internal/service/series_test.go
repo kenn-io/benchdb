@@ -173,6 +173,9 @@ func TestScoreSeriesReportsTheWindowMean(t *testing.T) {
 	require.NotNil(t, held.windowMean)
 	assert.InDelta(t, (12+1.03)/13, *held.windowMean, 1e-9)
 	assert.Nil(t, scoreSeries(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue).windowMean)
+
+	overflow := scoreSeries(membersFromSVS([]float64{1e308, 1e308, 1e308}, "s"), new("s"), &libTrue)
+	assert.Nil(t, overflow.windowMean, "finite results whose sum overflows have no reportable mean")
 }
 
 func TestBenchmarkStatusHonorsExplicitTolerance(t *testing.T) {

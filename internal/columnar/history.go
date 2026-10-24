@@ -57,6 +57,11 @@ ORDER BY hw.name,br.history_fingerprint,c."timestamp",br.id`, []any{benchmarkID}
 }
 
 func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) (out []storage.HistoryRow, err error) {
+	var throughTimestamp *time.Time
+	var throughID *string
+	if p.Through != nil {
+		throughTimestamp, throughID = &p.Through.CommitTimestamp, &p.Through.ResultID
+	}
 	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		source, err := s.seriesSource(ctx, q, p.Fingerprints)
 		if err != nil {
@@ -72,11 +77,12 @@ FROM series_facts br JOIN hardware hw ON hw.id=br.hardware_id JOIN "commit" c ON
 WHERE `+historyMembership+`
 AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))
 AND ($2::TIMESTAMP IS NULL OR c."timestamp">=$2)
-AND ($3::TIMESTAMP IS NULL OR c."timestamp"<=$3))
+AND ($3::TIMESTAMP IS NULL OR c."timestamp"<=$3)
+AND ($4::TIMESTAMP IS NULL OR (c."timestamp",br.id)<=($4::TIMESTAMP,$5::VARCHAR)))
 SELECT id,history_fingerprint,"timestamp",unit,mean,data,run_tags,info_tags,change_annotations,optional_benchmark_info,
 hardware_hash,hardware_name,commit_sha,commit_repository,commit_message,commit_timestamp
 FROM members WHERE position<=256 ORDER BY history_fingerprint,commit_timestamp,id`,
-			[]any{p.Fingerprints, p.ActiveSince, p.ActiveUntil}, scanHistory)
+			[]any{p.Fingerprints, p.ActiveSince, p.ActiveUntil, throughTimestamp, throughID}, scanHistory)
 		return err
 	})
 	return
