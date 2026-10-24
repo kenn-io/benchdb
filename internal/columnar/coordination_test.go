@@ -5,9 +5,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -366,4 +370,101 @@ func TestScheduledMaintenanceSkipsWhenOwnedElsewhere(t *testing.T) {
 			assert.Empty(t, final.Error)
 		})
 	}
+}
+
+// cancelRelay forwards PostgreSQL connections until it starts holding new
+// ones open without forwarding, as a partitioned route would.
+type cancelRelay struct {
+	listener net.Listener
+	hold     atomic.Bool
+	mu       sync.Mutex
+	conns    []net.Conn
+	copies   sync.WaitGroup
+}
+
+func newCancelRelay(t *testing.T, ctx context.Context, backend string) *cancelRelay {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	r := &cancelRelay{listener: listener}
+	accepting := make(chan struct{})
+	go func() {
+		defer close(accepting)
+		for {
+			client, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			r.track(client)
+			if r.hold.Load() {
+				continue
+			}
+			server, err := (&net.Dialer{}).DialContext(ctx, "tcp", backend)
+			if err != nil {
+				_ = client.Close()
+				continue
+			}
+			r.track(server)
+			// Closing either side closes both, so PostgreSQL sees the client leave.
+			r.copies.Go(func() { _, _ = io.Copy(server, client); _ = server.Close(); _ = client.Close() })
+			r.copies.Go(func() { _, _ = io.Copy(client, server); _ = server.Close(); _ = client.Close() })
+		}
+	}()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-accepting
+		r.mu.Lock()
+		for _, conn := range r.conns {
+			_ = conn.Close()
+		}
+		r.mu.Unlock()
+		r.copies.Wait()
+	})
+	return r
+}
+
+func (r *cancelRelay) track(conn net.Conn) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.conns = append(r.conns, conn)
+}
+
+// TestCoordinationCancelWithoutCancelRequest bounds how long a canceled lock
+// wait can outlast its deadline when the cancel request cannot reach
+// PostgreSQL. pgx then closes the socket in the background after one more
+// cancel attempt of up to 15 seconds. A backend waiting for a lock does not
+// read its socket, so the abandoned request stays queued until it is granted,
+// and the backend exits once it sees the closed connection.
+func TestCoordinationCancelWithoutCancelRequest(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	conn := pool.Config().ConnConfig
+	relay := newCancelRelay(t, ctx, net.JoinHostPort(conn.Host, strconv.Itoa(int(conn.Port))))
+	relayURL := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", conn.User, conn.Password, relay.listener.Addr(), conn.Database)
+	coord, err := newArchiveCoordinator(pool, Config{Readers: 1, CoordinationDBURL: relayURL})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, coord.close()) })
+	guard, err := coord.reader(ctx)
+	require.NoError(t, err)
+	require.NoError(t, guard.Close(ctx), "the idle guard session stays in its pool")
+
+	relay.hold.Store(true)
+	releaseReclamation := holdReclamation(t, ctx, pool)
+	const deadline = time.Second
+	waitCtx, stopWait := context.WithTimeout(ctx, deadline)
+	defer stopWait()
+	started := time.Now()
+	_, err = coord.reader(waitCtx)
+	elapsed := time.Since(started)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.GreaterOrEqual(t, elapsed, deadline+cancelDeadlineDelay-100*time.Millisecond, "the cancel request never arrived")
+	assert.Less(t, elapsed, deadline+cancelDeadlineDelay+time.Second, "pgx closes the session after its deadline delay")
+	assert.Equal(t, 1, lockWaiters(ctx, pool, reclamationLock), "the abandoned request stays queued")
+	releaseReclamation()
+	require.Eventually(t, func() bool {
+		var holders int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE `+reclamationLockFilter, reclamationLock).Scan(&holders)
+		return err == nil && holders == 0
+	}, 20*time.Second, 50*time.Millisecond, "the abandoned backend exits once its lock is granted and its socket closes")
 }

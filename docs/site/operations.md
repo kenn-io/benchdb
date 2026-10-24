@@ -134,20 +134,92 @@ Analytical reads and run report finalization share one deadline from entry to
 completion, including time waiting for a reader or run lock. Earlier caller
 deadlines take precedence. Set `BENCHDB_ANALYTICAL_READ_TIMEOUT` to a positive
 duration to change the default two-minute limit. An expired report is not saved.
-The existing PostgreSQL statement timeout settings still apply.
+
+Archive connections do not use PostgreSQL's own timeouts. The archive sets
+`statement_timeout`, `lock_timeout`, `idle_session_timeout`,
+`idle_in_transaction_session_timeout`, and, on PostgreSQL 17 and later,
+`transaction_timeout` to zero on its coordination sessions and on DuckDB's
+PostgreSQL connections. This overrides values from URL parameters, the
+`options` parameter, and role or database defaults. The read deadline and the
+maintenance limits bound that work instead. Connections in the application
+pool keep the configured timeouts. Startup fails if the archive cannot set and
+verify these values. Read-only mode and other URL settings still apply.
 
 Archive readers and maintenance coordinate through PostgreSQL advisory locks,
 so processes with separate working directories never remove files that another
 process is reading. Each analytical read holds one coordination session for
-its duration, and maintenance holds up to two. Budget
-`BENCHDB_DUCKDB_READERS` plus two PostgreSQL connections per process for
-coordination, in addition to the application pool. These sessions must keep
+its duration, and maintenance holds up to two. These sessions must keep
 one PostgreSQL backend until they disconnect: connect directly or through
 session pooling, never transaction pooling. A maintenance cycle whose client
 connection is lost keeps ownership until PostgreSQL ends that backend.
 When several processes share a database, the one that holds maintenance
 ownership runs the cycle. The others skip that cycle without recording a
 failure and try again one interval later.
+
+At startup, the archive checks that its coordination route keeps sessions on
+one backend. One connection takes a test lock; a second connection must see
+that lock held by the same backend across a commit, and then see it released.
+A changed backend or a lost lock stops startup. In tests, this rejects
+PgBouncer in transaction mode, which hands an idle backend to the next client.
+The check is not a pooler detector: passing it does not prove that a proxy
+keeps affinity later. Use a route that you have verified is direct or
+session-pooled.
+
+Budget these PostgreSQL connections for each process, in addition to the
+application pool. `R` is `BENCHDB_DUCKDB_READERS`. Each reader handle runs
+`T = max(1, (BENCHDB_DUCKDB_THREADS - M) / R)` threads, rounded down. The
+maintenance handle runs `M = min(2, max(1, BENCHDB_DUCKDB_THREADS / 8))`.
+
+| Connections | Count |
+| --- | --- |
+| Reader coordination sessions | `R` |
+| Maintenance owner and metadata sessions | 2 |
+| DuckDB reader connections | `R × max(2, T + 1)` |
+| DuckDB maintenance connections | `max(2, M + 1)` |
+| Cancellation connections, one per DuckDB handle while it cancels | `R + 1` |
+
+The total is `2R + 3 + R × max(2, T + 1) + max(2, M + 1)`. Startup logs it as
+`max_backends`. For example, 8 threads gives `R = 1`, `T = 7`, and 15
+connections; 32 threads gives `R = 3`, `T = 10`, and 45 connections. Count every
+process, including admin commands that open the archive, against PostgreSQL
+`max_connections` and any proxy's pinned-session limit, and keep headroom for
+operators.
+
+These caps were measured with the packaged DuckDB 1.5.5 extension, on
+PostgreSQL 15.2 and 17.10, directly and through PgBouncer in session mode. One
+query on a DuckDB handle opened at most `T + 1` PostgreSQL connections, through
+joins and unions over several tables. Each handle's extension pool is limited
+to `max(2, T + 1)` connections and waits rather than opening more. Two readers
+with two threads each, the maintenance handle, an upload intent write, and
+repeated read cancellation together peaked at 16 backends against a budget of
+17, including the application pool's connections.
+
+The extension does not observe cancellation while it waits for a free pool
+connection. That wait ends after the smaller of 30 seconds and half the read
+timeout, so it can run past the read deadline by up to that long. The measured
+queries never waited.
+
+Cancel requests, which stop a coordination session's lock wait or query, use a
+short-lived connection that does not take a PostgreSQL backend. A proxy still
+counts it as a client. If a cancel request cannot reach PostgreSQL, the
+canceled call returns at most 5 seconds after its deadline. pgx then closes
+that connection in the background after one more cancel attempt of up to 15
+seconds. A backend waiting for a lock does not notice a closed connection, so
+its request stays queued until the lock is granted. A cleaner left queued this
+way keeps new readers waiting until the current readers finish.
+
+If `BENCHDB_DB_URL` goes through PgBouncer, DuckDB's connections send these
+timeouts as startup options. List them in PgBouncer's `track_extra_parameters`,
+or PgBouncer refuses the connections and startup fails:
+`statement_timeout, lock_timeout, idle_session_timeout,
+idle_in_transaction_session_timeout`, plus `transaction_timeout` on
+PostgreSQL 17 and later. Size the PgBouncer pool for the whole budget, or
+cancellation connections queue behind the readers they should cancel. The
+extension resets each connection with `DISCARD ALL` when it returns to its
+pool, which reverts values that a pooler set, so the archive reapplies its
+application name and timeouts on every checkout. Through transaction pooling
+that reapplication can reach a different backend; keep these timeouts unset or
+zero in the role, database, and server defaults in that case.
 
 Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
 longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion

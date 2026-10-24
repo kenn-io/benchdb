@@ -38,6 +38,9 @@ const (
 	// that runs to its limit and still has time to delete a batch.
 	cleanupGrace           = 30 * time.Second
 	guardHeartbeatInterval = 5 * time.Second
+	// cancelDeadlineDelay bounds how long a canceled coordination call waits
+	// for its cancel request before pgx closes the connection.
+	cancelDeadlineDelay = 5 * time.Second
 	// maintenanceSessions is the owner/publication session plus one metadata
 	// session.
 	maintenanceSessions = 2
@@ -89,10 +92,24 @@ func coordinationPool(base *pgxpool.Config, name string, size int) (*pgxpool.Poo
 	cfg.MinConns = 0
 	cfg.MinIdleConns = 0
 	cfg.ConnConfig.RuntimeParams["application_name"] = name
+	afterConnect := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		if afterConnect != nil {
+			if err := afterConnect(ctx, conn); err != nil {
+				return err
+			}
+		}
+		return initArchiveSession(ctx, conn)
+	}
 	// The default handler breaks the socket on cancellation, which can leave a
 	// backend queued for a lock. A cancel request removes it from the queue.
+	// When the cancel request cannot reach PostgreSQL, the call returns at most
+	// cancelDeadlineDelay after its context ends (plus pgx's 100ms settle).
+	// pgx then closes the socket in the background after one more cancel
+	// attempt of up to 15 seconds. A backend waiting for a lock does not read
+	// its socket, so that request stays queued until the lock is granted.
 	cfg.ConnConfig.BuildContextWatcherHandler = func(conn *pgconn.PgConn) ctxwatch.Handler {
-		return &pgconn.CancelRequestContextWatcherHandler{Conn: conn, DeadlineDelay: 5 * time.Second}
+		return &pgconn.CancelRequestContextWatcherHandler{Conn: conn, DeadlineDelay: cancelDeadlineDelay}
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {

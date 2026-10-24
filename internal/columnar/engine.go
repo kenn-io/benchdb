@@ -6,11 +6,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +50,7 @@ type Engine struct {
 	handleNames     map[*sql.DB]string
 	builder         *sql.DB
 	coord           *archiveCoordinator
+	serverVersion   int // server_version_num, read at startup.
 	scratch         string
 	scratchLock     *flock.Flock
 	maintenanceMu   sync.Mutex
@@ -128,6 +128,8 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 			e.readers <- handle
 		}
 	}
+	slog.Info("archive PostgreSQL connections", "max_backends", e.connectionBudget(),
+		"readers", cfg.Readers, "reader_threads", resources.readerThreads, "maintenance_threads", resources.maintenanceThreads)
 	return e, nil
 }
 
@@ -217,7 +219,10 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 	if n == e.cfg.Readers {
 		threads = e.resources.maintenanceThreads
 	}
-	for _, statement := range []string{
+	applicationName := "benchdb-duckdb-" + rand.Text()
+	e.handleNames[handle] = applicationName
+	timeouts := archiveTimeouts(e.serverVersion)
+	statements := []string{
 		fmt.Sprintf("SET memory_limit='%dMiB'", e.resources.memoryLimitMB),
 		fmt.Sprintf("SET threads=%d", threads),
 		"SET preserve_insertion_order=false",
@@ -225,58 +230,27 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 		"SET temp_directory=" + literal(filepath.Join(e.scratch, fmt.Sprintf("spill-%d", n))),
 		"SET max_temp_directory_size='8GB'",
 		"LOAD postgres",
-	} {
+	}
+	for _, statement := range append(statements, duckdbPoolSettings(threads, e.cfg.ReadTimeout, applicationName, timeouts)...) {
 		if _, err = handle.ExecContext(ctx, statement); err != nil {
 			return nil, fmt.Errorf("configure DuckDB (prepare its matching PostgreSQL extension): %w", err)
 		}
 	}
 	// Temporary DuckDB secrets keep credentials out of ATTACH statements and
-	// extension connection errors. The original URI preserves TLS parameters.
-	conn := e.pg.Config().ConnConfig
-	dsn := conn.ConnString()
-	applicationName := "benchdb-duckdb-" + rand.Text()
-	e.handleNames[handle] = applicationName
+	// extension connection errors. The original URI preserves TLS parameters,
+	// read-only mode, and other settings; archive timeouts are replaced so the
+	// application deadline alone bounds every extension connection.
 	stopInterrupt := e.interruptPostgres(ctx, handle)
 	defer stopInterrupt()
-	if u, parseErr := url.Parse(dsn); parseErr == nil && (u.Scheme == "postgres" || u.Scheme == "postgresql") {
-		q := u.Query()
-		for key := range q {
-			if strings.HasPrefix(key, "pool_") || key == "default_query_exec_mode" || key == "statement_cache_capacity" || key == "description_cache_capacity" {
-				q.Del(key)
-			}
-		}
-		// pgx accepts startup GUCs as URI parameters; libpq requires these in
-		// options. Preserve read-only and statement timeouts alongside the
-		// application deadline on every extension connection.
-		escapeOption := strings.NewReplacer("\\", "\\\\", " ", "\\ ", "\t", "\\\t", "\n", "\\\n", "\r", "\\\r")
-		var startup strings.Builder
-		startup.WriteString(q.Get("options"))
-		for _, key := range slices.Sorted(maps.Keys(conn.RuntimeParams)) {
-			if key == "options" {
-				continue
-			}
-			if key == "application_name" || key == "client_encoding" {
-				q.Set(key, conn.RuntimeParams[key])
-				continue
-			}
-			q.Del(key)
-			startup.WriteString(" -c ")
-			startup.WriteString(escapeOption.Replace(key + "=" + conn.RuntimeParams[key]))
-		}
-		if startup.Len() != 0 {
-			q.Set("options", startup.String())
-		}
-		q.Set("application_name", applicationName)
-		u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
-		dsn = u.String()
-	} else {
-		dsn += " application_name='" + applicationName + "'"
-	}
+	dsn := duckdbConnString(e.pg.Config().ConnConfig, applicationName, timeouts)
 	if _, err = handle.ExecContext(ctx, "CREATE SECRET benchdb_postgres (TYPE postgres, URI "+literal(dsn)+")"); err != nil {
 		return nil, errors.New("configure DuckDB PostgreSQL credentials")
 	}
 	if _, err = handle.ExecContext(ctx, "ATTACH '' AS pg (TYPE postgres, READ_ONLY, SECRET benchdb_postgres)"); err != nil {
-		return nil, errors.New("connect DuckDB to PostgreSQL")
+		return nil, duckdbConnectError(err)
+	}
+	if err = verifyDuckDBTimeouts(ctx, handle, timeouts); err != nil {
+		return nil, err
 	}
 	// Dimension views stay live on the attached PostgreSQL transaction. Fact
 	// columns are cast inside PostgreSQL by benchmark_result_numeric.
@@ -351,8 +325,11 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	}
 	defer lock.Close()
 	var id string
-	if err := e.pg.QueryRow(ctx, `SELECT id::text FROM archive_dataset WHERE singleton`).Scan(&id); err != nil {
+	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
+	}
+	if err := e.coord.checkSessionAffinity(ctx); err != nil {
+		return err
 	}
 	// A second process can open during export. Pin the manifest's files while
 	// validating them, without waiting for the entire maintenance cycle. The
