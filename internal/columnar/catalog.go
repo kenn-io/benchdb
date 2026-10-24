@@ -123,7 +123,10 @@ func (e *Engine) writeParquet(ctx context.Context, tx *sql.Tx, relative, source,
 		return 0, err
 	}
 	var difference int64
-	validation := `SELECT count(*) FROM ((SELECT * FROM (` + source + `) EXCEPT ALL SELECT * FROM read_parquet(` + literal(stage) + `)) UNION ALL (SELECT * FROM read_parquet(` + literal(stage) + `) EXCEPT ALL SELECT * FROM (` + source + `)))`
+	// Without hive_partitioning=false, a directory such as "archive=true" in
+	// the path becomes an extra column of the written file.
+	written := `read_parquet(` + literal(stage) + `,hive_partitioning=false)`
+	validation := `SELECT count(*) FROM ((SELECT * FROM (` + source + `) EXCEPT ALL SELECT * FROM ` + written + `) UNION ALL (SELECT * FROM ` + written + ` EXCEPT ALL SELECT * FROM (` + source + `)))`
 	if err := tx.QueryRowContext(ctx, validation).Scan(&difference); err != nil {
 		return 0, err
 	}
