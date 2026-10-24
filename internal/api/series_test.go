@@ -286,3 +286,92 @@ func TestListSeriesPaginationCursorContinues(t *testing.T) {
 	}
 	assert.Len(t, seen, total, "every series covered across the two pages")
 }
+
+// TestListSeriesStatusFilter asserts ?status= returns only series with that
+// status, and that pages are filled from matching rows only, so a cursor walk
+// covers every match exactly once even when non-matching series sit between
+// them.
+func TestListSeriesStatusFilter(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	for _, s := range []struct {
+		name   string
+		latest float64
+	}{{"regressed-a", 1.20}, {"stable-a", 1.005}, {"regressed-b", 1.20}, {"stable-b", 1.005}, {"regressed-c", 1.20}} {
+		seedSeriesWithLatest(t, tapi, s.name, s.latest)
+	}
+	want := []string{"regressed-a", "regressed-b", "regressed-c"}
+
+	all := listSeries(t, tapi, "?status=regressed")
+	var names []string
+	for _, s := range all.Series {
+		assert.Equal(t, "regressed", s.Status)
+		names = append(names, s.Name)
+	}
+	assert.ElementsMatch(t, want, names)
+	assert.Len(t, listSeries(t, tapi, "?status=stable").Series, 2)
+
+	var paged []string
+	query := "?status=regressed&page_size=1"
+	for range len(want) + 1 {
+		page := listSeries(t, tapi, query)
+		require.LessOrEqual(t, len(page.Series), 1)
+		for _, s := range page.Series {
+			paged = append(paged, s.Name)
+		}
+		if page.NextPageCursor == nil {
+			break
+		}
+		query = "?status=regressed&page_size=1&cursor=" + *page.NextPageCursor
+	}
+	assert.ElementsMatch(t, want, paged, "each match appears once across the filtered pages")
+}
+
+func TestListSeriesRejectsAnUnknownStatus(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	resp := tapi.Get("/api/series?status=broken")
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
+}
+
+// TestListSeriesReportsTheChangeFromTheWindowMean asserts the row carries the
+// window mean the status was scored against and the latest result's percent
+// change from it, and that a series with no earlier results has neither.
+func TestListSeriesReportsTheChangeFromTheWindowMean(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedSeriesWithLatest(t, tapi, "regressed-bench", 1.20)
+	seedResult(t, tapi, seedOpts{name: "solo-bench", sha: "solo1", ts: day(1), data: []float64{5}})
+
+	page := listSeries(t, tapi, "")
+	regressed := findSeries(t, page, "regressed-bench")
+	total := 1.20
+	for _, v := range noisyBaseline {
+		total += v
+	}
+	mean := total / float64(len(noisyBaseline)+1)
+	require.NotNil(t, regressed.WindowMean)
+	require.NotNil(t, regressed.ChangePercent)
+	assert.InDelta(t, mean, *regressed.WindowMean, 1e-9)
+	assert.InDelta(t, (1.20-mean)/mean*100, *regressed.ChangePercent, 1e-9)
+	solo := findSeries(t, page, "solo-bench")
+	assert.Nil(t, solo.WindowMean)
+	assert.Nil(t, solo.ChangePercent)
+}
+
+// TestListSeriesHonorsSubmittedTolerance asserts a tolerance submitted with the
+// latest results holds back a change the same data otherwise flags.
+func TestListSeriesHonorsSubmittedTolerance(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	seedSeriesWithLatest(t, tapi, "flagged", 1.20)
+	for i, v := range noisyBaseline {
+		seedResult(t, tapi, seedOpts{name: "tolerant", sha: "tolerant" + shaN(i), ts: day(i), data: []float64{v}})
+	}
+	for _, d := range []int{latestDay - 1, latestDay} {
+		seedResult(t, tapi, seedOpts{
+			name: "tolerant", sha: "tolerant" + shaN(d), ts: day(d), data: []float64{1.20},
+			tolerance: map[string]any{"absolute": 0.5},
+		})
+	}
+
+	page := listSeries(t, tapi, "")
+	assert.Equal(t, "regressed", findSeries(t, page, "flagged").Status)
+	assert.Equal(t, "stable", findSeries(t, page, "tolerant").Status)
+}

@@ -1036,6 +1036,11 @@ export const SeriesListItemStatus = {
 export type SeriesListItemTags = { [key: string]: unknown };
 
 export interface SeriesListItem {
+  /**
+     * How far the latest result moved from its history window's mean, in percent of that mean; positive means a higher value. Null without a nonzero window mean.
+     * @nullable
+     */
+  change_percent: number | null;
   context: SeriesListItemContext;
   hardware: Hardware;
   history_fingerprint: string;
@@ -1058,6 +1063,11 @@ export interface SeriesListItem {
   tags: SeriesListItemTags;
   /** @nullable */
   unit: string | null;
+  /**
+     * Mean of the history window the latest result is scored against. Null when there are no earlier results to score against.
+     * @nullable
+     */
+  window_mean: number | null;
 }
 
 export interface SeriesPage {
@@ -1418,6 +1428,10 @@ repository?: string;
  */
 fingerprint?: string;
 /**
+ * Only series with this status.
+ */
+status?: ListSeriesStatus;
+/**
  * Latest commit at or after this instant, RFC3339.
  */
 active_since?: string;
@@ -1434,6 +1448,16 @@ cursor?: string;
  */
 page_size?: number;
 };
+
+export type ListSeriesStatus = typeof ListSeriesStatus[keyof typeof ListSeriesStatus];
+
+
+export const ListSeriesStatus = {
+  regressed: 'regressed',
+  improved: 'improved',
+  stable: 'stable',
+  insufficient: 'insufficient',
+} as const;
 
 export const getBenchDB = (axiosInstance: AxiosInstance = axios) => {
 /**

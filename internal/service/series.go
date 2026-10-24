@@ -36,6 +36,8 @@ type SeriesListItem struct {
 	Unit                  *string        `json:"unit"`
 	LessIsBetter          *bool          `json:"less_is_better"`
 	Status                string         `json:"status" enum:"regressed,improved,stable,insufficient"`
+	ChangePercent         *float64       `json:"change_percent" doc:"How far the latest result moved from its history window's mean, in percent of that mean; positive means a higher value. Null without a nonzero window mean."`
+	WindowMean            *float64       `json:"window_mean" doc:"Mean of the history window the latest result is scored against. Null when there are no earlier results to score against."`
 	LatestResultID        string         `json:"latest_result_id"`
 	LatestSVS             *float64       `json:"latest_single_value_summary"`
 	LatestSVSType         *string        `json:"latest_single_value_summary_type"`
@@ -54,6 +56,9 @@ type SeriesQuery struct {
 	Hardware    *string
 	Repository  *string
 	Fingerprint *string
+	// Status keeps only series with this status. Pages are filled from
+	// matching series, so a selective filter can read several storage pages.
+	Status      *string
 	ActiveSince *time.Time
 	ActiveUntil *time.Time
 	CursorTs    *time.Time
@@ -245,47 +250,64 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 		pageSize = listPageSizeMax
 	}
 
-	rows, err := r.store.SelectSeriesPage(ctx, storage.SeriesListParams{
-		Q:           q.Q,
-		Hardware:    q.Hardware,
-		Repository:  q.Repository,
-		Fingerprint: q.Fingerprint,
-		ActiveSince: q.ActiveSince,
-		ActiveUntil: q.ActiveUntil,
-		CursorTs:    q.CursorTs,
-		CursorFp:    q.CursorFp,
-		PageSize:    int32(pageSize),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list series: %w", err)
-	}
-
-	fingerprints := make([]string, len(rows))
-	for i, row := range rows {
-		fingerprints[i] = row.HistoryFingerprint
-	}
-	members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
-		Fingerprints: fingerprints,
-		ActiveSince:  q.ActiveSince,
-		ActiveUntil:  q.ActiveUntil,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list series members: %w", err)
-	}
-	byFingerprint := groupMembersByFingerprint(members)
-
-	items := make([]SeriesListItem, 0, len(rows))
-	for _, row := range rows {
-		item, err := seriesListItem(row, byFingerprint[row.HistoryFingerprint])
+	cursorTs, cursorFp := q.CursorTs, q.CursorFp
+	items := make([]SeriesListItem, 0, pageSize)
+	var last *storage.SeriesPageRow
+	for len(items) < pageSize {
+		rows, err := r.store.SelectSeriesPage(ctx, storage.SeriesListParams{
+			Q:           q.Q,
+			Hardware:    q.Hardware,
+			Repository:  q.Repository,
+			Fingerprint: q.Fingerprint,
+			ActiveSince: q.ActiveSince,
+			ActiveUntil: q.ActiveUntil,
+			CursorTs:    cursorTs,
+			CursorFp:    cursorFp,
+			PageSize:    int32(pageSize),
+		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list series: %w", err)
 		}
-		items = append(items, item)
+
+		fingerprints := make([]string, len(rows))
+		for i, row := range rows {
+			fingerprints[i] = row.HistoryFingerprint
+		}
+		members, err := r.store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{
+			Fingerprints: fingerprints,
+			ActiveSince:  q.ActiveSince,
+			ActiveUntil:  q.ActiveUntil,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list series members: %w", err)
+		}
+		byFingerprint := groupMembersByFingerprint(members)
+
+		for i := range rows {
+			item, err := seriesListItem(rows[i], byFingerprint[rows[i].HistoryFingerprint])
+			if err != nil {
+				return nil, err
+			}
+			if q.Status != nil && item.Status != *q.Status {
+				continue
+			}
+			items = append(items, item)
+			last = &rows[i]
+			if len(items) == pageSize {
+				break
+			}
+		}
+		if len(rows) < pageSize {
+			break
+		}
+		tail := rows[len(rows)-1]
+		cursorTs, cursorFp = &tail.LatestCommitTimestamp, &tail.HistoryFingerprint
 	}
 
+	// The cursor is the last returned row, so the next page resumes after it
+	// even when the filter skipped rows that followed it in storage order.
 	result := &SeriesResult{Series: items}
-	if len(items) == pageSize {
-		last := rows[len(rows)-1]
+	if len(items) == pageSize && last != nil {
 		result.NextCursor = &SeriesCursor{Ts: last.LatestCommitTimestamp, Fp: last.HistoryFingerprint}
 	}
 	return result, nil
@@ -322,6 +344,7 @@ func seriesListItem(row storage.SeriesPageRow, members []storage.HistoryRow) (Se
 	}
 
 	latestSVS, latestSVSType := latestSeriesSVS(row.LatestUnit, row.LatestData)
+	verdict := scoreSeries(members, unit, lessIsBetter)
 
 	return SeriesListItem{
 		HistoryFingerprint: row.HistoryFingerprint,
@@ -337,7 +360,9 @@ func seriesListItem(row storage.SeriesPageRow, members []storage.HistoryRow) (Se
 		Repository:            row.CommitRepoUrl,
 		Unit:                  unit,
 		LessIsBetter:          lessIsBetter,
-		Status:                seriesStatus(members, unit, lessIsBetter),
+		Status:                verdict.status,
+		ChangePercent:         verdict.changePercent,
+		WindowMean:            verdict.windowMean,
 		LatestResultID:        row.LatestResultID,
 		LatestSVS:             latestSVS,
 		LatestSVSType:         latestSVSType,

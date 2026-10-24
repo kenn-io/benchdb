@@ -83,6 +83,11 @@ series is `regressed` or `improved` only when all of these hold:
 Otherwise the series is `stable`. It is `insufficient` when it has fewer than
 10 earlier results, mixes units, or has no variation to score against.
 
+`GET /api/series` reports each series' status with `change_percent` and
+`window_mean`: the history window's mean and how far the latest result moved
+from it, in percent of that mean. Its `status` filter lists, for example, every
+regressed series of a repository, one row per machine.
+
 A benchmark takes the most severe status of its machine tracks, in the order
 `regressed`, `improved`, `stable`, `insufficient`. A benchmark whose tracks
 have different units is `insufficient`.

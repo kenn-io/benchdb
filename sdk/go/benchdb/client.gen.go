@@ -3771,6 +3771,26 @@ func (g GetCiReportQueryBaseline) Validate() error {
 	}
 }
 
+// ListSeriesQueryStatus Only series with this status.
+type ListSeriesQueryStatus string
+
+const (
+	ListSeriesQueryStatusImproved     ListSeriesQueryStatus = "improved"
+	ListSeriesQueryStatusInsufficient ListSeriesQueryStatus = "insufficient"
+	ListSeriesQueryStatusRegressed    ListSeriesQueryStatus = "regressed"
+	ListSeriesQueryStatusStable       ListSeriesQueryStatus = "stable"
+)
+
+// Validate checks if the ListSeriesQueryStatus value is valid
+func (l ListSeriesQueryStatus) Validate() error {
+	switch l {
+	case ListSeriesQueryStatusImproved, ListSeriesQueryStatusInsufficient, ListSeriesQueryStatusRegressed, ListSeriesQueryStatusStable:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid ListSeriesQueryStatus value, got: %v", l))
+	}
+}
+
 type ListAlertRulesHeaders struct {
 	// Authorization Bearer token.
 	Authorization *string `json:"Authorization,omitempty"`
@@ -4189,6 +4209,9 @@ type ListSeriesQuery struct {
 	// Fingerprint Filter by history fingerprint.
 	Fingerprint *string `json:"fingerprint,omitempty"`
 
+	// Status Only series with this status.
+	Status *ListSeriesQueryStatus `json:"status,omitempty"`
+
 	// ActiveSince Latest commit at or after this instant, RFC3339.
 	ActiveSince *string `json:"active_since,omitempty"`
 
@@ -4200,6 +4223,21 @@ type ListSeriesQuery struct {
 
 	// PageSize Page size (max 1000).
 	PageSize *int64 `json:"page_size,omitempty"`
+}
+
+func (l ListSeriesQuery) Validate() error {
+	var errors runtime.ValidationErrors
+	if l.Status != nil {
+		if v, ok := any(l.Status).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Status", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 type ListAlertRulesResponse = ListAlertRulesOutputBody
@@ -6368,6 +6406,8 @@ func (r RunReportSummary) Validate() error {
 }
 
 type SeriesListItem struct {
+	// ChangePercent How far the latest result moved from its history window's mean, in percent of that mean; positive means a higher value. Null without a nonzero window mean.
+	ChangePercent                *float64             `json:"change_percent,omitempty"`
 	Context                      map[string]any       `json:"context"`
 	Hardware                     Hardware             `json:"hardware"`
 	HistoryFingerprint           string               `json:"history_fingerprint" validate:"required"`
@@ -6385,6 +6425,9 @@ type SeriesListItem struct {
 	Status                       SeriesListItemStatus `json:"status" validate:"required"`
 	Tags                         map[string]any       `json:"tags"`
 	Unit                         *string              `json:"unit,omitempty" validate:"required"`
+
+	// WindowMean Mean of the history window the latest result is scored against. Null when there are no earlier results to score against.
+	WindowMean *float64 `json:"window_mean,omitempty"`
 }
 
 func (s SeriesListItem) Validate() error {

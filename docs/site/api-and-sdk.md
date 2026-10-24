@@ -54,7 +54,7 @@ lists the exact checks and failure codes.
 | `GET /api/benchmarks/{benchmark_id}` | Every machine's history for one benchmark. |
 | `GET /api/machines` | Names of machines with benchmark history, sorted by name. `repository` limits the list to one repository. |
 | `GET /api/repositories` | Repositories that have results. |
-| `GET /api/series` | List series. Filters: `q`, `hardware`, `repository`, `fingerprint`, `active_since`, `active_until`. Pages with `cursor` and `page_size` (default 100, max 1000). |
+| `GET /api/series` | List series. Filters: `q`, `hardware`, `repository`, `fingerprint`, `status`, `active_since`, `active_until`. Pages with `cursor` and `page_size` (default 100, max 1000). |
 | `GET /api/history/{benchmark_result_id}` | The history series that contains a result. |
 | `GET /api/history?fingerprint=` | A history series by fingerprint. |
 | `GET /api/compare/benchmark-results` | Compare `baseline_result_id` with `contender_result_id`. `threshold` defaults to 5 and `threshold_z` to 2. |
