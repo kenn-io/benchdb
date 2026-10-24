@@ -79,7 +79,7 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	id, err := pg.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID, CommitID: &commitID,
 		RunID: "catalog-race", HistoryFingerprint: "catalog-race", RunTags: []byte(`{}`), CommitRepoUrl: "https://example.test/catalog-race", Timestamp: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), Data: []*float64{new(1.0)}})
 	require.NoError(t, err)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Threads: 4, Settle: time.Nanosecond})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Threads: 4, Settle: time.Nanosecond, Retention: immediateRetention})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	_, err = e.Maintain(ctx)

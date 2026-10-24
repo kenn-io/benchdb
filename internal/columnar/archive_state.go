@@ -68,8 +68,11 @@ func (s archiveState) recordUpload(ctx context.Context, conn *pgx.Conn, intent u
 		return errors.New("archive upload requires an idle metadata connection")
 	}
 	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		// A share lock keeps finishCycle out until this intent commits. The
+		// unit's open publication transaction can hold the same share lock
+		// from verifying an earlier upload of the cycle.
 		var running bool
-		if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR UPDATE`, intent.CycleID).Scan(&running); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR SHARE`, intent.CycleID).Scan(&running); err != nil {
 			return err
 		}
 		if !running {
@@ -107,14 +110,16 @@ func (s archiveState) verifyUpload(ctx context.Context, tx pgx.Tx, key string, r
 	if err != nil {
 		return err
 	}
-	// Lock the cycle before its intents, matching finishCycle. A closed cycle can
-	// never turn an abandoned or late upload into a publishable object.
+	// Lock the cycle before its intents, matching finishCycle. Its exclusive
+	// lock waits for this transaction, so a closed cycle can never turn an
+	// abandoned or late upload into a publishable object. A share lock lets
+	// the metadata session record the unit's next intent meanwhile.
 	var cycle uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT cycle_id FROM archive_upload WHERE storage_id=$1 AND key=$2`, s.storageID, key).Scan(&cycle); err != nil {
 		return err
 	}
 	var running bool
-	if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR UPDATE`, cycle).Scan(&running); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR SHARE`, cycle).Scan(&running); err != nil {
 		return err
 	}
 	if !running {
@@ -168,25 +173,27 @@ func (s archiveState) retireObject(ctx context.Context, tx pgx.Tx, key string) e
 	return err
 }
 
-// observedAt is a conservative lower bound, never permission to backdate. The
-// PostgreSQL wall clock starts retention only after another transaction commits
-// the retirement; transaction-start time and upload age do not count.
-func (s archiveState) observeRetirement(ctx context.Context, tx pgx.Tx, key string, observedAt time.Time, retention time.Duration) error {
+// retentionInterval converts a nanosecond retention parameter to a PostgreSQL
+// interval, rounding up to the microsecond so a promise is never shortened.
+func retentionInterval(param string) string {
+	return "ceil(" + param + "::numeric/1000)::bigint*interval '1 microsecond'"
+}
+
+// observeRetirements starts the retention window of every committed
+// retirement that no transaction has observed yet. The PostgreSQL wall clock
+// starts it only after another transaction commits the retirement;
+// transaction-start time and upload age do not count.
+func (s archiveState) observeRetirements(ctx context.Context, tx pgx.Tx, retention time.Duration) (int64, error) {
 	if retention <= 0 {
-		return errors.New("archive retention must be positive")
+		return 0, errors.New("archive retention must be positive")
 	}
-	tag, err := tx.Exec(ctx, `WITH observed AS MATERIALIZED (SELECT greatest(clock_timestamp(),$3::timestamptz) AS at)
- UPDATE archive_retirement SET
- first_observed_at=coalesce(first_observed_at,observed.at),
- delete_after=greatest(delete_after,coalesce(first_observed_at,observed.at)+ceil($4::numeric/1000)::bigint*interval '1 microsecond')
- FROM observed WHERE storage_id=$1 AND key=$2 AND retired_xid<>pg_current_xact_id()`, s.storageID, key, observedAt, int64(retention))
+	tag, err := tx.Exec(ctx, `WITH observed AS MATERIALIZED (SELECT clock_timestamp() AS at)
+ UPDATE archive_retirement SET first_observed_at=observed.at,delete_after=observed.at+`+retentionInterval("$2")+`
+ FROM observed WHERE storage_id=$1 AND first_observed_at IS NULL AND retired_xid<>pg_current_xact_id()`, s.storageID, int64(retention))
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("observe archive retirements: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
-		return errors.New("archive retirement is not committed or does not exist")
-	}
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 // Applying a smaller policy changes the configuration, never an existing
@@ -199,16 +206,95 @@ func (s archiveState) applyRetention(ctx context.Context, tx pgx.Tx, retention *
 	if retention != nil {
 		ns = new(int64(*retention))
 	}
-	if _, err := tx.Exec(ctx, `UPDATE archive_policy SET configured_retention_ns=$1,applied_retention_ns=coalesce($1,applied_retention_ns),applied_at=CASE WHEN $1::bigint IS NULL THEN applied_at ELSE clock_timestamp() END WHERE singleton`, ns); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE archive_policy SET configured_retention_ns=$1,applied_retention_ns=coalesce($1,applied_retention_ns),applied_at=CASE WHEN $1::bigint IS NULL THEN applied_at ELSE clock_timestamp() END WHERE singleton AND configured_retention_ns IS DISTINCT FROM $1`, ns); err != nil {
 		return err
 	}
 	if ns == nil {
 		return nil
 	}
 	for _, table := range []string{"archive_retirement", "archive_orphan"} {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET delete_after=greatest(delete_after,first_observed_at+ceil($1::numeric/1000)::bigint*interval '1 microsecond') WHERE first_observed_at IS NOT NULL`, table), *ns); err != nil {
+		extended := "first_observed_at+" + retentionInterval("$1")
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET delete_after=%s WHERE first_observed_at IS NOT NULL AND delete_after<%s`, table, extended, extended), *ns); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// liveKeys names keys that a manifest or lookup references, or that an
+// unclosed cycle may still publish. $1 is the storage ID.
+const liveKeys = `live(key) AS (
+SELECT path FROM archive_file UNION ALL SELECT runs_path FROM archive_file UNION ALL SELECT series_path FROM archive_file
+UNION ALL SELECT key FROM archive_lookup_segment WHERE storage_id=$1
+UNION ALL SELECT u.key FROM archive_upload u JOIN archive_cycle c ON c.id=u.cycle_id WHERE u.storage_id=$1 AND c.state='running')`
+
+// recordOrphans queues listed objects that nothing references, no unclosed
+// cycle may publish, and no retirement covers. A first sighting or a changed
+// revision starts a full retention window; a repeated sighting keeps it.
+func (s archiveState) recordOrphans(ctx context.Context, tx pgx.Tx, objects []objectstore.Metadata, retention time.Duration) error {
+	if retention <= 0 {
+		return errors.New("archive retention must be positive")
+	}
+	keys := make([]string, 0, len(objects))
+	revisions := make([]string, 0, len(objects))
+	for _, object := range objects {
+		keys = append(keys, object.Key)
+		revisions = append(revisions, object.Revision)
+	}
+	_, err := tx.Exec(ctx, `WITH `+liveKeys+`,
+observed AS MATERIALIZED (SELECT clock_timestamp() AS at),
+listed(key,revision) AS (SELECT * FROM unnest($2::text[],$3::text[]))
+INSERT INTO archive_orphan(storage_id,key,revision,first_observed_at,delete_after)
+SELECT $1,l.key,nullif(l.revision,''),observed.at,observed.at+`+retentionInterval("$4")+` FROM listed l CROSS JOIN observed
+WHERE NOT EXISTS (SELECT 1 FROM live WHERE live.key=l.key)
+AND NOT EXISTS (SELECT 1 FROM archive_retirement r WHERE r.storage_id=$1 AND r.key=l.key)
+ON CONFLICT (storage_id,key) DO UPDATE SET revision=excluded.revision,first_observed_at=excluded.first_observed_at,
+delete_after=greatest(archive_orphan.delete_after,excluded.delete_after)
+WHERE archive_orphan.revision IS DISTINCT FROM excluded.revision`, s.storageID, keys, revisions, int64(retention))
+	if err != nil {
+		return fmt.Errorf("record archive orphans: %w", err)
+	}
+	return nil
+}
+
+// dueObject is a retired or orphaned object past its deadline. Revision is
+// the receipt's for a retirement and the inventory's for an orphan.
+type dueObject struct {
+	Key, Revision string
+}
+
+// dueObjects returns up to limit objects whose deadlines have passed and that
+// are still unreferenced, with no unclosed cycle that may publish them.
+func (s archiveState) dueObjects(ctx context.Context, tx pgx.Tx, limit int) ([]dueObject, error) {
+	rows, err := tx.Query(ctx, `WITH `+liveKeys+`
+SELECT d.key,d.revision FROM (
+ SELECT r.key,coalesce(o.revision,'') AS revision,r.delete_after FROM archive_retirement r
+ LEFT JOIN archive_object o ON o.storage_id=r.storage_id AND o.key=r.key
+ WHERE r.storage_id=$1 AND r.delete_after<=clock_timestamp()
+ UNION ALL
+ SELECT o.key,coalesce(o.revision,''),o.delete_after FROM archive_orphan o
+ WHERE o.storage_id=$1 AND o.delete_after<=clock_timestamp()
+ AND NOT EXISTS (SELECT 1 FROM archive_retirement r WHERE r.storage_id=$1 AND r.key=o.key)
+) d WHERE NOT EXISTS (SELECT 1 FROM live WHERE live.key=d.key) ORDER BY d.delete_after,d.key LIMIT $2`, s.storageID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read due archive objects: %w", err)
+	}
+	due, err := pgx.CollectRows(rows, pgx.RowToStructByPos[dueObject])
+	if err != nil {
+		return nil, fmt.Errorf("read due archive objects: %w", err)
+	}
+	return due, nil
+}
+
+// forgetObject removes a key's retirement, orphan, and receipt records. Call
+// it after a confirmed deletion, or after a changed revision so that inventory
+// observes the object again. Upload intents remain, so a key is never reused.
+func (s archiveState) forgetObject(ctx context.Context, tx pgx.Tx, key string) error {
+	_, err := tx.Exec(ctx, `WITH retirement AS (DELETE FROM archive_retirement WHERE storage_id=$1 AND key=$2),
+orphan AS (DELETE FROM archive_orphan WHERE storage_id=$1 AND key=$2)
+DELETE FROM archive_object WHERE storage_id=$1 AND key=$2`, s.storageID, key)
+	if err != nil {
+		return fmt.Errorf("forget archive object %q: %w", key, err)
 	}
 	return nil
 }

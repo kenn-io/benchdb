@@ -54,6 +54,41 @@ jobs:
       - run: make go-vet
       - run: make go-test
 
+  archive-coordination:
+    name: archive-coordination (${{ matrix.name }})
+    runs-on: namespace-profile-linux-8cpu
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgres-15
+            image: postgres:15.2-alpine
+          # Keep in sync with Postgres17Image in internal/dbtest/archive.go.
+          - name: postgres-17
+            image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    env:
+      BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE: ${{ matrix.image }}
+      BENCHDB_DUCKDB_EXTENSION_DIR: ${{ github.workspace }}/.cache/duckdb/extensions
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require a selected PostgreSQL image
+        run: test -n "$BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE"
+      - run: make duckdb-extensions
+      # No -short: the harness fails, not skips, when Docker or an image is
+      # missing. Later archive tasks add their packages and -run patterns here.
+      - name: Run archive coordination tests
+        run: |
+          go test -shuffle=on ./internal/dbtest/...
+          go test -shuffle=on ./internal/columnar \
+            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere|TestInheritedArchiveTimeouts|TestArchiveConnectionBudget|TestCoordinationRejectsTransactionPooling)$'
+
   web:
     runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 15

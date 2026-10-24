@@ -65,7 +65,7 @@ func TestMaintenanceReclaimsFilesBetweenRewrites(t *testing.T) {
 			pool, err := pgxpool.NewWithConfig(ctx, cfg)
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10})
+			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10, Retention: immediateRetention})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
 			commitID, err := db.NewStore(pool).GetOrCreateCommit(ctx, storage.InsertCommitParams{Sha: "maintenance", Repository: "https://example.test/maintenance"})
@@ -93,7 +93,7 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 			// Make both catalogs stale without adding a result or fact mutation.
 			_, err = pool.Exec(ctx, `UPDATE "commit" SET "timestamp"='2024-01-01',fork_point_sha=sha WHERE id=$1`, commitID)
 			require.NoError(t, err)
-			require.NoError(t, e.runMaintenance(ctx, time.Now().UTC()))
+			require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error { return e.runMaintenance(ctx, owner, time.Now().UTC()) }))
 			select {
 			case results := <-tracer.observed:
 				require.Len(t, results, len(tracer.retiredPaths))
@@ -210,7 +210,7 @@ func TestMaintenanceCycleDrainsOnlyCapturedArrivals(t *testing.T) {
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 25})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	require.NoError(t, e.runMaintenance(ctx, cutoff))
+	require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error { return e.runMaintenance(ctx, owner, cutoff) }))
 	assert.Equal(t, count-1, e.maintenanceStatus().ExportedRows, "all eligible batches drain in this cycle")
 	var remaining []string
 	rows, err := pool.Query(ctx, `SELECT id FROM benchmark_result`)
@@ -246,7 +246,11 @@ func TestScheduleImportOnce(t *testing.T) {
 	originalNextRun := time.Now().UTC().Add(7 * time.Hour).Truncate(time.Microsecond)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(fmt.Sprintf(`{"state":"scheduled","phase":"idle","next_run_at":%q}`, originalNextRun.Format(time.RFC3339Nano))), 0600))
-	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour, Readers: 1}}
+	coord, err := newArchiveCoordinator(pool, first.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, coord.close()) })
+	first.coord = coord
 	require.NoError(t, first.loadMaintenance(ctx))
 	// Run is the writer entry point. Wait for its durable startup save, then
 	// stop it well before the imported window becomes eligible.

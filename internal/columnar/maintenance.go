@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -29,70 +27,86 @@ type MaintenanceStats struct {
 var errArchiveSourceChanged = errors.New("archive source changed during export")
 
 // Maintain exports one bounded batch, compacts one bounded group, refreshes
-// one stale catalog, and removes unreferenced files. It can also be called by an operator to drain on demand.
+// one stale catalog, queues orphans, and reclaims objects past their
+// retention deadlines. It can also be called by an operator to drain on demand.
 func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err error) {
-	err = e.withBuilder(ctx, func() (workErr error) {
+	err = e.withBuilder(ctx, func(owner *maintenanceOwner) (workErr error) {
+		e.warnIfReclamationPaused()
 		defer func() {
-			removed, cleanupErr := e.cleanup(ctx)
+			removed, cleanupErr := e.inventoryAndReclaim(ctx, owner)
 			stats.RemovedFiles = removed
 			workErr = errors.Join(workErr, cleanupErr)
 		}()
-		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, time.Now().UTC().Add(-e.cfg.Settle))
+		if workErr = e.abandonEndedCycles(ctx, owner); workErr != nil {
+			return workErr
+		}
+		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, owner, time.Now().UTC().Add(-e.cfg.Settle))
 		if workErr != nil {
 			return workErr
 		}
-		stats.CompactedFiles, workErr = e.compact(ctx)
+		stats.CompactedFiles, workErr = e.compact(ctx, owner)
 		if workErr != nil {
 			return workErr
 		}
-		stats.RefreshedCatalogs, workErr = e.refreshCatalog(ctx)
+		stats.RefreshedCatalogs, workErr = e.refreshCatalog(ctx, owner)
 		return workErr
 	})
 	return stats, err
 }
 
-// A whole scheduled cycle owns the builder; interactive reads use other handles.
-func (e *Engine) withBuilder(ctx context.Context, work func() error) (err error) {
+// A whole cycle holds maintenance ownership across all processes sharing the
+// database; interactive reads use other handles. It waits for a busy owner.
+func (e *Engine) withBuilder(ctx context.Context, work func(*maintenanceOwner) error) error {
+	return e.withOwner(ctx, e.coord.owner, work)
+}
+
+func (e *Engine) withOwner(ctx context.Context, acquire func(context.Context) (*maintenanceOwner, error), work func(*maintenanceOwner) error) (err error) {
 	e.lifecycle.RLock()
 	defer e.lifecycle.RUnlock()
 	if e.closed {
 		return errors.New("archive engine is closed")
 	}
-	lock := flock.New(filepath.Join(e.cfg.Dir, ".builder.lock"))
-	ok, err := lock.TryLockContext(ctx, 50*time.Millisecond)
+	owner, err := acquire(ctx)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return ctx.Err()
-	}
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	stopInterrupt := e.interruptPostgres(ctx, e.builder)
-	defer stopInterrupt()
-	return work()
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		err = errors.Join(err, owner.Close(closeCtx))
+	}()
+	return work(owner)
 }
 
-func (e *Engine) exportBatch(ctx context.Context, cutoff time.Time) (int64, int, error) {
-	pg, err := e.pg.Begin(ctx)
+// maintenanceUnit bounds one export batch, compaction, or catalog refresh. The
+// returned stop joins the builder's PostgreSQL interrupt watcher.
+func (e *Engine) maintenanceUnit(ctx context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithTimeout(ctx, maintenanceUnitTimeout)
+	stopInterrupt := e.interruptPostgres(ctx, e.builder)
+	return ctx, func() {
+		// Stop the watcher first so a finished unit does not look canceled.
+		stopInterrupt()
+		cancel()
+	}
+}
+
+func (e *Engine) exportBatch(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (int64, int, error) {
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
-	var ok bool
-	if err = pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&ok); err != nil {
-		return 0, 0, err
-	}
-	if !ok {
+	if !acquired {
 		return 0, 0, errors.New("archive publication is busy")
 	}
-	rows, files, err := e.export(ctx, pg, cutoff)
+	defer owner.endPublication()
+	rows, files, err := e.export(ctx, owner, pg, cutoff)
 	if err != nil {
 		return 0, 0, fmt.Errorf("export settled results: %w", err)
 	}
-	return rows, files, pg.Commit(ctx)
+	return rows, files, e.commitPublication(ctx, owner)
 }
 
-func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64, int, error) {
+func (e *Engine) export(ctx context.Context, owner *maintenanceOwner, pg pgx.Tx, cutoff time.Time) (int64, int, error) {
 	source := "benchmark_result"
 	var settledHot bool
 	if err := pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM benchmark_result WHERE arrived_at < $1)`, cutoff).Scan(&settledHot); err != nil {
@@ -131,11 +145,11 @@ func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64
 	if len(ids) == 0 {
 		return 0, 0, tx.Commit()
 	}
-	files, err := e.writePartitions(ctx, tx, `SELECT * EXCLUDE(arrived_at,source_table) FROM export_batch`)
+	files, err := e.writePartitions(ctx, owner, tx, `SELECT * EXCLUDE(arrived_at,source_table) FROM export_batch`)
 	if err != nil {
 		return 0, 0, err
 	}
-	// The durable files now contain the verified batch. Release its working
+	// Verified objects now contain the batch. Release its working
 	// table before compaction so two wide batches cannot occupy spill together.
 	if _, err := tx.ExecContext(ctx, `DROP TABLE export_batch`); err != nil {
 		return 0, 0, err
@@ -163,7 +177,7 @@ func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64
 	return int64(len(ids)), len(files), nil
 }
 
-func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string) ([]archiveFile, error) {
+func (e *Engine) writePartitions(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, source string) ([]archiveFile, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT date_trunc('month',timestamp)::DATE,count(*) FROM (`+source+`) GROUP BY 1 ORDER BY 1`)
 	if err != nil {
 		return nil, err
@@ -184,27 +198,23 @@ func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string)
 	for i := range files {
 		file := &files[i]
 		selectSQL := `SELECT * FROM (` + source + `) WHERE date_trunc('month',timestamp)::DATE=DATE ` + literal(file.Month.Format("2006-01-02"))
-		file.Bytes, err = e.writeParquet(ctx, tx, file.Path, selectSQL, "commit_repo_url,history_fingerprint,timestamp,id")
+		file.Bytes, err = e.writeParquet(ctx, owner, tx, file.Path, selectSQL, "commit_repo_url,history_fingerprint,timestamp,id")
 		if err != nil {
 			return nil, err
 		}
-		if err := e.buildCatalogs(ctx, tx, file); err != nil {
+		if err := e.buildCatalogs(ctx, owner, tx, file); err != nil {
 			return nil, err
 		}
 	}
 	return files, nil
 }
 
-func (e *Engine) compact(ctx context.Context) (int, error) {
-	pg, err := e.pg.Begin(ctx)
-	if err != nil {
+func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, error) {
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
+	if err != nil || !acquired {
 		return 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
-	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&acquired); err != nil || !acquired {
-		return 0, err
-	}
+	defer owner.endPublication()
 	tx, err := e.builder.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -321,7 +331,7 @@ func (e *Engine) compact(ctx context.Context) (int, error) {
 	// across COPY and validation. Scan them directly instead of retaining an
 	// additional wide temporary table throughout sorting and validation.
 	source := `SELECT f.* REPLACE(CASE WHEN m.result_id IS NOT NULL THEN m.annotations ELSE f.change_annotations END AS change_annotations) FROM ` + parquet + ` f LEFT JOIN pg.public.result_mutation m ON m.result_id=f.id WHERE NOT coalesce(m.deleted,false)`
-	replacements, err := e.writePartitions(ctx, tx, source)
+	replacements, err := e.writePartitions(ctx, owner, tx, source)
 	if err != nil {
 		return 0, err
 	}
@@ -358,6 +368,9 @@ func (e *Engine) compact(ctx context.Context) (int, error) {
 		if tag.RowsAffected() != 1 {
 			return 0, errors.New("archive manifest changed during compaction")
 		}
+		if err := e.retire(ctx, pg, file.Path, file.RunsPath, file.SeriesPath); err != nil {
+			return 0, err
+		}
 	}
 	for _, file := range replacements {
 		if err := publishArchiveFile(ctx, pg, file); err != nil {
@@ -367,123 +380,17 @@ func (e *Engine) compact(ctx context.Context) (int, error) {
 	if _, err := pg.Exec(ctx, `DELETE FROM result_mutation m USING unnest($1::text[],$2::bigint[]) AS baked(id,version) WHERE m.result_id=baked.id AND m.version=baked.version`, ids, versions); err != nil {
 		return 0, err
 	}
-	return len(selected), pg.Commit(ctx)
+	return len(selected), e.commitPublication(ctx, owner)
 }
 
-func (e *Engine) cleanup(ctx context.Context) (removed int, err error) {
-	// Finalization and mutations hold a pooled connection while acquiring a
-	// reader lock. Reserve ours first so cleanup cannot reverse that order.
-	pg, err := e.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = pg.Rollback(ctx) }()
-	// A lost connection can leave COMMIT running after the builder returns.
-	// Its transaction lock must be released before we decide files are orphaned.
-	var publishingDone bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&publishingDone); err != nil {
-		return 0, err
-	}
-	if !publishingDone {
-		return 0, nil
-	}
-	// The builder owns cleanup. Clear a marker left by a crashed cleaner before
-	// acquiring admission, so only already-waiting readers can contend for it.
-	pending := filepath.Join(e.cfg.Dir, ".cleanup-pending")
-	if err := os.Remove(pending); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return 0, err
-	}
-	lock := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	ok, err := lock.TryLock()
-	if err != nil {
-		return 0, err
-	}
-	if !ok {
-		if e.cleanupSkips.Add(1) <= 3 {
-			return 0, nil
-		}
-		// Stop new admissions after bounded deferrals, then let current readers
-		// finish. The volume lock also gates readers in other Engine instances.
-		admission := flock.New(filepath.Join(e.cfg.Dir, ".readers-admission.lock"))
-		defer func() { err = errors.Join(err, admission.Close()) }()
-		ok, err = admission.TryLockContext(ctx, 50*time.Millisecond)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, ctx.Err()
-		}
-		defer func() {
-			if removeErr := os.Remove(pending); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				err = errors.Join(err, removeErr)
-			}
-		}()
-		if err := os.WriteFile(pending, nil, 0600); err != nil {
-			return 0, err
-		}
-		ok, err = lock.TryLockContext(ctx, 50*time.Millisecond)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, ctx.Err()
+// retire registers replaced objects in the publication transaction that
+// removes them from the manifest. Their retention starts once a later
+// transaction observes the committed retirement.
+func (e *Engine) retire(ctx context.Context, pg pgx.Tx, paths ...string) error {
+	for _, path := range paths {
+		if err := e.archive.retireObject(ctx, pg, filepath.ToSlash(path)); err != nil {
+			return fmt.Errorf("retire archive object %q: %w", path, err)
 		}
 	}
-	e.cleanupSkips.Store(0)
-	// TRUNCATE is not MVCC-safe. Wait for every analytical reader's old
-	// manifest snapshot before reclaiming the now-empty backlog's pages.
-	var reclaim bool
-	if err := pg.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM benchmark_result_backlog) AND pg_relation_size('benchmark_result_backlog')>0`).Scan(&reclaim); err != nil {
-		return 0, err
-	}
-	if reclaim {
-		if _, err := pg.Exec(ctx, `TRUNCATE benchmark_result_backlog`); err != nil {
-			return 0, err
-		}
-	}
-	rows, err := pg.Query(ctx, `SELECT path FROM archive_file UNION ALL SELECT runs_path FROM archive_file UNION ALL SELECT series_path FROM archive_file`)
-	if err != nil {
-		return 0, err
-	}
-	live := map[string]bool{}
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		if _, err := e.filePath(path); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		live[path] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	for _, directory := range []string{"data", "catalog"} {
-		dir := filepath.Join(e.cfg.Dir, directory)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return removed, err
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || live[filepath.Join(directory, entry.Name())] {
-				continue
-			}
-			if !strings.HasSuffix(entry.Name(), ".parquet") && !strings.HasSuffix(entry.Name(), ".parquet.staging") {
-				continue
-			}
-			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
-				return removed, err
-			}
-			removed++
-		}
-		if err := syncPath(dir); err != nil {
-			return removed, err
-		}
-	}
-	return removed, pg.Commit(ctx)
+	return nil
 }

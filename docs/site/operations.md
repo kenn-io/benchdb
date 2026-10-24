@@ -24,7 +24,9 @@ Boolean settings turn on only for the exact string `true`.
 | `BENCHDB_DUCKDB_MEMORY_MB` | 256 MiB per thread, bounded to 1024–8192 MiB | Total DuckDB buffer memory in MiB, divided over all readers and maintenance. |
 | `BENCHDB_DUCKDB_READERS` | 1–4, based on threads | Concurrent analytical readers. Defaults to one per eight threads after reserving one thread, rounded down, with a minimum of one and a maximum of four. |
 | `BENCHDB_ANALYTICAL_READ_TIMEOUT` | `2m` | Maximum duration for an analytical read or run report finalization. Must be a positive Go duration, such as `30s` or `5m`. |
+| `BENCHDB_ARCHIVE_COORDINATION_DB_URL` | `BENCHDB_DB_URL` | Postgres URL for archive coordination sessions. Set it when `BENCHDB_DB_URL` goes through transaction pooling. It must reach the same primary database directly or through session pooling. `BENCHDB_ARCHIVE_COORDINATION_DB_URL_FILE` reads it from a file. |
 | `BENCHDB_MAINTENANCE_INTERVAL` | `1h` | Time between archive maintenance cycles, at least `1h`. Use `6h` or `24h` for less frequent maintenance. |
+| `BENCHDB_ARCHIVE_RETENTION` | unset (paused) | How long unreferenced archive files stay recoverable, as a Go duration such as `864h`. Cover your oldest restorable database backup plus restore time. Unset or `0` keeps every file and logs a warning; see [retention](storage-roadmap.md#retention-and-reclamation). |
 | `BENCHDB_ADDR` | `:8080` | Listen address. |
 | `BENCHDB_INTENDED_BASE_URL` | unset | Public browser URL, including any path prefix. BenchDB uses it for routing, redirects, report links, and cookies. Required for OIDC and for a [path prefix](#serve-behind-a-path-prefix). |
 | `BENCHDB_API_TOKEN` | unset | Static operator bearer token for break-glass writes. Use server-minted reporter tokens for normal automation. |
@@ -133,7 +135,97 @@ Analytical reads and run report finalization share one deadline from entry to
 completion, including time waiting for a reader or run lock. Earlier caller
 deadlines take precedence. Set `BENCHDB_ANALYTICAL_READ_TIMEOUT` to a positive
 duration to change the default two-minute limit. An expired report is not saved.
-The existing PostgreSQL statement timeout settings still apply.
+
+Archive connections do not use PostgreSQL's own timeouts. The archive sets
+`statement_timeout`, `lock_timeout`, `idle_session_timeout`,
+`idle_in_transaction_session_timeout`, and, on PostgreSQL 17 and later,
+`transaction_timeout` to zero on its coordination sessions and on DuckDB's
+PostgreSQL connections. This overrides values from URL parameters, the
+`options` parameter, and role or database defaults. The read deadline and the
+maintenance limits bound that work instead. Connections in the application
+pool keep the configured timeouts. Startup fails if the archive cannot set and
+verify these values. Read-only mode and other URL settings still apply.
+
+Archive readers and maintenance coordinate through PostgreSQL advisory locks,
+so processes with separate working directories never remove files that another
+process is reading. Each analytical read holds one coordination session for
+its duration, and maintenance holds up to two. These sessions must keep
+one PostgreSQL backend until they disconnect: connect directly or through
+session pooling, never transaction pooling. A maintenance cycle whose client
+connection is lost keeps ownership until PostgreSQL ends that backend.
+When several processes share a database, the one that holds maintenance
+ownership runs the cycle. The others skip that cycle without recording a
+failure and try again one interval later.
+
+At startup, the archive checks that its coordination route keeps sessions on
+one backend. One connection takes a test lock; a second connection must see
+that lock held by the same backend across a commit, and then see it released.
+A changed backend or a lost lock stops startup. In tests, this rejects
+PgBouncer in transaction mode, which hands an idle backend to the next client.
+The check is not a pooler detector: passing it does not prove that a proxy
+keeps affinity later. Use a route that you have verified is direct or
+session-pooled.
+
+Budget these PostgreSQL connections for each process, in addition to the
+application pool. `R` is `BENCHDB_DUCKDB_READERS`. Each reader handle runs
+`T = max(1, (BENCHDB_DUCKDB_THREADS - M) / R)` threads, rounded down. The
+maintenance handle runs `M = min(2, max(1, BENCHDB_DUCKDB_THREADS / 8))`.
+
+| Connections | Count |
+| --- | --- |
+| Reader coordination sessions | `R` |
+| Maintenance owner and metadata sessions | 2 |
+| DuckDB reader connections | `R × max(2, T + 1)` |
+| DuckDB maintenance connections | `max(2, M + 1)` |
+| Cancellation connections, one per DuckDB handle while it cancels | `R + 1` |
+
+The total is `2R + 3 + R × max(2, T + 1) + max(2, M + 1)`. Startup logs it as
+`max_backends`. For example, 8 threads gives `R = 1`, `T = 7`, and 15
+connections; 32 threads gives `R = 3`, `T = 10`, and 45 connections. Count every
+process, including admin commands that open the archive, against PostgreSQL
+`max_connections` and any proxy's pinned-session limit, and keep headroom for
+operators.
+
+These caps were measured with the packaged DuckDB 1.5.5 extension, on
+PostgreSQL 15.2 and 17.10, directly and through PgBouncer in session mode. One
+query on a DuckDB handle opened at most `T + 1` PostgreSQL connections, through
+joins and unions over several tables. Two readers with two threads each, the
+maintenance handle, an upload intent write, and repeated read cancellation
+together peaked at 16 backends against a budget of 17, including the
+application pool's connections. No scan failed for lack of a connection.
+
+Each handle's extension pool is limited to `max(2, T + 1)` connections in the
+extension's `try` mode: a request beyond the limit fails at once instead of
+opening another connection. BenchDB does not use `wait` mode, because DuckDB
+1.5.5 ignores cancellation while it waits for a free connection; a canceled
+read stayed blocked until the pool's wait timeout. If a pool is ever full, the
+query fails immediately with `PooledConnection::GetConnection - no connection
+available` in the read's error. The read is not retried and no partial report
+is saved. One query per handle never needed more than the limit in the
+measurements, so treat this error as a sign that a query needs more
+connections than the measured cap, and report it with the query.
+
+Cancel requests, which stop a coordination session's lock wait or query, use a
+short-lived connection that does not take a PostgreSQL backend. A proxy still
+counts it as a client. If a cancel request cannot reach PostgreSQL, the
+canceled call returns at most 5 seconds after its deadline. pgx then closes
+that connection in the background after one more cancel attempt of up to 15
+seconds. A backend waiting for a lock does not notice a closed connection, so
+its request stays queued until the lock is granted. A cleaner left queued this
+way keeps new readers waiting until the current readers finish.
+
+If `BENCHDB_DB_URL` goes through PgBouncer, DuckDB's connections send these
+timeouts as startup options. List them in PgBouncer's `track_extra_parameters`,
+or PgBouncer refuses the connections and startup fails:
+`statement_timeout, lock_timeout, idle_session_timeout,
+idle_in_transaction_session_timeout`, plus `transaction_timeout` on
+PostgreSQL 17 and later. Size the PgBouncer pool for the whole budget, or
+cancellation connections queue behind the readers they should cancel. The
+extension resets each connection with `DISCARD ALL` when it returns to its
+pool, which reverts values that a pooler set, so the archive reapplies its
+application name and timeouts on every checkout. Through transaction pooling
+that reapplication can reach a different backend; keep these timeouts unset or
+zero in the role, database, and server defaults in that case.
 
 Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
 longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion
@@ -148,15 +240,18 @@ resets the next run to one interval from startup.
 Maintenance starts only after its schedule is imported and saved. Transient
 database errors during initialization retry with increasing delays, up to
 30 seconds between attempts, until the database recovers or the server stops.
-If saving a cycle's start fails, that cycle does no archive work and waits the
-normal maintenance interval before trying again. Archive reads remain available.
+If saving a cycle's start fails, that cycle exports nothing but still deletes
+files past their retention deadlines, then waits the normal maintenance
+interval before trying again. Archive reads remain available.
 
 At the start of a cycle, the worker captures an arrival cutoff five minutes
 before that start time. It exports eligible results in batches of 100,000 rows,
 then compacts files toward one million rows and refreshes stale catalogs. It
 attempts cleanup between rewrites and at the end of the cycle; active readers
-retain the files they need. After three cleanup deferrals, new analytical reads
-wait for existing queries to finish and retired files to be removed. Canceling
+retain the files they need. Cleanup deletes only files past their
+`BENCHDB_ARCHIVE_RETENTION` deadlines. After three cleanup deferrals, new
+analytical reads wait for existing queries to finish and due files to be
+removed. Canceling
 maintenance releases this gate without interrupting existing queries.
 Arrivals after that cutoff wait for the next cycle.
 Compaction and catalog refresh each perform at most one pass per file present
@@ -221,6 +316,69 @@ matching archive copy. Set `BENCHDB_PROD_CLONE_DATA_DIR` explicitly when using
 Its sample selection, SQL timings, row counts, and query plans still read
 PostgreSQL directly. They do not cover Parquet rows after eviction, so the
 harness cannot establish complete post-archive correctness or performance.
+
+### Recover staging files after a crash
+
+Before the local archive renames a new file into `data/` or `catalog/`, it
+writes the bytes to a `.objectstore-*` staging file in the same directory. A
+publisher that crashes mid-copy can leave that file behind. Staging files are
+not archive objects: no manifest entry refers to them, they never appear in
+queries, and they only use volume space.
+
+BenchDB removes them for you:
+
+- At the start of each maintenance cycle, the worker holds archive maintenance
+  ownership. No BenchDB publisher can run against the dataset while it does.
+  The worker removes every `.objectstore-*` file under `BENCHDB_DATA_DIR` and
+  logs the count and bytes. A cycle that finds none logs nothing.
+- It never removes a file because of its age. A slow upload is not an abandoned
+  one.
+- It runs while `BENCHDB_ARCHIVE_RETENTION` is unset. Retention governs archive
+  objects, not publisher scratch files.
+- Ownership covers BenchDB publishers only. Do not point other tools that write
+  files into the archive directory at it.
+
+For a stopped deployment, run the same step by hand:
+
+```bash
+benchdb admin archive recover-staging
+```
+
+The command needs `BENCHDB_DB_URL`, `BENCHDB_DATA_DIR`, and
+`BENCHDB_DUCKDB_EXTENSION_DIR`, like `admin alerts evaluate`. It prints
+`Staging files removed` and `Bytes reclaimed`. If another process holds
+maintenance ownership, it removes nothing and exits with an error. Stop the
+server and any other process that publishes into the directory, then run it
+again. Do not delete `.objectstore-*` files by hand while any such process runs.
+
+Remote archive storage is future work, and recovery never runs against it.
+
+### Abort incomplete S3 uploads
+
+When S3 archive storage becomes available, its bucket needs a lifecycle rule
+that aborts incomplete multipart uploads under the archive prefix. The storage
+client aborts a failed upload with the publication's remaining context, so a
+canceled or expired publication can leave uploaded parts behind. S3 keeps and
+bills those parts until the upload is aborted, and the **Storage** page cannot
+count them.
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "abort-incomplete-benchdb-archive-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "benchdb/" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
+```
+
+Replace `benchdb/` with the archive prefix. One day is the shortest period S3
+allows, and it is longer than any upload BenchDB attempts. Do not add an
+expiration action: BenchDB decides when archive objects are deleted, using
+`BENCHDB_ARCHIVE_RETENTION`.
 
 ## Serve behind a path prefix
 

@@ -6,11 +6,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +36,12 @@ type Config struct {
 	Settle        time.Duration
 	Interval      time.Duration
 	ReadTimeout   time.Duration
+	// CoordinationDBURL reaches the same primary database directly or through
+	// session pooling. Empty uses the application pool's settings.
+	CoordinationDBURL string
+	// Retention keeps unreferenced archive objects recoverable for the
+	// operator's database backup window. Zero pauses physical reclamation.
+	Retention time.Duration
 }
 
 type Engine struct {
@@ -47,6 +52,11 @@ type Engine struct {
 	handles         []*sql.DB
 	handleNames     map[*sql.DB]string
 	builder         *sql.DB
+	coord           *archiveCoordinator
+	objects         archiveObjects
+	archive         archiveState
+	cycleOwner      string // Names this process in archive_cycle rows.
+	serverVersion   int    // server_version_num, read at startup.
 	scratch         string
 	scratchLock     *flock.Flock
 	maintenanceMu   sync.Mutex
@@ -94,12 +104,18 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 	if cfg.BatchRows < 1 || cfg.TargetRows < cfg.BatchRows || cfg.Settle < 0 || cfg.Interval < time.Hour {
 		return nil, errors.New("invalid archive maintenance limits")
 	}
+	if cfg.Retention < 0 {
+		return nil, errors.New("BENCHDB_ARCHIVE_RETENTION must not be negative")
+	}
 	e := &Engine{pg: pg, cfg: cfg, resources: resources, readers: make(chan *sql.DB, cfg.Readers), handleNames: make(map[*sql.DB]string)}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, e.Close())
 		}
 	}()
+	if e.coord, err = newArchiveCoordinator(pg, cfg); err != nil {
+		return nil, err
+	}
 	if err = e.identity(ctx); err != nil {
 		return nil, err
 	}
@@ -121,6 +137,8 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 			e.readers <- handle
 		}
 	}
+	slog.Info("archive PostgreSQL connections", "max_backends", e.connectionBudget(),
+		"readers", cfg.Readers, "reader_threads", resources.readerThreads, "maintenance_threads", resources.maintenanceThreads)
 	return e, nil
 }
 
@@ -131,6 +149,9 @@ func (e *Engine) Close() error {
 		e.closed = true
 		for _, handle := range e.handles {
 			e.closeErr = errors.Join(e.closeErr, handle.Close())
+		}
+		if e.coord != nil {
+			e.closeErr = errors.Join(e.closeErr, e.coord.close())
 		}
 		if e.scratch != "" {
 			e.closeErr = errors.Join(e.closeErr, os.RemoveAll(e.scratch))
@@ -207,7 +228,10 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 	if n == e.cfg.Readers {
 		threads = e.resources.maintenanceThreads
 	}
-	for _, statement := range []string{
+	applicationName := "benchdb-duckdb-" + rand.Text()
+	e.handleNames[handle] = applicationName
+	timeouts := archiveTimeouts(e.serverVersion)
+	statements := []string{
 		fmt.Sprintf("SET memory_limit='%dMiB'", e.resources.memoryLimitMB),
 		fmt.Sprintf("SET threads=%d", threads),
 		"SET preserve_insertion_order=false",
@@ -215,58 +239,27 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 		"SET temp_directory=" + literal(filepath.Join(e.scratch, fmt.Sprintf("spill-%d", n))),
 		"SET max_temp_directory_size='8GB'",
 		"LOAD postgres",
-	} {
+	}
+	for _, statement := range append(statements, duckdbPoolSettings(threads, applicationName, timeouts)...) {
 		if _, err = handle.ExecContext(ctx, statement); err != nil {
 			return nil, fmt.Errorf("configure DuckDB (prepare its matching PostgreSQL extension): %w", err)
 		}
 	}
 	// Temporary DuckDB secrets keep credentials out of ATTACH statements and
-	// extension connection errors. The original URI preserves TLS parameters.
-	conn := e.pg.Config().ConnConfig
-	dsn := conn.ConnString()
-	applicationName := "benchdb-duckdb-" + rand.Text()
-	e.handleNames[handle] = applicationName
+	// extension connection errors. The original URI preserves TLS parameters,
+	// read-only mode, and other settings; archive timeouts are replaced so the
+	// application deadline alone bounds every extension connection.
 	stopInterrupt := e.interruptPostgres(ctx, handle)
 	defer stopInterrupt()
-	if u, parseErr := url.Parse(dsn); parseErr == nil && (u.Scheme == "postgres" || u.Scheme == "postgresql") {
-		q := u.Query()
-		for key := range q {
-			if strings.HasPrefix(key, "pool_") || key == "default_query_exec_mode" || key == "statement_cache_capacity" || key == "description_cache_capacity" {
-				q.Del(key)
-			}
-		}
-		// pgx accepts startup GUCs as URI parameters; libpq requires these in
-		// options. Preserve read-only and statement timeouts alongside the
-		// application deadline on every extension connection.
-		escapeOption := strings.NewReplacer("\\", "\\\\", " ", "\\ ", "\t", "\\\t", "\n", "\\\n", "\r", "\\\r")
-		var startup strings.Builder
-		startup.WriteString(q.Get("options"))
-		for _, key := range slices.Sorted(maps.Keys(conn.RuntimeParams)) {
-			if key == "options" {
-				continue
-			}
-			if key == "application_name" || key == "client_encoding" {
-				q.Set(key, conn.RuntimeParams[key])
-				continue
-			}
-			q.Del(key)
-			startup.WriteString(" -c ")
-			startup.WriteString(escapeOption.Replace(key + "=" + conn.RuntimeParams[key]))
-		}
-		if startup.Len() != 0 {
-			q.Set("options", startup.String())
-		}
-		q.Set("application_name", applicationName)
-		u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
-		dsn = u.String()
-	} else {
-		dsn += " application_name='" + applicationName + "'"
-	}
+	dsn := duckdbConnString(e.pg.Config().ConnConfig, applicationName, timeouts)
 	if _, err = handle.ExecContext(ctx, "CREATE SECRET benchdb_postgres (TYPE postgres, URI "+literal(dsn)+")"); err != nil {
 		return nil, errors.New("configure DuckDB PostgreSQL credentials")
 	}
 	if _, err = handle.ExecContext(ctx, "ATTACH '' AS pg (TYPE postgres, READ_ONLY, SECRET benchdb_postgres)"); err != nil {
-		return nil, errors.New("connect DuckDB to PostgreSQL")
+		return nil, duckdbConnectError(err)
+	}
+	if err = verifyDuckDBTimeouts(ctx, handle, timeouts); err != nil {
+		return nil, err
 	}
 	// Dimension views stay live on the attached PostgreSQL transaction. Fact
 	// columns are cast inside PostgreSQL by benchmark_result_numeric.
@@ -327,7 +320,7 @@ func (e *Engine) interruptPostgres(ctx context.Context, handle *sql.DB) func() {
 	}
 }
 
-func (e *Engine) identity(ctx context.Context) error {
+func (e *Engine) identity(ctx context.Context) (err error) {
 	if err := os.MkdirAll(e.cfg.Dir, 0700); err != nil {
 		return err
 	}
@@ -340,28 +333,66 @@ func (e *Engine) identity(ctx context.Context) error {
 		return ctx.Err()
 	}
 	defer lock.Close()
-	// Match cleanup's connection-before-files lock order when the pool is full.
-	pg, err := e.pg.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer pg.Release()
-	// A second process can open during export. Pin the manifest's files while
-	// validating them, without waiting for the entire maintenance cycle.
-	reader := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
-	defer reader.Close()
-	ok, err = reader.TryRLockContext(ctx, 50*time.Millisecond)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ctx.Err()
-	}
 	var id string
-	var files int64
-	if err := pg.QueryRow(ctx, `SELECT id::text,(SELECT count(*) FROM archive_file) FROM archive_dataset WHERE singleton`).Scan(&id, &files); err != nil {
+	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
 	}
+	if err := e.coord.checkSessionAffinity(ctx); err != nil {
+		return err
+	}
+	if err := e.pg.QueryRow(ctx, `SELECT id FROM archive_storage WHERE active`).Scan(&e.archive.storageID); err != nil {
+		return fmt.Errorf("read active archive storage: %w", err)
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("name archive cycle owner: %w", err)
+	}
+	e.cycleOwner = fmt.Sprintf("%s pid %d", host, os.Getpid())
+	// A second process can open during export. Pin the manifest's files while
+	// validating them, without waiting for the entire maintenance cycle. The
+	// guard session serves these queries, so no application connection is held
+	// while waiting for cleanup.
+	guard, err := e.coord.reader(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		err = errors.Join(err, guard.Close(closeCtx))
+	}()
+	files, err := verifyCoordinator(ctx, guard.conn, id)
+	if err != nil {
+		return err
+	}
+	if err := e.claimDirectory(id, files); err != nil {
+		return err
+	}
+	if e.objects, err = openArchiveObjects(e.cfg.Dir); err != nil {
+		return err
+	}
+	return e.checkPublishedFiles(ctx, guard.conn)
+}
+
+// verifyCoordinator confirms that coordination sessions lock the same primary
+// database that the application uses, and returns its published file count.
+func verifyCoordinator(ctx context.Context, q rowQueryer, id string) (int64, error) {
+	var coordinated string
+	var recovery bool
+	var files int64
+	if err := q.QueryRow(ctx, `SELECT id::text,pg_is_in_recovery(),(SELECT count(*) FROM archive_file) FROM archive_dataset WHERE singleton`).Scan(&coordinated, &recovery, &files); err != nil {
+		return 0, fmt.Errorf("read archive identity through the coordination connection: %w", err)
+	}
+	if coordinated != id {
+		return 0, errors.New("BENCHDB_ARCHIVE_COORDINATION_DB_URL reaches a different BenchDB database")
+	}
+	if recovery {
+		return 0, errors.New("archive coordination must connect to the primary database, not a standby")
+	}
+	return files, nil
+}
+
+func (e *Engine) claimDirectory(id string, files int64) error {
 	identityPath := filepath.Join(e.cfg.Dir, "dataset")
 	data, err := os.ReadFile(identityPath)
 	if err == nil {
@@ -389,9 +420,10 @@ func (e *Engine) identity(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := syncPath(e.cfg.Dir); err != nil {
-		return err
-	}
+	return syncPath(e.cfg.Dir)
+}
+
+func (e *Engine) checkPublishedFiles(ctx context.Context, pg *pgxpool.Conn) error {
 	rows, err := pg.Query(ctx, `SELECT path,byte_size FROM archive_file UNION ALL SELECT runs_path,runs_bytes FROM archive_file UNION ALL SELECT series_path,series_bytes FROM archive_file`)
 	if err != nil {
 		return err
@@ -427,13 +459,17 @@ func syncPath(path string) error {
 }
 
 // Read pins PostgreSQL's manifest, metadata, and hot facts to one snapshot.
-// Cleanup cannot unlink the selected files until the callback returns.
+// Its guard session holds the shared reclamation lock until the callback and
+// DuckDB work have finished, so cleanup in any process cannot unlink the
+// selected files. Nested Store reads reuse this snapshot and its guard.
 func (e *Engine) Read(ctx context.Context, fn func(context.Context, *ReadSnapshot) error) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, e.cfg.ReadTimeout)
 	defer cancel()
+	ctx, loseGuard := context.WithCancelCause(ctx)
+	defer loseGuard(nil)
 	defer func() {
 		if ctx.Err() != nil {
-			err = errors.Join(err, ctx.Err())
+			err = errors.Join(err, context.Cause(ctx))
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -455,42 +491,27 @@ func (e *Engine) Read(ctx context.Context, fn func(context.Context, *ReadSnapsho
 		return ctx.Err()
 	}
 	defer func() { e.readers <- handle }()
-	// Only pending cleanup gates admission. Normal reads cannot keep barging
-	// ahead of a cleaner trying to acquire the gate itself.
-	if _, statErr := os.Stat(filepath.Join(e.cfg.Dir, ".cleanup-pending")); statErr == nil {
-		admission := flock.New(filepath.Join(e.cfg.Dir, ".readers-admission.lock"))
-		defer func() { err = errors.Join(err, admission.Close()) }()
-		ok, err := admission.TryRLockContext(ctx, 50*time.Millisecond)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return ctx.Err()
-		}
-		if err := admission.Close(); err != nil {
-			return err
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return statErr
-	}
-	lock := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	ok, err := lock.TryRLockContext(ctx, 50*time.Millisecond)
+	guard, err := e.coord.reader(ctx)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return ctx.Err()
-	}
+	defer func() {
+		// DuckDB work has joined. Release with a fresh budget: the read
+		// context may already have expired.
+		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		err = errors.Join(err, guard.Close(closeCtx))
+	}()
+	guard.watch(loseGuard)
 	stopInterrupt := e.interruptPostgres(ctx, handle)
-	defer stopInterrupt() // Join canceled scanners before releasing the file lock.
+	defer stopInterrupt() // Join canceled scanners before releasing the guard.
 	conn, err := handle.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		// Rollback can finish on database/sql's cancellation goroutine. Close
-		// joins that work before the watcher, file lock, and reader are released.
+		// joins that work before the watcher, guard, and reader are released.
 		if closeErr := conn.Close(); !errors.Is(closeErr, sql.ErrConnDone) {
 			err = errors.Join(err, closeErr)
 		}

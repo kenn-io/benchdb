@@ -113,24 +113,47 @@ builder's captured values rather than rereading newer commit metadata.
 
 ## Publication and recovery
 
-The archive worker takes an exclusive builder lock. It chooses a bounded snapshot
+The archive worker holds a PostgreSQL maintenance-ownership advisory lock on a
+dedicated session for its cycle, and publishes on that session. It chooses a bounded snapshot
 of immutable settled rows and exports Zstd Parquet files with a staging suffix
 inside the private data directory on the same volume. Files are partitioned
 by UTC result month and ordered for repository/fingerprint history reads.
 
-The worker validates staged contents against the selected rows, flushes the
-files, and publishes them at immutable final paths without replacing existing
-files. It flushes the destination and builds and validates run and series
-catalogs for each result file.
+The worker validates staged contents against the selected rows and flushes the
+files. Before each upload, a short transaction on a second maintenance session
+records an upload intent: the generated key, size, SHA-256, and cycle. The
+worker then publishes the staged file through Kit's local object store, which
+copies it to its immutable key without replacing an existing file and returns a
+receipt only after reading the stored bytes back. The publication transaction
+checks each receipt against its intent. Run and series catalogs for each result
+file are built, validated, and published the same way.
 
-One PostgreSQL transaction publishes the file references and dependencies and
-removes exactly the exported rows from staging. Publication aborts if the number
-of deleted source rows differs from the exported set. A crash before that
-transaction leaves source rows and unreferenced files; a crash after it leaves
+One PostgreSQL transaction records the receipts, publishes the file references
+and dependencies, consumes the cycle's upload intents, and removes exactly the
+exported rows from staging. Publication aborts if the number of deleted source
+rows differs from the exported set. A crash before that transaction leaves
+source rows, pending intents, and unreferenced files; a crash after it leaves
 published files and no duplicate ingestion rows.
 
-Readers hold a shared publication lock for the lifetime of their analytical
-snapshot. File garbage collection takes its exclusive counterpart. This keeps
+If Kit cannot tell whether an upload completed, the unit presents the same
+content to the same key once more with a fresh time budget. Only a verified
+receipt lets publication continue; otherwise the unit fails and keeps its
+source rows. Staged files are scratch and are removed when the unit returns.
+
+A unit that fails, crashes, or loses its COMMIT result leaves its cycle
+running with pending intents, and cleanup keeps those keys. At the start of
+the next maintenance cycle, the maintenance owner takes the publication lock,
+which proves that any earlier COMMIT has finished, and abandons every cycle
+still running. An abandoned intent can never publish. Its stored object, if
+any, becomes an orphan and waits out a full retention window, described below.
+New results publish under new keys.
+
+Files published before receipts existed keep working. They gain receipts only
+when compaction or a catalog refresh rewrites them.
+
+Readers hold a shared PostgreSQL reclamation advisory lock on a dedicated
+session for the lifetime of their analytical snapshot. File garbage collection
+takes its exclusive counterpart. This keeps
 files referenced by a running query alive. Export work occurs outside this
 short publication/cleanup boundary.
 
@@ -138,6 +161,40 @@ Cleanup also acquires the PostgreSQL transaction lock used for publication
 before deciding which files are unreferenced. If publication is still running
 after its connection was lost, cleanup waits for a later pass. Files remain
 available until the transaction's outcome is known.
+
+## Retention and reclamation
+
+Unreferenced files stay on the volume for `BENCHDB_ARCHIVE_RETENTION`, a Go
+duration such as `864h`. It must cover the oldest PostgreSQL backup or
+point-in-time recovery target you may restore, plus time to restore it, so a
+restored database still finds every file its manifest names. BenchDB cannot
+infer it. Unset or `0` pauses deletion of archive files; export, compaction,
+and queries continue, and the server logs a warning naming the setting at
+startup and in every maintenance cycle. Negative or unparsable values stop
+startup.
+
+- **Retirement.** Compaction and catalog refresh record each replaced fact and
+  catalog file in the transaction that changes the manifest. A later
+  maintenance pass starts its window when it first sees that committed record,
+  using PostgreSQL's clock. Raising retention extends existing deadlines;
+  lowering or pausing it never shortens them.
+- **Orphans.** At the end of each cycle the worker lists `data/` and
+  `catalog/` in pages. It considers only names BenchDB generates and keeps
+  every other file. A generated file that no manifest references, no running
+  cycle may still publish, and no retirement covers is recorded with the time
+  it was first seen and its storage revision. It must stay unreferenced for a
+  full window from that sighting. A changed revision restarts the window, and
+  an upload that finishes late is first seen, and timed, on a later pass.
+- **Deletion.** After a deadline, cleanup takes the publication lock and the
+  exclusive reclamation lock, rechecks references and running cycles, and
+  deletes up to 100 exact keys per pass. A missing file counts as deleted. If
+  the stored revision changed, the file is kept and observed again. Records
+  and receipts are removed only after deletion is confirmed.
+
+A cycle whose schedule cannot be saved skips export but still reclaims, so a
+full volume can recover. Before restoring a database backup, pause reclamation
+by unsetting `BENCHDB_ARCHIVE_RETENTION` and restarting, and keep it paused
+through validation. See [backups and restores](remote-archive-design.md#backups-and-restores).
 
 ## Mutations and compaction
 
@@ -150,9 +207,11 @@ Compaction reads a consistent input-file set and overlay versions, writes and
 validates replacement files, then atomically replaces manifest entries. It
 removes only the overlay versions baked into those replacements. Concurrent
 newer annotations or deletions remain applicable. Retired and orphaned files
-are removed only while the cleanup lock excludes active readers/builders.
-Cleanup initially defers for active readers. After three deferrals it gates
-new analytical reads until existing readers finish and retired files are removed.
+are removed only after their retention deadlines, while the cleanup lock
+excludes active readers/builders.
+Cleanup initially defers for active readers. After three deferrals it queues
+an exclusive request, so new analytical reads wait until existing readers
+finish and retired files are removed.
 PostgreSQL-only metadata reads do not use that gate.
 Small files accumulate before they are combined with much larger files.
 Ordinary compaction combines comparable volumes or fills the row target;

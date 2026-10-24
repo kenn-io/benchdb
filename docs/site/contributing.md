@@ -135,6 +135,32 @@ bun run check:docs-screenshots
 
 When you invoke `go test` directly, pass `-shuffle=on`.
 
+### Archive coordination tests
+
+Archive coordination tests run against real PostgreSQL, directly and through
+PgBouncer in session mode and transaction mode. They need Docker and the
+internet on first run, because the PgBouncer fixture image builds from a pinned
+source release. Unlike the other Postgres-backed tests, they fail when Docker
+or a container cannot start. Only `-short` skips them.
+
+```bash
+make duckdb-extensions
+go test -shuffle=on ./internal/dbtest/...
+go test -shuffle=on ./internal/columnar \
+  -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere|TestInheritedArchiveTimeouts|TestArchiveConnectionBudget|TestCoordinationRejectsTransactionPooling)$'
+```
+
+The tests use PostgreSQL 15.2 by default. Set
+`BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE` to run another release. The image tag
+must start with `major.minor`, and the test fails if the server reports a
+different version. CI runs PostgreSQL 15.2 and 17.10 in the `archive-coordination`
+job, and `internal/dbtest/archive.go` pins the 17.10 digest:
+
+```bash
+BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE='postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193' \
+  go test -shuffle=on ./internal/dbtest/...
+```
+
 ## Repository layout
 
 | Path | Contents |

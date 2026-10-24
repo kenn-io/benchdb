@@ -43,6 +43,13 @@ enable remote storage or change physical file cleanup. Logical file IDs and
 lookup catalogs are populated by later maintenance, rather than during the
 schema migration.
 
+**Archive cleanup now waits for `BENCHDB_ARCHIVE_RETENTION`.** Until you set
+it, the server keeps every retired and orphaned Parquet file, logs a warning
+at startup and in each maintenance cycle, and disk usage grows. Choose a value
+that covers your oldest restorable database backup plus restore time, such as
+`864h` for 35 days of backups, and budget volume space for the retained files
+before upgrading. See [retention](storage-roadmap.md#retention-and-reclamation).
+
 Retirement deadlines start when a later transaction observes committed
 retirement using PostgreSQL's wall clock. A retention increase extends existing
 promises; a decrease or pause preserves them. These records, object receipts,
