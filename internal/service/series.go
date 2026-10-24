@@ -116,12 +116,14 @@ func seriesStatus(members []storage.HistoryRow, unit *string, lessIsBetter *bool
 	return scoreSeries(members, unit, lessIsBetter).status
 }
 
-// seriesVerdict is a series' status and, when its history window has a
-// nonzero mean, how far the latest point moved from that mean, in percent of
-// the mean and signed by value: positive means the latest value is higher.
+// seriesVerdict is a series' status, its history window's mean when there is
+// one, and, when that mean is nonzero, how far the latest point moved from it,
+// in percent of the mean and signed by value: positive means the latest value
+// is higher.
 type seriesVerdict struct {
 	status        string
 	changePercent *float64
+	windowMean    *float64
 }
 
 // minHistoryPoints is the fewest earlier results a series status or a
@@ -166,7 +168,7 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
-	verdict := seriesVerdict{status: statusInsufficient}
+	verdict := seriesVerdict{status: statusInsufficient, windowMean: mean}
 	if mean != nil && *mean != 0 {
 		// Finite values can still overflow, as with a huge latest point over a
 		// tiny mean; an infinite change cannot be stored or sent as JSON.
@@ -183,8 +185,19 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		return verdict
 	}
 	// A series has no baseline result of its own, so a change must also be
-	// larger than MinimumChangePercent of the window mean to count.
+	// larger than MinimumChangePercent of the window mean to count, and larger
+	// than the latest result's own practical tolerance when it set one.
 	large := stats.ExceedsMinimumChange(latestSVS, *mean)
+	if (v.RegressionIndicated || v.ImprovementIndicated) && large {
+		policy, err := explicitTolerance(latest.OptionalBenchmarkInfo, *unit)
+		if err != nil {
+			verdict.status = statusInsufficient
+			return verdict
+		}
+		if policy != nil && policy.evaluate(*mean, latestSVS).WithinTolerance {
+			large = false
+		}
+	}
 	switch {
 	case v.RegressionIndicated && large:
 		verdict.status = statusRegressed

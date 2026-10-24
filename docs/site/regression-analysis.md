@@ -75,8 +75,10 @@ of these hold:
 - The latest result's lookback z-score crosses the threshold of 2.
 - The latest result differs from the history window's mean by more than 2% of
   that mean.
-- The result before it, scored the same way against its own earlier results,
-  points the same way.
+- When the latest result sets a tolerance, the change from the window mean is
+  larger than its [practical tolerance](#practical-tolerance).
+- The result before it, scored the same way against its own earlier results
+  and its own tolerance, points the same way.
 
 The last rule means a flagged change needs at least 12 results. A single slow
 or fast result on a noisy benchmark stays `stable`. A real step shows as
@@ -163,7 +165,13 @@ performance is identical.
 
 Comparisons also require a change to be larger than a practical floor. This
 applies to regressions and improvements alike. The values stay visible when a
-change is held back. Benchmark statuses and trend pages do not use tolerances.
+change is held back.
+
+Benchmark and series statuses use a tolerance only when the latest result sets
+one. Its floor then applies against the history window's mean, with the metric
+defaults below for any floor it omits. A result without a tolerance gets no
+floor in its status, so the `duration` default does not change existing
+statuses. The z-score flags on trend pages do not use tolerances.
 
 The floor is `max(absolute, abs(reference) * relative_percent / 100)`. A change
 exactly at the floor is within tolerance. Pairwise analysis uses the baseline
