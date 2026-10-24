@@ -155,3 +155,20 @@ func TestStagingRecoveryDoesNothingForRemoteBackends(t *testing.T) {
 	assert.Equal(t, StagingRecovery{}, result)
 	assert.FileExists(t, path)
 }
+
+func TestStagingRecoveryResolvesSymlinkedDataDirectory(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "volume")
+	require.NoError(t, os.Symlink(target, link))
+	e := openRetentionArchive(t, ctx, pool, link, 0)
+
+	leftover := killPublisherMidCopy(t, link)
+
+	underTarget := filepath.Join(target, "data", filepath.Base(leftover))
+	require.FileExists(t, underTarget, "Kit stages under the resolved target")
+	result, err := e.RecoverStaging(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, StagingRecovery{Files: 1, Bytes: stagedChunk}, result)
+	assert.NoFileExists(t, underTarget)
+}

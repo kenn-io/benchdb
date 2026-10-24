@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"go.kenn.io/kit/objectstore"
 	"go.kenn.io/kit/objectstore/local"
@@ -34,5 +35,11 @@ func openArchiveObjects(dir string) (archiveObjects, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open local archive objects: %w", err)
 	}
-	return &localArchiveObjects{archiveObjects: store, root: dir}, nil
+	// Kit publishes under the resolved root, so recovery must walk that same
+	// directory: a walk does not descend into a symlinked root.
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local archive root: %w", err)
+	}
+	return &localArchiveObjects{archiveObjects: store, root: root}, nil
 }
