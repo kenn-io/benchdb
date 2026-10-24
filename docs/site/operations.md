@@ -188,16 +188,21 @@ operators.
 These caps were measured with the packaged DuckDB 1.5.5 extension, on
 PostgreSQL 15.2 and 17.10, directly and through PgBouncer in session mode. One
 query on a DuckDB handle opened at most `T + 1` PostgreSQL connections, through
-joins and unions over several tables. Each handle's extension pool is limited
-to `max(2, T + 1)` connections and waits rather than opening more. Two readers
-with two threads each, the maintenance handle, an upload intent write, and
-repeated read cancellation together peaked at 16 backends against a budget of
-17, including the application pool's connections.
+joins and unions over several tables. Two readers with two threads each, the
+maintenance handle, an upload intent write, and repeated read cancellation
+together peaked at 16 backends against a budget of 17, including the
+application pool's connections. No scan failed for lack of a connection.
 
-The extension does not observe cancellation while it waits for a free pool
-connection. That wait ends after the smaller of 30 seconds and half the read
-timeout, so it can run past the read deadline by up to that long. The measured
-queries never waited.
+Each handle's extension pool is limited to `max(2, T + 1)` connections in the
+extension's `try` mode: a request beyond the limit fails at once instead of
+opening another connection. BenchDB does not use `wait` mode, because DuckDB
+1.5.5 ignores cancellation while it waits for a free connection; a canceled
+read stayed blocked until the pool's wait timeout. If a pool is ever full, the
+query fails immediately with `PooledConnection::GetConnection - no connection
+available` in the read's error. The read is not retried and no partial report
+is saved. One query per handle never needed more than the limit in the
+measurements, so treat this error as a sign that a query needs more
+connections than the measured cap, and report it with the query.
 
 Cancel requests, which stop a coordination session's lock wait or query, use a
 short-lived connection that does not take a PostgreSQL backend. A proxy still

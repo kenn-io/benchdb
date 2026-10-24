@@ -231,7 +231,7 @@ func (e *Engine) openHandle(ctx context.Context, n int) (_ *sql.DB, err error) {
 		"SET max_temp_directory_size='8GB'",
 		"LOAD postgres",
 	}
-	for _, statement := range append(statements, duckdbPoolSettings(threads, e.cfg.ReadTimeout, applicationName, timeouts)...) {
+	for _, statement := range append(statements, duckdbPoolSettings(threads, applicationName, timeouts)...) {
 		if _, err = handle.ExecContext(ctx, statement); err != nil {
 			return nil, fmt.Errorf("configure DuckDB (prepare its matching PostgreSQL extension): %w", err)
 		}

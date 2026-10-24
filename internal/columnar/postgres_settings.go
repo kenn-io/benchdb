@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -210,28 +209,24 @@ func duckdbPoolSize(threads int) int { return max(2, threads+1) }
 
 // duckdbPoolSettings configure a handle's extension pool before ATTACH. Each
 // handle is a separate DuckDB database, so these settings never change a
-// concurrent query. Wait mode blocks an acquisition beyond the cap instead of
-// opening another connection. The extension does not observe interrupts while
-// it waits, so the wait timeout bounds how far a blocked acquisition can run
-// past the read deadline.
+// concurrent query. Try mode fails an acquisition beyond the cap at once
+// instead of opening another connection. Wait mode was rejected: on DuckDB
+// 1.5.5 the extension ignores interrupts while it waits for a free
+// connection, so a canceled read stayed blocked until the wait timeout.
 //
 // The pool runs DISCARD ALL whenever a connection returns, which reverts
 // settings that a connection pooler applied with SET, including the
 // application name that cancellation matches. The health check runs on every
 // checkout, so it reapplies that name and the timeout policy.
-func duckdbPoolSettings(
-	threads int, readTimeout time.Duration, applicationName string, timeouts []string,
-) []string {
-	wait := max(1, min(30000, (readTimeout/2).Milliseconds()))
+func duckdbPoolSettings(threads int, applicationName string, timeouts []string) []string {
 	settings := []string{"set_config('application_name', " + literal(applicationName) + ", false)"}
 	for _, name := range timeouts {
 		settings = append(settings, "set_config("+literal(name)+", '0', false)")
 	}
 	return []string{
-		"SET pg_pool_acquire_mode='wait'",
+		"SET pg_pool_acquire_mode='try'",
 		fmt.Sprintf("SET pg_pool_max_connections=%d", duckdbPoolSize(threads)),
 		"SET pg_pool_enable_thread_local_cache=false",
-		fmt.Sprintf("SET pg_pool_wait_timeout_millis=%d", wait),
 		"SET pg_pool_health_check_query=" + literal("SELECT "+strings.Join(settings, ", ")),
 	}
 }

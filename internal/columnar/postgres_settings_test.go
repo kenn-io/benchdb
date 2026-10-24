@@ -357,6 +357,9 @@ CREATE TABLE budget_b AS SELECT * FROM budget_a; ANALYZE budget_a, budget_b`)
 			observedBackendPeak, atPeak := sample()
 
 			require.NoError(t, load.intentWriteWithReadersOccupied)
+			// One query per handle never needs more than its pool's cap, so
+			// try mode never refuses a scan under full load.
+			assert.Empty(t, load.queryFailures, "scans must not fail before their deadline")
 			assert.LessOrEqual(t, observedBackendPeak, declaredBudget, "backends at the peak: %v", atPeak)
 			assert.Greater(t, observedBackendPeak, e.cfg.Readers+maintenanceSessions+e.cfg.Readers+1,
 				"the load must open parallel DuckDB scanners: %v", atPeak)
@@ -414,6 +417,9 @@ AND application_name LIKE 'benchdb-%' GROUP BY 1`)
 type budgetLoad struct {
 	intentWriteWithReadersOccupied error
 	canceledReads                  int64
+	// queryFailures are scans that failed before their deadline, such as a
+	// full extension pool.
+	queryFailures []error
 }
 
 // budgetQuery keeps every scanner thread of a handle busy with PostgreSQL scans.
@@ -426,14 +432,22 @@ func runBudgetLoad(t *testing.T, ctx context.Context, e *Engine) budgetLoad {
 	defer stopLoad()
 	var load budgetLoad
 	var canceled atomic.Int64
+	var failuresMu sync.Mutex
+	scan := func(ctx context.Context, q queryer) {
+		var n int
+		if err := q.QueryRowContext(ctx, budgetQuery).Scan(&n); err != nil && ctx.Err() == nil {
+			failuresMu.Lock()
+			load.queryFailures = append(load.queryFailures, err)
+			failuresMu.Unlock()
+		}
+	}
 	var readers sync.WaitGroup
 	for range e.cfg.Readers {
 		readers.Go(func() {
 			for loadCtx.Err() == nil {
 				err := e.Read(loadCtx, func(ctx context.Context, snapshot *ReadSnapshot) error {
 					for ctx.Err() == nil {
-						var n int
-						_ = snapshot.QueryRowContext(ctx, budgetQuery).Scan(&n)
+						scan(ctx, snapshot)
 					}
 					return ctx.Err()
 				})
@@ -454,8 +468,7 @@ func runBudgetLoad(t *testing.T, ctx context.Context, e *Engine) budgetLoad {
 		for loadCtx.Err() == nil {
 			unitCtx, stopUnit := context.WithTimeout(loadCtx, time.Second)
 			stopInterrupt := e.interruptPostgres(unitCtx, e.builder)
-			var n int
-			_ = e.builder.QueryRowContext(unitCtx, budgetQuery).Scan(&n)
+			scan(unitCtx, e.builder)
 			stopInterrupt()
 			stopUnit()
 		}
@@ -463,6 +476,8 @@ func runBudgetLoad(t *testing.T, ctx context.Context, e *Engine) budgetLoad {
 	})
 	require.NoError(t, builderErr)
 	readers.Wait()
+	failuresMu.Lock()
+	defer failuresMu.Unlock()
 	load.canceledReads = canceled.Load()
 	return load
 }
@@ -551,4 +566,38 @@ func TestDuckDBConnectError(t *testing.T) {
 	require.EqualError(t, err, "connect DuckDB to PostgreSQL: unsupported startup parameter in options: statement_timeout")
 	require.EqualError(t, duckdbConnectError(errors.New(`IO Error: Unable to connect to Postgres at "postgres://u:secret@db": timeout`)),
 		"connect DuckDB to PostgreSQL")
+}
+
+// TestDuckDBPoolFailsFastWhenFull exhausts a handle's extension pool, which
+// one query per handle never does, and shows that the next acquisition fails
+// at once instead of waiting past the read deadline.
+func TestDuckDBPoolFailsFastWhenFull(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e, err := Open(ctx, pool, Config{
+		Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"),
+		Readers: 1, Threads: 2, ReadTimeout: time.Minute,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	handle := e.builder
+	require.Equal(t, 2, duckdbPoolSize(e.resources.maintenanceThreads))
+	// Each open DuckDB transaction pins one PostgreSQL connection, so three
+	// concurrent DuckDB connections need one more than the pool allows.
+	handle.SetMaxOpenConns(3)
+	for range 2 {
+		tx, err := handle.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tx.Rollback() })
+		var n int
+		require.NoError(t, tx.QueryRowContext(ctx, `SELECT count(*) FROM pg.public.archive_file`).Scan(&n))
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	started := time.Now()
+	var n int
+	err = handle.QueryRowContext(readCtx, `SELECT count(*) FROM pg.public.archive_file`).Scan(&n)
+	require.Error(t, err)
+	require.NoError(t, readCtx.Err(), "the acquisition failed before the deadline")
+	assert.Less(t, time.Since(started), time.Second)
+	t.Logf("pool-full error: %v", err)
 }
