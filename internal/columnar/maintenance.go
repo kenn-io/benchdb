@@ -51,14 +51,18 @@ func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err erro
 }
 
 // A whole cycle holds maintenance ownership across all processes sharing the
-// database; interactive reads use other handles.
-func (e *Engine) withBuilder(ctx context.Context, work func(*maintenanceOwner) error) (err error) {
+// database; interactive reads use other handles. It waits for a busy owner.
+func (e *Engine) withBuilder(ctx context.Context, work func(*maintenanceOwner) error) error {
+	return e.withOwner(ctx, e.coord.owner, work)
+}
+
+func (e *Engine) withOwner(ctx context.Context, acquire func(context.Context) (*maintenanceOwner, error), work func(*maintenanceOwner) error) (err error) {
 	e.lifecycle.RLock()
 	defer e.lifecycle.RUnlock()
 	if e.closed {
 		return errors.New("archive engine is closed")
 	}
-	owner, err := e.coord.owner(ctx)
+	owner, err := acquire(ctx)
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package columnar
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 // cleanupNow runs one cleanup attempt under its own maintenance ownership.
@@ -301,4 +303,67 @@ func TestCoordinationRejectsAnotherDatabase(t *testing.T) {
 	require.NoError(t, db.Migrate(ctx, otherPool))
 	_, err = Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
 	require.ErrorContains(t, err, "reaches a different BenchDB database")
+}
+
+func sharedMaintenanceRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (string, storage.MaintenanceStatus) {
+	t.Helper()
+	var data []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM archive_maintenance WHERE singleton`).Scan(&data))
+	var status storage.MaintenanceStatus
+	require.NoError(t, json.Unmarshal(data, &status))
+	return string(data), status
+}
+
+func TestScheduledMaintenanceSkipsWhenOwnedElsewhere(t *testing.T) {
+	for _, mode := range []dbtest.PoolMode{dbtest.Direct, dbtest.Session} {
+		t.Run(mode.String(), func(t *testing.T) {
+			pool, url, ctx := dbtest.NewArchivePool(t, dbtest.ArchivePostgresImage(), mode)
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			open := func() *Engine {
+				e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, e.Close()) })
+				return e
+			}
+			owner, other := open(), open()
+			require.NoError(t, owner.importMaintenance(ctx))
+			// Hold the owner's cycle inside its first export unit.
+			blocker, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = blocker.Rollback(ctx) }()
+			_, err = blocker.Exec(ctx, `LOCK TABLE benchmark_result IN ACCESS EXCLUSIVE MODE`)
+			require.NoError(t, err)
+			cycle := make(chan error, 1)
+			go func() { cycle <- owner.runScheduledMaintenance(ctx) }()
+			require.Eventually(t, func() bool {
+				var blocked bool
+				err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))`,
+					blocker.Conn().PgConn().PID()).Scan(&blocked)
+				return err == nil && blocked
+			}, 10*time.Second, 10*time.Millisecond, "the owner's cycle must reach its export")
+			before, running := sharedMaintenanceRow(t, ctx, pool)
+			require.Equal(t, "running", running.State)
+
+			started := time.Now()
+			require.NoError(t, other.startMaintenance(ctx), "a starting scheduler defers to the live owner")
+			require.NoError(t, other.runScheduledMaintenance(ctx), "a busy owner skips the cycle without failing it")
+			assert.Less(t, time.Since(started), 5*time.Second, "the other scheduler must not wait for ownership")
+			after, _ := sharedMaintenanceRow(t, ctx, pool)
+			assert.JSONEq(t, before, after, "the skipped scheduler leaves the shared record alone")
+			skipped := other.maintenanceStatus()
+			assert.NotEqual(t, "failed", skipped.State)
+			other.maintenanceMu.Lock()
+			next := *other.maintenance.NextRunAt
+			other.maintenanceMu.Unlock()
+			assert.WithinDuration(t, time.Now().Add(other.cfg.Interval), next, 10*time.Second, "the skipped cycle waits a full interval")
+
+			require.NoError(t, blocker.Rollback(ctx))
+			require.NoError(t, <-cycle)
+			_, final := sharedMaintenanceRow(t, ctx, pool)
+			assert.Equal(t, "scheduled", final.State, "the shared record reflects the owner's outcome")
+			require.NotNil(t, final.LastSuccessAt)
+			assert.Empty(t, final.Error)
+		})
+	}
 }

@@ -140,12 +140,25 @@ WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait
 		require.FailNow(t, "maintenance did not return after the transport failed")
 	}
 	require.Error(t, result.err)
-	// A later maintenance cycle must also defer cleanup while the original
-	// publication is unresolved; skipping only the failed call is insufficient.
+	// The unresolved publication's backend still holds maintenance ownership,
+	// so no later cycle, from any process, can start cleanup until that
+	// session ends. This engine reaches PostgreSQL directly.
+	staged, err := filepath.Glob(filepath.Join(e.cfg.Dir, "*", "*.parquet*"))
+	require.NoError(t, err)
+	require.NotEmpty(t, staged, "the uncertain publication wrote its files")
+	reopened, err := Open(ctx, pool, e.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	retryCtx, stopRetry := context.WithTimeout(ctx, 5*time.Second)
 	defer stopRetry()
-	retry, err := e.Maintain(retryCtx)
-	require.Error(t, err)
+	retry, err := reopened.Maintain(retryCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "acquire archive maintenance ownership")
+	assert.Zero(t, retry.RemovedFiles)
+	for _, path := range staged {
+		_, err := os.Stat(path)
+		require.NoError(t, err, "a blocked retry must not remove the uncertain publication's files")
+	}
 	var published int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published))
 	require.Zero(t, published, "publication is still committing")
@@ -169,10 +182,6 @@ WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait
 	var dataPath, runsPath, seriesPath string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT path,runs_path,series_path FROM archive_file`).Scan(&dataPath, &runsPath, &seriesPath))
 	assert.Zero(t, result.stats.RemovedFiles)
-	assert.Zero(t, retry.RemovedFiles)
-	reopened, err := Open(ctx, pool, e.cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet.staging")
 	require.NoError(t, os.WriteFile(orphan, []byte("abandoned export"), 0600))
 	cleaned, err := reopened.Maintain(ctx)

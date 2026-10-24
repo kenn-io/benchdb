@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v7"
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.kenn.io/benchdb/internal/storage"
@@ -123,27 +122,15 @@ func (e *Engine) saveMaintenance(ctx context.Context) error {
 
 // Run schedules complete cycles, with at least Interval between attempts.
 // New arrivals never wake the worker or extend a cycle's export cutoff.
+// Processes sharing the database may all run this; each cycle runs only while
+// its process holds maintenance ownership.
 func (e *Engine) Run(ctx context.Context) {
-	owner := flock.New(filepath.Join(e.cfg.Dir, ".maintenance.lock"))
-	locked, err := owner.TryLock()
-	if err != nil || !locked {
-		slog.Error("start archive maintenance", "error", err, "locked", locked)
-		_ = owner.Close()
-		return
-	}
-	defer owner.Close()
 	defer func() { e.maintenanceMu.Lock(); e.maintenance.Enabled = false; e.maintenanceMu.Unlock() }()
 	policy := backoff.NewExponentialBackOff()
 	policy.InitialInterval = time.Second
 	policy.MaxInterval = 20 * time.Second // Jitter keeps the longest wait at 30 seconds.
-	_, err = backoff.Retry(ctx, func() (struct{}, error) {
-		err := e.importMaintenance(ctx)
-		e.maintenanceMu.Lock()
-		e.maintenance.Enabled = true
-		e.maintenanceMu.Unlock()
-		if err == nil {
-			err = e.saveMaintenance(ctx)
-		}
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
+		err := e.startMaintenance(ctx)
 		if err != nil && ctx.Err() == nil {
 			e.failMaintenance("schedule", err)
 			if !retryableScheduleError(err) {
@@ -166,6 +153,24 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// startMaintenance imports the schedule and saves this process's view of it
+// only while no other session owns maintenance. A live owner's record stays
+// authoritative.
+func (e *Engine) startMaintenance(ctx context.Context) error {
+	err := e.importMaintenance(ctx)
+	e.maintenanceMu.Lock()
+	e.maintenance.Enabled = true
+	e.maintenanceMu.Unlock()
+	if err != nil {
+		return err
+	}
+	err = e.withOwner(ctx, e.coord.tryOwner, func(*maintenanceOwner) error { return e.saveMaintenance(ctx) })
+	if errors.Is(err, errArchiveOwnerBusy) {
+		return nil
+	}
+	return err
 }
 
 func retryableScheduleError(err error) bool {
@@ -195,7 +200,35 @@ func (e *Engine) waitForMaintenance(ctx context.Context) bool {
 	}
 }
 
+// runScheduledMaintenance runs a cycle only when this process can take
+// maintenance ownership without waiting. The shared record changes only while
+// ownership is held, so a skipped or failed acquisition cannot overwrite the
+// owner's outcome.
 func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
+	ran := false
+	err := e.withOwner(ctx, e.coord.tryOwner, func(owner *maintenanceOwner) error {
+		ran = true
+		return e.runOwnedCycle(ctx, owner)
+	})
+	if ran {
+		return err
+	}
+	now := time.Now().UTC()
+	e.maintenanceMu.Lock()
+	defer e.maintenanceMu.Unlock()
+	e.maintenance.NextRunAt = new(now.Add(e.cfg.Interval))
+	if errors.Is(err, errArchiveOwnerBusy) {
+		slog.Info("skip archive maintenance owned by another session", "next_run_at", *e.maintenance.NextRunAt)
+		return nil
+	}
+	e.maintenance.State = "failed"
+	e.maintenance.Phase = "ownership"
+	e.maintenance.Error = "Maintenance could not acquire archive ownership. See server logs."
+	e.maintenance.LastFinishedAt = &now
+	return err
+}
+
+func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) error {
 	started := time.Now().UTC()
 	e.maintenanceMu.Lock()
 	lastSuccess := e.maintenance.LastSuccessAt
@@ -207,7 +240,7 @@ func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
 	err := e.saveMaintenance(ctx)
 
 	if err == nil {
-		err = e.runMaintenance(ctx, started.Add(-e.cfg.Settle))
+		err = e.runMaintenance(ctx, owner, started.Add(-e.cfg.Settle))
 	}
 	finished := time.Now().UTC()
 	e.maintenanceMu.Lock()
@@ -241,88 +274,86 @@ func (e *Engine) failMaintenance(phase string, err error) {
 	slog.Error("save archive maintenance schedule", "error", err)
 }
 
-func (e *Engine) runMaintenance(ctx context.Context, cutoff time.Time) error {
-	return e.withBuilder(ctx, func(owner *maintenanceOwner) (err error) {
-		cleanup := func() error {
-			removed, cleanupErr := e.cleanup(ctx, owner)
-			e.maintenanceMu.Lock()
-			e.maintenance.RemovedFiles += removed
-			e.maintenanceMu.Unlock()
-			return cleanupErr
+func (e *Engine) runMaintenance(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (err error) {
+	cleanup := func() error {
+		removed, cleanupErr := e.cleanup(ctx, owner)
+		e.maintenanceMu.Lock()
+		e.maintenance.RemovedFiles += removed
+		e.maintenanceMu.Unlock()
+		return cleanupErr
+	}
+	defer func() {
+		// Cleanup also runs after a failed publication, but preserve its phase.
+		if err == nil {
+			e.setMaintenancePhase("cleanup")
 		}
-		defer func() {
-			// Cleanup also runs after a failed publication, but preserve its phase.
-			if err == nil {
-				e.setMaintenancePhase("cleanup")
-			}
-			err = errors.Join(err, cleanup())
-		}()
-		e.setMaintenancePhase("export")
-		for {
-			rows, _, err := e.exportBatch(ctx, owner, cutoff)
-			if errors.Is(err, errArchiveSourceChanged) {
-				// A concurrent deletion rolled this batch back. Reclaim its files
-				// and select the remaining rows within the same fixed cutoff.
-				if err := cleanup(); err != nil {
-					return err
-				}
-				continue
-			}
-			if err != nil {
+		err = errors.Join(err, cleanup())
+	}()
+	e.setMaintenancePhase("export")
+	for {
+		rows, _, err := e.exportBatch(ctx, owner, cutoff)
+		if errors.Is(err, errArchiveSourceChanged) {
+			// A concurrent deletion rolled this batch back. Reclaim its files
+			// and select the remaining rows within the same fixed cutoff.
+			if err := cleanup(); err != nil {
 				return err
 			}
-			e.maintenanceMu.Lock()
-			e.maintenance.ExportedRows += rows
-			e.maintenanceMu.Unlock()
-			if rows == 0 {
-				break
-			}
+			continue
 		}
-		// Bound rewrites by this cycle's file count. Concurrent edits/repairs
-		// can otherwise keep selecting the same file forever.
-		var files int
-		if err := owner.withMetadata(ctx, func(conn *pgx.Conn) error {
-			return conn.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files)
-		}); err != nil {
+		if err != nil {
 			return err
 		}
-		for range files {
-			e.setMaintenancePhase("compact")
-			n, err := e.compact(ctx, owner)
-			if err != nil {
-				return err
-			}
-			e.maintenanceMu.Lock()
-			e.maintenance.CompactedFiles += n
-			e.maintenanceMu.Unlock()
-			if n == 0 {
-				break
-			}
-			// Reclaim retired inputs before allocating the next replacement.
-			e.setMaintenancePhase("cleanup")
-			if err := cleanup(); err != nil {
-				return err
-			}
+		e.maintenanceMu.Lock()
+		e.maintenance.ExportedRows += rows
+		e.maintenanceMu.Unlock()
+		if rows == 0 {
+			break
 		}
-		for range files {
-			e.setMaintenancePhase("catalogs")
-			n, err := e.refreshCatalog(ctx, owner)
-			if err != nil {
-				return err
-			}
-			e.maintenanceMu.Lock()
-			e.maintenance.RefreshedCatalogs += n
-			e.maintenanceMu.Unlock()
-			if n == 0 {
-				break
-			}
-			e.setMaintenancePhase("cleanup")
-			if err := cleanup(); err != nil {
-				return err
-			}
+	}
+	// Bound rewrites by this cycle's file count. Concurrent edits/repairs
+	// can otherwise keep selecting the same file forever.
+	var files int
+	if err := owner.withMetadata(ctx, func(conn *pgx.Conn) error {
+		return conn.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files)
+	}); err != nil {
+		return err
+	}
+	for range files {
+		e.setMaintenancePhase("compact")
+		n, err := e.compact(ctx, owner)
+		if err != nil {
+			return err
 		}
-		return nil
-	})
+		e.maintenanceMu.Lock()
+		e.maintenance.CompactedFiles += n
+		e.maintenanceMu.Unlock()
+		if n == 0 {
+			break
+		}
+		// Reclaim retired inputs before allocating the next replacement.
+		e.setMaintenancePhase("cleanup")
+		if err := cleanup(); err != nil {
+			return err
+		}
+	}
+	for range files {
+		e.setMaintenancePhase("catalogs")
+		n, err := e.refreshCatalog(ctx, owner)
+		if err != nil {
+			return err
+		}
+		e.maintenanceMu.Lock()
+		e.maintenance.RefreshedCatalogs += n
+		e.maintenanceMu.Unlock()
+		if n == 0 {
+			break
+		}
+		e.setMaintenancePhase("cleanup")
+		if err := cleanup(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) setMaintenancePhase(phase string) {

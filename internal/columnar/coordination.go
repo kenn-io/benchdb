@@ -46,6 +46,7 @@ const (
 var (
 	errArchiveGuardLost = errors.New("archive reader session lost its reclamation lock")
 	errArchiveOwnerLost = errors.New("archive maintenance session lost its ownership lock")
+	errArchiveOwnerBusy = errors.New("archive maintenance is owned by another session")
 )
 
 // archiveCoordinator owns the session-affine connections that carry archive
@@ -120,8 +121,9 @@ func (c *archiveCoordinator) reader(ctx context.Context) (*readerGuard, error) {
 	return &readerGuard{conn: conn, heartbeat: c.heartbeat}, nil
 }
 
-// owner takes the maintenance ownership lock on a dedicated session. Every
-// publication transaction of the cycle runs on that session.
+// owner waits up to ownerLockTimeout for the maintenance ownership lock on a
+// dedicated session. Every publication transaction of the cycle runs on that
+// session.
 func (c *archiveCoordinator) owner(ctx context.Context) (*maintenanceOwner, error) {
 	ctx, cancel := context.WithTimeout(ctx, ownerLockTimeout)
 	defer cancel()
@@ -130,15 +132,40 @@ func (c *archiveCoordinator) owner(ctx context.Context) (*maintenanceOwner, erro
 	case <-ctx.Done():
 		return nil, fmt.Errorf("wait for archive maintenance in this process: %w", ctx.Err())
 	}
+	return c.lockOwner(ctx, `SELECT true FROM pg_advisory_lock($1)`)
+}
+
+// tryOwner takes ownership only when no session in any process holds it, and
+// otherwise returns errArchiveOwnerBusy without waiting.
+func (c *archiveCoordinator) tryOwner(ctx context.Context) (*maintenanceOwner, error) {
+	ctx, cancel := context.WithTimeout(ctx, ownerLockTimeout)
+	defer cancel()
+	select {
+	case c.ownerSlot <- struct{}{}:
+	default:
+		return nil, errArchiveOwnerBusy
+	}
+	return c.lockOwner(ctx, `SELECT pg_try_advisory_lock($1)`)
+}
+
+// lockOwner runs query, which must return whether it took ownerLock, while the
+// caller holds ownerSlot. It releases the slot unless ownership is returned.
+func (c *archiveCoordinator) lockOwner(ctx context.Context, query string) (*maintenanceOwner, error) {
 	conn, err := c.maintenance.Acquire(ctx)
 	if err != nil {
 		<-c.ownerSlot
 		return nil, fmt.Errorf("reserve archive maintenance session: %w", errors.Join(err, ctx.Err()))
 	}
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, ownerLock); err != nil {
+	var acquired bool
+	if err := conn.QueryRow(ctx, query, ownerLock).Scan(&acquired); err != nil {
 		err = errors.Join(err, ctx.Err(), discard(conn))
 		<-c.ownerSlot
 		return nil, fmt.Errorf("acquire archive maintenance ownership: %w", err)
+	}
+	if !acquired {
+		conn.Release() // The session holds no lock.
+		<-c.ownerSlot
+		return nil, errArchiveOwnerBusy
 	}
 	return &maintenanceOwner{coord: c, conn: conn}, nil
 }

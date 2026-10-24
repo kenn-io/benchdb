@@ -145,6 +145,9 @@ coordination, in addition to the application pool. These sessions must keep
 one PostgreSQL backend until they disconnect: connect directly or through
 session pooling, never transaction pooling. A maintenance cycle whose client
 connection is lost keeps ownership until PostgreSQL ends that backend.
+When several processes share a database, the one that holds maintenance
+ownership runs the cycle. The others skip that cycle without recording a
+failure and try again one interval later.
 
 Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
 longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion

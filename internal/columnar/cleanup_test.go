@@ -227,3 +227,29 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"status":"success"}`, string(report.Report))
 }
+
+// Ownership already excludes BenchDB publishers on other sessions. A session
+// holding the publication lock without ownership, such as a server version
+// from before ownership existed, must still defer cleanup.
+func TestCleanupDefersToPublicationOutsideOwnership(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet.staging")
+	require.NoError(t, os.WriteFile(orphan, []byte("publication in progress"), 0600))
+	publisher, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = publisher.Rollback(ctx) }()
+	_, err = publisher.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, publicationLock)
+	require.NoError(t, err)
+	removed, err := e.cleanupNow(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, removed)
+	_, err = os.Stat(orphan)
+	require.NoError(t, err, "cleanup must wait for the publication's outcome")
+	require.NoError(t, publisher.Rollback(ctx))
+	removed, err = e.cleanupNow(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+}

@@ -87,7 +87,7 @@ jobs:
         run: |
           go test -shuffle=on ./internal/dbtest/...
           go test -shuffle=on ./internal/columnar \
-            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost)$'
+            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere)$'
 
   web:
     runs-on: namespace-profile-linux-4cpu
