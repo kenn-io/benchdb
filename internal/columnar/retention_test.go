@@ -251,10 +251,20 @@ FROM archive_retirement r CROSS JOIN archive_file f`).Scan(&sameTransaction))
 	for _, window := range retirements(t, ctx, pool) {
 		assert.Equal(t, 48*time.Hour, window.expiry.Sub(*window.firstObserved))
 	}
+	// Well past the new 1h policy but before the promised 48h deadline,
+	// reclamation keeps every object and its records.
+	advanceRetentionClock(t, ctx, pool, 2*time.Hour)
+	removed, err = e.reclaimNow(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, removed, "a reduced policy never shortens a promised deadline")
+	for _, key := range inputs {
+		assert.True(t, exists(t, filepath.Join(dir, key)), "promised deadline keeps %s", key)
+	}
+	assert.Len(t, retirements(t, ctx, pool), len(inputs))
 
 	// Unset retention pauses deletion, even after a deadline has passed.
 	reopen(0)
-	advanceRetentionClock(t, ctx, pool, 48*time.Hour)
+	advanceRetentionClock(t, ctx, pool, 46*time.Hour)
 	removed, err = e.reclaimNow(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, removed)
@@ -374,9 +384,20 @@ func TestLateOrphanUpload(t *testing.T) {
 	objectExistsBeforeDeadline := exists(t, filepath.Join(e.cfg.Dir, late))
 	assert.True(t, objectExistsBeforeDeadline)
 
-	// After the full window both orphans are deleted. Unknown names never are.
-	advanceRetentionClock(t, ctx, pool, 24*time.Hour)
+	// Just before the end of the window both orphans survive with their records.
+	advanceRetentionClock(t, ctx, pool, 23*time.Hour)
 	stats, err := e.Maintain(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, stats.RemovedFiles)
+	for _, key := range []string{late, stored} {
+		assert.True(t, exists(t, filepath.Join(e.cfg.Dir, key)), key)
+		_, _, _, found = orphanWindow(t, ctx, pool, key)
+		assert.True(t, found, key)
+	}
+
+	// After the full window both orphans are deleted. Unknown names never are.
+	advanceRetentionClock(t, ctx, pool, 2*time.Hour)
+	stats, err = e.Maintain(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 2, stats.RemovedFiles)
 	for _, key := range []string{late, stored} {
