@@ -13,7 +13,7 @@ working files and a disposable catalog cache when the archive is remote.
 ## Scope and ownership
 
 The first release targets local storage, AWS S3, tested S3-compatible
-endpoints, and GCS with HMAC credentials. Other providers can implement the
+endpoints, and GCS with Google OAuth credentials. Other providers can implement the
 same object operations. A provider is supported only after its publication,
 read, and cleanup behavior passes the contract tests.
 
@@ -59,7 +59,8 @@ deployments must continue to retain and back up their archive directory.
 
 S3 configuration includes an optional endpoint, region, and addressing style.
 AWS uses its credential provider chain, including temporary credentials.
-GCS initially uses HMAC keys, matching DuckDB's documented `gs://` support.
+GCS uses one explicit Google OAuth credential source, described in
+[GCS authentication](#gcs-authentication).
 Credentials remain separate from archive URLs, database rows, and telemetry.
 The same selected bucket, prefix, endpoint, and credential source configure
 the uploader and DuckDB; attachment credentials are not implicitly reused.
@@ -97,10 +98,10 @@ ETag is not a portable content checksum.
   `CRC32C` and `FULL_OBJECT` at initiation and supply the whole-object checksum
   at completion. Verify the returned checksum and size. Multipart SHA-256 is
   a composite checksum and must not be compared with the source SHA-256.
-- GCS resumable uploads compare the stored generation's size and
-  provider-computed CRC32C with the local source. This does not assume the XML
-  resumable protocol rejects a bad client checksum before storing the object.
-  A mismatch prevents manifest publication. Close the failed publication cycle
+- GCS uploads send the validated CRC32C with a does-not-exist precondition,
+  so GCS rejects bytes that differ from the source. Kit also compares the
+  stored generation's size and CRC32C from the upload response with the local
+  source. A mismatch prevents manifest publication. Close the failed publication cycle
   and mark its intents abandoned after its transaction resolves. Any stored
   object enters orphan retention; retry with a new key, without overwriting the
   bad object. A server-rejected S3 checksum normally leaves no completed object,
@@ -110,7 +111,7 @@ ETag is not a portable content checksum.
   uncertain upload outcome requires the same verification of the exact key.
 
 These checks follow [S3 upload integrity](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-upload.html)
-and [GCS checksum headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers#xgooghash).
+and [GCS data validation](https://cloud.google.com/storage/docs/data-validation).
 They do not change packstore's existing verification contract.
 
 A conditional conflict does not by itself mean publication failed. An SDK
@@ -133,26 +134,40 @@ also complete the required durability steps before returning a receipt.
 Local publication flushes staged bytes, uses Kit's `atomicfile.RenameNoReplace`,
 and calls `atomicfile.SyncDir` on the containing directory. S3 uses the AWS
 Go SDK v2 for conditional `PutObject` or conditional multipart completion.
-GCS uses a new, narrow XML API client in Kit, built with `net/http`,
-`encoding/xml`, and `aws/signer/v4` from Kit's existing AWS SDK v2 dependency.
-Google documents the `AWS4-HMAC-SHA256` signature and `s3/aws4_request` credential
-scope for interoperability. This choice keeps the uploader and DuckDB on one
-HMAC credential pair; it does not add the OAuth-based Google Storage SDK.
-The client must implement resumable-session initiation, offset reconciliation,
-completion, cancellation, and generation-conditional object operations. SDK
-signing does not supply GCS's resumable-upload state machine.
-
-GCS initiates a conditional resumable upload with
-`x-goog-if-generation-match: 0`. Its S3-style multipart protocol does not
-support preconditions, so it cannot implement this publication contract.
+GCS uses Google's official Go storage client and its JSON API, as released in
+Kit v0.42.0. Kit requires explicit OAuth credentials and never discovers them
+itself. Publication uses a does-not-exist precondition, so it never replaces an
+existing key. GCS's S3-compatible XML multipart protocol does not support
+preconditions and is not used. Kit retries a single-request upload, used up to
+16 MiB, until the caller's context ends; it retries each resumable chunk for at
+most 32 seconds; other requests make at most three attempts. BenchDB therefore
+bounds every Kit call with the maintenance unit's deadline.
 See [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html),
-[GCS resumable uploads](https://docs.cloud.google.com/storage/docs/xml-api/post-object-resumable),
-[GCS multipart limitations](https://docs.cloud.google.com/storage/docs/multipart-uploads),
-and [GCS signature interoperability](https://docs.cloud.google.com/storage/docs/authentication/signatures).
+[GCS request preconditions](https://cloud.google.com/storage/docs/request-preconditions),
+and [GCS multipart limitations](https://docs.cloud.google.com/storage/docs/multipart-uploads).
 
 Failed transfers abort their own upload sessions where possible. Process
 crashes may leave incomplete provider uploads; documented lifecycle rules
 may expire those uploads, but must not expire published archive objects.
+Kit aborts an S3 multipart upload with the caller's remaining context, so a
+canceled or expired publication can leave its parts behind. S3 deployment
+documentation therefore requires a lifecycle rule that aborts incomplete
+multipart uploads under the archive prefix, and the Storage page cannot count
+those parts.
+
+A local publisher that crashes can leave a `.objectstore-*` staging file. Kit
+reserves those names: inventory lists them, but `Inspect` and `Delete` reject
+them, and BenchDB's inventory ignores names it did not generate. Kit removes
+a leftover only when its publisher can be proven absent, never by age. A
+staging-recovery maintenance step provides that proof: while it holds the
+maintenance-owner lock, no BenchDB publisher can run against the dataset, and
+an operator confirms that no other process publishes into the root. The step
+then removes `.objectstore-*` files under the local archive root and reports the
+reclaimed count and bytes. It runs at the start of each local maintenance cycle
+and through an admin command for stopped deployments. Remote backends never run
+it. Tests kill a real publisher mid-copy, then show that recovery removes its
+leftover only while the owner lock is held and that a publisher holding the lock
+blocks recovery.
 
 ## Publication and query flow
 
@@ -285,6 +300,38 @@ verify the lookup catalogs for existing archives before remote cutover. A
 missing or inconsistent published catalog is an error, not permission to
 silently scan the whole remote archive.
 
+### GCS authentication
+
+One Google OAuth credential source serves Kit and DuckDB. BenchDB builds one
+`cloud.google.com/go/auth` credential at startup, for example through
+`credentials.DetectDefault` with workload identity, and passes it to Kit's GCS
+store. DuckDB reads `gs://` objects with a `TYPE gcs` secret that carries a
+bearer token from that same credential. A second credential family such as
+HMAC keys is not used. A reviewer probe against the pinned DuckDB 1.5.5
+`httpfs` build showed bearer authentication on HEAD and range requests. A wrong
+token failed, and replacing the secret restored the query.
+
+DuckDB does not refresh a bearer token itself. Each DuckDB handle records the
+expiry of the token in its secret. `Engine.Read` holds its handle exclusively,
+so before it starts a query it replaces that handle's secret when the token
+expires within a renewal margin. The margin must exceed the longest operation
+the handle can run: the analytical read deadline for readers, and the
+maintenance unit deadline for the builder, plus clock skew. With the 2-minute
+read deadline and 15-minute maintenance units, a 20-minute margin covers both.
+Google's access tokens normally last about an hour. A cached token can still
+be returned shortly before it expires, so the credential's token cache must
+refresh at least one margin early; confirm that setting on the pinned
+`cloud.google.com/go/auth` version. A token source that cannot supply a token
+outliving the margin is a startup or read error, not a reason to continue with
+an expiring secret. BenchDB reads its credential configuration once at startup,
+so changing it requires a restart. Token renewal within that credential,
+including workload identity, needs no restart.
+
+Tests use a fake token source with short lifetimes. They show that a reader
+replaces an expiring secret before its query, that a query never starts with a
+token that expires inside its deadline, and that a token-source failure fails
+the read instead of using a stale token.
+
 ### DuckDB, cache, and working space
 
 The engine passes selected remote fact URLs directly to DuckDB. Its `httpfs`
@@ -294,9 +341,8 @@ credential-provider extensions alongside the PostgreSQL extension; runtime
 downloads remain disabled. AWS secrets use `TYPE s3, PROVIDER credential_chain,
 REFRESH auto`, with the configured chain, endpoint, and scope. The packaged
 DuckDB v1.5.5 and matching extensions accepted this configuration in a local
-probe, along with `TYPE gcs` HMAC secrets. Expiry and renewal on long-lived
-handles still require an integration test. GCS HMAC rotation initially requires
-restarting the server with the replacement key; it is not AWS token refresh.
+probe. Expiry and renewal on long-lived handles still require an integration
+test.
 See [DuckDB S3/GCS authentication](https://duckdb.org/docs/current/core_extensions/httpfs/s3api),
 [partial Parquet reads](https://duckdb.org/docs/current/core_extensions/httpfs/https),
 and [AWS credential refresh](https://duckdb.org/docs/current/core_extensions/aws#auto-refresh).
@@ -510,13 +556,16 @@ results stay queryable in PostgreSQL until publication succeeds.
 The durable schedule and last maintenance result move from `maintenance.json`
 to a small PostgreSQL record so replacing a remote server's scratch directory
 does not reset the schedule. The first upgraded local writer imports the
-existing schedule once without shortening its wait. A later migration adds
-storage identity, checksums/revisions, lookup-catalog references,
-`archive_file_location` and its logical-ID and physical-path indexes, upload
-intents, retirement/orphan deadlines, retention policy, and maintenance state.
-It also adds an index on `archive_file_commit(commit_id)`; the existing primary
-key is `(archive_path, commit_id)` and does not provide that access path.
-Migration 13 remains unchanged. Existing local files acquire checksum receipts
+existing schedule once without shortening its wait. Migration 14, already
+released, adds storage identity, checksums/revisions, lookup-catalog
+references, `archive_file_location` and its logical-ID and physical-path
+indexes, upload intents, retirement/orphan deadlines, retention policy, and
+maintenance state. It also adds an index on `archive_file_commit(commit_id)`;
+the existing primary key is `(archive_path, commit_id)` and does not provide
+that access path. Released migrations never change: an upgraded deployment
+does not rerun an edited migration, so it would silently miss the change.
+Later archive schema, such as transfer state, goes into a new migration after
+the latest one on `main`. Existing local files acquire checksum receipts
 during verified transfer or rewrite, not a blocking schema migration. Catalog
 backfill runs as resumable maintenance before remote transfer is enabled.
 
@@ -650,7 +699,8 @@ Acceptance includes:
 - Upgrade an existing local archive with retention unset. Observe the startup
   warning and paused-reclamation metric; configure retention, restart, and
   verify its deadlines, warning state, and eventual reclamation.
-- Exercise credential expiry/renewal, GCS HMAC rotation, provider checksum
+- Exercise credential expiry/renewal, GCS token renewal on long-lived DuckDB
+  handles, provider checksum
   mismatch, conditional upload conflicts, pinned cache eviction, full scratch
   space, and interrupted transfer/cutover.
 - Preserve saved-report snapshots during concurrent commit enrichment and
