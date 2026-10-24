@@ -317,6 +317,69 @@ Its sample selection, SQL timings, row counts, and query plans still read
 PostgreSQL directly. They do not cover Parquet rows after eviction, so the
 harness cannot establish complete post-archive correctness or performance.
 
+### Recover staging files after a crash
+
+Before the local archive renames a new file into `data/` or `catalog/`, it
+writes the bytes to a `.objectstore-*` staging file in the same directory. A
+publisher that crashes mid-copy can leave that file behind. Staging files are
+not archive objects: no manifest entry refers to them, they never appear in
+queries, and they only use volume space.
+
+BenchDB removes them for you:
+
+- At the start of each maintenance cycle, the worker holds archive maintenance
+  ownership. No BenchDB publisher can run against the dataset while it does.
+  The worker removes every `.objectstore-*` file under `BENCHDB_DATA_DIR` and
+  logs the count and bytes. A cycle that finds none logs nothing.
+- It never removes a file because of its age. A slow upload is not an abandoned
+  one.
+- It runs while `BENCHDB_ARCHIVE_RETENTION` is unset. Retention governs archive
+  objects, not publisher scratch files.
+- Ownership covers BenchDB publishers only. Do not point other tools that write
+  files into the archive directory at it.
+
+For a stopped deployment, run the same step by hand:
+
+```bash
+benchdb admin archive recover-staging
+```
+
+The command needs `BENCHDB_DB_URL`, `BENCHDB_DATA_DIR`, and
+`BENCHDB_DUCKDB_EXTENSION_DIR`, like `admin alerts evaluate`. It prints
+`Staging files removed` and `Bytes reclaimed`. If another process holds
+maintenance ownership, it removes nothing and exits with an error. Stop the
+server and any other process that publishes into the directory, then run it
+again. Do not delete `.objectstore-*` files by hand while any such process runs.
+
+Remote archive storage is future work, and recovery never runs against it.
+
+### Abort incomplete S3 uploads
+
+When S3 archive storage becomes available, its bucket needs a lifecycle rule
+that aborts incomplete multipart uploads under the archive prefix. The storage
+client aborts a failed upload with the publication's remaining context, so a
+canceled or expired publication can leave uploaded parts behind. S3 keeps and
+bills those parts until the upload is aborted, and the **Storage** page cannot
+count them.
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "abort-incomplete-benchdb-archive-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "benchdb/" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
+```
+
+Replace `benchdb/` with the archive prefix. One day is the shortest period S3
+allows, and it is longer than any upload BenchDB attempts. Do not add an
+expiration action: BenchDB decides when archive objects are deleted, using
+`BENCHDB_ARCHIVE_RETENTION`.
+
 ## Serve behind a path prefix
 
 Set `BENCHDB_INTENDED_BASE_URL=https://example.com/tools/bench` to serve the

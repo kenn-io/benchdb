@@ -19,6 +19,14 @@ type archiveObjects interface {
 	Delete(ctx context.Context, key, revision string) error
 }
 
+// localArchiveObjects is the implicit local archive. Staging recovery asserts
+// this type, so a remote backend cannot run it unless it is deliberately given
+// a local root.
+type localArchiveObjects struct {
+	archiveObjects
+	root string
+}
+
 // openArchiveObjects opens the implicit local archive, whose root is the
 // working directory, so existing manifest paths remain valid object keys.
 func openArchiveObjects(dir string) (archiveObjects, error) {
@@ -26,5 +34,5 @@ func openArchiveObjects(dir string) (archiveObjects, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open local archive objects: %w", err)
 	}
-	return store, nil
+	return &localArchiveObjects{archiveObjects: store, root: dir}, nil
 }

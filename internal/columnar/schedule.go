@@ -231,6 +231,7 @@ func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
 
 func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) error {
 	e.warnIfReclamationPaused()
+	e.recoverStagingAtCycleStart(ctx, owner)
 	started := time.Now().UTC()
 	e.maintenanceMu.Lock()
 	lastSuccess := e.maintenance.LastSuccessAt
