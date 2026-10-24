@@ -29,6 +29,7 @@ type seriesMember struct {
 	unit      string
 	errored   bool
 	offBranch bool
+	info      []byte // optional_benchmark_info; nil stores none
 }
 
 // defaultSeriesRepo is the commit repo URL seedSeries uses unless a test needs a
@@ -95,6 +96,7 @@ func seedSeriesRepo(
 			RunID: "run", RunTags: []byte(`{"name":"b"}`), CommitID: new(commitID),
 			CommitRepoUrl: repo, HistoryFingerprint: fp,
 			Timestamp: m.ts, Unit: new(unit), Data: []*float64{new(m.value)}, Error: errBytes,
+			OptionalBenchmarkInfo: m.info,
 		})
 		mustID(t, id, err)
 	}
@@ -672,6 +674,46 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	require.NotNil(t, got[len(got)-1].CommitTimestamp)
 	assert.Equal(t, day(44), *got[0].CommitTimestamp)
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
+}
+
+func TestSelectSeriesMembersCarriesOptionalBenchmarkInfo(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	tolerance := []byte(`{"tolerance":{"absolute":120,"relative_percent":50}}`)
+	seedSeries(t, st, ctx, "fp-tolerant", "tolerant", `{}`, "m5", []seriesMember{
+		{ts: day(1), value: 1},
+		{ts: day(2), value: 2, info: tolerance},
+	})
+
+	got, err := st.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{"fp-tolerant"}})
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Empty(t, got[0].OptionalBenchmarkInfo)
+	assert.JSONEq(t, string(tolerance), string(got[1].OptionalBenchmarkInfo))
+}
+
+func TestSelectHistoryCarriesOptionalBenchmarkInfo(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	tolerance := []byte(`{"tolerance":{"absolute":120}}`)
+	seedSeries(t, st, ctx, "fp-tolerant", "tolerant", `{}`, "m5", []seriesMember{
+		{ts: day(1), value: 1},
+		{ts: day(2), value: 2, info: tolerance},
+	})
+	var benchmarkID string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT benchmark_id FROM benchmark_result WHERE history_fingerprint = 'fp-tolerant' LIMIT 1`).Scan(&benchmarkID))
+
+	byFingerprint, err := st.SelectHistoryForFingerprint(ctx, "fp-tolerant")
+	require.NoError(t, err)
+	byBenchmark, err := st.SelectHistoryForBenchmark(ctx, benchmarkID)
+	require.NoError(t, err)
+
+	require.Len(t, byFingerprint, 2)
+	assert.Empty(t, byFingerprint[0].OptionalBenchmarkInfo)
+	assert.JSONEq(t, string(tolerance), string(byFingerprint[1].OptionalBenchmarkInfo))
+	require.Len(t, byBenchmark, 2)
+	assert.Empty(t, byBenchmark[0].OptionalBenchmarkInfo)
+	assert.JSONEq(t, string(tolerance), string(byBenchmark[1].OptionalBenchmarkInfo))
 }
 
 func TestSelectSeriesMembersAppliesActiveUntilBeforeTailLimit(t *testing.T) {

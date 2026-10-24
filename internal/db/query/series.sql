@@ -511,6 +511,7 @@ members AS MATERIALIZED (
       br.mean,
       br.data,
       br.change_annotations,
+      br.optional_benchmark_info,
       hw.hash AS hardware_hash,
       hw.name AS hardware_name,
       c.sha AS commit_sha,
@@ -519,7 +520,7 @@ members AS MATERIALIZED (
       c."timestamp" AS commit_timestamp
     FROM (
       SELECT id, history_fingerprint, "timestamp", unit, mean, data,
-             change_annotations, hardware_id, commit_id
+             change_annotations, optional_benchmark_info, hardware_id, commit_id
       FROM benchmark_result_local
       WHERE error IS NULL
         AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -553,6 +554,7 @@ SELECT
   mean,
   data,
   change_annotations,
+  optional_benchmark_info,
   hardware_hash,
   hardware_name,
   commit_sha,

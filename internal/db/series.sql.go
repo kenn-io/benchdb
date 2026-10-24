@@ -43,7 +43,7 @@ WITH requested(fingerprint) AS MATERIALIZED (
   SELECT unnest($1::text[])
 ),
 members AS MATERIALIZED (
-  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.hardware_hash, m.hardware_name, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp
+  SELECT m.id, m.history_fingerprint, m.timestamp, m.unit, m.mean, m.data, m.change_annotations, m.optional_benchmark_info, m.hardware_hash, m.hardware_name, m.commit_sha, m.commit_repository, m.commit_message, m.commit_timestamp
   FROM requested req
   CROSS JOIN LATERAL (
     SELECT
@@ -54,6 +54,7 @@ members AS MATERIALIZED (
       br.mean,
       br.data,
       br.change_annotations,
+      br.optional_benchmark_info,
       hw.hash AS hardware_hash,
       hw.name AS hardware_name,
       c.sha AS commit_sha,
@@ -62,7 +63,7 @@ members AS MATERIALIZED (
       c."timestamp" AS commit_timestamp
     FROM (
       SELECT id, history_fingerprint, "timestamp", unit, mean, data,
-             change_annotations, hardware_id, commit_id
+             change_annotations, optional_benchmark_info, hardware_id, commit_id
       FROM benchmark_result_local
       WHERE error IS NULL
         AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -96,6 +97,7 @@ SELECT
   mean,
   data,
   change_annotations,
+  optional_benchmark_info,
   hardware_hash,
   hardware_name,
   commit_sha,
@@ -114,19 +116,20 @@ type SelectSeriesMembersParams struct {
 }
 
 type SelectSeriesMembersRow struct {
-	ID                 string
-	HistoryFingerprint string
-	Timestamp          time.Time
-	Unit               *string
-	Mean               *float64
-	Data               []float64
-	ChangeAnnotations  []byte
-	HardwareHash       string
-	HardwareName       string
-	CommitSha          string
-	CommitRepository   string
-	CommitMessage      string
-	CommitTimestamp    *time.Time
+	ID                    string
+	HistoryFingerprint    string
+	Timestamp             time.Time
+	Unit                  *string
+	Mean                  *float64
+	Data                  []float64
+	ChangeAnnotations     []byte
+	OptionalBenchmarkInfo []byte
+	HardwareHash          string
+	HardwareName          string
+	CommitSha             string
+	CommitRepository      string
+	CommitMessage         string
+	CommitTimestamp       *time.Time
 }
 
 // Recent membership rows (same definition as SelectHistoryForFingerprint) for a
@@ -156,6 +159,7 @@ func (q *Queries) SelectSeriesMembers(ctx context.Context, arg SelectSeriesMembe
 			&i.Mean,
 			&i.Data,
 			&i.ChangeAnnotations,
+			&i.OptionalBenchmarkInfo,
 			&i.HardwareHash,
 			&i.HardwareName,
 			&i.CommitSha,

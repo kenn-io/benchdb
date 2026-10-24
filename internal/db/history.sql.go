@@ -22,6 +22,7 @@ SELECT
   br.run_tags,
   i.tags AS info_tags,
   br.change_annotations,
+  br.optional_benchmark_info,
   br.case_id,
   cs.name AS case_name,
   cs.tags AS case_tags,
@@ -50,29 +51,30 @@ ORDER BY hw.name, br.history_fingerprint, c."timestamp", br.id
 `
 
 type SelectHistoryForBenchmarkRow struct {
-	ID                 string
-	BenchmarkID        string
-	HistoryFingerprint string
-	Timestamp          time.Time
-	Unit               *string
-	Mean               *float64
-	Data               []*float64
-	RunTags            []byte
-	InfoTags           []byte
-	ChangeAnnotations  []byte
-	CaseID             string
-	CaseName           string
-	CaseTags           []byte
-	ContextTags        []byte
-	HardwareID         string
-	HardwareType       string
-	HardwareName       string
-	HardwareHash       string
-	CommitRepoUrl      string
-	CommitSha          string
-	CommitRepository   string
-	CommitMessage      string
-	CommitTimestamp    *time.Time
+	ID                    string
+	BenchmarkID           string
+	HistoryFingerprint    string
+	Timestamp             time.Time
+	Unit                  *string
+	Mean                  *float64
+	Data                  []*float64
+	RunTags               []byte
+	InfoTags              []byte
+	ChangeAnnotations     []byte
+	OptionalBenchmarkInfo []byte
+	CaseID                string
+	CaseName              string
+	CaseTags              []byte
+	ContextTags           []byte
+	HardwareID            string
+	HardwareType          string
+	HardwareName          string
+	HardwareHash          string
+	CommitRepoUrl         string
+	CommitSha             string
+	CommitRepository      string
+	CommitMessage         string
+	CommitTimestamp       *time.Time
 }
 
 // All directly comparable fingerprint segments for one logical benchmark.
@@ -98,6 +100,7 @@ func (q *Queries) SelectHistoryForBenchmark(ctx context.Context, benchmarkID str
 			&i.RunTags,
 			&i.InfoTags,
 			&i.ChangeAnnotations,
+			&i.OptionalBenchmarkInfo,
 			&i.CaseID,
 			&i.CaseName,
 			&i.CaseTags,
@@ -133,6 +136,7 @@ SELECT
   br.run_tags,
   inf.tags AS info_tags,
   br.change_annotations,
+  br.optional_benchmark_info,
   hw.hash AS hardware_hash,
   c.sha AS commit_sha,
   c.repository AS commit_repository,
@@ -151,20 +155,21 @@ ORDER BY c."timestamp", br.id
 `
 
 type SelectHistoryForFingerprintRow struct {
-	ID                 string
-	HistoryFingerprint string
-	Timestamp          time.Time
-	Unit               *string
-	Mean               *float64
-	Data               []*float64
-	RunTags            []byte
-	InfoTags           []byte
-	ChangeAnnotations  []byte
-	HardwareHash       string
-	CommitSha          string
-	CommitRepository   string
-	CommitMessage      string
-	CommitTimestamp    *time.Time
+	ID                    string
+	HistoryFingerprint    string
+	Timestamp             time.Time
+	Unit                  *string
+	Mean                  *float64
+	Data                  []*float64
+	RunTags               []byte
+	InfoTags              []byte
+	ChangeAnnotations     []byte
+	OptionalBenchmarkInfo []byte
+	HardwareHash          string
+	CommitSha             string
+	CommitRepository      string
+	CommitMessage         string
+	CommitTimestamp       *time.Time
 }
 
 // History membership, ported from history.py:get_history_for_fingerprint.
@@ -199,6 +204,7 @@ func (q *Queries) SelectHistoryForFingerprint(ctx context.Context, historyFinger
 			&i.RunTags,
 			&i.InfoTags,
 			&i.ChangeAnnotations,
+			&i.OptionalBenchmarkInfo,
 			&i.HardwareHash,
 			&i.CommitSha,
 			&i.CommitRepository,
@@ -226,6 +232,7 @@ SELECT
   br.run_tags,
   inf.tags AS info_tags,
   br.change_annotations,
+  br.optional_benchmark_info,
   hw.hash AS hardware_hash,
   c.sha AS commit_sha,
   c.repository AS commit_repository,
@@ -255,20 +262,21 @@ type SelectHistoryForFingerprintsAsOfParams struct {
 }
 
 type SelectHistoryForFingerprintsAsOfRow struct {
-	ID                 string
-	HistoryFingerprint string
-	Timestamp          time.Time
-	Unit               *string
-	Mean               *float64
-	Data               []*float64
-	RunTags            []byte
-	InfoTags           []byte
-	ChangeAnnotations  []byte
-	HardwareHash       string
-	CommitSha          string
-	CommitRepository   string
-	CommitMessage      string
-	CommitTimestamp    *time.Time
+	ID                    string
+	HistoryFingerprint    string
+	Timestamp             time.Time
+	Unit                  *string
+	Mean                  *float64
+	Data                  []*float64
+	RunTags               []byte
+	InfoTags              []byte
+	ChangeAnnotations     []byte
+	OptionalBenchmarkInfo []byte
+	HardwareHash          string
+	CommitSha             string
+	CommitRepository      string
+	CommitMessage         string
+	CommitTimestamp       *time.Time
 }
 
 // The baseline-distribution windows for compare and CI reports: the same
@@ -301,6 +309,7 @@ func (q *Queries) SelectHistoryForFingerprintsAsOf(ctx context.Context, arg Sele
 			&i.RunTags,
 			&i.InfoTags,
 			&i.ChangeAnnotations,
+			&i.OptionalBenchmarkInfo,
 			&i.HardwareHash,
 			&i.CommitSha,
 			&i.CommitRepository,

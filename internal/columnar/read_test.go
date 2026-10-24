@@ -44,6 +44,7 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 			CommitRepoUrl: baseline.CommitRepoUrl, HistoryFingerprint: baseline.HistoryFingerprint,
 			Timestamp: baseline.Timestamp.Add(time.Duration(i) * time.Minute), Unit: baseline.Unit,
 			Data: []*float64{new(1.25)}, ChangeAnnotations: annotations,
+			OptionalBenchmarkInfo: []byte(`{"tolerance":{"absolute":0.5,"relative_percent":10}}`),
 		})
 		require.NoError(t, err)
 	}
