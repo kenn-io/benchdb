@@ -13,6 +13,9 @@
 //	                          Defaults to 1-4 readers based on the thread target.
 //	BENCHDB_MAINTENANCE_INTERVAL Minimum time between archive cycles. Default 1h;
 //	                          accepts durations of at least 1h, such as 6h or 24h.
+//	BENCHDB_ARCHIVE_RETENTION How long unreferenced archive files stay recoverable
+//	                          (Go duration covering the database backup window).
+//	                          Unset or 0 pauses archive file deletion.
 //	BENCHDB_ADDR          Listen address. Default ":8080".
 //	BENCHDB_INIT_SCHEMA   "true" applies embedded numbered migrations (dev).
 //	BENCHDB_SEED          "true" seeds deterministic demo data (idempotent).

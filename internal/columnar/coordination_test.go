@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -24,16 +23,6 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/storage"
 )
-
-// cleanupNow runs one cleanup attempt under its own maintenance ownership.
-func (e *Engine) cleanupNow(ctx context.Context) (removed int, err error) {
-	err = e.withBuilder(ctx, func(owner *maintenanceOwner) error {
-		var cleanupErr error
-		removed, cleanupErr = e.cleanup(ctx, owner)
-		return cleanupErr
-	})
-	return removed, err
-}
 
 const reclamationLockFilter = `locktype='advisory' AND objsubid=1
 AND classid::bigint=($1::bigint>>32) AND objid::bigint=($1::bigint&4294967295)`
@@ -101,19 +90,18 @@ func TestSessionGuardAcrossWorkingDirectories(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
 			open := func() *Engine {
-				e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url})
+				e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url, Retention: time.Hour})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, e.Close()) })
 				return e
 			}
 			reader, cleaner := open(), open()
 			require.NotEqual(t, reader.cfg.Dir, cleaner.cfg.Dir)
-			orphan := filepath.Join(cleaner.cfg.Dir, "data", "retired.parquet")
-			require.NoError(t, os.WriteFile(orphan, []byte("retired output"), 0600))
+			orphan := dueRetirement(t, ctx, cleaner)
 
 			releaseRead, readDone := heldRead(t, ctx, reader, func() {})
 			for range 3 {
-				removed, err := cleaner.cleanupNow(ctx)
+				removed, err := cleaner.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Zero(t, removed, "a reader in another working directory must defer cleanup")
 			}
@@ -121,7 +109,7 @@ func TestSessionGuardAcrossWorkingDirectories(t *testing.T) {
 			require.NoError(t, err)
 			releaseRead()
 			require.NoError(t, <-readDone)
-			removed, err := cleaner.cleanupNow(ctx)
+			removed, err := cleaner.reclaimNow(ctx)
 			require.NoError(t, err)
 			assert.Equal(t, 1, removed)
 
@@ -188,15 +176,14 @@ func TestCleanupQueuesBehindActiveReader(t *testing.T) {
 			app, err := pgxpool.NewWithConfig(ctx, cfg)
 			require.NoError(t, err)
 			t.Cleanup(app.Close)
-			e, err := Open(ctx, app, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2})
+			e, err := Open(ctx, app, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Retention: time.Hour})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
-			orphan := filepath.Join(e.cfg.Dir, "data", "retired.parquet")
-			require.NoError(t, os.WriteFile(orphan, []byte("retired output"), 0600))
+			orphan := dueRetirement(t, ctx, e)
 
 			releaseOld, oldDone := heldRead(t, ctx, e, func() { record("old-reader") })
 			for range 3 {
-				removed, err := e.cleanupNow(ctx)
+				removed, err := e.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Zero(t, removed, "cleanup defers to an active reader")
 			}
@@ -206,7 +193,7 @@ func TestCleanupQueuesBehindActiveReader(t *testing.T) {
 			}
 			cleaned := make(chan outcome, 1)
 			go func() {
-				removed, err := e.cleanupNow(ctx)
+				removed, err := e.reclaimNow(ctx)
 				cleaned <- outcome{removed, err}
 			}()
 			require.Eventually(t, func() bool { return reclamationWaiters(ctx, pool, "ExclusiveLock") == 1 },
@@ -242,7 +229,7 @@ func TestGuardSessionLost(t *testing.T) {
 			pool, url, ctx := dbtest.NewArchivePool(t, dbtest.ArchivePostgresImage(), mode)
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
-			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url})
+			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url, Retention: time.Hour})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
 			e.coord.heartbeat = 50 * time.Millisecond
@@ -325,7 +312,7 @@ func TestScheduledMaintenanceSkipsWhenOwnedElsewhere(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 			open := func() *Engine {
-				e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url})
+				e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: url, Retention: time.Hour})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, e.Close()) })
 				return e

@@ -61,6 +61,9 @@ func ConfigFromEnv() (Config, error) {
 		}
 		cfg.Interval = interval
 	}
+	if cfg.Retention, err = retentionFromEnv(); err != nil {
+		return Config{}, err
+	}
 	_, err = cfg.resourceLimits()
 	return cfg, err
 }

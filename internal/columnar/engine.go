@@ -39,6 +39,9 @@ type Config struct {
 	// CoordinationDBURL reaches the same primary database directly or through
 	// session pooling. Empty uses the application pool's settings.
 	CoordinationDBURL string
+	// Retention keeps unreferenced archive objects recoverable for the
+	// operator's database backup window. Zero pauses physical reclamation.
+	Retention time.Duration
 }
 
 type Engine struct {
@@ -100,6 +103,9 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 	}
 	if cfg.BatchRows < 1 || cfg.TargetRows < cfg.BatchRows || cfg.Settle < 0 || cfg.Interval < time.Hour {
 		return nil, errors.New("invalid archive maintenance limits")
+	}
+	if cfg.Retention < 0 {
+		return nil, errors.New("BENCHDB_ARCHIVE_RETENTION must not be negative")
 	}
 	e := &Engine{pg: pg, cfg: cfg, resources: resources, readers: make(chan *sql.DB, cfg.Readers), handleNames: make(map[*sql.DB]string)}
 	defer func() {

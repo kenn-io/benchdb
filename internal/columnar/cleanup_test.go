@@ -31,7 +31,7 @@ func TestArchiveCleanupDrainsOverlappingReaders(t *testing.T) {
 			pool, ctx := dbtest.NewPool(t)
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2}
+			cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Retention: time.Hour}
 			e, err := Open(ctx, pool, cfg)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
@@ -45,8 +45,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			other, err := Open(ctx, pool, cfg)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, other.Close()) })
-			orphan := filepath.Join(cfg.Dir, "data", "retired.parquet")
-			require.NoError(t, os.WriteFile(orphan, []byte("retired output"), 0600))
+			orphan := dueRetirement(t, ctx, e)
 			var workers sync.WaitGroup
 			defer func() { cancel(); workers.Wait() }()
 			startRead := func(engine *Engine, release <-chan struct{}) (<-chan struct{}, <-chan error) {
@@ -84,14 +83,14 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			readyB, doneB := startRead(other, releaseB)
 			wait(readyB)
 			for range 3 {
-				removed, err := e.cleanupNow(ctx)
+				removed, err := e.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Zero(t, removed, "brief contention can defer cleanup")
 			}
 			cleanupCtx, stopCleanup := context.WithCancel(ctx)
 			defer stopCleanup()
 			cleaned := make(chan error, 1)
-			workers.Go(func() { _, err := e.cleanupNow(cleanupCtx); cleaned <- err })
+			workers.Go(func() { _, err := e.reclaimNow(cleanupCtx); cleaned <- err })
 			// Wait for the queued exclusive request, then offer more reads while
 			// two existing readers still overlap. A second Engine must queue too.
 			require.Eventually(t, func() bool { return reclamationWaiters(ctx, pool, "ExclusiveLock") == 1 },
@@ -132,7 +131,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			close(releaseNew)
 			require.NoError(t, <-doneNew)
 			if cancelCleanup {
-				removed, err := e.cleanupNow(ctx)
+				removed, err := e.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Equal(t, 1, removed, "cleanup can retry after cancellation")
 			}
@@ -192,11 +191,10 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Retention: time.Hour})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet")
-	require.NoError(t, os.WriteFile(orphan, []byte("unpublished output"), 0600))
+	orphan := dueRetirement(t, ctx, e)
 	store := NewStore(db.NewStore(pool), e)
 	finalizeCtx, cancelFinalize := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFinalize()
@@ -216,7 +214,7 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	// Cleanup runs on reserved coordination sessions. Finalization holding the
 	// only application connection cannot stall it, and cleanup holds nothing
 	// finalization needs.
-	removed, err := e.cleanupNow(ctx)
+	removed, err := e.reclaimNow(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, removed)
 	_, err = os.Stat(orphan)
@@ -243,13 +241,13 @@ func TestCleanupDefersToPublicationOutsideOwnership(t *testing.T) {
 	defer func() { _ = publisher.Rollback(ctx) }()
 	_, err = publisher.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, publicationLock)
 	require.NoError(t, err)
-	removed, err := e.cleanupNow(ctx)
+	removed, err := e.reclaimNow(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, removed)
 	_, err = os.Stat(orphan)
 	require.NoError(t, err, "cleanup must wait for the publication's outcome")
 	require.NoError(t, publisher.Rollback(ctx))
-	removed, err = e.cleanupNow(ctx)
+	removed, err = e.reclaimNow(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, removed)
 }

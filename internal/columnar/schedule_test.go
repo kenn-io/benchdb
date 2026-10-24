@@ -65,7 +65,7 @@ func TestMaintenanceReclaimsFilesBetweenRewrites(t *testing.T) {
 			pool, err := pgxpool.NewWithConfig(ctx, cfg)
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10})
+			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10, Retention: immediateRetention})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
 			commitID, err := db.NewStore(pool).GetOrCreateCommit(ctx, storage.InsertCommitParams{Sha: "maintenance", Repository: "https://example.test/maintenance"})

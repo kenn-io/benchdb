@@ -62,7 +62,7 @@ func insertHotResults(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cou
 
 func openPublicationArchive(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *Engine {
 	t.Helper()
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Settle: time.Nanosecond})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Settle: time.Nanosecond, Retention: 24 * time.Hour})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	return e
@@ -237,9 +237,18 @@ func TestPublicationUploadOutcomeUnknown(t *testing.T) {
 	var referenced bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM archive_file WHERE $1 IN (path,runs_path,series_path))`, uncertain).Scan(&referenced))
 	assert.False(t, referenced, "an abandoned key never enters the manifest")
-	// Abandoned objects are unreferenced files, which cleanup still removes.
-	_, err = os.Stat(filepath.Join(e.cfg.Dir, uncertain))
-	require.ErrorIs(t, err, os.ErrNotExist)
+	assertRetainedOrphan(t, ctx, e, uncertain)
+}
+
+// assertRetainedOrphan checks that an abandoned upload's stored object waits
+// out a full retention window instead of being deleted at once.
+func assertRetainedOrphan(t *testing.T, ctx context.Context, e *Engine, key string) {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(e.cfg.Dir, key))
+	require.NoError(t, err, "the abandoned object is retained")
+	var first, deadline time.Time
+	require.NoError(t, e.pg.QueryRow(ctx, `SELECT first_observed_at,delete_after FROM archive_orphan WHERE key=$1`, key).Scan(&first, &deadline))
+	assert.Equal(t, e.cfg.Retention, deadline.Sub(first))
 }
 
 // TestEndedCycleAbandonedUnderPublicationLock models a unit that crashed or
@@ -264,7 +273,7 @@ func TestEndedCycleAbandonedUnderPublicationLock(t *testing.T) {
 			conn, err := pool.Acquire(ctx)
 			require.NoError(t, err)
 			cycle := uuid.New()
-			key := "data/2024-01-ended-cycle.parquet"
+			key := generatedFactKey()
 			content := []byte("stored before the unit ended")
 			digest := sha256.Sum256(content)
 			require.NoError(t, e.archive.startCycle(ctx, conn.Conn(), cycle, "ended-owner"))
@@ -301,9 +310,7 @@ func TestEndedCycleAbandonedUnderPublicationLock(t *testing.T) {
 			assert.Equal(t, "abandoned", state)
 			assert.Equal(t, int64(0), hotRows(t, ctx, pool))
 			assert.Equal(t, expectedIDs, visibleIDs(t, ctx, e))
-			// Abandoned objects are unreferenced files, which cleanup still removes.
-			_, err = os.Stat(filepath.Join(e.cfg.Dir, key))
-			require.ErrorIs(t, err, os.ErrNotExist)
+			assertRetainedOrphan(t, ctx, e, key)
 			_, err = os.Stat(e.stagePath(key))
 			require.ErrorIs(t, err, os.ErrNotExist, "stage files are scratch")
 			err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {

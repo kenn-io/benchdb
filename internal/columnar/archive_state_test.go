@@ -102,7 +102,9 @@ func TestRetentionNeverShortens(t *testing.T) {
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
 	require.NoError(t, state.retireObject(ctx, tx, "data/retired.parquet"))
-	require.Error(t, state.observeRetirement(ctx, tx, "data/retired.parquet", time.Now().Add(-24*time.Hour), time.Hour), "retention cannot start before retirement commits")
+	observed, err := state.observeRetirements(ctx, tx, time.Hour)
+	require.NoError(t, err)
+	assert.Zero(t, observed, "retention cannot start before retirement commits")
 	require.NoError(t, tx.Commit(ctx))
 	var first, deadline *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT first_observed_at,delete_after FROM archive_retirement`).Scan(&first, &deadline))
@@ -112,7 +114,9 @@ func TestRetentionNeverShortens(t *testing.T) {
 	require.NoError(t, err)
 	var observedBefore time.Time
 	require.NoError(t, tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&observedBefore))
-	require.NoError(t, state.observeRetirement(ctx, tx, "data/retired.parquet", time.Now().Add(-24*time.Hour), 24*time.Hour))
+	observed, err = state.observeRetirements(ctx, tx, 24*time.Hour)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, observed)
 	require.NoError(t, tx.Commit(ctx))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT first_observed_at,delete_after FROM archive_retirement`).Scan(&first, &deadline))
 	require.NotNil(t, first)

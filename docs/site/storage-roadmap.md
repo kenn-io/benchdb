@@ -145,7 +145,7 @@ running with pending intents, and cleanup keeps those keys. At the start of
 the next maintenance cycle, the maintenance owner takes the publication lock,
 which proves that any earlier COMMIT has finished, and abandons every cycle
 still running. An abandoned intent can never publish. Its stored object, if
-any, is unreferenced, so cleanup removes it like any other unreferenced file.
+any, becomes an orphan and waits out a full retention window, described below.
 New results publish under new keys.
 
 Files published before receipts existed keep working. They gain receipts only
@@ -162,6 +162,40 @@ before deciding which files are unreferenced. If publication is still running
 after its connection was lost, cleanup waits for a later pass. Files remain
 available until the transaction's outcome is known.
 
+## Retention and reclamation
+
+Unreferenced files stay on the volume for `BENCHDB_ARCHIVE_RETENTION`, a Go
+duration such as `864h`. It must cover the oldest PostgreSQL backup or
+point-in-time recovery target you may restore, plus time to restore it, so a
+restored database still finds every file its manifest names. BenchDB cannot
+infer it. Unset or `0` pauses deletion of archive files; export, compaction,
+and queries continue, and the server logs a warning naming the setting at
+startup and in every maintenance cycle. Negative or unparsable values stop
+startup.
+
+- **Retirement.** Compaction and catalog refresh record each replaced fact and
+  catalog file in the transaction that changes the manifest. A later
+  maintenance pass starts its window when it first sees that committed record,
+  using PostgreSQL's clock. Raising retention extends existing deadlines;
+  lowering or pausing it never shortens them.
+- **Orphans.** At the end of each cycle the worker lists `data/` and
+  `catalog/` in pages. It considers only names BenchDB generates and keeps
+  every other file. A generated file that no manifest references, no running
+  cycle may still publish, and no retirement covers is recorded with the time
+  it was first seen and its storage revision. It must stay unreferenced for a
+  full window from that sighting. A changed revision restarts the window, and
+  an upload that finishes late is first seen, and timed, on a later pass.
+- **Deletion.** After a deadline, cleanup takes the publication lock and the
+  exclusive reclamation lock, rechecks references and running cycles, and
+  deletes up to 100 exact keys per pass. A missing file counts as deleted. If
+  the stored revision changed, the file is kept and observed again. Records
+  and receipts are removed only after deletion is confirmed.
+
+A cycle whose schedule cannot be saved skips export but still reclaims, so a
+full volume can recover. Before restoring a database backup, pause reclamation
+by unsetting `BENCHDB_ARCHIVE_RETENTION` and restarting, and keep it paused
+through validation. See [backups and restores](remote-archive-design.md#backups-and-restores).
+
 ## Mutations and compaction
 
 Hot facts are immutable after insertion. Annotation edits and logical deletion
@@ -173,7 +207,8 @@ Compaction reads a consistent input-file set and overlay versions, writes and
 validates replacement files, then atomically replaces manifest entries. It
 removes only the overlay versions baked into those replacements. Concurrent
 newer annotations or deletions remain applicable. Retired and orphaned files
-are removed only while the cleanup lock excludes active readers/builders.
+are removed only after their retention deadlines, while the cleanup lock
+excludes active readers/builders.
 Cleanup initially defers for active readers. After three deferrals it queues
 an exclusive request, so new analytical reads wait until existing readers
 finish and retired files are removed.

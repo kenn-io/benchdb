@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -28,11 +27,13 @@ type MaintenanceStats struct {
 var errArchiveSourceChanged = errors.New("archive source changed during export")
 
 // Maintain exports one bounded batch, compacts one bounded group, refreshes
-// one stale catalog, and removes unreferenced files. It can also be called by an operator to drain on demand.
+// one stale catalog, queues orphans, and reclaims objects past their
+// retention deadlines. It can also be called by an operator to drain on demand.
 func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err error) {
 	err = e.withBuilder(ctx, func(owner *maintenanceOwner) (workErr error) {
+		e.warnIfReclamationPaused()
 		defer func() {
-			removed, cleanupErr := e.cleanup(ctx, owner)
+			removed, cleanupErr := e.inventoryAndReclaim(ctx, owner)
 			stats.RemovedFiles = removed
 			workErr = errors.Join(workErr, cleanupErr)
 		}()
@@ -367,6 +368,9 @@ func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, err
 		if tag.RowsAffected() != 1 {
 			return 0, errors.New("archive manifest changed during compaction")
 		}
+		if err := e.retire(ctx, pg, file.Path, file.RunsPath, file.SeriesPath); err != nil {
+			return 0, err
+		}
 	}
 	for _, file := range replacements {
 		if err := publishArchiveFile(ctx, pg, file); err != nil {
@@ -379,121 +383,14 @@ func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, err
 	return len(selected), e.commitPublication(ctx, owner)
 }
 
-func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed int, err error) {
-	// One budget covers waiting for readers and deleting: an existing reader
-	// can run to its own deadline, then cleanup still has time for a batch.
-	ctx, cancel := context.WithTimeout(ctx, e.cfg.ReadTimeout+cleanupGrace)
-	defer cancel()
-	pg, err := owner.begin(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rollback(pg) }()
-	// A lost connection can leave COMMIT running after the builder returns.
-	// Its transaction lock must be released before we decide files are orphaned.
-	var publishingDone bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&publishingDone); err != nil {
-		return 0, err
-	}
-	if !publishingDone {
-		return 0, nil
-	}
-	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, reclamationLock).Scan(&acquired); err != nil {
-		return 0, err
-	}
-	if !acquired {
-		// Deferrals persist across attempts, including ones that time out.
-		if e.cleanupSkips.Add(1) <= 3 {
-			return 0, nil
-		}
-		// PostgreSQL grants this request once current readers finish, and
-		// queues newly arriving readers behind it.
-		if _, err := pg.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, reclamationLock); err != nil {
-			return 0, fmt.Errorf("wait for archive readers before cleanup: %w", errors.Join(err, ctx.Err()))
+// retire registers replaced objects in the publication transaction that
+// removes them from the manifest. Their retention starts once a later
+// transaction observes the committed retirement.
+func (e *Engine) retire(ctx context.Context, pg pgx.Tx, paths ...string) error {
+	for _, path := range paths {
+		if err := e.archive.retireObject(ctx, pg, filepath.ToSlash(path)); err != nil {
+			return fmt.Errorf("retire archive object %q: %w", path, err)
 		}
 	}
-	e.cleanupSkips.Store(0)
-	// TRUNCATE is not MVCC-safe. Wait for every analytical reader's old
-	// manifest snapshot before reclaiming the now-empty backlog's pages.
-	var reclaim bool
-	if err := pg.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM benchmark_result_backlog) AND pg_relation_size('benchmark_result_backlog')>0`).Scan(&reclaim); err != nil {
-		return 0, err
-	}
-	if reclaim {
-		if _, err := pg.Exec(ctx, `TRUNCATE benchmark_result_backlog`); err != nil {
-			return 0, err
-		}
-	}
-	rows, err := pg.Query(ctx, `SELECT path FROM archive_file UNION ALL SELECT runs_path FROM archive_file UNION ALL SELECT series_path FROM archive_file`)
-	if err != nil {
-		return 0, err
-	}
-	live := map[string]bool{}
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		if _, err := e.filePath(path); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		live[path] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	pending, err := e.pendingKeys(ctx, pg)
-	if err != nil {
-		return 0, err
-	}
-	for _, directory := range []string{"data", "catalog"} {
-		dir := filepath.Join(e.cfg.Dir, directory)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return removed, err
-		}
-		for _, entry := range entries {
-			name := filepath.Join(directory, entry.Name())
-			if entry.IsDir() || live[name] || pending[name] {
-				continue
-			}
-			if !strings.HasSuffix(entry.Name(), ".parquet") && !strings.HasSuffix(entry.Name(), ".parquet.staging") {
-				continue
-			}
-			if err := ctx.Err(); err != nil {
-				return removed, fmt.Errorf("archive cleanup budget expired: %w", err)
-			}
-			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
-				return removed, err
-			}
-			removed++
-		}
-		if err := syncPath(dir); err != nil {
-			return removed, err
-		}
-	}
-	return removed, pg.Commit(ctx)
-}
-
-// pendingKeys returns, as local paths, keys whose uploads may still publish.
-// Cleanup keeps them. An abandoned upload's object is unreferenced and is
-// removed like any other unreferenced file. Stage files are scratch.
-func (e *Engine) pendingKeys(ctx context.Context, pg pgx.Tx) (map[string]bool, error) {
-	rows, err := pg.Query(ctx, `SELECT key FROM archive_upload WHERE storage_id=$1 AND state='pending'`, e.archive.storageID)
-	if err != nil {
-		return nil, fmt.Errorf("read archive upload intents: %w", err)
-	}
-	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, fmt.Errorf("read archive upload intents: %w", err)
-	}
-	pending := make(map[string]bool, len(keys))
-	for _, key := range keys {
-		pending[filepath.FromSlash(key)] = true
-	}
-	return pending, nil
+	return nil
 }

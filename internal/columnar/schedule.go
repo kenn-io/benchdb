@@ -126,6 +126,7 @@ func (e *Engine) saveMaintenance(ctx context.Context) error {
 // its process holds maintenance ownership.
 func (e *Engine) Run(ctx context.Context) {
 	defer func() { e.maintenanceMu.Lock(); e.maintenance.Enabled = false; e.maintenanceMu.Unlock() }()
+	e.warnIfReclamationPaused()
 	policy := backoff.NewExponentialBackOff()
 	policy.InitialInterval = time.Second
 	policy.MaxInterval = 20 * time.Second // Jitter keeps the longest wait at 30 seconds.
@@ -229,6 +230,7 @@ func (e *Engine) runScheduledMaintenance(ctx context.Context) error {
 }
 
 func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) error {
+	e.warnIfReclamationPaused()
 	started := time.Now().UTC()
 	e.maintenanceMu.Lock()
 	lastSuccess := e.maintenance.LastSuccessAt
@@ -238,11 +240,17 @@ func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) err
 	}
 	e.maintenanceMu.Unlock()
 	err := e.saveMaintenance(ctx)
-
 	if err == nil {
 		err = e.runMaintenance(ctx, owner, started.Add(-e.cfg.Settle))
+	} else {
+		// An unsaved schedule withholds new work, never the step that frees
+		// space: the failure may itself come from a full volume.
+		removed, reclaimErr := e.reclaim(ctx, owner, reclaimBatch)
+		e.addRemovedFiles(removed)
+		err = errors.Join(err, reclaimErr)
 	}
 	finished := time.Now().UTC()
+	interrupted := err != nil && ctx.Err() != nil
 	e.maintenanceMu.Lock()
 	e.maintenance.LastFinishedAt = &finished
 	e.maintenance.NextRunAt = new(finished.Add(e.cfg.Interval))
@@ -250,7 +258,7 @@ func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) err
 		e.maintenance.State = "scheduled"
 		e.maintenance.Phase = "idle"
 		e.maintenance.LastSuccessAt = &finished
-	} else if ctx.Err() != nil {
+	} else if interrupted {
 		e.maintenance.State = "interrupted"
 		e.maintenance.Error = "Maintenance was interrupted."
 	} else {
@@ -258,11 +266,25 @@ func (e *Engine) runOwnedCycle(ctx context.Context, owner *maintenanceOwner) err
 		e.maintenance.Error = "Maintenance failed during " + e.maintenance.Phase + ". See server logs."
 	}
 	e.maintenanceMu.Unlock()
-	if saveErr := e.saveMaintenance(ctx); saveErr != nil {
-		e.failMaintenance("schedule", saveErr)
+	// A stopping server has canceled ctx. Record its interruption with a fresh
+	// bounded context, and never report it as a failure.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
+	defer cancel()
+	if saveErr := e.saveMaintenance(saveCtx); saveErr != nil {
+		if interrupted {
+			slog.Error("save interrupted archive maintenance schedule", "error", saveErr)
+		} else {
+			e.failMaintenance("schedule", saveErr)
+		}
 		err = errors.Join(err, saveErr)
 	}
 	return err
+}
+
+func (e *Engine) addRemovedFiles(removed int) {
+	e.maintenanceMu.Lock()
+	e.maintenance.RemovedFiles += removed
+	e.maintenanceMu.Unlock()
 }
 
 func (e *Engine) failMaintenance(phase string, err error) {
@@ -276,10 +298,8 @@ func (e *Engine) failMaintenance(phase string, err error) {
 
 func (e *Engine) runMaintenance(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (err error) {
 	cleanup := func() error {
-		removed, cleanupErr := e.cleanup(ctx, owner)
-		e.maintenanceMu.Lock()
-		e.maintenance.RemovedFiles += removed
-		e.maintenanceMu.Unlock()
+		removed, cleanupErr := e.reclaim(ctx, owner, reclaimBatch)
+		e.addRemovedFiles(removed)
 		return cleanupErr
 	}
 	defer func() {
@@ -287,7 +307,9 @@ func (e *Engine) runMaintenance(ctx context.Context, owner *maintenanceOwner, cu
 		if err == nil {
 			e.setMaintenancePhase("cleanup")
 		}
-		err = errors.Join(err, cleanup())
+		removed, cleanupErr := e.inventoryAndReclaim(ctx, owner)
+		e.addRemovedFiles(removed)
+		err = errors.Join(err, cleanupErr)
 	}()
 	e.setMaintenancePhase("export")
 	if err := e.abandonEndedCycles(ctx, owner); err != nil {
@@ -297,9 +319,9 @@ func (e *Engine) runMaintenance(ctx context.Context, owner *maintenanceOwner, cu
 		rows, _, err := e.exportBatch(ctx, owner, cutoff)
 		if errors.Is(err, errArchiveSourceChanged) {
 			// A concurrent deletion rolled this batch back. Abandon its intents,
-			// reclaim its files, and select the remaining rows within the same
-			// fixed cutoff.
-			if err := errors.Join(e.abandonEndedCycles(ctx, owner), cleanup()); err != nil {
+			// so its objects become orphans, and select the remaining rows
+			// within the same fixed cutoff.
+			if err := e.abandonEndedCycles(ctx, owner); err != nil {
 				return err
 			}
 			continue

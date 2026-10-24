@@ -26,6 +26,7 @@ Boolean settings turn on only for the exact string `true`.
 | `BENCHDB_ANALYTICAL_READ_TIMEOUT` | `2m` | Maximum duration for an analytical read or run report finalization. Must be a positive Go duration, such as `30s` or `5m`. |
 | `BENCHDB_ARCHIVE_COORDINATION_DB_URL` | `BENCHDB_DB_URL` | Postgres URL for archive coordination sessions. Set it when `BENCHDB_DB_URL` goes through transaction pooling. It must reach the same primary database directly or through session pooling. `BENCHDB_ARCHIVE_COORDINATION_DB_URL_FILE` reads it from a file. |
 | `BENCHDB_MAINTENANCE_INTERVAL` | `1h` | Time between archive maintenance cycles, at least `1h`. Use `6h` or `24h` for less frequent maintenance. |
+| `BENCHDB_ARCHIVE_RETENTION` | unset (paused) | How long unreferenced archive files stay recoverable, as a Go duration such as `864h`. Cover your oldest restorable database backup plus restore time. Unset or `0` keeps every file and logs a warning; see [retention](storage-roadmap.md#retention-and-reclamation). |
 | `BENCHDB_ADDR` | `:8080` | Listen address. |
 | `BENCHDB_INTENDED_BASE_URL` | unset | Public browser URL, including any path prefix. BenchDB uses it for routing, redirects, report links, and cookies. Required for OIDC and for a [path prefix](#serve-behind-a-path-prefix). |
 | `BENCHDB_API_TOKEN` | unset | Static operator bearer token for break-glass writes. Use server-minted reporter tokens for normal automation. |
@@ -239,15 +240,18 @@ resets the next run to one interval from startup.
 Maintenance starts only after its schedule is imported and saved. Transient
 database errors during initialization retry with increasing delays, up to
 30 seconds between attempts, until the database recovers or the server stops.
-If saving a cycle's start fails, that cycle does no archive work and waits the
-normal maintenance interval before trying again. Archive reads remain available.
+If saving a cycle's start fails, that cycle exports nothing but still deletes
+files past their retention deadlines, then waits the normal maintenance
+interval before trying again. Archive reads remain available.
 
 At the start of a cycle, the worker captures an arrival cutoff five minutes
 before that start time. It exports eligible results in batches of 100,000 rows,
 then compacts files toward one million rows and refreshes stale catalogs. It
 attempts cleanup between rewrites and at the end of the cycle; active readers
-retain the files they need. After three cleanup deferrals, new analytical reads
-wait for existing queries to finish and retired files to be removed. Canceling
+retain the files they need. Cleanup deletes only files past their
+`BENCHDB_ARCHIVE_RETENTION` deadlines. After three cleanup deferrals, new
+analytical reads wait for existing queries to finish and due files to be
+removed. Canceling
 maintenance releases this gate without interrupting existing queries.
 Arrivals after that cutoff wait for the next cycle.
 Compaction and catalog refresh each perform at most one pass per file present

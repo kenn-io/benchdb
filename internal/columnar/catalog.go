@@ -112,8 +112,8 @@ GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commi
 
 // Stage immutable files locally, compare every value, then publish the staged
 // file to its key through Kit. The stage is scratch: Kit makes the published
-// copy durable, and a crash ends the unit, so the stage needs no sync. Cleanup
-// reclaims stages that a crash leaves behind.
+// copy durable, and a crash ends the unit, so the stage needs no sync.
+// Reclamation removes stages that a crash leaves behind.
 func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, relative, source, order string) (int64, error) {
 	if _, err := e.filePath(relative); err != nil {
 		return 0, err
@@ -193,6 +193,7 @@ func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (i
 		if file.Path != path {
 			continue
 		}
+		replaced := []string{file.RunsPath, file.SeriesPath}
 		if err := e.buildCatalogs(ctx, owner, tx, &file); err != nil {
 			return 0, err
 		}
@@ -200,6 +201,9 @@ func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (i
 			return 0, err
 		}
 		if _, err := pg.Exec(ctx, `UPDATE archive_file SET runs_path=$2,runs_bytes=$3,series_path=$4,series_bytes=$5 WHERE path=$1`, file.Path, file.RunsPath, file.RunsBytes, file.SeriesPath, file.SeriesBytes); err != nil {
+			return 0, err
+		}
+		if err := e.retire(ctx, pg, replaced...); err != nil {
 			return 0, err
 		}
 		if _, err := pg.Exec(ctx, `DELETE FROM archive_file_commit WHERE archive_path=$1`, file.Path); err != nil {
