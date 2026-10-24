@@ -14,7 +14,7 @@ AND json_extract(br.change_annotations, '$.exclude_from_history') IS DISTINCT FR
 AND c.sha=c.fork_point_sha AND c."timestamp" IS NOT NULL`
 
 const historyColumns = `br.id, br.history_fingerprint, br."timestamp", br.unit, br.mean,
-br.data, br.run_tags, inf.tags, br.change_annotations, hw.hash, '' AS hardware_name,
+br.data, br.run_tags, inf.tags, br.change_annotations, br.optional_benchmark_info, hw.hash, '' AS hardware_name,
 c.sha, c.repository, c.message, c."timestamp" AS commit_timestamp`
 
 const historyJoins = ` FROM benchmark_result br
@@ -23,7 +23,7 @@ JOIN "commit" c ON c.id=br.commit_id `
 
 func scanHistory(row rowScanner) (out storage.HistoryRow, err error) {
 	err = row.Scan(&out.ID, &out.HistoryFingerprint, &out.Timestamp, &out.Unit, &out.Mean,
-		denseFloats{&out.Data}, &out.RunTags, &out.InfoTags, &out.ChangeAnnotations,
+		denseFloats{&out.Data}, &out.RunTags, &out.InfoTags, &out.ChangeAnnotations, &out.OptionalBenchmarkInfo,
 		&out.HardwareHash, &out.HardwareName, &out.CommitSha, &out.CommitRepository, &out.CommitMessage, &out.CommitTimestamp)
 	return
 }
@@ -41,14 +41,14 @@ ORDER BY br.history_fingerprint,c."timestamp",br.id`, []any{fingerprints, asOf},
 
 func (s *Store) SelectHistoryForBenchmark(ctx context.Context, benchmarkID string) ([]storage.BenchmarkHistoryRow, error) {
 	return readRows(ctx, s, `SELECT br.id,br.history_fingerprint,br."timestamp",br.unit,br.mean,
-br.data,br.run_tags,inf.tags,br.change_annotations,hw.hash,hw.name,
+br.data,br.run_tags,inf.tags,br.change_annotations,br.optional_benchmark_info,hw.hash,hw.name,
 c.sha,c.repository,c.message,c."timestamp",br.benchmark_id,br.case_id,cs.name,cs.tags,
 ctx.tags,hw.id,hw.type,br.commit_repo_url`+historyJoins+`
 JOIN "case" cs ON cs.id=br.case_id JOIN context ctx ON ctx.id=br.context_id
 WHERE `+historyMembership+` AND br.benchmark_id=$1
 ORDER BY hw.name,br.history_fingerprint,c."timestamp",br.id`, []any{benchmarkID}, func(row rowScanner) (out storage.BenchmarkHistoryRow, err error) {
 		err = row.Scan(&out.ID, &out.HistoryFingerprint, &out.Timestamp, &out.Unit, &out.Mean,
-			denseFloats{&out.Data}, &out.RunTags, &out.InfoTags, &out.ChangeAnnotations,
+			denseFloats{&out.Data}, &out.RunTags, &out.InfoTags, &out.ChangeAnnotations, &out.OptionalBenchmarkInfo,
 			&out.HardwareHash, &out.HardwareName, &out.CommitSha, &out.CommitRepository, &out.CommitMessage,
 			&out.CommitTimestamp, &out.BenchmarkID, &out.CaseID, &out.CaseName, &out.CaseTags,
 			&out.ContextTags, &out.HardwareID, &out.HardwareType, &out.Repository)
@@ -57,6 +57,11 @@ ORDER BY hw.name,br.history_fingerprint,c."timestamp",br.id`, []any{benchmarkID}
 }
 
 func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) (out []storage.HistoryRow, err error) {
+	var throughTimestamp *time.Time
+	var throughID *string
+	if p.Through != nil {
+		throughTimestamp, throughID = &p.Through.CommitTimestamp, &p.Through.ResultID
+	}
 	err = s.read(ctx, func(ctx context.Context, q queryer) error {
 		source, err := s.seriesSource(ctx, q, p.Fingerprints)
 		if err != nil {
@@ -64,7 +69,7 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 		}
 		out, err = collectRows(ctx, q, `WITH series_facts AS NOT MATERIALIZED (`+source+`), members AS (
 SELECT br.id,br.history_fingerprint,br."timestamp",br.unit,br.mean,br.data,
-NULL::VARCHAR AS run_tags,NULL::VARCHAR AS info_tags,br.change_annotations,hw.hash AS hardware_hash,
+NULL::VARCHAR AS run_tags,NULL::VARCHAR AS info_tags,br.change_annotations,br.optional_benchmark_info,hw.hash AS hardware_hash,
 hw.name AS hardware_name,c.sha AS commit_sha,c.repository AS commit_repository,
 c.message AS commit_message,c."timestamp" AS commit_timestamp,
 row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,br.id DESC) AS position
@@ -72,11 +77,12 @@ FROM series_facts br JOIN hardware hw ON hw.id=br.hardware_id JOIN "commit" c ON
 WHERE `+historyMembership+`
 AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))
 AND ($2::TIMESTAMP IS NULL OR c."timestamp">=$2)
-AND ($3::TIMESTAMP IS NULL OR c."timestamp"<=$3))
-SELECT id,history_fingerprint,"timestamp",unit,mean,data,run_tags,info_tags,change_annotations,
+AND ($3::TIMESTAMP IS NULL OR c."timestamp"<=$3)
+AND ($4::TIMESTAMP IS NULL OR (c."timestamp",br.id)<=($4::TIMESTAMP,$5::VARCHAR)))
+SELECT id,history_fingerprint,"timestamp",unit,mean,data,run_tags,info_tags,change_annotations,optional_benchmark_info,
 hardware_hash,hardware_name,commit_sha,commit_repository,commit_message,commit_timestamp
 FROM members WHERE position<=256 ORDER BY history_fingerprint,commit_timestamp,id`,
-			[]any{p.Fingerprints, p.ActiveSince, p.ActiveUntil}, scanHistory)
+			[]any{p.Fingerprints, p.ActiveSince, p.ActiveUntil, throughTimestamp, throughID}, scanHistory)
 		return err
 	})
 	return

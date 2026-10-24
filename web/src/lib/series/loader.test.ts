@@ -54,6 +54,7 @@ function history(over: Partial<BenchmarkHistory> = {}): BenchmarkHistory {
 
 function seriesItem(over: Partial<SeriesListItem> = {}): SeriesListItem {
   return {
+    change_percent: null,
     context: { compiler: "gcc" },
     hardware: { id: "h1", type: "machine", name: "m5", hash: "hw1" },
     history_fingerprint: "fp1",
@@ -71,6 +72,7 @@ function seriesItem(over: Partial<SeriesListItem> = {}): SeriesListItem {
     status: "stable",
     tags: { name: "demo-benchmark", scale: "sf10" },
     unit: "s",
+    window_mean: null,
     ...over,
   };
 }

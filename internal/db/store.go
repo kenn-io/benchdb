@@ -1399,12 +1399,17 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string, revokedAt time.Ti
 // each returned tail. Full history remains available through
 // SelectHistoryForFingerprint.
 func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembersParams) ([]storage.HistoryRow, error) {
-	rows, err := s.q.SelectSeriesMembers(ctx, SelectSeriesMembersParams{
+	params := SelectSeriesMembersParams{
 		Fingerprints:        p.Fingerprints,
 		ActiveSince:         p.ActiveSince,
 		ActiveUntil:         p.ActiveUntil,
 		PerFingerprintLimit: seriesMembersTailLimit,
-	})
+	}
+	if p.Through != nil {
+		params.ThroughCommitTimestamp = &p.Through.CommitTimestamp
+		params.ThroughResultID = &p.Through.ResultID
+	}
+	rows, err := s.q.SelectSeriesMembers(ctx, params)
 	if err != nil {
 		return nil, err
 	}

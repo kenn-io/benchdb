@@ -20,6 +20,7 @@ type ListSeriesInput struct {
 	Hardware    string `query:"hardware" doc:"Filter by hardware name."`
 	Repository  string `query:"repository" doc:"Filter by repository URL."`
 	Fingerprint string `query:"fingerprint" doc:"Filter by history fingerprint."`
+	Status      string `query:"status" enum:"regressed,improved,stable,insufficient" doc:"Only series with this status."`
 	ActiveSince string `query:"active_since" doc:"Latest commit at or after this instant, RFC3339."`
 	ActiveUntil string `query:"active_until" doc:"Latest commit at or before this instant, RFC3339."`
 	Cursor      string `query:"cursor" doc:"Pagination cursor from a previous page's next_page_cursor."`
@@ -44,6 +45,7 @@ func (h *ReadHandler) getSeries(ctx context.Context, in *ListSeriesInput) (*List
 	setIfNonEmpty(&q.Hardware, in.Hardware)
 	setIfNonEmpty(&q.Repository, in.Repository)
 	setIfNonEmpty(&q.Fingerprint, in.Fingerprint)
+	setIfNonEmpty(&q.Status, in.Status)
 
 	if err := parseUTCBound(in.ActiveSince, "active_since", &q.ActiveSince); err != nil {
 		return nil, err

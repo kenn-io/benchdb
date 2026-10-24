@@ -74,11 +74,19 @@ series is `regressed` or `improved` only when all of these hold:
 - The latest result's lookback z-score is beyond 2 in the worse or better
   direction.
 - The latest result differs from the history window's mean by more than 2%.
+- When the latest result sets a tolerance in `optional_benchmark_info`, the
+  change is larger than that
+  [practical tolerance](regression-analysis.md#practical-tolerance).
 - The result before the latest, scored the same way against its own earlier
-  results, got the same status.
+  results and its own tolerance, got the same status.
 
 Otherwise the series is `stable`. It is `insufficient` when it has fewer than
 10 earlier results, mixes units, or has no variation to score against.
+
+`GET /api/series` reports each series' status with `change_percent` and
+`window_mean`: the history window's mean and how far the latest result moved
+from it, in percent of that mean. Its `status` filter lists, for example, every
+regressed series of a repository, one row per machine.
 
 A benchmark takes the most severe status of its machine tracks, in the order
 `regressed`, `improved`, `stable`, `insufficient`. A benchmark whose tracks

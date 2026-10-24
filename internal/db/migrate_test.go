@@ -18,7 +18,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 17
+const latestMigrationVersion = 18
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -407,6 +407,40 @@ func TestMigrateRescoresStoredRunVerdictsWhenComparisonsNeedTenResults(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, []string{"run:old-run"}, keys,
 		"a run flagged from a short window is rescored; benchmark statuses already needed ten results")
+}
+
+func TestMigrateRescoresStoredBenchmarksWhenStatusesHonorTolerance(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for version := 2; version <= 17; version++ {
+		files, err := filepath.Glob(fmt.Sprintf("migrations/%06d_*.up.sql", version))
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		migration, err := os.ReadFile(files[0])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 17, false)
+	_, err := pool.Exec(ctx, `INSERT INTO benchmark_verdict (
+			benchmark_id, machine_name, repository, case_id, unit, status, latest_result_id,
+			latest_result_timestamp, latest_commit_sha, latest_commit_timestamp, computed_at,
+			preview_points, change_percent, point_count)
+		VALUES ('old-bench', 'host', 'https://example.com/org/repo', 'case-1', 's', 'regressed', 'result-1',
+			now(), 'sha-1', now(), now(), '[]', 3, 12)`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DELETE FROM verdict_queue`)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Migrate(ctx, pool))
+
+	assertCurrentMigration(t, ctx, pool)
+	rows, err := pool.Query(ctx, `SELECT kind || ':' || key FROM verdict_queue ORDER BY 1`)
+	require.NoError(t, err)
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	assert.Equal(t, []string{"benchmark:old-bench"}, keys,
+		"a status stored before tolerances counted is rescored")
 }
 
 func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {

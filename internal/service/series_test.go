@@ -122,6 +122,79 @@ func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
 	assert.Nil(t, scoreSeries(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue).changePercent)
 }
 
+// withTolerance sets an explicit tolerance on the last n members.
+func withTolerance(rows []storage.HistoryRow, n int, tolerance string) []storage.HistoryRow {
+	for i := len(rows) - n; i < len(rows); i++ {
+		rows[i].OptionalBenchmarkInfo = []byte(`{"tolerance":` + tolerance + `}`)
+	}
+	return rows
+}
+
+func TestSeriesStatusHonorsExplicitTolerance(t *testing.T) {
+	libTrue := true
+	status := func(rows []storage.HistoryRow) string {
+		return seriesStatus(rows, new("s"), &libTrue)
+	}
+	held := func() []storage.HistoryRow { return membersFromSVS(then(steadyBase, 1.03, 1.03), "s") }
+
+	assert.Equal(t, statusRegressed, status(held()), "no tolerance keeps the statistical rule")
+	assert.Equal(t, statusStable, status(withTolerance(held(), 2, `{"absolute":0.05}`)), "inside an absolute floor")
+	assert.Equal(t, statusRegressed, status(withTolerance(held(), 2, `{"absolute":0.02}`)), "beyond an absolute floor")
+	assert.Equal(t, statusStable, status(withTolerance(held(), 2, `{"absolute":0,"relative_percent":5}`)),
+		"inside a relative floor")
+	assert.Equal(t, statusStable, status(withTolerance(held(), 1, `{"absolute":0.05}`)),
+		"the latest result's own tolerance holds it back")
+	assert.Equal(t, statusImproved, status(withTolerance(membersFromSVS(then(steadyBase, 0.97, 0.97), "s"), 2,
+		`{"absolute":0.02}`)), "an improvement beyond the floor")
+
+	// The result before the latest is scored against its own tolerance.
+	previousCovered := withTolerance(held(), 2, `{"absolute":0.02}`)
+	previousCovered[len(previousCovered)-2].OptionalBenchmarkInfo = []byte(`{"tolerance":{"absolute":0.05}}`)
+	assert.Equal(t, statusStable, status(previousCovered), "a change must clear both results' floors")
+
+	assert.Equal(t, statusRegressed, status(withTolerance(held(), 2, `{"absolute":0}`)),
+		"an explicit zero floor holds nothing back")
+
+	// Optional benchmark info without a tolerance changes nothing.
+	other := held()
+	other[len(other)-1].OptionalBenchmarkInfo = []byte(`{"source":"harness"}`)
+	assert.Equal(t, statusRegressed, status(other))
+}
+
+func TestSeriesStatusTreatsAnInvalidStoredToleranceAsInsufficient(t *testing.T) {
+	libTrue := true
+	rows := withTolerance(membersFromSVS(then(steadyBase, 1.03, 1.03), "s"), 1, `{"absolute":-1}`)
+	assert.Equal(t, statusInsufficient, seriesStatus(rows, new("s"), &libTrue))
+}
+
+func TestScoreSeriesReportsTheWindowMean(t *testing.T) {
+	libTrue := true
+	held := scoreSeries(membersFromSVS(then(steadyBase, 1.03, 1.03), "s"), new("s"), &libTrue)
+	require.NotNil(t, held.windowMean)
+	assert.InDelta(t, (12+1.03)/13, *held.windowMean, 1e-9)
+	assert.Nil(t, scoreSeries(membersFromSVS([]float64{1}, "s"), new("s"), &libTrue).windowMean)
+
+	overflow := scoreSeries(membersFromSVS([]float64{1e308, 1e308, 1e308}, "s"), new("s"), &libTrue)
+	assert.Nil(t, overflow.windowMean, "finite results whose sum overflows have no reportable mean")
+}
+
+func TestBenchmarkStatusHonorsExplicitTolerance(t *testing.T) {
+	regressed := machineSegment("m2", "m2", 0, regressedSVS)
+	verdicts, err := benchmarkVerdicts(benchmarkHistory(regressed))
+	require.NoError(t, err)
+	require.Len(t, verdicts, 1)
+	require.Equal(t, statusRegressed, verdicts[0].Status)
+
+	covered := machineSegment("m2", "m2", 0, regressedSVS)
+	for i := len(covered) - 2; i < len(covered); i++ {
+		covered[i].OptionalBenchmarkInfo = []byte(`{"tolerance":{"absolute":1e9}}`)
+	}
+	verdicts, err = benchmarkVerdicts(benchmarkHistory(covered))
+	require.NoError(t, err)
+	require.Len(t, verdicts, 1)
+	assert.Equal(t, statusStable, verdicts[0].Status, "the stored track uses the same tolerance rule")
+}
+
 func TestTrackVerdictTakesTheChangeOfTheSegmentThatSetsStatus(t *testing.T) {
 	// The noisy stable segment moved further (+38%) than the steady regressed
 	// one (+3%), but the regressed segment sets the status and so the change.
