@@ -111,8 +111,9 @@ GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commi
 }
 
 // Stage immutable files locally, compare every value, then publish the staged
-// file to its key through Kit. Cleanup reclaims stages that never reached an
-// upload intent.
+// file to its key through Kit. The stage is scratch: Kit makes the published
+// copy durable, and a crash ends the unit, so the stage needs no sync. Cleanup
+// reclaims stages that a crash leaves behind.
 func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, relative, source, order string) (int64, error) {
 	if _, err := e.filePath(relative); err != nil {
 		return 0, err
@@ -130,10 +131,6 @@ func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *
 	if difference != 0 {
 		return 0, errors.New("parquet values do not match the archive source")
 	}
-	// A retained stage must still hold the expected content after a crash.
-	if err := syncPath(stage); err != nil {
-		return 0, err
-	}
 	receipt, err := e.publishStaged(ctx, owner, key, stage)
 	if err != nil {
 		return 0, err
@@ -141,8 +138,8 @@ func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *
 	return receipt.Object.Size, nil
 }
 
-// stagePath is the local file that holds a key's validated contents until its
-// upload outcome is known.
+// stagePath is the scratch file that holds a key's validated contents while
+// its unit publishes them.
 func (e *Engine) stagePath(key string) string {
 	return filepath.Join(e.cfg.Dir, filepath.FromSlash(key)) + ".staging"
 }
@@ -170,9 +167,7 @@ func publishCatalogCommits(ctx context.Context, pg pgx.Tx, file archiveFile) err
 // Refresh one file per pass. The captured dependency values keep repairs that
 // race publication visible as stale, even after this transaction commits.
 func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (int, error) {
-	ctx, stop := e.maintenanceUnit(ctx)
-	defer stop()
-	pg, acquired, err := e.beginPublication(ctx, owner)
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
 	if err != nil || !acquired {
 		return 0, err
 	}

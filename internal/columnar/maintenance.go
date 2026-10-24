@@ -36,10 +36,9 @@ func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err erro
 			stats.RemovedFiles = removed
 			workErr = errors.Join(workErr, cleanupErr)
 		}()
-		// New results publish under new keys, so an upload that remains
-		// unresolved is reported without holding them back.
-		resolveErr := e.resolveUploads(ctx, owner)
-		defer func() { workErr = errors.Join(resolveErr, workErr) }()
+		if workErr = e.abandonEndedCycles(ctx, owner); workErr != nil {
+			return workErr
+		}
 		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, owner, time.Now().UTC().Add(-e.cfg.Settle))
 		if workErr != nil {
 			return workErr
@@ -91,9 +90,7 @@ func (e *Engine) maintenanceUnit(ctx context.Context) (context.Context, func()) 
 }
 
 func (e *Engine) exportBatch(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (int64, int, error) {
-	ctx, stop := e.maintenanceUnit(ctx)
-	defer stop()
-	pg, acquired, err := e.beginPublication(ctx, owner)
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -212,9 +209,7 @@ func (e *Engine) writePartitions(ctx context.Context, owner *maintenanceOwner, t
 }
 
 func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, error) {
-	ctx, stop := e.maintenanceUnit(ctx)
-	defer stop()
-	pg, acquired, err := e.beginPublication(ctx, owner)
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
 	if err != nil || !acquired {
 		return 0, err
 	}
@@ -463,9 +458,7 @@ func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed 
 		}
 		for _, entry := range entries {
 			name := filepath.Join(directory, entry.Name())
-			// A pending upload may still be published, and its retained stage
-			// is the content that reconciles an unknown outcome.
-			if entry.IsDir() || live[name] || pending[name] || pending[strings.TrimSuffix(name, ".staging")] {
+			if entry.IsDir() || live[name] || pending[name] {
 				continue
 			}
 			if !strings.HasSuffix(entry.Name(), ".parquet") && !strings.HasSuffix(entry.Name(), ".parquet.staging") {
@@ -486,15 +479,17 @@ func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed 
 	return removed, pg.Commit(ctx)
 }
 
-// pendingKeys returns keys whose upload intents are unresolved, as local paths.
+// pendingKeys returns, as local paths, keys whose uploads may still publish.
+// Cleanup keeps them. An abandoned upload's object is unreferenced and is
+// removed like any other unreferenced file. Stage files are scratch.
 func (e *Engine) pendingKeys(ctx context.Context, pg pgx.Tx) (map[string]bool, error) {
 	rows, err := pg.Query(ctx, `SELECT key FROM archive_upload WHERE storage_id=$1 AND state='pending'`, e.archive.storageID)
 	if err != nil {
-		return nil, fmt.Errorf("read pending archive uploads: %w", err)
+		return nil, fmt.Errorf("read archive upload intents: %w", err)
 	}
 	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return nil, fmt.Errorf("read pending archive uploads: %w", err)
+		return nil, fmt.Errorf("read archive upload intents: %w", err)
 	}
 	pending := make(map[string]bool, len(keys))
 	for _, key := range keys {

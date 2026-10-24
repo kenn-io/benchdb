@@ -135,13 +135,18 @@ rows differs from the exported set. A crash before that transaction leaves
 source rows, pending intents, and unreferenced files; a crash after it leaves
 published files and no duplicate ingestion rows.
 
-If Kit cannot tell whether an upload completed, the unit fails and keeps both
-the pending intent and the staged file. The next maintenance cycle publishes
-that same content to the same key again. A verified receipt, or proof that
-different bytes are stored there, settles the outcome; until then the intent
-stays pending and cleanup keeps the key and its staged file. New results
-publish under new keys meanwhile. A cycle that did not commit is abandoned only
-while the publication lock is held, after any lost COMMIT has finished.
+If Kit cannot tell whether an upload completed, the unit presents the same
+content to the same key once more with a fresh time budget. Only a verified
+receipt lets publication continue; otherwise the unit fails and keeps its
+source rows. Staged files are scratch and are removed when the unit returns.
+
+A unit that fails, crashes, or loses its COMMIT result leaves its cycle
+running with pending intents, and cleanup keeps those keys. At the start of
+the next maintenance cycle, the maintenance owner takes the publication lock,
+which proves that any earlier COMMIT has finished, and abandons every cycle
+still running. An abandoned intent can never publish. Its stored object, if
+any, is unreferenced, so cleanup removes it like any other unreferenced file.
+New results publish under new keys.
 
 Files published before receipts existed keep working. They gain receipts only
 when compaction or a catalog refresh rewrites them.

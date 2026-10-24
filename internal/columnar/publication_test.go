@@ -152,118 +152,164 @@ LEFT JOIN archive_object o ON o.key=k.key LEFT JOIN archive_upload u ON u.key=k.
 }
 
 func TestPublicationUploadOutcomeUnknown(t *testing.T) {
-	pool, ctx := dbtest.NewPool(t)
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	pool, base := dbtest.NewPool(t)
+	ctx, cancel := context.WithTimeout(base, 2*time.Minute)
 	defer cancel()
-	expectedIDs := insertHotResults(t, ctx, pool, 2)
+	first := insertHotResults(t, ctx, pool, 2)
 	e := openPublicationArchive(t, ctx, pool)
 	kit := e.objects
-	originalHotRows := hotRows(t, ctx, pool)
 
-	// The object is stored, but the response is lost.
+	// The object is stored, but the response is lost. The unit presents the
+	// same content to the same key again under a fresh unit budget, and Kit's
+	// verified receipt publishes it.
 	var uncertain string
+	var deadlines []time.Time
 	e.objects = &publishSeam{archiveObjects: kit, publish: func(ctx context.Context, key string, source io.ReadSeeker, size int64, digest [32]byte) (objectstore.Receipt, error) {
 		receipt, err := kit.Publish(ctx, key, source, size, digest)
 		if uncertain == "" {
 			uncertain = key
-			return objectstore.Receipt{}, fmt.Errorf("%w: response lost", objectstore.ErrOutcomeUnknown)
+		}
+		if key == uncertain {
+			deadline, _ := ctx.Deadline()
+			deadlines = append(deadlines, deadline)
+			if len(deadlines) == 1 {
+				return objectstore.Receipt{}, fmt.Errorf("%w: response lost", objectstore.ErrOutcomeUnknown)
+			}
 		}
 		return receipt, err
 	}}
-	_, err := e.Maintain(ctx)
-	require.ErrorIs(t, err, objectstore.ErrOutcomeUnknown)
-	require.NotEmpty(t, uncertain)
-	assert.Equal(t, originalHotRows, hotRows(t, ctx, pool), "only a verified receipt advances publication")
+	// Without a caller deadline, each attempt's deadline is its unit budget.
+	_, err := e.Maintain(base)
+	require.NoError(t, err)
+	require.Len(t, deadlines, 2)
+	assert.True(t, deadlines[1].After(deadlines[0]), "the retry has a fresh unit budget")
+	assert.Equal(t, int64(0), hotRows(t, ctx, pool))
+	assert.Equal(t, first, visibleIDs(t, ctx, e))
 	upload, cycle := uploadState(t, ctx, pool, uncertain)
-	assert.Equal(t, "pending", upload)
-	assert.Equal(t, "running", cycle)
-	_, err = os.Stat(filepath.Join(e.cfg.Dir, uncertain))
-	unknownObjectStillExists := err == nil
-	assert.True(t, unknownObjectStillExists, "cleanup must not remove an object whose upload is unresolved")
-	_, err = os.Stat(e.stagePath(uncertain))
-	require.NoError(t, err, "the expected content is retained for reconciliation")
+	assert.Equal(t, "verified", upload)
+	assert.Equal(t, "committed", cycle)
 
-	// A fresh attempt that is still uncertain retains the intent, while new
-	// results publish under new keys.
+	// When the retry is also uncertain, the unit fails without publishing,
+	// and its intent stays pending while its cycle may still be resolved.
+	second := insertHotResults(t, ctx, pool, 2)
+	originalHotRows := hotRows(t, ctx, pool)
+	uncertain = ""
+	attempts := 0
 	e.objects = &publishSeam{archiveObjects: kit, publish: func(ctx context.Context, key string, source io.ReadSeeker, size int64, digest [32]byte) (objectstore.Receipt, error) {
-		if key == uncertain {
-			return objectstore.Receipt{}, fmt.Errorf("%w: still unreachable", objectstore.ErrOutcomeUnknown)
+		if uncertain == "" {
+			uncertain = key
 		}
-		return kit.Publish(ctx, key, source, size, digest)
+		if key != uncertain {
+			return kit.Publish(ctx, key, source, size, digest)
+		}
+		attempts++
+		if _, err := kit.Publish(ctx, key, source, size, digest); err != nil {
+			return objectstore.Receipt{}, err
+		}
+		return objectstore.Receipt{}, fmt.Errorf("%w: still unreachable", objectstore.ErrOutcomeUnknown)
 	}}
 	_, err = e.Maintain(ctx)
 	require.ErrorIs(t, err, objectstore.ErrOutcomeUnknown)
-	assert.Equal(t, int64(0), hotRows(t, ctx, pool))
-	assert.Equal(t, expectedIDs, visibleIDs(t, ctx, e))
+	assert.Equal(t, 2, attempts)
+	assert.Equal(t, originalHotRows, hotRows(t, ctx, pool), "only a verified receipt advances publication")
 	upload, cycle = uploadState(t, ctx, pool, uncertain)
 	assert.Equal(t, "pending", upload)
 	assert.Equal(t, "running", cycle)
-	var referenced bool
-	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM archive_file WHERE $1 IN (path,runs_path,series_path))`, uncertain).Scan(&referenced))
-	assert.False(t, referenced, "an unresolved key never enters the manifest")
 	_, err = os.Stat(filepath.Join(e.cfg.Dir, uncertain))
-	require.NoError(t, err)
+	require.NoError(t, err, "cleanup keeps the key while its intent is pending")
 
-	// Presenting the same content again yields a verified receipt, which
-	// resolves the upload. Its cycle can then be abandoned.
-	e.objects = kit
+	// The next cycle abandons the ended cycle's intent without asking Kit
+	// again, and publishes the results under new keys.
+	republished := false
+	e.objects = &publishSeam{archiveObjects: kit, publish: func(ctx context.Context, key string, source io.ReadSeeker, size int64, digest [32]byte) (objectstore.Receipt, error) {
+		republished = republished || key == uncertain
+		return kit.Publish(ctx, key, source, size, digest)
+	}}
 	_, err = e.Maintain(ctx)
 	require.NoError(t, err)
+	assert.False(t, republished)
 	upload, cycle = uploadState(t, ctx, pool, uncertain)
 	assert.Equal(t, "abandoned", upload)
 	assert.Equal(t, "abandoned", cycle)
-	_, err = os.Stat(e.stagePath(uncertain))
-	require.ErrorIs(t, err, os.ErrNotExist)
+	assert.Equal(t, int64(0), hotRows(t, ctx, pool))
+	expectedIDs := slices.Sorted(slices.Values(append(first, second...)))
 	assert.Equal(t, expectedIDs, visibleIDs(t, ctx, e))
+	var referenced bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM archive_file WHERE $1 IN (path,runs_path,series_path))`, uncertain).Scan(&referenced))
+	assert.False(t, referenced, "an abandoned key never enters the manifest")
+	// Abandoned objects are unreferenced files, which cleanup still removes.
+	_, err = os.Stat(filepath.Join(e.cfg.Dir, uncertain))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// TestCommitUncertaintyResolvedUnderPublicationLock models a publication whose
-// COMMIT outcome is unknown: its transaction still holds the publication lock.
-// No cycle is abandoned, and none of its objects removed, until it resolves.
-func TestCommitUncertaintyResolvedUnderPublicationLock(t *testing.T) {
-	pool, ctx := dbtest.NewPool(t)
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	expectedIDs := insertHotResults(t, ctx, pool, 1)
-	e := openPublicationArchive(t, ctx, pool)
+// TestEndedCycleAbandonedUnderPublicationLock models a unit that crashed or
+// lost its COMMIT result after storing an object. Its transaction can hold
+// the publication lock until it resolves, and nothing is abandoned until
+// then. Abandonment does not depend on the local stage file.
+func TestEndedCycleAbandonedUnderPublicationLock(t *testing.T) {
+	for _, stage := range []string{"missing stage", "corrupt stage"} {
+		t.Run(stage, func(t *testing.T) {
+			pool, ctx := dbtest.NewPool(t)
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			expectedIDs := insertHotResults(t, ctx, pool, 1)
+			e := openPublicationArchive(t, ctx, pool)
+			kit := e.objects
 
-	committing, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = committing.Rollback(ctx) }()
-	_, err = committing.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, publicationLock)
-	require.NoError(t, err)
-	conn, err := pool.Acquire(ctx)
-	require.NoError(t, err)
-	cycle := uuid.New()
-	key := "data/2024-01-uncertain-commit.parquet"
-	content := []byte("verified before the commit response was lost")
-	digest := sha256.Sum256(content)
-	require.NoError(t, e.archive.startCycle(ctx, conn.Conn(), cycle, "lost-owner"))
-	require.NoError(t, e.archive.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: cycle, Key: key, Size: int64(len(content)), SHA256: digest}))
-	conn.Release()
-	_, err = e.objects.Publish(ctx, key, strings.NewReader(string(content)), int64(len(content)), digest)
-	require.NoError(t, err)
+			committing, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = committing.Rollback(ctx) }()
+			_, err = committing.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, publicationLock)
+			require.NoError(t, err)
+			conn, err := pool.Acquire(ctx)
+			require.NoError(t, err)
+			cycle := uuid.New()
+			key := "data/2024-01-ended-cycle.parquet"
+			content := []byte("stored before the unit ended")
+			digest := sha256.Sum256(content)
+			require.NoError(t, e.archive.startCycle(ctx, conn.Conn(), cycle, "ended-owner"))
+			require.NoError(t, e.archive.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: cycle, Key: key, Size: int64(len(content)), SHA256: digest}))
+			conn.Release()
+			_, err = kit.Publish(ctx, key, strings.NewReader(string(content)), int64(len(content)), digest)
+			require.NoError(t, err)
+			if stage == "corrupt stage" {
+				require.NoError(t, os.WriteFile(e.stagePath(key), []byte("truncated"), 0600))
+			}
 
-	_, err = e.Maintain(ctx)
-	require.ErrorContains(t, err, "archive publication is busy")
-	upload, state := uploadState(t, ctx, pool, key)
-	assert.Equal(t, "pending", upload)
-	assert.Equal(t, "running", state)
-	_, err = os.Stat(filepath.Join(e.cfg.Dir, key))
-	require.NoError(t, err, "an uncertain commit forbids removing its objects")
+			_, err = e.Maintain(ctx)
+			require.ErrorContains(t, err, "archive publication is busy")
+			upload, state := uploadState(t, ctx, pool, key)
+			assert.Equal(t, "pending", upload)
+			assert.Equal(t, "running", state)
+			_, err = os.Stat(filepath.Join(e.cfg.Dir, key))
+			require.NoError(t, err, "an unresolved publication forbids removing its objects")
 
-	// The commit did not happen. Under the publication lock, the next cycle
-	// abandons the intent and exports the results with new keys.
-	require.NoError(t, committing.Rollback(ctx))
-	_, err = e.Maintain(ctx)
-	require.NoError(t, err)
-	upload, state = uploadState(t, ctx, pool, key)
-	assert.Equal(t, "abandoned", upload)
-	assert.Equal(t, "abandoned", state)
-	assert.Equal(t, int64(0), hotRows(t, ctx, pool))
-	assert.Equal(t, expectedIDs, visibleIDs(t, ctx, e))
-	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		return e.archive.verifyUpload(ctx, tx, key, objectReceipt{Size: int64(len(content)), SHA256: digest, VerificationMethod: "readback-sha256"})
-	})
-	require.ErrorContains(t, err, "archive upload cycle is closed", "an abandoned upload can never publish")
+			// The transaction ended without committing. Under the publication
+			// lock, the next cycle abandons the intent without asking Kit and
+			// exports the results with new keys.
+			require.NoError(t, committing.Rollback(ctx))
+			republished := false
+			e.objects = &publishSeam{archiveObjects: kit, publish: func(ctx context.Context, k string, source io.ReadSeeker, size int64, digest [32]byte) (objectstore.Receipt, error) {
+				republished = republished || k == key
+				return kit.Publish(ctx, k, source, size, digest)
+			}}
+			_, err = e.Maintain(ctx)
+			require.NoError(t, err)
+			assert.False(t, republished)
+			upload, state = uploadState(t, ctx, pool, key)
+			assert.Equal(t, "abandoned", upload)
+			assert.Equal(t, "abandoned", state)
+			assert.Equal(t, int64(0), hotRows(t, ctx, pool))
+			assert.Equal(t, expectedIDs, visibleIDs(t, ctx, e))
+			// Abandoned objects are unreferenced files, which cleanup still removes.
+			_, err = os.Stat(filepath.Join(e.cfg.Dir, key))
+			require.ErrorIs(t, err, os.ErrNotExist)
+			_, err = os.Stat(e.stagePath(key))
+			require.ErrorIs(t, err, os.ErrNotExist, "stage files are scratch")
+			err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+				return e.archive.verifyUpload(ctx, tx, key, objectReceipt{Size: int64(len(content)), SHA256: digest, VerificationMethod: "readback-sha256"})
+			})
+			require.ErrorContains(t, err, "archive upload cycle is closed", "an abandoned upload can never publish")
+		})
+	}
 }

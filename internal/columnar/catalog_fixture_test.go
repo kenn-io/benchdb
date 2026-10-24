@@ -18,7 +18,7 @@ func publishArchiveFixture(t *testing.T, ctx context.Context, e *Engine, relativ
 	// The fact file has no receipt, like files published before Kit.
 	file := archiveFile{Path: relative, Month: month, Rows: int64(count), Bytes: info.Size()}
 	require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error {
-		pg, acquired, err := e.beginPublication(ctx, owner)
+		ctx, pg, acquired, err := e.openPublication(ctx, owner)
 		if err != nil {
 			return err
 		}
