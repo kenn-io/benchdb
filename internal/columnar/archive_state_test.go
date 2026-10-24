@@ -2,6 +2,7 @@ package columnar
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json/v2"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/benchdb/internal/dbtest"
+	"go.kenn.io/kit/objectstore"
 )
 
 func TestArchiveStateLifecycle(t *testing.T) {
@@ -30,17 +32,17 @@ func TestArchiveStateLifecycle(t *testing.T) {
 	require.Error(t, state.recordUpload(ctx, conn.Conn(), uploadIntent{CycleID: cycle, Key: "data/other.parquet", Size: 12}), "intent writer must not commit an existing publication transaction")
 	require.NoError(t, tx.Rollback(ctx))
 	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.finishCycle(ctx, tx, cycle, "committed") }), "unverified uploads cannot be committed")
-	receipt := objectReceipt{Size: 12, SHA256: intent.SHA256, Checksums: []objectChecksum{{Algorithm: "sha256", Value: intent.SHA256[:], Scope: "full"}, {Algorithm: "sha256", Value: intent.SHA256[:], Scope: "composite"}, {Algorithm: "crc32c", Value: []byte{1, 2, 3, 4}, Scope: "full"}}, Revision: "revision-a", VerificationMethod: "provider-sha256"}
+	fullSHA := base64.StdEncoding.EncodeToString(intent.SHA256[:])
+	receipt := objectReceipt{Size: 12, SHA256: intent.SHA256, Checksums: []objectChecksum{{Algorithm: "sha256", Value: fullSHA, Scope: "full"}, {Algorithm: "sha256", Value: fullSHA + "-2", Scope: "composite"}, {Algorithm: "crc32c", Value: "AQIDBA==", Scope: "full"}}, Revision: "revision-a", VerificationMethod: "provider-sha256"}
 	badReceipt := receipt
 	badReceipt.Size = 13
-	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, badReceipt) }))
-	crcComposite := receipt
-	crcComposite.VerificationMethod = "provider-crc32c"
-	crcComposite.Checksums = []objectChecksum{{Algorithm: "crc32c", Value: []byte{1, 2, 3, 4}, Scope: "composite"}}
-	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, crcComposite) }), "provider verification requires a full checksum")
-	compositeOnly := receipt
-	compositeOnly.Checksums = []objectChecksum{{Algorithm: "sha256", Value: intent.SHA256[:], Scope: "composite"}}
-	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, compositeOnly) }), "composite SHA256 is not a full source checksum")
+	require.Error(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, badReceipt) }), "a receipt must match the intent's size")
+	unknownMethod := receipt
+	unknownMethod.VerificationMethod = "etag"
+	require.ErrorContains(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, unknownMethod) }), "unknown verification method")
+	incomplete := receipt
+	incomplete.Checksums = []objectChecksum{{Algorithm: "sha256", Scope: "full"}}
+	require.ErrorContains(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, incomplete) }), "checksum metadata is incomplete")
 	require.NoError(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.verifyUpload(ctx, tx, intent.Key, receipt) }))
 	require.NoError(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error { return state.finishCycle(ctx, tx, cycle, "committed") }))
 	var checksumJSON []byte
@@ -50,8 +52,9 @@ func TestArchiveStateLifecycle(t *testing.T) {
 	require.Len(t, checksums, 3)
 	assert.Equal(t, "full", checksums[0].Scope)
 	assert.Equal(t, "composite", checksums[1].Scope)
+	assert.Equal(t, fullSHA+"-2", checksums[1].Value, "composite values keep the provider's part-count suffix")
 	assert.Equal(t, "crc32c", checksums[2].Algorithm)
-	assert.Equal(t, []byte{1, 2, 3, 4}, checksums[2].Value)
+	assert.Equal(t, "AQIDBA==", checksums[2].Value)
 	var bytes int64
 	var revision string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT byte_size,revision FROM archive_object WHERE key=$1`, intent.Key).Scan(&bytes, &revision))
@@ -146,7 +149,7 @@ func TestArchiveStateReadbackReceipt(t *testing.T) {
 	digest := sha256.Sum256([]byte("archive"))
 	for _, receipt := range []objectReceipt{
 		{Size: 12, SHA256: digest, VerificationMethod: "readback-sha256"},
-		{Size: 12, SHA256: digest, Checksums: []objectChecksum{{Algorithm: "crc32c", Value: []byte{1, 2, 3, 4}, Scope: "full"}}, Revision: "generation-a", VerificationMethod: "provider-crc32c"},
+		{Size: 12, SHA256: digest, Checksums: []objectChecksum{{Algorithm: "crc32c", Value: "AQIDBA==", Scope: "full"}}, Revision: "generation-a", VerificationMethod: "provider-crc32c"},
 	} {
 		t.Run(receipt.VerificationMethod, func(t *testing.T) {
 			intent := uploadIntent{CycleID: cycle, Key: "data/" + receipt.VerificationMethod + ".parquet", Size: 12, SHA256: digest}
@@ -166,8 +169,46 @@ func TestArchiveStateReadbackReceipt(t *testing.T) {
 				require.NoError(t, json.Unmarshal(checksumJSON, &checksums))
 				require.Len(t, checksums, 1)
 				assert.Equal(t, "full", checksums[0].Scope)
-				assert.Equal(t, []byte{1, 2, 3, 4}, checksums[0].Value)
+				assert.Equal(t, "AQIDBA==", checksums[0].Value)
 			}
 		})
 	}
+}
+
+// Some S3-compatible endpoints confirm a single-part upload's SHA-256 in the
+// PUT response but omit the checksum type on inspection. Kit then verifies the
+// upload by its revision and reports the inspected checksum as composite.
+func TestArchiveStateAcceptsKitReceiptWithCompositeInspection(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	var state archiveState
+	require.NoError(t, conn.QueryRow(ctx, `SELECT id FROM archive_storage WHERE active`).Scan(&state.storageID))
+	cycle := uuid.New()
+	require.NoError(t, state.startCycle(ctx, conn.Conn(), cycle, "owner-a"))
+	digest := sha256.Sum256([]byte("archive"))
+	intent := uploadIntent{CycleID: cycle, Key: "data/composite.parquet", Size: 12, SHA256: digest}
+	require.NoError(t, state.recordUpload(ctx, conn.Conn(), intent))
+	kitReceipt := objectstore.Receipt{
+		Object: objectstore.Metadata{
+			Key:       intent.Key,
+			Size:      12,
+			Revision:  `"etag-a"`,
+			Checksums: []objectstore.Checksum{{Algorithm: "sha256", Value: "0uaWfD5PuLjrqEJeKjcSfp0W3rkCD3DEtTL6k9+bM4w=", Scope: "composite"}},
+		},
+		SHA256:       digest,
+		Verification: "provider-sha256",
+	}
+
+	require.NoError(t, pgx.BeginFunc(ctx, conn.Conn(), func(tx pgx.Tx) error {
+		return state.verifyUpload(ctx, tx, intent.Key, receiptFromKit(kitReceipt))
+	}))
+
+	var method, revision string
+	var checksumJSON []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT verification_method,revision,checksums FROM archive_object WHERE key=$1`, intent.Key).Scan(&method, &revision, &checksumJSON))
+	assert.Equal(t, "provider-sha256", method)
+	assert.Equal(t, `"etag-a"`, revision)
+	assert.JSONEq(t, `[{"algorithm":"sha256","value":"0uaWfD5PuLjrqEJeKjcSfp0W3rkCD3DEtTL6k9+bM4w=","scope":"composite"}]`, string(checksumJSON))
 }

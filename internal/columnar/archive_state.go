@@ -1,7 +1,6 @@
 package columnar
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -10,6 +9,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"go.kenn.io/kit/objectstore"
 )
 
 // archiveState owns no connections. Publication callers pass their transaction
@@ -23,9 +23,11 @@ type uploadIntent struct {
 	SHA256  [32]byte
 }
 
+// objectChecksum keeps Kit's representation: standard base64 for a full
+// checksum, and the provider's own text for a composite one.
 type objectChecksum struct {
 	Algorithm string `json:"algorithm"`
-	Value     []byte `json:"value"`
+	Value     string `json:"value"`
 	Scope     string `json:"scope"`
 }
 
@@ -35,6 +37,20 @@ type objectReceipt struct {
 	Checksums          []objectChecksum `json:"checksums"`
 	Revision           string           `json:"revision"`
 	VerificationMethod string           `json:"verification_method"`
+}
+
+func receiptFromKit(receipt objectstore.Receipt) objectReceipt {
+	checksums := make([]objectChecksum, 0, len(receipt.Object.Checksums))
+	for _, checksum := range receipt.Object.Checksums {
+		checksums = append(checksums, objectChecksum{Algorithm: checksum.Algorithm, Value: checksum.Value, Scope: checksum.Scope})
+	}
+	return objectReceipt{
+		Size:               receipt.Object.Size,
+		SHA256:             receipt.SHA256,
+		Checksums:          checksums,
+		Revision:           receipt.Object.Revision,
+		VerificationMethod: receipt.Verification,
+	}
 }
 
 func (s archiveState) startCycle(ctx context.Context, conn *pgx.Conn, id uuid.UUID, owner string) error {
@@ -72,23 +88,19 @@ func (s archiveState) recordUpload(ctx context.Context, conn *pgx.Conn, intent u
 }
 
 func (s archiveState) verifyUpload(ctx context.Context, tx pgx.Tx, key string, receipt objectReceipt) error {
-	validVerification := receipt.VerificationMethod == "readback-sha256"
+	// Kit verifies stored bytes before it issues a receipt, and its method
+	// names that proof. Inspected checksums can be composite even when Kit
+	// verified the upload, so BenchDB binds the receipt to the intent's size
+	// and SHA-256 below instead of repeating provider-specific checks.
+	switch receipt.VerificationMethod {
+	case "provider-sha256", "provider-crc32c", "readback-sha256":
+	default:
+		return fmt.Errorf("archive receipt has unknown verification method %q", receipt.VerificationMethod)
+	}
 	for _, checksum := range receipt.Checksums {
-		if checksum.Algorithm == "" || len(checksum.Value) == 0 || (checksum.Scope != "full" && checksum.Scope != "composite") {
+		if checksum.Algorithm == "" || checksum.Value == "" || (checksum.Scope != "full" && checksum.Scope != "composite") {
 			return errors.New("archive checksum metadata is incomplete")
 		}
-		if checksum.Scope != "full" {
-			continue
-		}
-		switch receipt.VerificationMethod {
-		case "provider-sha256":
-			validVerification = validVerification || (checksum.Algorithm == "sha256" && bytes.Equal(checksum.Value, receipt.SHA256[:]))
-		case "provider-crc32c":
-			validVerification = validVerification || (checksum.Algorithm == "crc32c" && len(checksum.Value) == 4)
-		}
-	}
-	if !validVerification {
-		return errors.New("archive receipt has no matching full verification checksum")
 	}
 
 	data, err := json.Marshal(receipt)
