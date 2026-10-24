@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,7 @@ func TestArchiveCanOpenDuringMaintenance(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, first.Close()) })
 	held, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	go func() {
-		finished <- first.withBuilder(ctx, func() error {
+		finished <- first.withBuilder(ctx, func(*maintenanceOwner) error {
 			close(held)
 			<-release
 			return nil
@@ -59,6 +58,7 @@ func TestArchiveOpenDoesNotPinFilesWhileWaitingForDatabase(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	tracer.pool = pool
 	archive := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1}
 	first, err := Open(ctx, pool, archive)
 	require.NoError(t, err)
@@ -81,11 +81,7 @@ func TestArchiveOpenDoesNotPinFilesWhileWaitingForDatabase(t *testing.T) {
 	case <-opening.Done():
 		require.FailNow(t, "startup did not request its database connection")
 	}
-	cleaner := flock.New(filepath.Join(archive.Dir, ".readers.lock"))
-	locked, err := cleaner.TryLock()
-	require.NoError(t, err)
-	assert.True(t, locked, "startup must not hold files while cleanup owns the only database connection")
-	require.NoError(t, cleaner.Close())
+	assert.True(t, reclamationAvailable(t, ctx, original), "startup must not hold files while waiting for the only database connection")
 	connection.Release()
 	require.NoError(t, <-done)
 }

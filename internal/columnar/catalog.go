@@ -171,14 +171,16 @@ func publishCatalogCommits(ctx context.Context, pg pgx.Tx, file archiveFile) err
 
 // Refresh one file per pass. The captured dependency values keep repairs that
 // race publication visible as stale, even after this transaction commits.
-func (e *Engine) refreshCatalog(ctx context.Context) (int, error) {
-	pg, err := e.pg.Begin(ctx)
+func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (int, error) {
+	ctx, stop := e.maintenanceUnit(ctx)
+	defer stop()
+	pg, err := owner.begin(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
+	defer func() { _ = rollback(pg) }()
 	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&acquired); err != nil || !acquired {
+	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&acquired); err != nil || !acquired {
 		return 0, err
 	}
 	tx, err := e.builder.BeginTx(ctx, nil)

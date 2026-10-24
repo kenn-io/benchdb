@@ -24,6 +24,7 @@ Boolean settings turn on only for the exact string `true`.
 | `BENCHDB_DUCKDB_MEMORY_MB` | 256 MiB per thread, bounded to 1024–8192 MiB | Total DuckDB buffer memory in MiB, divided over all readers and maintenance. |
 | `BENCHDB_DUCKDB_READERS` | 1–4, based on threads | Concurrent analytical readers. Defaults to one per eight threads after reserving one thread, rounded down, with a minimum of one and a maximum of four. |
 | `BENCHDB_ANALYTICAL_READ_TIMEOUT` | `2m` | Maximum duration for an analytical read or run report finalization. Must be a positive Go duration, such as `30s` or `5m`. |
+| `BENCHDB_ARCHIVE_COORDINATION_DB_URL` | `BENCHDB_DB_URL` | Postgres URL for archive coordination sessions. Set it when `BENCHDB_DB_URL` goes through transaction pooling. It must reach the same primary database directly or through session pooling. `BENCHDB_ARCHIVE_COORDINATION_DB_URL_FILE` reads it from a file. |
 | `BENCHDB_MAINTENANCE_INTERVAL` | `1h` | Time between archive maintenance cycles, at least `1h`. Use `6h` or `24h` for less frequent maintenance. |
 | `BENCHDB_ADDR` | `:8080` | Listen address. |
 | `BENCHDB_INTENDED_BASE_URL` | unset | Public browser URL, including any path prefix. BenchDB uses it for routing, redirects, report links, and cookies. Required for OIDC and for a [path prefix](#serve-behind-a-path-prefix). |
@@ -134,6 +135,16 @@ completion, including time waiting for a reader or run lock. Earlier caller
 deadlines take precedence. Set `BENCHDB_ANALYTICAL_READ_TIMEOUT` to a positive
 duration to change the default two-minute limit. An expired report is not saved.
 The existing PostgreSQL statement timeout settings still apply.
+
+Archive readers and maintenance coordinate through PostgreSQL advisory locks,
+so processes with separate working directories never remove files that another
+process is reading. Each analytical read holds one coordination session for
+its duration, and maintenance holds up to two. Budget
+`BENCHDB_DUCKDB_READERS` plus two PostgreSQL connections per process for
+coordination, in addition to the application pool. These sessions must keep
+one PostgreSQL backend until they disconnect: connect directly or through
+session pooling, never transaction pooling. A maintenance cycle whose client
+connection is lost keeps ownership until PostgreSQL ends that backend.
 
 Maintenance runs hourly by default. Set `BENCHDB_MAINTENANCE_INTERVAL` to a
 longer duration, such as `6h` or `24h`, to trade larger PostgreSQL ingestion

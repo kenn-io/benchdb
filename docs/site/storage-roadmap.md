@@ -113,7 +113,8 @@ builder's captured values rather than rereading newer commit metadata.
 
 ## Publication and recovery
 
-The archive worker takes an exclusive builder lock. It chooses a bounded snapshot
+The archive worker holds a PostgreSQL maintenance-ownership advisory lock on a
+dedicated session for its cycle, and publishes on that session. It chooses a bounded snapshot
 of immutable settled rows and exports Zstd Parquet files with a staging suffix
 inside the private data directory on the same volume. Files are partitioned
 by UTC result month and ordered for repository/fingerprint history reads.
@@ -129,8 +130,9 @@ of deleted source rows differs from the exported set. A crash before that
 transaction leaves source rows and unreferenced files; a crash after it leaves
 published files and no duplicate ingestion rows.
 
-Readers hold a shared publication lock for the lifetime of their analytical
-snapshot. File garbage collection takes its exclusive counterpart. This keeps
+Readers hold a shared PostgreSQL reclamation advisory lock on a dedicated
+session for the lifetime of their analytical snapshot. File garbage collection
+takes its exclusive counterpart. This keeps
 files referenced by a running query alive. Export work occurs outside this
 short publication/cleanup boundary.
 
@@ -151,8 +153,9 @@ validates replacement files, then atomically replaces manifest entries. It
 removes only the overlay versions baked into those replacements. Concurrent
 newer annotations or deletions remain applicable. Retired and orphaned files
 are removed only while the cleanup lock excludes active readers/builders.
-Cleanup initially defers for active readers. After three deferrals it gates
-new analytical reads until existing readers finish and retired files are removed.
+Cleanup initially defers for active readers. After three deferrals it queues
+an exclusive request, so new analytical reads wait until existing readers
+finish and retired files are removed.
 PostgreSQL-only metadata reads do not use that gate.
 Small files accumulate before they are combined with much larger files.
 Ordinary compaction combines comparable volumes or fills the row target;

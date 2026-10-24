@@ -125,7 +125,7 @@ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pause_publication();
 	var pid uint32
 	require.Eventually(t, func() bool {
 		return pool.QueryRow(ctx, `SELECT pid FROM pg_stat_activity
-WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='advisory'`).Scan(&pid) == nil
+WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait_event='advisory'`).Scan(&pid) == nil
 	}, 10*time.Second, 10*time.Millisecond)
 	// Refuse new connections too: pgx tries a separate CancelRequest after a
 	// transport failure. Existing idle connections can still run cleanup.
@@ -142,7 +142,9 @@ WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='
 	require.Error(t, result.err)
 	// A later maintenance cycle must also defer cleanup while the original
 	// publication is unresolved; skipping only the failed call is insufficient.
-	retry, err := e.Maintain(ctx)
+	retryCtx, stopRetry := context.WithTimeout(ctx, 5*time.Second)
+	defer stopRetry()
+	retry, err := e.Maintain(retryCtx)
 	require.Error(t, err)
 	var published int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published))
@@ -152,6 +154,15 @@ WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='
 	require.Eventually(t, func() bool {
 		return pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published) == nil && published == 1
 	}, 10*time.Second, 10*time.Millisecond, "PostgreSQL must actually commit after the client error")
+	// The publisher's session still owns maintenance: the relay keeps its
+	// backend socket open, where PostgreSQL would eventually detect the lost
+	// client. End that session as PostgreSQL would.
+	_, err = pool.Exec(ctx, `SELECT pg_terminate_backend($1)`, pid)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var alive bool
+		return pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1)`, pid).Scan(&alive) == nil && !alive
+	}, 10*time.Second, 10*time.Millisecond)
 	var hot int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result WHERE id=$1`, id).Scan(&hot))
 	require.Zero(t, hot)

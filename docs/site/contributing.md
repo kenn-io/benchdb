@@ -146,6 +146,8 @@ or a container cannot start. Only `-short` skips them.
 ```bash
 make duckdb-extensions
 go test -shuffle=on ./internal/dbtest/...
+go test -shuffle=on ./internal/columnar \
+  -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost)$'
 ```
 
 The tests use PostgreSQL 15.2 by default. Set

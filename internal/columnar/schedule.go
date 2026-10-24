@@ -242,9 +242,9 @@ func (e *Engine) failMaintenance(phase string, err error) {
 }
 
 func (e *Engine) runMaintenance(ctx context.Context, cutoff time.Time) error {
-	return e.withBuilder(ctx, func() (err error) {
+	return e.withBuilder(ctx, func(owner *maintenanceOwner) (err error) {
 		cleanup := func() error {
-			removed, cleanupErr := e.cleanup(ctx)
+			removed, cleanupErr := e.cleanup(ctx, owner)
 			e.maintenanceMu.Lock()
 			e.maintenance.RemovedFiles += removed
 			e.maintenanceMu.Unlock()
@@ -259,7 +259,7 @@ func (e *Engine) runMaintenance(ctx context.Context, cutoff time.Time) error {
 		}()
 		e.setMaintenancePhase("export")
 		for {
-			rows, _, err := e.exportBatch(ctx, cutoff)
+			rows, _, err := e.exportBatch(ctx, owner, cutoff)
 			if errors.Is(err, errArchiveSourceChanged) {
 				// A concurrent deletion rolled this batch back. Reclaim its files
 				// and select the remaining rows within the same fixed cutoff.
@@ -281,12 +281,14 @@ func (e *Engine) runMaintenance(ctx context.Context, cutoff time.Time) error {
 		// Bound rewrites by this cycle's file count. Concurrent edits/repairs
 		// can otherwise keep selecting the same file forever.
 		var files int
-		if err := e.pg.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files); err != nil {
+		if err := owner.withMetadata(ctx, func(conn *pgx.Conn) error {
+			return conn.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&files)
+		}); err != nil {
 			return err
 		}
 		for range files {
 			e.setMaintenancePhase("compact")
-			n, err := e.compact(ctx)
+			n, err := e.compact(ctx, owner)
 			if err != nil {
 				return err
 			}
@@ -304,7 +306,7 @@ func (e *Engine) runMaintenance(ctx context.Context, cutoff time.Time) error {
 		}
 		for range files {
 			e.setMaintenancePhase("catalogs")
-			n, err := e.refreshCatalog(ctx)
+			n, err := e.refreshCatalog(ctx, owner)
 			if err != nil {
 				return err
 			}

@@ -7,6 +7,10 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 )
 
 // ConfigFromEnv loads the archive settings shared by the server and admin jobs.
@@ -40,6 +44,16 @@ func ConfigFromEnv() (Config, error) {
 		}
 		cfg.ReadTimeout = timeout
 	}
+	coordination, err := runtimeconfig.Secret("BENCHDB_ARCHIVE_COORDINATION_DB_URL")
+	if err != nil {
+		return Config{}, err
+	}
+	if coordination != "" {
+		if _, err := pgxpool.ParseConfig(coordination); err != nil {
+			return Config{}, errors.New("BENCHDB_ARCHIVE_COORDINATION_DB_URL must be a valid PostgreSQL connection URL")
+		}
+		cfg.CoordinationDBURL = coordination
+	}
 	if value := os.Getenv("BENCHDB_MAINTENANCE_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil || interval < time.Hour {
@@ -47,7 +61,7 @@ func ConfigFromEnv() (Config, error) {
 		}
 		cfg.Interval = interval
 	}
-	_, err := cfg.resourceLimits()
+	_, err = cfg.resourceLimits()
 	return cfg, err
 }
 

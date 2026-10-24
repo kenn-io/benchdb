@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -31,55 +30,68 @@ var errArchiveSourceChanged = errors.New("archive source changed during export")
 // Maintain exports one bounded batch, compacts one bounded group, refreshes
 // one stale catalog, and removes unreferenced files. It can also be called by an operator to drain on demand.
 func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err error) {
-	err = e.withBuilder(ctx, func() (workErr error) {
+	err = e.withBuilder(ctx, func(owner *maintenanceOwner) (workErr error) {
 		defer func() {
-			removed, cleanupErr := e.cleanup(ctx)
+			removed, cleanupErr := e.cleanup(ctx, owner)
 			stats.RemovedFiles = removed
 			workErr = errors.Join(workErr, cleanupErr)
 		}()
-		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, time.Now().UTC().Add(-e.cfg.Settle))
+		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, owner, time.Now().UTC().Add(-e.cfg.Settle))
 		if workErr != nil {
 			return workErr
 		}
-		stats.CompactedFiles, workErr = e.compact(ctx)
+		stats.CompactedFiles, workErr = e.compact(ctx, owner)
 		if workErr != nil {
 			return workErr
 		}
-		stats.RefreshedCatalogs, workErr = e.refreshCatalog(ctx)
+		stats.RefreshedCatalogs, workErr = e.refreshCatalog(ctx, owner)
 		return workErr
 	})
 	return stats, err
 }
 
-// A whole scheduled cycle owns the builder; interactive reads use other handles.
-func (e *Engine) withBuilder(ctx context.Context, work func() error) (err error) {
+// A whole cycle holds maintenance ownership across all processes sharing the
+// database; interactive reads use other handles.
+func (e *Engine) withBuilder(ctx context.Context, work func(*maintenanceOwner) error) (err error) {
 	e.lifecycle.RLock()
 	defer e.lifecycle.RUnlock()
 	if e.closed {
 		return errors.New("archive engine is closed")
 	}
-	lock := flock.New(filepath.Join(e.cfg.Dir, ".builder.lock"))
-	ok, err := lock.TryLockContext(ctx, 50*time.Millisecond)
+	owner, err := e.coord.owner(ctx)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return ctx.Err()
-	}
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	stopInterrupt := e.interruptPostgres(ctx, e.builder)
-	defer stopInterrupt()
-	return work()
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		err = errors.Join(err, owner.Close(closeCtx))
+	}()
+	return work(owner)
 }
 
-func (e *Engine) exportBatch(ctx context.Context, cutoff time.Time) (int64, int, error) {
-	pg, err := e.pg.Begin(ctx)
+// maintenanceUnit bounds one export batch, compaction, or catalog refresh. The
+// returned stop joins the builder's PostgreSQL interrupt watcher.
+func (e *Engine) maintenanceUnit(ctx context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithTimeout(ctx, maintenanceUnitTimeout)
+	stopInterrupt := e.interruptPostgres(ctx, e.builder)
+	return ctx, func() {
+		// Stop the watcher first so a finished unit does not look canceled.
+		stopInterrupt()
+		cancel()
+	}
+}
+
+func (e *Engine) exportBatch(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (int64, int, error) {
+	ctx, stop := e.maintenanceUnit(ctx)
+	defer stop()
+	pg, err := owner.begin(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
+	defer func() { _ = rollback(pg) }()
 	var ok bool
-	if err = pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&ok); err != nil {
+	if err = pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&ok); err != nil {
 		return 0, 0, err
 	}
 	if !ok {
@@ -195,14 +207,16 @@ func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string)
 	return files, nil
 }
 
-func (e *Engine) compact(ctx context.Context) (int, error) {
-	pg, err := e.pg.Begin(ctx)
+func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, error) {
+	ctx, stop := e.maintenanceUnit(ctx)
+	defer stop()
+	pg, err := owner.begin(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
+	defer func() { _ = rollback(pg) }()
 	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&acquired); err != nil || !acquired {
+	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&acquired); err != nil || !acquired {
 		return 0, err
 	}
 	tx, err := e.builder.BeginTx(ctx, nil)
@@ -370,64 +384,38 @@ func (e *Engine) compact(ctx context.Context) (int, error) {
 	return len(selected), pg.Commit(ctx)
 }
 
-func (e *Engine) cleanup(ctx context.Context) (removed int, err error) {
-	// Finalization and mutations hold a pooled connection while acquiring a
-	// reader lock. Reserve ours first so cleanup cannot reverse that order.
-	pg, err := e.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed int, err error) {
+	// One budget covers waiting for readers and deleting: an existing reader
+	// can run to its own deadline, then cleanup still has time for a batch.
+	ctx, cancel := context.WithTimeout(ctx, e.cfg.ReadTimeout+cleanupGrace)
+	defer cancel()
+	pg, err := owner.begin(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
+	defer func() { _ = rollback(pg) }()
 	// A lost connection can leave COMMIT running after the builder returns.
 	// Its transaction lock must be released before we decide files are orphaned.
 	var publishingDone bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&publishingDone); err != nil {
+	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&publishingDone); err != nil {
 		return 0, err
 	}
 	if !publishingDone {
 		return 0, nil
 	}
-	// The builder owns cleanup. Clear a marker left by a crashed cleaner before
-	// acquiring admission, so only already-waiting readers can contend for it.
-	pending := filepath.Join(e.cfg.Dir, ".cleanup-pending")
-	if err := os.Remove(pending); err != nil && !errors.Is(err, os.ErrNotExist) {
+	var acquired bool
+	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, reclamationLock).Scan(&acquired); err != nil {
 		return 0, err
 	}
-	lock := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	ok, err := lock.TryLock()
-	if err != nil {
-		return 0, err
-	}
-	if !ok {
+	if !acquired {
+		// Deferrals persist across attempts, including ones that time out.
 		if e.cleanupSkips.Add(1) <= 3 {
 			return 0, nil
 		}
-		// Stop new admissions after bounded deferrals, then let current readers
-		// finish. The volume lock also gates readers in other Engine instances.
-		admission := flock.New(filepath.Join(e.cfg.Dir, ".readers-admission.lock"))
-		defer func() { err = errors.Join(err, admission.Close()) }()
-		ok, err = admission.TryLockContext(ctx, 50*time.Millisecond)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, ctx.Err()
-		}
-		defer func() {
-			if removeErr := os.Remove(pending); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				err = errors.Join(err, removeErr)
-			}
-		}()
-		if err := os.WriteFile(pending, nil, 0600); err != nil {
-			return 0, err
-		}
-		ok, err = lock.TryLockContext(ctx, 50*time.Millisecond)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, ctx.Err()
+		// PostgreSQL grants this request once current readers finish, and
+		// queues newly arriving readers behind it.
+		if _, err := pg.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, reclamationLock); err != nil {
+			return 0, fmt.Errorf("wait for archive readers before cleanup: %w", errors.Join(err, ctx.Err()))
 		}
 	}
 	e.cleanupSkips.Store(0)
@@ -475,6 +463,9 @@ func (e *Engine) cleanup(ctx context.Context) (removed int, err error) {
 			}
 			if !strings.HasSuffix(entry.Name(), ".parquet") && !strings.HasSuffix(entry.Name(), ".parquet.staging") {
 				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return removed, fmt.Errorf("archive cleanup budget expired: %w", err)
 			}
 			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
 				return removed, err

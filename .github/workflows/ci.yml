@@ -84,7 +84,10 @@ jobs:
       # No -short: the harness fails, not skips, when Docker or an image is
       # missing. Later archive tasks add their packages and -run patterns here.
       - name: Run archive coordination tests
-        run: go test -shuffle=on ./internal/dbtest/...
+        run: |
+          go test -shuffle=on ./internal/dbtest/...
+          go test -shuffle=on ./internal/columnar \
+            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost)$'
 
   web:
     runs-on: namespace-profile-linux-4cpu
