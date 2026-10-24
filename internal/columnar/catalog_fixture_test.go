@@ -2,6 +2,7 @@ package columnar
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,15 +15,31 @@ func publishArchiveFixture(t *testing.T, ctx context.Context, e *Engine, relativ
 	t.Helper()
 	info, err := os.Stat(filepath.Join(e.cfg.Dir, relative))
 	require.NoError(t, err)
+	// The fact file has no receipt, like files published before Kit.
 	file := archiveFile{Path: relative, Month: month, Rows: int64(count), Bytes: info.Size()}
-	tx, err := e.builder.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback() }()
-	require.NoError(t, e.buildCatalogs(ctx, tx, &file))
-	require.NoError(t, tx.Commit())
-	pg, err := e.pg.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = pg.Rollback(ctx) }()
-	require.NoError(t, publishArchiveFile(ctx, pg, file))
-	require.NoError(t, pg.Commit(ctx))
+	require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error {
+		pg, acquired, err := e.beginPublication(ctx, owner)
+		if err != nil {
+			return err
+		}
+		if !acquired {
+			return errors.New("archive publication is busy")
+		}
+		defer owner.endPublication()
+		tx, err := e.builder.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := e.buildCatalogs(ctx, owner, tx, &file); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if err := publishArchiveFile(ctx, pg, file); err != nil {
+			return err
+		}
+		return e.commitPublication(ctx, owner)
+	}))
 }

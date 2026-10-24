@@ -36,6 +36,10 @@ func (e *Engine) Maintain(ctx context.Context) (stats MaintenanceStats, err erro
 			stats.RemovedFiles = removed
 			workErr = errors.Join(workErr, cleanupErr)
 		}()
+		// New results publish under new keys, so an upload that remains
+		// unresolved is reported without holding them back.
+		resolveErr := e.resolveUploads(ctx, owner)
+		defer func() { workErr = errors.Join(resolveErr, workErr) }()
 		stats.ExportedRows, stats.PublishedFiles, workErr = e.exportBatch(ctx, owner, time.Now().UTC().Add(-e.cfg.Settle))
 		if workErr != nil {
 			return workErr
@@ -89,26 +93,22 @@ func (e *Engine) maintenanceUnit(ctx context.Context) (context.Context, func()) 
 func (e *Engine) exportBatch(ctx context.Context, owner *maintenanceOwner, cutoff time.Time) (int64, int, error) {
 	ctx, stop := e.maintenanceUnit(ctx)
 	defer stop()
-	pg, err := owner.begin(ctx)
+	pg, acquired, err := e.beginPublication(ctx, owner)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer func() { _ = rollback(pg) }()
-	var ok bool
-	if err = pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&ok); err != nil {
-		return 0, 0, err
-	}
-	if !ok {
+	if !acquired {
 		return 0, 0, errors.New("archive publication is busy")
 	}
-	rows, files, err := e.export(ctx, pg, cutoff)
+	defer owner.endPublication()
+	rows, files, err := e.export(ctx, owner, pg, cutoff)
 	if err != nil {
 		return 0, 0, fmt.Errorf("export settled results: %w", err)
 	}
-	return rows, files, pg.Commit(ctx)
+	return rows, files, e.commitPublication(ctx, owner)
 }
 
-func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64, int, error) {
+func (e *Engine) export(ctx context.Context, owner *maintenanceOwner, pg pgx.Tx, cutoff time.Time) (int64, int, error) {
 	source := "benchmark_result"
 	var settledHot bool
 	if err := pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM benchmark_result WHERE arrived_at < $1)`, cutoff).Scan(&settledHot); err != nil {
@@ -147,11 +147,11 @@ func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64
 	if len(ids) == 0 {
 		return 0, 0, tx.Commit()
 	}
-	files, err := e.writePartitions(ctx, tx, `SELECT * EXCLUDE(arrived_at,source_table) FROM export_batch`)
+	files, err := e.writePartitions(ctx, owner, tx, `SELECT * EXCLUDE(arrived_at,source_table) FROM export_batch`)
 	if err != nil {
 		return 0, 0, err
 	}
-	// The durable files now contain the verified batch. Release its working
+	// Verified objects now contain the batch. Release its working
 	// table before compaction so two wide batches cannot occupy spill together.
 	if _, err := tx.ExecContext(ctx, `DROP TABLE export_batch`); err != nil {
 		return 0, 0, err
@@ -179,7 +179,7 @@ func (e *Engine) export(ctx context.Context, pg pgx.Tx, cutoff time.Time) (int64
 	return int64(len(ids)), len(files), nil
 }
 
-func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string) ([]archiveFile, error) {
+func (e *Engine) writePartitions(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, source string) ([]archiveFile, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT date_trunc('month',timestamp)::DATE,count(*) FROM (`+source+`) GROUP BY 1 ORDER BY 1`)
 	if err != nil {
 		return nil, err
@@ -200,11 +200,11 @@ func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string)
 	for i := range files {
 		file := &files[i]
 		selectSQL := `SELECT * FROM (` + source + `) WHERE date_trunc('month',timestamp)::DATE=DATE ` + literal(file.Month.Format("2006-01-02"))
-		file.Bytes, err = e.writeParquet(ctx, tx, file.Path, selectSQL, "commit_repo_url,history_fingerprint,timestamp,id")
+		file.Bytes, err = e.writeParquet(ctx, owner, tx, file.Path, selectSQL, "commit_repo_url,history_fingerprint,timestamp,id")
 		if err != nil {
 			return nil, err
 		}
-		if err := e.buildCatalogs(ctx, tx, file); err != nil {
+		if err := e.buildCatalogs(ctx, owner, tx, file); err != nil {
 			return nil, err
 		}
 	}
@@ -214,15 +214,11 @@ func (e *Engine) writePartitions(ctx context.Context, tx *sql.Tx, source string)
 func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, error) {
 	ctx, stop := e.maintenanceUnit(ctx)
 	defer stop()
-	pg, err := owner.begin(ctx)
-	if err != nil {
+	pg, acquired, err := e.beginPublication(ctx, owner)
+	if err != nil || !acquired {
 		return 0, err
 	}
-	defer func() { _ = rollback(pg) }()
-	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&acquired); err != nil || !acquired {
-		return 0, err
-	}
+	defer owner.endPublication()
 	tx, err := e.builder.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -339,7 +335,7 @@ func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, err
 	// across COPY and validation. Scan them directly instead of retaining an
 	// additional wide temporary table throughout sorting and validation.
 	source := `SELECT f.* REPLACE(CASE WHEN m.result_id IS NOT NULL THEN m.annotations ELSE f.change_annotations END AS change_annotations) FROM ` + parquet + ` f LEFT JOIN pg.public.result_mutation m ON m.result_id=f.id WHERE NOT coalesce(m.deleted,false)`
-	replacements, err := e.writePartitions(ctx, tx, source)
+	replacements, err := e.writePartitions(ctx, owner, tx, source)
 	if err != nil {
 		return 0, err
 	}
@@ -385,7 +381,7 @@ func (e *Engine) compact(ctx context.Context, owner *maintenanceOwner) (int, err
 	if _, err := pg.Exec(ctx, `DELETE FROM result_mutation m USING unnest($1::text[],$2::bigint[]) AS baked(id,version) WHERE m.result_id=baked.id AND m.version=baked.version`, ids, versions); err != nil {
 		return 0, err
 	}
-	return len(selected), pg.Commit(ctx)
+	return len(selected), e.commitPublication(ctx, owner)
 }
 
 func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed int, err error) {
@@ -455,6 +451,10 @@ func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed 
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	pending, err := e.pendingKeys(ctx, pg)
+	if err != nil {
+		return 0, err
+	}
 	for _, directory := range []string{"data", "catalog"} {
 		dir := filepath.Join(e.cfg.Dir, directory)
 		entries, err := os.ReadDir(dir)
@@ -462,7 +462,10 @@ func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed 
 			return removed, err
 		}
 		for _, entry := range entries {
-			if entry.IsDir() || live[filepath.Join(directory, entry.Name())] {
+			name := filepath.Join(directory, entry.Name())
+			// A pending upload may still be published, and its retained stage
+			// is the content that reconciles an unknown outcome.
+			if entry.IsDir() || live[name] || pending[name] || pending[strings.TrimSuffix(name, ".staging")] {
 				continue
 			}
 			if !strings.HasSuffix(entry.Name(), ".parquet") && !strings.HasSuffix(entry.Name(), ".parquet.staging") {
@@ -481,4 +484,21 @@ func (e *Engine) cleanup(ctx context.Context, owner *maintenanceOwner) (removed 
 		}
 	}
 	return removed, pg.Commit(ctx)
+}
+
+// pendingKeys returns keys whose upload intents are unresolved, as local paths.
+func (e *Engine) pendingKeys(ctx context.Context, pg pgx.Tx) (map[string]bool, error) {
+	rows, err := pg.Query(ctx, `SELECT key FROM archive_upload WHERE storage_id=$1 AND state='pending'`, e.archive.storageID)
+	if err != nil {
+		return nil, fmt.Errorf("read pending archive uploads: %w", err)
+	}
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("read pending archive uploads: %w", err)
+	}
+	pending := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		pending[filepath.FromSlash(key)] = true
+	}
+	return pending, nil
 }

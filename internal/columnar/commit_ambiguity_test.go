@@ -162,6 +162,9 @@ WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait
 	var published int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published))
 	require.Zero(t, published, "publication is still committing")
+	cycleState, intents := publicationCycle(t, ctx, pool, "pending")
+	assert.Equal(t, "running", cycleState, "an unknown commit outcome abandons nothing")
+	assert.Equal(t, 3, intents, "the uncertain publication keeps every key reserved")
 	_, err = blocker.Exec(ctx, `SELECT pg_advisory_unlock(90251234)`)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
@@ -196,4 +199,25 @@ WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait
 	archived, err := NewStore(pg, reopened).GetBenchmarkResultByID(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, []*float64{new(1.0)}, archived.Data)
+	// The commit that landed consumed its intents. Resolving under the
+	// publication lock found it committed, not abandoned.
+	cycleState, intents = publicationCycle(t, ctx, pool, "verified")
+	assert.Equal(t, "committed", cycleState)
+	assert.Equal(t, 3, intents)
+	var receipted int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file f
+CROSS JOIN LATERAL (VALUES (f.path),(f.runs_path),(f.series_path)) k(key)
+JOIN archive_object o ON o.key=k.key WHERE o.verification_method IS NOT NULL`).Scan(&receipted))
+	assert.Equal(t, 3, receipted, "every published object has a verified receipt")
+}
+
+// publicationCycle returns the only archive cycle's state and its number of
+// intents in intentState.
+func publicationCycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, intentState string) (string, int) {
+	t.Helper()
+	var state string
+	var intents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT c.state,count(*) FILTER (WHERE u.state=$1)
+FROM archive_cycle c JOIN archive_upload u ON u.cycle_id=c.id GROUP BY c.id,c.state`, intentState).Scan(&state, &intents))
+	return state, intents
 }

@@ -285,6 +285,8 @@ func (g *readerGuard) Close(ctx context.Context) error {
 type maintenanceOwner struct {
 	coord *archiveCoordinator
 	conn  *pgxpool.Conn
+	// publication is the open unit's transaction on conn, if any.
+	publication *publication
 }
 
 // begin starts a READ COMMITTED transaction on the owner session after

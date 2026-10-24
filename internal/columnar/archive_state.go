@@ -68,8 +68,11 @@ func (s archiveState) recordUpload(ctx context.Context, conn *pgx.Conn, intent u
 		return errors.New("archive upload requires an idle metadata connection")
 	}
 	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		// A share lock keeps finishCycle out until this intent commits. The
+		// unit's open publication transaction can hold the same share lock
+		// from verifying an earlier upload of the cycle.
 		var running bool
-		if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR UPDATE`, intent.CycleID).Scan(&running); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR SHARE`, intent.CycleID).Scan(&running); err != nil {
 			return err
 		}
 		if !running {
@@ -107,14 +110,16 @@ func (s archiveState) verifyUpload(ctx context.Context, tx pgx.Tx, key string, r
 	if err != nil {
 		return err
 	}
-	// Lock the cycle before its intents, matching finishCycle. A closed cycle can
-	// never turn an abandoned or late upload into a publishable object.
+	// Lock the cycle before its intents, matching finishCycle. Its exclusive
+	// lock waits for this transaction, so a closed cycle can never turn an
+	// abandoned or late upload into a publishable object. A share lock lets
+	// the metadata session record the unit's next intent meanwhile.
 	var cycle uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT cycle_id FROM archive_upload WHERE storage_id=$1 AND key=$2`, s.storageID, key).Scan(&cycle); err != nil {
 		return err
 	}
 	var running bool
-	if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR UPDATE`, cycle).Scan(&running); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT state='running' FROM archive_cycle WHERE id=$1 FOR SHARE`, cycle).Scan(&running); err != nil {
 		return err
 	}
 	if !running {

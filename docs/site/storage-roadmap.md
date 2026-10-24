@@ -119,16 +119,32 @@ of immutable settled rows and exports Zstd Parquet files with a staging suffix
 inside the private data directory on the same volume. Files are partitioned
 by UTC result month and ordered for repository/fingerprint history reads.
 
-The worker validates staged contents against the selected rows, flushes the
-files, and publishes them at immutable final paths without replacing existing
-files. It flushes the destination and builds and validates run and series
-catalogs for each result file.
+The worker validates staged contents against the selected rows and flushes the
+files. Before each upload, a short transaction on a second maintenance session
+records an upload intent: the generated key, size, SHA-256, and cycle. The
+worker then publishes the staged file through Kit's local object store, which
+copies it to its immutable key without replacing an existing file and returns a
+receipt only after reading the stored bytes back. The publication transaction
+checks each receipt against its intent. Run and series catalogs for each result
+file are built, validated, and published the same way.
 
-One PostgreSQL transaction publishes the file references and dependencies and
-removes exactly the exported rows from staging. Publication aborts if the number
-of deleted source rows differs from the exported set. A crash before that
-transaction leaves source rows and unreferenced files; a crash after it leaves
+One PostgreSQL transaction records the receipts, publishes the file references
+and dependencies, consumes the cycle's upload intents, and removes exactly the
+exported rows from staging. Publication aborts if the number of deleted source
+rows differs from the exported set. A crash before that transaction leaves
+source rows, pending intents, and unreferenced files; a crash after it leaves
 published files and no duplicate ingestion rows.
+
+If Kit cannot tell whether an upload completed, the unit fails and keeps both
+the pending intent and the staged file. The next maintenance cycle publishes
+that same content to the same key again. A verified receipt, or proof that
+different bytes are stored there, settles the outcome; until then the intent
+stays pending and cleanup keeps the key and its staged file. New results
+publish under new keys meanwhile. A cycle that did not commit is abandoned only
+while the publication lock is held, after any lost COMMIT has finished.
+
+Files published before receipts existed keep working. They gain receipts only
+when compaction or a catalog refresh rewrites them.
 
 Readers hold a shared PostgreSQL reclamation advisory lock on a dedicated
 session for the lifetime of their analytical snapshot. File garbage collection

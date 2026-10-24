@@ -290,11 +290,17 @@ func (e *Engine) runMaintenance(ctx context.Context, owner *maintenanceOwner, cu
 		err = errors.Join(err, cleanup())
 	}()
 	e.setMaintenancePhase("export")
+	// New results publish under new keys, so an upload that remains
+	// unresolved is reported without holding them back.
+	resolveErr := e.resolveUploads(ctx, owner)
+	defer func() { err = errors.Join(resolveErr, err) }()
 	for {
 		rows, _, err := e.exportBatch(ctx, owner, cutoff)
 		if errors.Is(err, errArchiveSourceChanged) {
-			// A concurrent deletion rolled this batch back. Reclaim its files
-			// and select the remaining rows within the same fixed cutoff.
+			// A concurrent deletion rolled this batch back. Abandon its intents,
+			// reclaim its files, and select the remaining rows within the same
+			// fixed cutoff.
+			resolveErr = e.resolveUploads(ctx, owner)
 			if err := cleanup(); err != nil {
 				return err
 			}

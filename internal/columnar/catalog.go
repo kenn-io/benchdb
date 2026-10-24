@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -63,7 +62,7 @@ NULL::VARCHAR AS latest_result_id,NULL::TIMESTAMP AS commit_timestamp,NULL::TIME
 	return err
 }
 
-func (e *Engine) buildCatalogs(ctx context.Context, tx *sql.Tx, file *archiveFile) error {
+func (e *Engine) buildCatalogs(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, file *archiveFile) error {
 	source, err := e.parquetSource([]archiveFile{*file})
 	if err != nil {
 		return err
@@ -91,7 +90,7 @@ FROM `+source+` br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.commit_id 
 min("timestamp") AS first_result_at,max("timestamp") AS last_result_at,count(*) AS result_count,
 count(*) FILTER(WHERE error IS NOT NULL) AS error_count,arg_max(id,("timestamp",id)) AS latest_result_id
 FROM ` + source + ` GROUP BY run_id,commit_repo_url`
-	file.RunsBytes, err = e.writeParquet(ctx, tx, file.RunsPath, runs, "commit_repo_url,last_result_at DESC,run_id")
+	file.RunsBytes, err = e.writeParquet(ctx, owner, tx, file.RunsPath, runs, "commit_repo_url,last_result_at DESC,run_id")
 	if err != nil {
 		return fmt.Errorf("write run catalog: %w", err)
 	}
@@ -104,21 +103,22 @@ min(c."timestamp") FILTER(WHERE ` + historyMembership + `) AS first_commit_times
 count(*) FILTER(WHERE ` + historyMembership + `) AS point_count
 FROM ` + source + ` br LEFT JOIN "commit" c ON c.id=br.commit_id
 GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commit_repo_url`
-	file.SeriesBytes, err = e.writeParquet(ctx, tx, file.SeriesPath, series, "history_fingerprint,case_id,context_id,hardware_id,commit_repo_url")
+	file.SeriesBytes, err = e.writeParquet(ctx, owner, tx, file.SeriesPath, series, "history_fingerprint,case_id,context_id,hardware_id,commit_repo_url")
 	if err != nil {
 		return fmt.Errorf("write series catalog: %w", err)
 	}
 	return nil
 }
 
-// Write immutable files completely, compare every value, then make the durable
-// name available for publication. Unpublished files are reclaimed by cleanup.
-func (e *Engine) writeParquet(ctx context.Context, tx *sql.Tx, relative, source, order string) (int64, error) {
-	path, err := e.filePath(relative)
-	if err != nil {
+// Stage immutable files locally, compare every value, then publish the staged
+// file to its key through Kit. Cleanup reclaims stages that never reached an
+// upload intent.
+func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, relative, source, order string) (int64, error) {
+	if _, err := e.filePath(relative); err != nil {
 		return 0, err
 	}
-	stage := path + ".staging"
+	key := filepath.ToSlash(relative)
+	stage := e.stagePath(key)
 	if _, err := tx.ExecContext(ctx, `COPY (`+source+` ORDER BY `+order+`) TO `+literal(stage)+` (FORMAT PARQUET,COMPRESSION ZSTD,ROW_GROUP_SIZE 122880)`); err != nil {
 		return 0, err
 	}
@@ -130,23 +130,21 @@ func (e *Engine) writeParquet(ctx context.Context, tx *sql.Tx, relative, source,
 	if difference != 0 {
 		return 0, errors.New("parquet values do not match the archive source")
 	}
+	// A retained stage must still hold the expected content after a crash.
 	if err := syncPath(stage); err != nil {
 		return 0, err
 	}
-	info, err := os.Stat(stage)
+	receipt, err := e.publishStaged(ctx, owner, key, stage)
 	if err != nil {
 		return 0, err
 	}
-	if err := os.Link(stage, path); err != nil {
-		return 0, err
-	}
-	if err := os.Remove(stage); err != nil {
-		return 0, err
-	}
-	if err := syncPath(filepath.Dir(path)); err != nil {
-		return 0, err
-	}
-	return info.Size(), nil
+	return receipt.Object.Size, nil
+}
+
+// stagePath is the local file that holds a key's validated contents until its
+// upload outcome is known.
+func (e *Engine) stagePath(key string) string {
+	return filepath.Join(e.cfg.Dir, filepath.FromSlash(key)) + ".staging"
 }
 
 func publishArchiveFile(ctx context.Context, pg pgx.Tx, file archiveFile) error {
@@ -174,15 +172,11 @@ func publishCatalogCommits(ctx context.Context, pg pgx.Tx, file archiveFile) err
 func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (int, error) {
 	ctx, stop := e.maintenanceUnit(ctx)
 	defer stop()
-	pg, err := owner.begin(ctx)
-	if err != nil {
+	pg, acquired, err := e.beginPublication(ctx, owner)
+	if err != nil || !acquired {
 		return 0, err
 	}
-	defer func() { _ = rollback(pg) }()
-	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, publicationLock).Scan(&acquired); err != nil || !acquired {
-		return 0, err
-	}
+	defer owner.endPublication()
 	tx, err := e.builder.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -204,7 +198,7 @@ func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (i
 		if file.Path != path {
 			continue
 		}
-		if err := e.buildCatalogs(ctx, tx, &file); err != nil {
+		if err := e.buildCatalogs(ctx, owner, tx, &file); err != nil {
 			return 0, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -219,7 +213,7 @@ func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (i
 		if err := publishCatalogCommits(ctx, pg, file); err != nil {
 			return 0, err
 		}
-		return 1, pg.Commit(ctx)
+		return 1, e.commitPublication(ctx, owner)
 	}
 	return 0, errors.New("stale catalog file was not in the manifest")
 }

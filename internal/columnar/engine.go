@@ -50,7 +50,10 @@ type Engine struct {
 	handleNames     map[*sql.DB]string
 	builder         *sql.DB
 	coord           *archiveCoordinator
-	serverVersion   int // server_version_num, read at startup.
+	objects         archiveObjects
+	archive         archiveState
+	cycleOwner      string // Names this process in archive_cycle rows.
+	serverVersion   int    // server_version_num, read at startup.
 	scratch         string
 	scratchLock     *flock.Flock
 	maintenanceMu   sync.Mutex
@@ -331,6 +334,14 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	if err := e.coord.checkSessionAffinity(ctx); err != nil {
 		return err
 	}
+	if err := e.pg.QueryRow(ctx, `SELECT id FROM archive_storage WHERE active`).Scan(&e.archive.storageID); err != nil {
+		return fmt.Errorf("read active archive storage: %w", err)
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("name archive cycle owner: %w", err)
+	}
+	e.cycleOwner = fmt.Sprintf("%s pid %d", host, os.Getpid())
 	// A second process can open during export. Pin the manifest's files while
 	// validating them, without waiting for the entire maintenance cycle. The
 	// guard session serves these queries, so no application connection is held
@@ -349,6 +360,9 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 		return err
 	}
 	if err := e.claimDirectory(id, files); err != nil {
+		return err
+	}
+	if e.objects, err = openArchiveObjects(e.cfg.Dir); err != nil {
 		return err
 	}
 	return e.checkPublishedFiles(ctx, guard.conn)
