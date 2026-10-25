@@ -30,6 +30,7 @@ var ErrRunFinalized = errors.New("benchmark run is finalized")
 
 // RunReport preserves a completed evaluation independently of live measurements.
 type RunReport struct {
+	Evaluation  int
 	ResultIDs   []string
 	EvaluatedAt time.Time
 	Report      []byte
@@ -42,8 +43,9 @@ type RunReport struct {
 type Store interface {
 	VerdictStore
 	FinalizeRunReport(context.Context, string, []string, func(context.Context, Store) (RunReport, error)) (RunReport, error)
-	GetRunReport(context.Context, string) (RunReport, error)
-	RunReportSummaries(context.Context, []string) (map[string][]byte, error)
+	ReevaluateRunReport(context.Context, string, func(context.Context, Store, RunReport, int) (RunReport, error)) (RunReport, error)
+	GetRunReport(context.Context, string, int) (RunReport, error)
+	RunReportSummaries(context.Context, []string, bool) (map[string][]byte, error)
 	ListResultArtifacts(ctx context.Context, resultID string) ([]ArtifactMetadata, error)
 	GetOrCreateCase(ctx context.Context, name string, tags []byte) (string, error)
 	GetOrCreateContext(ctx context.Context, tags []byte) (string, error)

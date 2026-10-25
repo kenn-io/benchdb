@@ -391,6 +391,7 @@ type CiRunReport struct {
 	EvaluatedAt pgtype.Timestamptz
 	Report      []byte
 	Summary     []byte
+	Evaluation  int32
 }
 
 type CliLoginCode struct {

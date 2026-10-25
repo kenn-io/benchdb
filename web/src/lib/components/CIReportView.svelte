@@ -74,6 +74,26 @@
 
   let report = $state<CIReport | null>(null);
   let errorMsg = $state<string | null>(null);
+  let canReevaluate = $state(false);
+  let reevaluating = $state(false);
+  let reevaluationError = $state<string | null>(null);
+  $effect(() => {
+    if (!query.saved) return;
+    client.authCapabilities().then((res) => { canReevaluate = res.status < 400 && res.data?.can_write_results === true; }).catch(() => { canReevaluate = false; });
+  });
+  async function reevaluate() {
+    if (reevaluating || !report) return;
+    reevaluating = true;
+    reevaluationError = null;
+    try {
+      const response = await client.reevaluateRunReport(query.runIDs);
+      if (response.status >= 400) throw new Error((response.data as { detail?: string }).detail ?? "Reevaluation failed");
+      const params = new URLSearchParams({ run_ids: query.runIDs, saved: "true", evaluation: String(response.data.evaluation) });
+      navigate(`/ci/report?${params}`);
+    } catch (err) {
+      reevaluationError = err instanceof Error ? err.message : String(err);
+    } finally { reevaluating = false; }
+  }
   let rowLimits = $state<Record<string, number>>({});
   let stableShown = $state<Record<string, boolean>>({});
   let statusFilter = $state<StatusFilter>("all");
@@ -349,6 +369,10 @@
   {@const r = report}
   <div class="ci-report-view">
     {@render header?.(r)}
+    {#if query.saved && canReevaluate}
+      <div><button type="button" class="button-pill" disabled={reevaluating} onclick={reevaluate}>{reevaluating ? "Reevaluating…" : "Reevaluate"}</button></div>
+    {/if}
+    {#if reevaluationError}<p class="error" role="alert">{reevaluationError}</p>{/if}
 
     <p class="summary-line" aria-label="CI report summary">
       <span class={`report-status ${r.status}`}>{reportStatusLabel(r.status)}</span>
@@ -357,6 +381,7 @@
       <strong class="summary-item" class:warning={r.summary.compared < r.summary.contender_results}>
         {r.summary.compared.toLocaleString()} of {r.summary.contender_results.toLocaleString()} compared
       </strong>
+      <span class="summary-item" class:warning={r.summary.analyzed < r.summary.contender_results}>{r.summary.analyzed} of {r.summary.contender_results} analyzed</span>
       <span class="summary-item" class:alert={r.summary.regressions > 0}>{plural(r.summary.regressions, "regression")}</span>
     </p>
 

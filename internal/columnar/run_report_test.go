@@ -113,13 +113,32 @@ func TestFinalizedReportKeepsCommitEnrichmentOutsideSnapshot(t *testing.T) {
 		return storage.RunReport{Report: data, Summary: []byte(`{}`), EvaluatedAt: time.Now().UTC()}, err
 	})
 	require.NoError(t, err)
-	saved, err := service.NewRunReports(store, "").Get(ctx, "contender")
+	saved, err := service.NewRunReports(store, "").Get(ctx, "contender", 1)
 	require.NoError(t, err)
 	require.Len(t, saved.Runs, 1)
 	assert.Equal(t, "c3", saved.Runs[0].BaselineCommit.Sha)
 	require.Len(t, saved.Runs[0].Comparisons, 1)
 	require.NotNil(t, saved.Runs[0].Comparisons[0].Analysis)
 	assert.NotNil(t, saved.Runs[0].Comparisons[0].Analysis.LookbackZScore, "a finalized report must retain its lookback analysis")
+
+	// Reevaluation must retain the same archive snapshot machinery as finalization.
+	revised, err := store.ReevaluateRunReport(ctx, "contender", func(ctx context.Context, transaction storage.Store, original storage.RunReport, evaluation int) (storage.RunReport, error) {
+		require.Equal(t, []string{resultID}, original.ResultIDs)
+		require.Equal(t, 2, evaluation)
+		report, err := service.NewCIReporter(transaction).Report(ctx, service.CIReportQuery{RunIDs: []string{"contender"}, BaselineRunIDs: []string{"c3"}})
+		if err != nil {
+			return storage.RunReport{}, err
+		}
+		require.Len(t, report.Runs[0].Comparisons, 1)
+		assert.Equal(t, resultID, report.Runs[0].Comparisons[0].Contender.ResultID)
+		data, err := json.Marshal(report)
+		return storage.RunReport{Report: data, Summary: []byte(`{}`), EvaluatedAt: time.Now().UTC()}, err
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, revised.Evaluation)
+	original, err := store.GetRunReport(ctx, "contender", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{resultID}, original.ResultIDs)
 
 	fresh, err := service.NewCIReporter(store).Report(ctx, query)
 	require.NoError(t, err)

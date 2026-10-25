@@ -37,7 +37,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	transaction := NewStore(tx)
-	saved, err := transaction.GetRunReport(ctx, runID)
+	saved, err := transaction.GetRunReport(ctx, runID, 1)
 	if err == nil {
 		if !slices.Equal(saved.ResultIDs, resultIDs) {
 			return storage.RunReport{}, storage.ErrConflict
@@ -76,17 +76,17 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	return saved, nil
 }
 
-func (s *Store) GetRunReport(ctx context.Context, runID string) (storage.RunReport, error) {
+func (s *Store) GetRunReport(ctx context.Context, runID string, evaluation int) (storage.RunReport, error) {
 	var report storage.RunReport
-	err := s.q.db.QueryRow(ctx, `SELECT result_ids, evaluated_at, report, summary FROM ci_run_report WHERE run_id = $1`, runID).Scan(&report.ResultIDs, &report.EvaluatedAt, &report.Report, &report.Summary)
+	err := s.q.db.QueryRow(ctx, `SELECT evaluation, result_ids, evaluated_at, report, summary FROM ci_run_report WHERE run_id = $1 AND ($2 = 0 OR evaluation = $2) ORDER BY evaluation DESC LIMIT 1`, runID, evaluation).Scan(&report.Evaluation, &report.ResultIDs, &report.EvaluatedAt, &report.Report, &report.Summary)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return report, storage.ErrNotFound
 	}
 	return report, err
 }
 
-func (s *Store) RunReportSummaries(ctx context.Context, runIDs []string) (map[string][]byte, error) {
-	rows, err := s.q.db.Query(ctx, `SELECT run_id, summary FROM ci_run_report WHERE run_id = ANY($1::text[])`, runIDs)
+func (s *Store) RunReportSummaries(ctx context.Context, runIDs []string, latest bool) (map[string][]byte, error) {
+	rows, err := s.q.db.Query(ctx, `SELECT DISTINCT ON (run_id) run_id, summary FROM ci_run_report WHERE run_id = ANY($1::text[]) AND ($2 OR evaluation = 1) ORDER BY run_id, evaluation DESC`, runIDs, latest)
 	if err != nil {
 		return nil, err
 	}
@@ -101,4 +101,37 @@ func (s *Store) RunReportSummaries(ctx context.Context, runIDs []string) (map[st
 		reports[id] = summary
 	}
 	return reports, rows.Err()
+}
+
+// ReevaluateRunReport appends an evaluation under the same lock used by finalization
+// and measurement mutations. The original manifest is never replaced.
+func (s *Store) ReevaluateRunReport(ctx context.Context, runID string, build func(context.Context, storage.Store, storage.RunReport, int) (storage.RunReport, error)) (storage.RunReport, error) {
+	tx, err := s.LockRun(ctx, runID)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	transaction := NewStore(tx)
+	original, err := transaction.GetRunReport(ctx, runID, 1)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	latest, err := transaction.GetRunReport(ctx, runID, 0)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	saved, err := build(ctx, transaction, original, latest.Evaluation+1)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	saved.ResultIDs = original.ResultIDs
+	saved.Evaluation = latest.Evaluation + 1
+	_, err = tx.Exec(ctx, `INSERT INTO ci_run_report(run_id, evaluation, result_ids, evaluated_at, report, summary) VALUES ($1, $2, $3, $4, $5, $6)`, runID, saved.Evaluation, saved.ResultIDs, saved.EvaluatedAt, saved.Report, saved.Summary)
+	if err != nil {
+		return storage.RunReport{}, fmt.Errorf("save reevaluation: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return storage.RunReport{}, err
+	}
+	return saved, nil
 }

@@ -76,6 +76,7 @@ type CIReportQuery struct {
 }
 
 type CIReport struct {
+	Evaluation      int                  `json:"evaluation,omitempty" doc:"Saved evaluation number; original reports use 1."`
 	BaselineRunID   *string              `json:"baseline_run_id,omitempty" doc:"Resolved baseline run for a saved report."`
 	EvaluatedAt     *time.Time           `json:"evaluated_at,omitempty"`
 	AnalysisVersion int                  `json:"analysis_version,omitempty"`
@@ -125,6 +126,8 @@ type CIReportRun struct {
 }
 
 type CIReportComparison struct {
+	HistoryPoints      *int                  `json:"history_points,omitempty" doc:"Results available to the statistical analysis at the baseline commit."`
+	HistoryRequired    int                   `json:"history_required,omitempty" doc:"Minimum history results required for statistical analysis."`
 	Status             string                `json:"status" enum:"regressed,improved,stable,insufficient,errored,missing_baseline,not_comparable"`
 	Name               string                `json:"name"`
 	Tags               map[string]any        `json:"tags"`
@@ -1014,7 +1017,15 @@ func (r *CIReporter) analyzeComparison(
 	threshold, thresholdZ float64,
 	history historyLoader,
 ) error {
-	analysis, err := r.reader.compareRows(ctx, ciReportCompareInput(item.baselineRow), ciReportCompareInput(item.row), threshold, thresholdZ, history)
+	countedHistory := func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+		rows, err := history(ctx, fingerprint, asOf)
+		if err == nil {
+			comp.HistoryPoints = new(len(rows))
+			comp.HistoryRequired = minHistoryPoints
+		}
+		return rows, err
+	}
+	analysis, err := r.reader.compareRows(ctx, ciReportCompareInput(item.baselineRow), ciReportCompareInput(item.row), threshold, thresholdZ, countedHistory)
 	baseSide := ciReportBaselineSideFromRow(item.baselineRow)
 	if errors.Is(err, ErrNotComparable) {
 		comp.Status = CIReportRowStatusNotComparable
@@ -1034,6 +1045,13 @@ func (r *CIReporter) analyzeComparison(
 	comp.Contender.SVS = &analysis.Contender.SVS
 	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ)
 	comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
+	if comp.Status == CIReportRowStatusInsufficient {
+		reason := "Statistical analysis unavailable"
+		if comp.HistoryPoints != nil && *comp.HistoryPoints < minHistoryPoints {
+			reason = fmt.Sprintf("History contains %d results; at least %d required", *comp.HistoryPoints, minHistoryPoints)
+		}
+		comp.Reason = &reason
+	}
 	return nil
 }
 

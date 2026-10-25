@@ -470,6 +470,10 @@ components:
         evaluated_at:
           format: date-time
           type: string
+        evaluation:
+          description: Saved evaluation number; original reports use 1.
+          format: int64
+          type: integer
         missing_run_ids:
           items:
             type: string
@@ -619,6 +623,14 @@ components:
           $ref: "#/components/schemas/Hardware"
         history_fingerprint:
           type: string
+        history_points:
+          description: Results available to the statistical analysis at the baseline commit.
+          format: int64
+          type: integer
+        history_required:
+          description: Minimum history results required for statistical analysis.
+          format: int64
+          type: integer
         info:
           additionalProperties: true
           type: object
@@ -1966,6 +1978,9 @@ components:
         evaluated_at:
           format: date-time
           type: string
+        evaluation:
+          format: int64
+          type: integer
         report_url:
           type: string
         run_id:
@@ -3251,6 +3266,13 @@ paths:
     get:
       operationId: get-run-report-summaries
       parameters:
+        - description: Select the latest saved evaluation instead of the original.
+          explode: false
+          in: query
+          name: latest
+          schema:
+            description: Select the latest saved evaluation instead of the original.
+            type: boolean
         - explode: false
           in: query
           name: run_ids
@@ -3276,6 +3298,16 @@ paths:
     get:
       operationId: get-saved-run-report
       parameters:
+        - description: Saved evaluation number. Zero selects the latest evaluation.
+          explode: false
+          in: query
+          name: evaluation
+          schema:
+            default: 1
+            description: Saved evaluation number. Zero selects the latest evaluation.
+            format: int64
+            minimum: 0
+            type: integer
         - in: path
           name: run_id
           required: true
@@ -3333,6 +3365,38 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Finalize a completed run's benchmark report
+  /api/ci/reports/{run_id}/reevaluate:
+    post:
+      operationId: reevaluate-run-report
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            maxLength: 255
+            type: string
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: cookie
+          name: benchdb_session
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunReportSummary"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Reevaluate a saved run with its original baseline and measurements
   /api/compare/benchmark-results:
     get:
       operationId: compare-benchmark-results

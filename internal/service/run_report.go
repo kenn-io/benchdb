@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ var ErrRunReportBaselineUnavailable = errors.New("requested baseline run is unav
 
 // RunReportSummary is the saved verdict needed by run lists, without comparisons.
 type RunReportSummary struct {
+	Evaluation      int              `json:"evaluation,omitempty"`
 	Baseline        CIReportBaseline `json:"baseline,omitempty" enum:"explicit_run,latest_default"`
 	BaselineRunID   *string          `json:"baseline_run_id,omitempty"`
 	RunID           string           `json:"run_id"`
@@ -63,31 +65,7 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 		}
 	}
 	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
-		query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline}
-		if baseline == CIReportBaselineExplicitRun {
-			query.Baseline = ""
-			query.BaselineRunIDs = []string{baselineRunID}
-		}
-		report, err := NewCIReporter(transaction, r.publicBaseURL).Report(ctx, query)
-		if err != nil {
-			return storage.RunReport{}, err
-		}
-		if len(report.Runs) > 0 {
-			report.BaselineRunID = report.Runs[0].BaselineRunID
-		}
-		if baseline == CIReportBaselineExplicitRun && (report.BaselineRunID == nil || *report.BaselineRunID != baselineRunID) {
-			return storage.RunReport{}, ErrRunReportBaselineUnavailable
-		}
-		now := time.Now().UTC()
-		report.EvaluatedAt = &now
-		report.AnalysisVersion = runReportAnalysisVersion
-		report.ReportURL = strings.TrimRight(r.publicBaseURL, "/") + "/ci/report?" + url.Values{"run_ids": {runID}, "saved": {"true"}}.Encode()
-		full, err := json.Marshal(report)
-		if err != nil {
-			return storage.RunReport{}, err
-		}
-		summary, err := json.Marshal(RunReportSummary{RunID: runID, Baseline: report.Baseline, BaselineRunID: report.BaselineRunID, Status: report.Status, StatusReason: report.StatusReason, Summary: report.Summary, ReportURL: report.ReportURL, EvaluatedAt: now, AnalysisVersion: runReportAnalysisVersion})
-		return storage.RunReport{EvaluatedAt: now, Report: full, Summary: summary}, err
+		return r.evaluate(ctx, transaction, runID, ids, baseline, baselineRunID, 1, 0, 0)
 	})
 	if err != nil {
 		return nil, err
@@ -109,8 +87,8 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 	return &summary, nil
 }
 
-func (r *RunReports) Get(ctx context.Context, runID string) (*CIReport, error) {
-	saved, err := r.store.GetRunReport(ctx, runID)
+func (r *RunReports) Get(ctx context.Context, runID string, evaluation int) (*CIReport, error) {
+	saved, err := r.store.GetRunReport(ctx, runID, evaluation)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, ErrNotFound
 	}
@@ -124,11 +102,11 @@ func (r *RunReports) Get(ctx context.Context, runID string) (*CIReport, error) {
 	return &report, nil
 }
 
-func (r *RunReports) Summaries(ctx context.Context, runIDs []string) (map[string]RunReportSummary, error) {
+func (r *RunReports) Summaries(ctx context.Context, runIDs []string, latest bool) (map[string]RunReportSummary, error) {
 	if len(runIDs) == 0 || len(runIDs) > 100 {
 		return nil, &ValidationError{Message: "select between 1 and 100 run IDs"}
 	}
-	saved, err := r.store.RunReportSummaries(ctx, runIDs)
+	saved, err := r.store.RunReportSummaries(ctx, runIDs, latest)
 	if err != nil {
 		return nil, err
 	}
@@ -141,4 +119,105 @@ func (r *RunReports) Summaries(ctx context.Context, runIDs []string) (map[string
 		reports[id] = summary
 	}
 	return reports, nil
+}
+
+func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, runID string, ids []string, baseline CIReportBaseline, baselineRunID string, evaluation int, threshold, thresholdZ float64) (storage.RunReport, error) {
+	query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline, Threshold: threshold, ThresholdZ: thresholdZ}
+	if baselineRunID != "" {
+		query.Baseline = ""
+		query.BaselineRunIDs = []string{baselineRunID}
+	}
+	report, err := NewCIReporter(transaction, r.publicBaseURL).Report(ctx, query)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	if len(report.Runs) > 0 {
+		report.BaselineRunID = report.Runs[0].BaselineRunID
+	}
+	if baselineRunID != "" && (report.BaselineRunID == nil || *report.BaselineRunID != baselineRunID) {
+		return storage.RunReport{}, ErrRunReportBaselineUnavailable
+	}
+
+	actual := make([]string, 0, len(ids))
+	for _, run := range report.Runs {
+		for _, comparison := range run.Comparisons {
+			actual = append(actual, comparison.Contender.ResultID)
+		}
+	}
+	slices.Sort(actual)
+	if !slices.Equal(ids, actual) {
+		return storage.RunReport{}, storage.ErrConflict
+	}
+	// Keep the original selection mode, but reevaluation always resolves the recorded run.
+	report.Baseline = baseline
+	report.Evaluation = evaluation
+	now := time.Now().UTC()
+	report.EvaluatedAt = &now
+	report.AnalysisVersion = runReportAnalysisVersion
+	params := url.Values{"run_ids": {runID}, "saved": {"true"}}
+	if evaluation > 1 {
+		params.Set("evaluation", strconv.Itoa(evaluation))
+	}
+	report.ReportURL = strings.TrimRight(r.publicBaseURL, "/") + "/ci/report?" + params.Encode()
+	full, err := json.Marshal(report)
+	if err != nil {
+		return storage.RunReport{}, err
+	}
+	summary, err := json.Marshal(RunReportSummary{Evaluation: evaluation, RunID: runID, Baseline: report.Baseline, BaselineRunID: report.BaselineRunID, Status: report.Status, StatusReason: report.StatusReason, Summary: report.Summary, ReportURL: report.ReportURL, EvaluatedAt: now, AnalysisVersion: runReportAnalysisVersion})
+	return storage.RunReport{Evaluation: evaluation, EvaluatedAt: now, Report: full, Summary: summary}, err
+}
+
+// Reevaluate uses the sealed result manifest and baseline of the first evaluation.
+func (r *RunReports) Reevaluate(ctx context.Context, runID string) (*RunReportSummary, error) {
+	saved, err := r.store.ReevaluateRunReport(ctx, runID, func(ctx context.Context, transaction storage.Store, original storage.RunReport, evaluation int) (storage.RunReport, error) {
+		var report CIReport
+		if err := json.Unmarshal(original.Report, &report); err != nil {
+			return storage.RunReport{}, err
+		}
+		if report.BaselineRunID == nil || *report.BaselineRunID == "" {
+			return storage.RunReport{}, ErrRunReportBaselineUnavailable
+		}
+		saved, err := r.evaluate(ctx, transaction, runID, original.ResultIDs, report.Baseline, *report.BaselineRunID, evaluation, report.Threshold, report.ThresholdZ)
+		if errors.Is(err, ErrNotFound) {
+			return storage.RunReport{}, storage.ErrConflict
+		}
+		if err != nil {
+			return storage.RunReport{}, err
+		}
+		var revised CIReport
+		if err := json.Unmarshal(saved.Report, &revised); err != nil {
+			return storage.RunReport{}, err
+		}
+		baselines := make(map[string]string)
+		for _, run := range report.Runs {
+			for _, row := range run.Comparisons {
+				if row.Baseline != nil {
+					baselines[row.Contender.ResultID] = row.Baseline.ResultID
+				}
+			}
+		}
+		for _, run := range revised.Runs {
+			for _, row := range run.Comparisons {
+				baselineID := ""
+				if row.Baseline != nil {
+					baselineID = row.Baseline.ResultID
+				}
+				if baselineID != baselines[row.Contender.ResultID] {
+					return storage.RunReport{}, storage.ErrConflict
+				}
+			}
+		}
+		return saved, nil
+	})
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var summary RunReportSummary
+	if err := json.Unmarshal(saved.Summary, &summary); err != nil {
+		return nil, err
+	}
+	return &summary, nil
 }

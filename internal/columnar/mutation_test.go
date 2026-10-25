@@ -148,7 +148,7 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, <-deleted)
-	saved, err := store.GetRunReport(ctx, p.RunID)
+	saved, err := store.GetRunReport(ctx, p.RunID, 1)
 	require.NoError(t, err)
 	assert.Equal(t, []string{replacement}, saved.ResultIDs)
 
@@ -182,7 +182,7 @@ func TestArchivedResultMutationsAndFinalization(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 	require.NoError(t, publisher.Commit(ctx))
 	require.ErrorIs(t, <-finalized, storage.ErrConflict)
-	_, err = store.GetRunReport(ctx, p.RunID)
+	_, err = store.GetRunReport(ctx, p.RunID, 1)
 	require.ErrorIs(t, err, storage.ErrNotFound)
 	manifest := []string{first, late}
 	slices.Sort(manifest)

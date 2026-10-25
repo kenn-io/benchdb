@@ -18,7 +18,7 @@ func TestFinalizedRunRejectsNewResultsAndAllowsSubmissionReplay(t *testing.T) {
 	reports := service.NewRunReports(store, "https://example.com")
 	_, err = reports.Finalize(ctx, req.RunID, []string{first.ID, "missing-result"}, service.CIReportBaselineLatestDefault, "")
 	require.ErrorIs(t, err, storage.ErrConflict)
-	_, err = reports.Get(ctx, req.RunID)
+	_, err = reports.Get(ctx, req.RunID, 1)
 	require.ErrorIs(t, err, service.ErrNotFound)
 
 	summary, err := reports.Finalize(ctx, req.RunID, []string{first.ID}, service.CIReportBaselineLatestDefault, "")

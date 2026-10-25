@@ -240,7 +240,7 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	close(tracer.resumeRun)
 	assert.NoError(t, <-finalized, "cleanup must not hold the reader lock while waiting for finalization's pooled connection")
 	require.NoError(t, <-cleaned)
-	report, err := store.GetRunReport(ctx, "empty-run")
+	report, err := store.GetRunReport(ctx, "empty-run", 1)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"status":"success"}`, string(report.Report))
 	_, err = os.Stat(orphan)

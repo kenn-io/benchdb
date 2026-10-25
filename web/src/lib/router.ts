@@ -74,6 +74,7 @@ export interface StorageRoute {
 export type CIReportBaseline = "" | "fork_point" | "parent" | "latest_default";
 
 export interface CIReportQuery {
+  evaluation?: number;
   saved: boolean;
   repository: string;
   commit: string;
@@ -270,6 +271,7 @@ export function parseCIReportQuery(search: string): CIReportQuery {
   const baseline = params.get("baseline") ?? "";
   return {
     saved: params.get("saved") === "true",
+    ...(params.has("evaluation") ? { evaluation: Number(params.get("evaluation")) } : {}),
     repository: params.get("repository") ?? "",
     commit: params.get("commit_sha") ?? params.get("commit") ?? "",
     runIDs: params.get("run_ids") ?? "",

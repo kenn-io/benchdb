@@ -365,6 +365,32 @@ Retries behave like this:
   `submission_key` with the same payload still succeed.
 - If evaluation fails, nothing is saved and the request can be retried.
 
+### Reevaluating after history arrives
+
+Use **Reevaluate** on a saved report when signed in with write access, or run:
+
+```sh
+benchdb ci reevaluate RUN_ID --server https://benchdb.example
+```
+
+The authenticated `POST /api/ci/reports/{run_id}/reevaluate` endpoint saves a new
+numbered evaluation. It uses the original measurement IDs, resolved baseline,
+and thresholds with the currently available historical results. It performs no
+benchmark runs. A newer default-branch run cannot replace the original baseline.
+Unavailable original measurements or an unrecorded baseline return HTTP 409.
+Each successful request creates an evaluation, including a repeated request.
+
+Original snapshots remain unchanged. `evaluation=2` on a saved-report API or
+page URL reads that exact evaluation; `evaluation=0` selects the latest. Omit
+it to read the original. Add `latest=true` to the summaries endpoint to select
+the latest evaluation for every run. Ordinary reads never trigger reevaluation.
+Alerts continue to consume the original run publication, without replaying it.
+
+Reports show the number of analyzed benchmarks alongside numerical comparisons.
+Rows expose `history_points` and `history_required` when a history window was
+read. A comparison can lack a statistical verdict even with enough points,
+for example when the historical distribution has zero variance.
+
 ### Reading saved reports
 
 | Request | Returns |

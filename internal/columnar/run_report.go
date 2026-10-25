@@ -26,7 +26,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	postgres := db.NewStore(tx)
-	saved, err := postgres.GetRunReport(ctx, runID)
+	saved, err := postgres.GetRunReport(ctx, runID, 1)
 	if err == nil {
 		if !slices.Equal(saved.ResultIDs, resultIDs) {
 			return storage.RunReport{}, storage.ErrConflict
@@ -64,4 +64,22 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 		return storage.RunReport{}, err
 	}
 	return saved, nil
+}
+
+func (s *Store) ReevaluateRunReport(ctx context.Context, runID string, build func(context.Context, storage.Store, storage.RunReport, int) (storage.RunReport, error)) (_ storage.RunReport, err error) {
+	ctx, cancel := context.WithTimeout(ctx, s.engine.cfg.ReadTimeout)
+	defer cancel()
+	defer func() {
+		if ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
+	}()
+	return s.Store.ReevaluateRunReport(ctx, runID, func(ctx context.Context, postgres storage.Store, original storage.RunReport, evaluation int) (saved storage.RunReport, err error) {
+		err = s.engine.Read(ctx, func(ctx context.Context, analytical *ReadSnapshot) error {
+			transaction := &Store{Store: postgres.(*db.Store), engine: s.engine, snapshot: analytical}
+			saved, err = build(ctx, transaction, original, evaluation)
+			return err
+		})
+		return saved, err
+	})
 }
