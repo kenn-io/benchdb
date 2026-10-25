@@ -177,6 +177,6 @@ FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.id=$
 	})
 }
 
-func (s *Store) fullRunIDs(ctx context.Context, runID string) ([]string, error) {
+func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string, error) {
 	return readRows(ctx, s, `SELECT id FROM benchmark_result WHERE run_id=$1 ORDER BY id`, []any{runID}, scanString)
 }

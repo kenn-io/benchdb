@@ -38,7 +38,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 	}
 	err = s.engine.Read(ctx, func(ctx context.Context, analytical *ReadSnapshot) error {
 		transaction := &Store{Store: postgres, engine: s.engine, snapshot: analytical}
-		actual, err := transaction.fullRunIDs(ctx, runID)
+		actual, err := transaction.SelectRunResultIDs(ctx, runID)
 		if err != nil {
 			return err
 		}

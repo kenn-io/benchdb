@@ -48,11 +48,7 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 		return storage.RunReport{}, err
 	}
 	// All logical result writers take the run lock, so this manifest remains stable.
-	rows, err := tx.Query(ctx, `SELECT id FROM benchmark_result_local WHERE run_id = $1`, runID)
-	if err != nil {
-		return storage.RunReport{}, err
-	}
-	actual, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	actual, err := transaction.SelectRunResultIDs(ctx, runID)
 	if err != nil {
 		return storage.RunReport{}, err
 	}
@@ -74,6 +70,14 @@ func (s *Store) FinalizeRunReport(ctx context.Context, runID string, resultIDs [
 		return storage.RunReport{}, err
 	}
 	return saved, nil
+}
+
+func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string, error) {
+	rows, err := s.q.db.Query(ctx, `SELECT id FROM benchmark_result_local WHERE run_id = $1`, runID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 func (s *Store) GetRunReport(ctx context.Context, runID string, evaluation int) (storage.RunReport, error) {

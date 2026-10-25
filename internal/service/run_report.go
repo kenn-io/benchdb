@@ -65,7 +65,7 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 		}
 	}
 	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
-		return r.evaluate(ctx, transaction, runID, ids, baseline, baselineRunID, 1, 0, 0)
+		return r.evaluate(ctx, transaction, runID, baseline, baselineRunID, 1, 0, 0)
 	})
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (r *RunReports) Summaries(ctx context.Context, runIDs []string, latest bool
 	return reports, nil
 }
 
-func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, runID string, ids []string, baseline CIReportBaseline, baselineRunID string, evaluation int, threshold, thresholdZ float64) (storage.RunReport, error) {
+func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, runID string, baseline CIReportBaseline, baselineRunID string, evaluation int, threshold, thresholdZ float64) (storage.RunReport, error) {
 	query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline, Threshold: threshold, ThresholdZ: thresholdZ}
 	if baselineRunID != "" {
 		query.Baseline = ""
@@ -138,16 +138,6 @@ func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, ru
 		return storage.RunReport{}, ErrRunReportBaselineUnavailable
 	}
 
-	actual := make([]string, 0, len(ids))
-	for _, run := range report.Runs {
-		for _, comparison := range run.Comparisons {
-			actual = append(actual, comparison.Contender.ResultID)
-		}
-	}
-	slices.Sort(actual)
-	if !slices.Equal(ids, actual) {
-		return storage.RunReport{}, storage.ErrConflict
-	}
 	// Keep the original selection mode, but reevaluation always resolves the recorded run.
 	report.Baseline = baseline
 	report.Evaluation = evaluation
@@ -177,7 +167,18 @@ func (r *RunReports) Reevaluate(ctx context.Context, runID string) (*RunReportSu
 		if report.BaselineRunID == nil || *report.BaselineRunID == "" {
 			return storage.RunReport{}, ErrRunReportBaselineUnavailable
 		}
-		saved, err := r.evaluate(ctx, transaction, runID, original.ResultIDs, report.Baseline, *report.BaselineRunID, evaluation, report.Threshold, report.ThresholdZ)
+		// Finalization checks the stored manifest under the run lock. Recheck
+		// those logical measurements here, including archived results. Report
+		// rows may omit commitless runs or repeat results across metadata groups.
+		actual, err := transaction.SelectRunResultIDs(ctx, runID)
+		if err != nil {
+			return storage.RunReport{}, err
+		}
+		slices.Sort(actual)
+		if !slices.Equal(original.ResultIDs, actual) {
+			return storage.RunReport{}, storage.ErrConflict
+		}
+		saved, err := r.evaluate(ctx, transaction, runID, report.Baseline, *report.BaselineRunID, evaluation, report.Threshold, report.ThresholdZ)
 		if errors.Is(err, ErrNotFound) {
 			return storage.RunReport{}, storage.ErrConflict
 		}
