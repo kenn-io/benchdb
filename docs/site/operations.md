@@ -636,8 +636,13 @@ key that fails stays queued and is retried when its lease ends.
 - The worker evaluates a run once its results have stopped changing for 15
   seconds.
 - New default-branch results or commits in a repository re-queue that
-  repository's pull-request runs with results from the last 14 days. Older
-  runs keep their last verdict.
+  repository's pull-request runs with results from the last 14 days whose
+  fork point is at or after the new history's commit time, with a day of
+  slack for out-of-order commit timestamps. Runs with an unknown fork point
+  are always re-queued, and commit repair re-queues every recent run. Earlier
+  forks and older runs keep their last verdict, since history committed after
+  a run's fork point is in neither its baseline search nor its lookback
+  window.
 - The Runs page queues any run it lists that has no stored verdict.
 - The worker scores a benchmark within about a second after a default-branch
   result for it is written or deleted, or after a commit carrying its results

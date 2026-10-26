@@ -63,7 +63,7 @@ SET claimed_until = $1::timestamptz,
     claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token, q.history_since
 `
 
 type ClaimVerdictQueueParams struct {
@@ -73,10 +73,11 @@ type ClaimVerdictQueueParams struct {
 }
 
 type ClaimVerdictQueueRow struct {
-	Kind       string
-	Key        string
-	EnqueuedAt pgtype.Timestamptz
-	ClaimToken googleuuid.UUID
+	Kind         string
+	Key          string
+	EnqueuedAt   pgtype.Timestamptz
+	ClaimToken   googleuuid.UUID
+	HistorySince *time.Time
 }
 
 // Claim settled keys with a lease so concurrent servers never process the same
@@ -96,6 +97,7 @@ func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueuePa
 			&i.Key,
 			&i.EnqueuedAt,
 			&i.ClaimToken,
+			&i.HistorySince,
 		); err != nil {
 			return nil, err
 		}
@@ -287,20 +289,27 @@ const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
+LEFT JOIN commit f ON f.repository = c.repository AND f.sha = c.fork_point_sha
 WHERE br.commit_repo_url = $1
   AND br."timestamp" >= $2::timestamp
   AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
+  AND ($3::timestamp IS NULL OR f."timestamp" IS NULL
+       OR f."timestamp" >= $3::timestamp)
 `
 
 type SelectRepositoryVerdictRunsParams struct {
-	Repository string
-	Since      time.Time
+	Repository  string
+	Since       time.Time
+	ForkedSince *time.Time
 }
 
 // Runs whose attention can change when default-branch history in the
-// repository changes. Default-branch runs never need attention.
+// repository changes. Default-branch runs never need attention. With
+// forked_since, a run forked earlier is left alone: history after its fork
+// point is in neither its baseline search nor its lookback window. A run
+// whose fork point is unknown is always included.
 func (q *Queries) SelectRepositoryVerdictRuns(ctx context.Context, arg SelectRepositoryVerdictRunsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since)
+	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since, arg.ForkedSince)
 	if err != nil {
 		return nil, err
 	}

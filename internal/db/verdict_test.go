@@ -94,3 +94,38 @@ func TestEnqueueMissingRunVerdictsWritesNothingWhenReadOnly(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM verdict_queue`).Scan(&queued))
 	assert.Equal(t, 1, queued)
 }
+
+// TestRepositoryVerdictKeysKeepTheEarliestHistory covers how arrivals merge
+// into one repository key: the earliest commit time wins, and an enqueue that
+// cannot say which history changed asks for every recent run.
+func TestRepositoryVerdictKeysKeepTheEarliestHistory(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	store := db.NewStore(pool)
+	enqueueAt := func(at string) {
+		t.Helper()
+		_, err := pool.Exec(ctx, `SELECT enqueue_repository_verdict('repo', $1::timestamp)`, at)
+		require.NoError(t, err)
+	}
+	claimRepository := func() *time.Time {
+		t.Helper()
+		claims := claimVerdicts(t, ctx, store, time.Minute)
+		require.Len(t, claims, 1)
+		require.Equal(t, storage.VerdictKindRepository, claims[0].Kind)
+		require.NoError(t, store.FinishVerdictClaim(ctx, claims[0]))
+		return claims[0].HistorySince
+	}
+
+	enqueueAt("2024-01-05 00:00:00")
+	enqueueAt("2024-01-02 00:00:00")
+	enqueueAt("2024-01-09 00:00:00")
+	assert.Equal(t, new(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)), claimRepository())
+
+	enqueueAt("2024-01-05 00:00:00")
+	require.NoError(t, store.EnqueueVerdict(ctx, storage.VerdictKindRepository, "repo"))
+	enqueueAt("2024-01-09 00:00:00")
+	assert.Nil(t, claimRepository(), "commit repair and other generic enqueues re-evaluate every run")
+
+	_, err := pool.Exec(ctx, `SELECT enqueue_repository_verdict('repo', NULL)`)
+	require.NoError(t, err)
+	assert.Nil(t, claimRepository(), "history without a commit time re-evaluates every run")
+}

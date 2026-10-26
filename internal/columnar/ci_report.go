@@ -127,10 +127,13 @@ ORDER BY br.side_order,br.run_id,br.history_fingerprint,br."timestamp",br.id`,
 		})
 }
 
-func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error) {
+func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, forkedSince *time.Time) ([]string, error) {
 	return readRows(ctx, s, `SELECT DISTINCT br.run_id FROM benchmark_result br
-LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.commit_repo_url=$1 AND br."timestamp">=$2
-AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)`, []any{repository, since}, scanString)
+LEFT JOIN "commit" c ON c.id=br.commit_id
+LEFT JOIN "commit" f ON f.repository=c.repository AND f.sha=c.fork_point_sha
+WHERE br.commit_repo_url=$1 AND br."timestamp">=$2
+AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
+AND ($3::TIMESTAMP IS NULL OR f."timestamp" IS NULL OR f."timestamp">=$3::TIMESTAMP)`, []any{repository, since, forkedSince}, scanString)
 }
 
 func (s *Store) SelectRunVerdictSubjects(ctx context.Context, runID string) ([]storage.RunVerdictSubject, error) {

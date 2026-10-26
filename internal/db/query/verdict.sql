@@ -16,7 +16,7 @@ SET claimed_until = sqlc.arg('lease_until')::timestamptz,
     claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token;
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token, q.history_since;
 
 -- name: LockVerdictClaim :one
 -- Holds the claimed queue row for the rest of the transaction. No row means
@@ -45,13 +45,19 @@ SELECT enqueue_missing_run_verdicts(sqlc.arg('run_ids')::text[]);
 
 -- name: SelectRepositoryVerdictRuns :many
 -- Runs whose attention can change when default-branch history in the
--- repository changes. Default-branch runs never need attention.
+-- repository changes. Default-branch runs never need attention. With
+-- forked_since, a run forked earlier is left alone: history after its fork
+-- point is in neither its baseline search nor its lookback window. A run
+-- whose fork point is unknown is always included.
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
+LEFT JOIN commit f ON f.repository = c.repository AND f.sha = c.fork_point_sha
 WHERE br.commit_repo_url = sqlc.arg('repository')
   AND br."timestamp" >= sqlc.arg('since')::timestamp
-  AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha);
+  AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
+  AND (sqlc.narg('forked_since')::timestamp IS NULL OR f."timestamp" IS NULL
+       OR f."timestamp" >= sqlc.narg('forked_since')::timestamp);
 
 -- name: SelectRunVerdictSubjects :many
 -- One subject per repository the run has results in, identified the way the

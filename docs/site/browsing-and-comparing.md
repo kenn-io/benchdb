@@ -42,9 +42,10 @@ The server computes verdicts in the background once a run's results have
 stopped arriving for 15 seconds. Until then the run shows "Checking…". A run
 being rechecked keeps its last verdict next to "Checking…". When default-branch
 results or commits arrive in a repository, the server rechecks that
-repository's pull-request runs from the last 14 days. A baseline that lands
-after the pull request then still updates its verdict. Older runs keep their
-last verdict.
+repository's pull-request runs from the last 14 days that forked at or after
+the new history. A baseline that lands after the pull request then still
+updates its verdict. A run that forked earlier cannot use the new history, so
+it keeps its verdict, as do runs older than 14 days.
 
 **Needs attention** filters the list to runs whose verdict needs attention,
 across all pages, and shows how many there are. **Previous** and **Next** page

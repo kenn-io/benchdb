@@ -23,8 +23,12 @@ const (
 	// repository's default-branch history re-evaluates. Older runs keep the
 	// verdict they last had.
 	runVerdictWindow = 14 * 24 * time.Hour
-	verdictLease     = 2 * time.Minute
-	verdictBatch     = 20
+	// forkTimestampSlack widens which runs new default-branch history
+	// re-evaluates, because commit timestamps are not always in ancestry
+	// order: a rebased ancestor can carry a later time than its descendant.
+	forkTimestampSlack = 24 * time.Hour
+	verdictLease       = 2 * time.Minute
+	verdictBatch       = 20
 	// verdictTick bounds how long a new benchmark result waits to be scored,
 	// since benchmark keys need no settling. An idle tick is one indexed
 	// query.
@@ -99,7 +103,7 @@ func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) erro
 		}
 		return v.store.FinishRunVerdicts(ctx, claim, verdicts)
 	case storage.VerdictKindRepository:
-		if err := v.queueRepositoryRuns(ctx, claim.Key); err != nil {
+		if err := v.queueRepositoryRuns(ctx, claim.Key, claim.HistorySince); err != nil {
 			return err
 		}
 		return v.store.FinishVerdictClaim(ctx, claim)
@@ -118,9 +122,19 @@ func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) erro
 	}
 }
 
-func (v *Verdicts) queueRepositoryRuns(ctx context.Context, repository string) error {
+// queueRepositoryRuns re-evaluates the recent pull-request runs that changed
+// default-branch history can affect. A run's verdict compares it with a
+// baseline found at or before its fork point, against the history before that
+// baseline, so history committed after the fork point changes neither. When
+// the history's earliest commit time is known, only runs forked at or after it
+// are queued; otherwise every recent run is.
+func (v *Verdicts) queueRepositoryRuns(ctx context.Context, repository string, historySince *time.Time) error {
 	since := v.now().UTC().Add(-runVerdictWindow)
-	runIDs, err := v.store.SelectRepositoryVerdictRuns(ctx, repository, since)
+	var forkedSince *time.Time
+	if historySince != nil {
+		forkedSince = new(historySince.Add(-forkTimestampSlack))
+	}
+	runIDs, err := v.store.SelectRepositoryVerdictRuns(ctx, repository, since, forkedSince)
 	if err != nil {
 		return err
 	}

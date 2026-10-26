@@ -36,6 +36,10 @@ type VerdictClaim struct {
 	Key        string
 	EnqueuedAt time.Time
 	Token      uuid.UUID
+	// HistorySince, for a repository key, is the earliest commit time among
+	// the default-branch history that queued it. Nil means any history may
+	// have changed.
+	HistorySince *time.Time
 }
 
 // CommitVerdictSubject identifies a run and benchmark affected by commit repair.
@@ -109,7 +113,7 @@ type VerdictStore interface {
 	// EnqueueMissingRunVerdicts queues runs without verdicts. It writes
 	// nothing on a read-only connection.
 	EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) error
-	SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error)
+	SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, forkedSince *time.Time) ([]string, error)
 	// SelectCommitVerdictSubjects expands commit repair across all stored facts.
 	SelectCommitVerdictSubjects(ctx context.Context, commitID string) ([]CommitVerdictSubject, error)
 	// SelectRunVerdictSubjects returns one subject per repository the run has

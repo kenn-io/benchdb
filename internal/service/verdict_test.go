@@ -103,6 +103,46 @@ func TestVerdictsReevaluateRecentPullRequestRunsWhenBaselineArrives(t *testing.T
 	assert.Nil(t, after["main-c3"], "default-branch runs never need attention")
 }
 
+// TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives covers the
+// cost of default-branch arrivals. A main commit after a pull request's fork
+// point is in neither its baseline search nor its lookback window, so the
+// run's verdict is not recomputed; history backfilled from before the fork
+// point still re-evaluates it.
+func TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	recent := now.Add(-5 * 24 * time.Hour)
+	provider := ciCommitProvider{
+		"c1": ciCommitInfo("c1", nil, "c1", recent),
+		"pr": ciCommitInfo("pr", new("c1"), "c1", recent.Add(time.Hour)),
+		"c2": ciCommitInfo("c2", new("c1"), "c2", recent.Add(3*24*time.Hour)),
+		"c0": ciCommitInfo("c0", nil, "c0", recent.Add(-time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, recent.Add(-time.Hour), func(sha string, at time.Time, value float64) {
+		submitAt(t, ctx, ing, "history-"+sha, sha, value, at)
+	}, 10, 20, 30, 10, 20, 30, 20, 10, 20, 30)
+	submitAt(t, ctx, ing, "main-c1", "c1", 10, recent)
+	submitAt(t, ctx, ing, "pr-run", "pr", 100, recent.Add(time.Hour))
+	drainVerdicts(t, ctx, store)
+	computedAt := func() time.Time {
+		t.Helper()
+		var at time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT computed_at FROM run_verdict WHERE run_id = 'pr-run'`).Scan(&at))
+		return at
+	}
+	first := computedAt()
+
+	submitAt(t, ctx, ing, "main-c2", "c2", 20, recent.Add(3*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	assert.Equal(t, first, computedAt(), "a main commit days after the fork point cannot change the verdict")
+	storedVerdicts(t, ctx, store, "main-c2")
+
+	submitAt(t, ctx, ing, "main-c0", "c0", 20, recent.Add(-time.Hour))
+	drainVerdicts(t, ctx, store)
+	assert.True(t, computedAt().After(first), "history from before the fork point re-evaluates the run")
+}
+
 func TestVerdictsFollowAnnotationsAndDeletes(t *testing.T) {
 	ing, store, pool, ctx := newIngester(t)
 	now := time.Now().UTC().Truncate(time.Second)

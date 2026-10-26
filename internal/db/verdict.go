@@ -28,10 +28,11 @@ func (s *Store) ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil tim
 	claims := make([]storage.VerdictClaim, 0, len(rows))
 	for _, row := range rows {
 		claims = append(claims, storage.VerdictClaim{
-			Kind:       storage.VerdictKind(row.Kind),
-			Key:        row.Key,
-			EnqueuedAt: row.EnqueuedAt.Time,
-			Token:      row.ClaimToken,
+			Kind:         storage.VerdictKind(row.Kind),
+			Key:          row.Key,
+			EnqueuedAt:   row.EnqueuedAt.Time,
+			Token:        row.ClaimToken,
+			HistorySince: row.HistorySince,
 		})
 	}
 	return claims, nil
@@ -155,9 +156,12 @@ func (s *Store) EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) 
 }
 
 // SelectRepositoryVerdictRuns lists the repository's non-default-branch runs
-// with results at or after since.
-func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error) {
-	return s.q.SelectRepositoryVerdictRuns(ctx, SelectRepositoryVerdictRunsParams{Repository: repository, Since: since})
+// with results at or after since. With forkedSince, it lists only runs forked
+// at or after it, or whose fork point is unknown.
+func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, forkedSince *time.Time) ([]string, error) {
+	return s.q.SelectRepositoryVerdictRuns(ctx, SelectRepositoryVerdictRunsParams{
+		Repository: repository, Since: since, ForkedSince: forkedSince,
+	})
 }
 
 // SelectRunVerdictSubjects returns the run's latest result per repository.

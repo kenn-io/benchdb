@@ -509,4 +509,5 @@ type VerdictQueue struct {
 	EnqueuedAt   pgtype.Timestamptz
 	ClaimedUntil pgtype.Timestamptz
 	ClaimToken   pgtype.UUID
+	HistorySince *time.Time
 }
