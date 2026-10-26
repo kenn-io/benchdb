@@ -79,6 +79,10 @@ approvals, token permissions, and secrets are separate controls.
 - Never locate files from a path returned by `runtime.Caller` or a stack
   trace; builds use `-trimpath`, so those paths are module-relative. Tests run
   from their package directory, so use paths relative to it.
+- Trimmed binaries cannot find Go's bundled time zone database, so
+  `time.LoadLocation` relies on the host's. A test package that loads a named
+  zone and runs on Windows, which has no host database, or uses a legacy name
+  such as `US/Central` must add `import _ "time/tzdata"` in a `_test.go` file.
 - Pass `-shuffle=on` when invoking `go test` directly. Do not pass `-count=1`
   or `-v` for ordinary verification.
 - Number migrations sequentially under `internal/db/migrations` with matching
