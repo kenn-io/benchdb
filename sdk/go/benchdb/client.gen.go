@@ -1023,6 +1023,7 @@ func (o *GetRunReportSummariesRequestOptions) GetHeader() (map[string]string, er
 // GetSavedRunReportRequestOptions is the options needed to make a request to GetSavedRunReport.
 type GetSavedRunReportRequestOptions struct {
 	PathParams *GetSavedRunReportPath
+	Query      *GetSavedRunReportQuery
 }
 
 // Validate validates all the fields in the options.
@@ -1034,6 +1035,14 @@ func (o *GetSavedRunReportRequestOptions) Validate() error {
 		if v, ok := any(o.PathParams).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
 				errors = errors.Append("PathParams", err)
+			}
+		}
+	}
+
+	if o.Query != nil {
+		if v, ok := any(o.Query).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Query", err)
 			}
 		}
 	}
@@ -1051,7 +1060,7 @@ func (o *GetSavedRunReportRequestOptions) GetPathParams() (map[string]any, error
 
 // GetQuery returns the query params as a map.
 func (o *GetSavedRunReportRequestOptions) GetQuery() (map[string]any, error) {
-	return nil, nil
+	return runtime.AsMap[any](o.Query)
 }
 
 // GetBody returns the payload in any type that can be marshalled to JSON by the client.
@@ -1123,6 +1132,59 @@ func (o *FinalizeRunReportRequestOptions) GetBody() any {
 
 // GetHeader returns the headers as a map.
 func (o *FinalizeRunReportRequestOptions) GetHeader() (map[string]string, error) {
+	return runtime.AsMap[string](o.Header)
+}
+
+// ReevaluateRunReportRequestOptions is the options needed to make a request to ReevaluateRunReport.
+type ReevaluateRunReportRequestOptions struct {
+	PathParams *ReevaluateRunReportPath
+	Header     *ReevaluateRunReportHeaders
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *ReevaluateRunReportRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.PathParams != nil {
+		if v, ok := any(o.PathParams).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("PathParams", err)
+			}
+		}
+	}
+
+	if o.Header != nil {
+		if v, ok := any(o.Header).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Header", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *ReevaluateRunReportRequestOptions) GetPathParams() (map[string]any, error) {
+	return runtime.AsMap[any](o.PathParams)
+}
+
+// GetQuery returns the query params as a map.
+func (o *ReevaluateRunReportRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *ReevaluateRunReportRequestOptions) GetBody() any {
+	return nil
+}
+
+// GetHeader returns the headers as a map.
+func (o *ReevaluateRunReportRequestOptions) GetHeader() (map[string]string, error) {
 	return runtime.AsMap[string](o.Header)
 }
 
@@ -1640,6 +1702,7 @@ type ClientInterface interface {
 	GetRunReportSummariesWithResponse(ctx context.Context, options *GetRunReportSummariesRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetRunReportSummariesResp, error)
 	GetSavedRunReportWithResponse(ctx context.Context, options *GetSavedRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetSavedRunReportResp, error)
 	FinalizeRunReportWithResponse(ctx context.Context, options *FinalizeRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*FinalizeRunReportResp, error)
+	ReevaluateRunReportWithResponse(ctx context.Context, options *ReevaluateRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ReevaluateRunReportResp, error)
 	CompareBenchmarkResultsWithResponse(ctx context.Context, options *CompareBenchmarkResultsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CompareBenchmarkResultsResp, error)
 	GetHistoryWithResponse(ctx context.Context, options *GetHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryResp, error)
 	GetHistoryForResultWithResponse(ctx context.Context, options *GetHistoryForResultRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetHistoryForResultResp, error)
@@ -2837,6 +2900,55 @@ func (c *Client) FinalizeRunReportWithResponse(ctx context.Context, options *Fin
 	}
 }
 
+// ReevaluateRunReport Reevaluate a saved run with its original baseline and measurements
+func (c *Client) ReevaluateRunReportWithResponse(ctx context.Context, options *ReevaluateRunReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ReevaluateRunReportResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL: c.apiClient.GetBaseURL() + "/api/ci/reports/{run_id}/reevaluate",
+		Method:     "POST",
+		Options:    options,
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/ci/reports/{run_id}/reevaluate")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &ReevaluateRunReportResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(ReevaluateRunReportResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ReevaluateRunReportResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	case 500:
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	default:
+		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
 // CompareBenchmarkResults Compare two benchmark results
 func (c *Client) CompareBenchmarkResultsWithResponse(ctx context.Context, options *CompareBenchmarkResultsRequestOptions, reqEditors ...runtime.RequestEditorFn) (*CompareBenchmarkResultsResp, error) {
 	var err error
@@ -3845,6 +3957,10 @@ type FinalizeRunReportHeaders struct {
 	Authorization *string `json:"Authorization,omitempty"`
 }
 
+type ReevaluateRunReportHeaders struct {
+	Authorization *string `json:"Authorization,omitempty"`
+}
+
 type SubmitResultHeaders struct {
 	// Authorization Bearer token, e.g. 'Bearer <token>'.
 	Authorization *string `json:"Authorization,omitempty"`
@@ -3971,6 +4087,14 @@ type FinalizeRunReportPath struct {
 
 func (f FinalizeRunReportPath) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(f))
+}
+
+type ReevaluateRunReportPath struct {
+	RunID string `json:"run_id" validate:"required,max=255"`
+}
+
+func (r ReevaluateRunReportPath) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(r))
 }
 
 type GetHistoryForResultPath struct {
@@ -4136,10 +4260,21 @@ func (g GetCiReportQuery) Validate() error {
 }
 
 type GetRunReportSummariesQuery struct {
+	// Latest Select the latest saved evaluation instead of the original.
+	Latest *bool  `json:"latest,omitempty"`
 	RunIds string `json:"run_ids" validate:"required,max=25600"`
 }
 
 func (g GetRunReportSummariesQuery) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(g))
+}
+
+type GetSavedRunReportQuery struct {
+	// Evaluation Saved evaluation number. Zero selects the latest evaluation.
+	Evaluation *int64 `json:"evaluation,omitempty" validate:"omitempty,gte=0"`
+}
+
+func (g GetSavedRunReportQuery) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(g))
 }
 
@@ -4331,6 +4466,10 @@ type GetSavedRunReportErrorResponse = ErrorModel
 type FinalizeRunReportResponse = RunReportSummary
 
 type FinalizeRunReportErrorResponse = ErrorModel
+
+type ReevaluateRunReportResponse = RunReportSummary
+
+type ReevaluateRunReportErrorResponse = ErrorModel
 
 type CompareBenchmarkResultsResponse = CompareResult
 
@@ -4570,6 +4709,13 @@ type FinalizeRunReportResp struct {
 	Body         []byte
 	StatusCode   int
 	JSON200      *FinalizeRunReportResponse
+}
+
+type ReevaluateRunReportResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *ReevaluateRunReportResponse
 }
 
 type CompareBenchmarkResultsResp struct {
@@ -5054,9 +5200,12 @@ type CIReport struct {
 	Baseline        string  `json:"baseline" validate:"required"`
 
 	// BaselineRunID Resolved baseline run for a saved report.
-	BaselineRunID  *string         `json:"baseline_run_id,omitempty"`
-	CommitSha      *string         `json:"commit_sha,omitempty" validate:"required"`
-	EvaluatedAt    *time.Time      `json:"evaluated_at,omitempty"`
+	BaselineRunID *string    `json:"baseline_run_id,omitempty"`
+	CommitSha     *string    `json:"commit_sha,omitempty" validate:"required"`
+	EvaluatedAt   *time.Time `json:"evaluated_at,omitempty"`
+
+	// Evaluation Saved evaluation number; original reports use 1.
+	Evaluation     *int64          `json:"evaluation,omitempty"`
 	MissingRunIds  []string        `json:"missing_run_ids,omitempty" validate:"required"`
 	ReportURL      string          `json:"report_url" validate:"required"`
 	Repository     string          `json:"repository" validate:"required"`
@@ -5174,21 +5323,27 @@ func (c CIReportBaselineSide) Validate() error {
 }
 
 type CIReportComparison struct {
-	Analysis           *CIReportAnalysis        `json:"analysis,omitempty"`
-	Baseline           *CIReportBaselineSide    `json:"baseline,omitempty"`
-	Contender          CIReportSide             `json:"contender"`
-	Context            map[string]any           `json:"context"`
-	ErrorData          map[string]any           `json:"error,omitempty"`
-	Hardware           Hardware                 `json:"hardware"`
-	HistoryFingerprint string                   `json:"history_fingerprint" validate:"required"`
-	Info               map[string]any           `json:"info"`
-	LessIsBetter       *bool                    `json:"less_is_better,omitempty"`
-	Links              CIReportRowLinks         `json:"links"`
-	Name               string                   `json:"name" validate:"required"`
-	Reason             *string                  `json:"reason,omitempty"`
-	Status             CIReportComparisonStatus `json:"status" validate:"required"`
-	Tags               map[string]any           `json:"tags"`
-	Unit               *string                  `json:"unit,omitempty" validate:"required"`
+	Analysis           *CIReportAnalysis     `json:"analysis,omitempty"`
+	Baseline           *CIReportBaselineSide `json:"baseline,omitempty"`
+	Contender          CIReportSide          `json:"contender"`
+	Context            map[string]any        `json:"context"`
+	ErrorData          map[string]any        `json:"error,omitempty"`
+	Hardware           Hardware              `json:"hardware"`
+	HistoryFingerprint string                `json:"history_fingerprint" validate:"required"`
+
+	// HistoryPoints Results available to the statistical analysis at the baseline commit.
+	HistoryPoints *int64 `json:"history_points,omitempty"`
+
+	// HistoryRequired Minimum history results required for statistical analysis.
+	HistoryRequired *int64                   `json:"history_required,omitempty"`
+	Info            map[string]any           `json:"info"`
+	LessIsBetter    *bool                    `json:"less_is_better,omitempty"`
+	Links           CIReportRowLinks         `json:"links"`
+	Name            string                   `json:"name" validate:"required"`
+	Reason          *string                  `json:"reason,omitempty"`
+	Status          CIReportComparisonStatus `json:"status" validate:"required"`
+	Tags            map[string]any           `json:"tags"`
+	Unit            *string                  `json:"unit,omitempty" validate:"required"`
 }
 
 func (c CIReportComparison) Validate() error {
@@ -6361,6 +6516,7 @@ type RunReportSummary struct {
 	Baseline        *RunReportSummaryBaseline `json:"baseline,omitempty"`
 	BaselineRunID   *string                   `json:"baseline_run_id,omitempty"`
 	EvaluatedAt     time.Time                 `json:"evaluated_at" validate:"required"`
+	Evaluation      *int64                    `json:"evaluation,omitempty"`
 	ReportURL       string                    `json:"report_url" validate:"required"`
 	RunID           string                    `json:"run_id" validate:"required"`
 	Status          RunReportSummaryStatus    `json:"status" validate:"required"`

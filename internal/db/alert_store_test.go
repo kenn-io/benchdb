@@ -704,3 +704,20 @@ func TestClaimPendingAlertDeliveriesNeverClaimsRowTwice(t *testing.T) {
 	}
 	assert.Len(t, seen, eventCount, "every delivery is claimed exactly once across both runs")
 }
+
+func TestReportReevaluationDoesNotReplayAlerts(t *testing.T) {
+	st, pool, ctx := newTestStore(t)
+	userID := dbtest.SeedUser(t, ctx, pool)
+	at := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	insertFinalizedReport(t, ctx, pool, "run", ciReportRepo, "sha", at, reason("commit"))
+	_, err := pool.Exec(ctx, `INSERT INTO ci_run_report (run_id, evaluation, result_ids, evaluated_at, report, summary) SELECT run_id, 2, result_ids, $1, report, summary FROM ci_run_report WHERE run_id='run'`, at.Add(time.Hour))
+	require.NoError(t, err)
+	rule := createAlertRuleForRuns(t, ctx, st, userID, nil)
+	started, err := st.StartAlertRule(ctx, rule.ID)
+	require.NoError(t, err)
+	require.NotNil(t, started.ReportStartAt)
+	assert.True(t, started.ReportStartAt.Equal(at), "reevaluation must not move the alert's initial run boundary")
+	assert.Equal(t, []string{"run"}, alertRunIDs(t, ctx, st, rule.ID, 10))
+	scoreAlertRun(t, ctx, st, started, "run", at)
+	assert.Empty(t, alertRunIDs(t, ctx, st, rule.ID, 10))
+}

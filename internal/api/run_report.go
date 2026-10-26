@@ -21,6 +21,7 @@ func NewRunReportHandler(reports *service.RunReports, authn *auth.Authenticator)
 }
 
 func (h *RunReportHandler) Register(api huma.API) {
+	huma.Register(api, huma.Operation{OperationID: "reevaluate-run-report", Summary: "Reevaluate a saved run with its original baseline and measurements", Method: http.MethodPost, Path: "/api/ci/reports/{run_id}/reevaluate"}, h.reevaluate)
 	huma.Register(api, huma.Operation{OperationID: "finalize-run-report", Summary: "Finalize a completed run's benchmark report", Method: http.MethodPost, Path: "/api/ci/reports/{run_id}"}, h.finalize)
 	huma.Register(api, huma.Operation{OperationID: "get-saved-run-report", Summary: "Read a saved benchmark report", Method: http.MethodGet, Path: "/api/ci/reports/{run_id}"}, h.get)
 	huma.Register(api, huma.Operation{OperationID: "get-run-report-summaries", Summary: "Read saved benchmark report summaries", Method: http.MethodGet, Path: "/api/ci/reports"}, h.summaries)
@@ -57,11 +58,12 @@ func (h *RunReportHandler) finalize(ctx context.Context, in *FinalizeRunReportIn
 }
 
 type SavedRunReportInput struct {
-	RunID string `path:"run_id" maxLength:"255"`
+	Evaluation int    `query:"evaluation" default:"1" minimum:"0" doc:"Saved evaluation number. Zero selects the latest evaluation."`
+	RunID      string `path:"run_id" maxLength:"255"`
 }
 
 func (h *RunReportHandler) get(ctx context.Context, in *SavedRunReportInput) (*CIReportOutput, error) {
-	report, err := h.reports.Get(ctx, in.RunID)
+	report, err := h.reports.Get(ctx, in.RunID, in.Evaluation)
 	if err != nil {
 		return nil, mapCIReportError(err)
 	}
@@ -69,6 +71,7 @@ func (h *RunReportHandler) get(ctx context.Context, in *SavedRunReportInput) (*C
 }
 
 type RunReportSummariesInput struct {
+	Latest bool   `query:"latest" doc:"Select the latest saved evaluation instead of the original."`
 	RunIDs string `query:"run_ids" required:"true" maxLength:"25600"`
 }
 type RunReportSummariesOutput struct {
@@ -78,11 +81,34 @@ type RunReportSummariesOutput struct {
 }
 
 func (h *RunReportHandler) summaries(ctx context.Context, in *RunReportSummariesInput) (*RunReportSummariesOutput, error) {
-	reports, err := h.reports.Summaries(ctx, parseRunIDs(in.RunIDs))
+	reports, err := h.reports.Summaries(ctx, parseRunIDs(in.RunIDs), in.Latest)
 	if err != nil {
 		return nil, mapCIReportError(err)
 	}
 	out := &RunReportSummariesOutput{}
 	out.Body.Reports = reports
 	return out, nil
+}
+
+type ReevaluateRunReportInput struct {
+	RunID         string `path:"run_id" maxLength:"255"`
+	Authorization string `header:"Authorization"`
+	Session       string `cookie:"benchdb_session"`
+}
+
+func (h *RunReportHandler) reevaluate(ctx context.Context, in *ReevaluateRunReportInput) (*RunReportSummaryOutput, error) {
+	if err := h.auth.Authenticate(ctx, in.Authorization, in.Session); err != nil {
+		return nil, huma.Error401Unauthorized("authentication required")
+	}
+	report, err := h.reports.Reevaluate(ctx, in.RunID)
+	if errors.Is(err, service.ErrRunReportBaselineUnavailable) {
+		return nil, huma.Error409Conflict("the original baseline is unavailable for reevaluation")
+	}
+	if errors.Is(err, storage.ErrConflict) {
+		return nil, huma.Error409Conflict("the original measurements are unavailable for reevaluation")
+	}
+	if err != nil {
+		return nil, mapCIReportError(err)
+	}
+	return &RunReportSummaryOutput{Body: *report}, nil
 }

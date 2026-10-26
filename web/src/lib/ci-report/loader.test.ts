@@ -43,3 +43,14 @@ it.each([
   await expect(loadCIReport(client, query)).rejects.toThrow("Saved report does not match the requested baseline.");
   expect(requests).toEqual(["get /api/ci/reports/contender"]);
 });
+
+it("reads a pinned reevaluation without changing the baseline selection", async () => {
+ const requests: string[] = [];
+ const report = { evaluation: 2, baseline: "explicit_run", baseline_run_id: "main" };
+ const client = getBenchDB(axios.create({ adapter: async (config) => {
+   requests.push(axios.getUri(config));
+   return { status: 200, statusText: "OK", headers: {}, config, data: report };
+ } }));
+ expect(await loadCIReport(client, parseCIReportQuery("?saved=true&run_ids=pull&evaluation=2&baseline_run_ids=main"))).toEqual(report);
+ expect(requests).toEqual(["/api/ci/reports/pull?evaluation=2"]);
+});

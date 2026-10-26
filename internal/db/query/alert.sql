@@ -161,7 +161,7 @@ UPDATE alert_rule r
 SET report_start_at = (
   SELECT max(cr.evaluated_at)
   FROM ci_run_report cr
-  WHERE cr.report->>'repository' = r.repository
+  WHERE cr.evaluation = 1 AND cr.report->>'repository' = r.repository
     AND cr.report->>'commit_sha' IS NOT NULL
     AND (r.run_reason IS NULL OR EXISTS (
       SELECT 1 FROM jsonb_array_elements(cr.report->'runs') AS run
@@ -190,7 +190,7 @@ SELECT
     LIMIT 1
   ), false)::boolean AS late
 FROM alert_rule r
-JOIN ci_run_report cr ON cr.report->>'repository' = r.repository
+JOIN ci_run_report cr ON cr.evaluation = 1 AND cr.report->>'repository' = r.repository
 LEFT JOIN alert_pending_run p ON p.rule_id = r.id AND p.run_id = cr.run_id
 WHERE r.id = sqlc.arg('rule_id')
   AND r.report_start_at IS NOT NULL

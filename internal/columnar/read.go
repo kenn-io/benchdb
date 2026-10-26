@@ -177,6 +177,17 @@ FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.id=$
 	})
 }
 
-func (s *Store) fullRunIDs(ctx context.Context, runID string) ([]string, error) {
+func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string, error) {
 	return readRows(ctx, s, `SELECT id FROM benchmark_result WHERE run_id=$1 ORDER BY id`, []any{runID}, scanString)
+}
+
+func (s *Store) SelectResultsForCompare(ctx context.Context, ids []string) ([]storage.CompareResultRow, error) {
+	return readRows(ctx, s, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
+br.error,br.optional_benchmark_info,br.commit_id,c."timestamp"
+FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id
+WHERE br.id IN (SELECT unnest($1::VARCHAR[]))`, []any{ids}, func(row rowScanner) (out storage.CompareResultRow, err error) {
+		err = row.Scan(&out.ID, &out.RunID, &out.HistoryFingerprint, &out.Unit, nullableFloats{&out.Data},
+			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp)
+		return
+	})
 }

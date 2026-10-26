@@ -76,6 +76,7 @@ type CIReportQuery struct {
 }
 
 type CIReport struct {
+	Evaluation      int                  `json:"evaluation,omitempty" doc:"Saved evaluation number; original reports use 1."`
 	BaselineRunID   *string              `json:"baseline_run_id,omitempty" doc:"Resolved baseline run for a saved report."`
 	EvaluatedAt     *time.Time           `json:"evaluated_at,omitempty"`
 	AnalysisVersion int                  `json:"analysis_version,omitempty"`
@@ -125,6 +126,8 @@ type CIReportRun struct {
 }
 
 type CIReportComparison struct {
+	HistoryPoints      *int                  `json:"history_points,omitempty" doc:"Results available to the statistical analysis at the baseline commit."`
+	HistoryRequired    int                   `json:"history_required,omitempty" doc:"Minimum history results required for statistical analysis."`
 	Status             string                `json:"status" enum:"regressed,improved,stable,insufficient,errored,missing_baseline,not_comparable"`
 	Name               string                `json:"name"`
 	Tags               map[string]any        `json:"tags"`
@@ -885,8 +888,8 @@ func (r *CIReporter) findBaselineRun(
 // whose analysis needs the baseline's lookback history.
 type ciReportPendingComparison struct {
 	index       int
-	row         storage.CIReportResultRow
-	baselineRow storage.CIReportResultRow
+	row         storage.CompareResultRow
+	baselineRow storage.CompareResultRow
 }
 
 // batchedHistory loads lookback history in one query per baseline commit time.
@@ -992,7 +995,9 @@ func (r *CIReporter) assembleComparisons(
 			comparisons = append(comparisons, comp)
 			continue
 		}
-		pending = append(pending, ciReportPendingComparison{index: len(comparisons), row: row, baselineRow: baselineRow})
+		baseSide := ciReportBaselineSideFromRow(baselineRow)
+		comp.Baseline = &baseSide
+		pending = append(pending, ciReportPendingComparison{index: len(comparisons), row: ciReportCompareInput(row), baselineRow: ciReportCompareInput(baselineRow)})
 		comparisons = append(comparisons, comp)
 	}
 
@@ -1014,13 +1019,19 @@ func (r *CIReporter) analyzeComparison(
 	threshold, thresholdZ float64,
 	history historyLoader,
 ) error {
-	analysis, err := r.reader.compareRows(ctx, ciReportCompareInput(item.baselineRow), ciReportCompareInput(item.row), threshold, thresholdZ, history)
-	baseSide := ciReportBaselineSideFromRow(item.baselineRow)
+	countedHistory := func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+		rows, err := history(ctx, fingerprint, asOf)
+		if err == nil {
+			comp.HistoryPoints = new(len(rows))
+			comp.HistoryRequired = minHistoryPoints
+		}
+		return rows, err
+	}
+	analysis, err := r.reader.compareRows(ctx, item.baselineRow, item.row, threshold, thresholdZ, countedHistory)
 	if errors.Is(err, ErrNotComparable) {
 		comp.Status = CIReportRowStatusNotComparable
 		reason := err.Error()
 		comp.Reason = &reason
-		comp.Baseline = &baseSide
 		return nil
 	}
 	if err != nil {
@@ -1029,11 +1040,17 @@ func (r *CIReporter) analyzeComparison(
 	comp.Analysis = ciReportAnalysisFromCompare(analysis.Analysis)
 	comp.Unit = &analysis.Unit
 	comp.LessIsBetter = &analysis.LessIsBetter
-	baseSide.SVS = &analysis.Baseline.SVS
-	comp.Baseline = &baseSide
+	comp.Baseline.SVS = &analysis.Baseline.SVS
 	comp.Contender.SVS = &analysis.Contender.SVS
-	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ)
+	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ID, item.row.ID, threshold, thresholdZ)
 	comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
+	if comp.Status == CIReportRowStatusInsufficient {
+		reason := "Statistical analysis unavailable"
+		if comp.HistoryPoints != nil && *comp.HistoryPoints < minHistoryPoints {
+			reason = fmt.Sprintf("History contains %d results; at least %d required", *comp.HistoryPoints, minHistoryPoints)
+		}
+		comp.Reason = &reason
+	}
 	return nil
 }
 

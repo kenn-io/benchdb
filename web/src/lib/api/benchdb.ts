@@ -446,6 +446,10 @@ export interface CIReportComparison {
   error: CIReportComparisonError;
   hardware: Hardware;
   history_fingerprint: string;
+  /** Results available to the statistical analysis at the baseline commit. */
+  history_points?: number;
+  /** Minimum history results required for statistical analysis. */
+  history_required?: number;
   info: CIReportComparisonInfo;
   /** @nullable */
   less_is_better: boolean | null;
@@ -499,6 +503,8 @@ export interface CIReport {
   /** @nullable */
   commit_sha: string | null;
   evaluated_at?: string;
+  /** Saved evaluation number; original reports use 1. */
+  evaluation?: number;
   /** @nullable */
   missing_run_ids: string[] | null;
   report_url: string;
@@ -1006,6 +1012,7 @@ export interface RunReportSummary {
   baseline?: RunReportSummaryBaseline;
   baseline_run_id?: string;
   evaluated_at: string;
+  evaluation?: number;
   report_url: string;
   run_id: string;
   status: RunReportSummaryStatus;
@@ -1347,9 +1354,21 @@ export const GetCiReportBaseline = {
 
 export type GetRunReportSummariesParams = {
 /**
+ * Select the latest saved evaluation instead of the original.
+ */
+latest?: boolean;
+/**
  * @maxLength 25600
  */
 run_ids: string;
+};
+
+export type GetSavedRunReportParams = {
+/**
+ * Saved evaluation number. Zero selects the latest evaluation.
+ * @minimum 0
+ */
+evaluation?: number;
 };
 
 export type CompareBenchmarkResultsParams = {
@@ -1748,10 +1767,13 @@ const getRunReportSummaries = (
  * @summary Read a saved benchmark report
  */
 const getSavedRunReport = (
-    runId: string, options?: AxiosRequestConfig
+    runId: string,
+    params?: GetSavedRunReportParams, options?: AxiosRequestConfig
  ): Promise<AxiosResponse<CIReport>> => {
     return axiosInstance.get(
-      `/api/ci/reports/${encodeURIComponent(runId)}`,options
+      `/api/ci/reports/${encodeURIComponent(runId)}`,{
+    ...options,
+        params: {...params, ...options?.params},}
     );
   }
 
@@ -1765,6 +1787,18 @@ const finalizeRunReport = (
     return axiosInstance.post(
       `/api/ci/reports/${encodeURIComponent(runId)}`,
       finalizeRunReportInputBody,options
+    );
+  }
+
+/**
+ * @summary Reevaluate a saved run with its original baseline and measurements
+ */
+const reevaluateRunReport = (
+    runId: string, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RunReportSummary>> => {
+    return axiosInstance.post(
+      `/api/ci/reports/${encodeURIComponent(runId)}/reevaluate`,
+      undefined,options
     );
   }
 
@@ -1934,7 +1968,7 @@ const usersMe = (
     );
   }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,reevaluateRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -1960,6 +1994,7 @@ export type GetCiReportResult = AxiosResponse<CIReport>
 export type GetRunReportSummariesResult = AxiosResponse<RunReportSummariesOutputBody>
 export type GetSavedRunReportResult = AxiosResponse<CIReport>
 export type FinalizeRunReportResult = AxiosResponse<RunReportSummary>
+export type ReevaluateRunReportResult = AxiosResponse<RunReportSummary>
 export type CompareBenchmarkResultsResult = AxiosResponse<CompareResult>
 export type GetHistoryResult = AxiosResponse<HistorySeries>
 export type GetHistoryForResultResult = AxiosResponse<HistorySeries>

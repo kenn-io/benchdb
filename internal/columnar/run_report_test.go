@@ -109,20 +109,55 @@ func TestFinalizedReportKeepsCommitEnrichmentOutsideSnapshot(t *testing.T) {
 		if err != nil {
 			return storage.RunReport{}, err
 		}
+		report.BaselineRunID = report.Runs[0].BaselineRunID
 		data, err := json.Marshal(report)
 		return storage.RunReport{Report: data, Summary: []byte(`{}`), EvaluatedAt: time.Now().UTC()}, err
 	})
 	require.NoError(t, err)
-	saved, err := service.NewRunReports(store, "").Get(ctx, "contender")
+	saved, err := service.NewRunReports(store, "").Get(ctx, "contender", 1)
 	require.NoError(t, err)
 	require.Len(t, saved.Runs, 1)
 	assert.Equal(t, "c3", saved.Runs[0].BaselineCommit.Sha)
 	require.Len(t, saved.Runs[0].Comparisons, 1)
 	require.NotNil(t, saved.Runs[0].Comparisons[0].Analysis)
 	assert.NotNil(t, saved.Runs[0].Comparisons[0].Analysis.LookbackZScore, "a finalized report must retain its lookback analysis")
+	baselineID := saved.Runs[0].Comparisons[0].Baseline.ResultID
+	baselineCommitID, err := pg.GetCommitID(ctx, "c3", repository)
+	require.NoError(t, err)
+	_, err = pg.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{
+		CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID,
+		RunID: "c3", RunTags: []byte(`{}`), CommitID: &baselineCommitID, CommitRepoUrl: repository,
+		HistoryFingerprint: "fingerprint", Timestamp: start.Add(49 * time.Hour),
+		Unit: new("s"), Data: []*float64{new(1000.0)},
+	})
+	require.NoError(t, err)
+
+	// The service must validate archived measurements, not just hot rows or
+	// the report's rendered comparisons, before saving a new evaluation.
+	reports := service.NewRunReports(store, "")
+	revised, err := reports.Reevaluate(ctx, "contender")
+	require.NoError(t, err)
+	assert.Equal(t, 2, revised.Evaluation)
+	latest, err := reports.Get(ctx, "contender", 0)
+	require.NoError(t, err)
+	require.Len(t, latest.Runs[0].Comparisons, 1)
+	assert.Equal(t, resultID, latest.Runs[0].Comparisons[0].Contender.ResultID)
+	assert.Equal(t, baselineID, latest.Runs[0].Comparisons[0].Baseline.ResultID, "a newer hot result cannot replace the archived baseline")
+	require.NotNil(t, latest.BaselineRunID)
+	assert.Equal(t, "c3", *latest.BaselineRunID)
+	original, err := store.GetRunReport(ctx, "contender", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{resultID}, original.ResultIDs)
 
 	fresh, err := service.NewCIReporter(store).Report(ctx, query)
 	require.NoError(t, err)
 	assert.Equal(t, "late", fresh.Runs[0].BaselineCommit.Sha, "later reports see completed enrichment")
 	require.NotNil(t, fresh.Comparisons[0].Analysis.LookbackZScore)
+
+	require.NoError(t, store.DeleteBenchmarkResult(ctx, baselineID))
+	_, err = reports.Reevaluate(ctx, "contender")
+	require.ErrorIs(t, err, storage.ErrConflict)
+	latest, err = reports.Get(ctx, "contender", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, latest.Evaluation, "missing archived measurements must not create another evaluation")
 }

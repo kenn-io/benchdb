@@ -70,7 +70,7 @@ func TestRunReportKeepsManifestResultsUntilCommit(t *testing.T) {
 	require.NoError(t, deleteErr, "deletion remains allowed after finalization commits")
 	_, err = store.GetBenchmarkResultByID(ctx, second)
 	require.ErrorIs(t, err, storage.ErrNotFound)
-	persisted, err := store.GetRunReport(ctx, "completed-run")
+	persisted, err := store.GetRunReport(ctx, "completed-run", 1)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{first, second}, persisted.ResultIDs)
 	assert.JSONEq(t, `{"result_count":2}`, string(persisted.Report), "later deletion must preserve the saved evaluation")
@@ -85,7 +85,7 @@ func TestRunReportRetriesFailureAndBuildsOnceAcrossConcurrentStores(t *testing.T
 		return storage.RunReport{}, failed
 	})
 	require.ErrorIs(t, err, failed)
-	_, err = store.GetRunReport(ctx, "completed-run")
+	_, err = store.GetRunReport(ctx, "completed-run", 1)
 	require.ErrorIs(t, err, storage.ErrNotFound)
 
 	var builds atomic.Int32

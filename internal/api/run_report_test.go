@@ -180,6 +180,15 @@ func TestSavedRunReportWaitsForExactBaseline(t *testing.T) {
 	assert.Equal(t, 1, report.Summary.MissingBaseline)
 	require.Len(t, report.Runs, 1)
 	assert.Equal(t, "pending-baseline", *report.Runs[0].BaselineRunID)
+
+	// A later matching result must not fill a hole in the original comparison.
+	seedResult(t, tapi, seedOpts{runID: "pending-baseline", sha: "c1", ts: day(1), data: []float64{30}})
+	response = tapi.Post("/api/ci/reports/contender/reevaluate", "Authorization: Bearer "+testToken)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	report = decodeCIReport(t, tapi.Get("/api/ci/reports/contender?evaluation=0"))
+	assert.Equal(t, service.CIReportStatusActionRequired, report.Status)
+	assert.Equal(t, 1, report.Summary.MissingBaseline)
+	assert.Nil(t, report.Runs[0].Comparisons[0].Baseline)
 }
 
 func TestSavedRunReportRequiresBaselineChoice(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 18
+const latestMigrationVersion = 19
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)
@@ -501,4 +501,34 @@ func TestMigrateRequeuesStoredVerdictsForRescoring(t *testing.T) {
 			assert.Equal(t, tc.want, keys, "stored verdicts are rescored under the new rules")
 		})
 	}
+}
+
+func TestMigratePreservesOriginalReportForReevaluation(t *testing.T) {
+	pool, ctx := dbtest.NewEmptyPool(t)
+	applyBaselineSchema(t, ctx, pool)
+	for version := 2; version <= 18; version++ {
+		files, err := filepath.Glob(fmt.Sprintf("migrations/%06d_*.up.sql", version))
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		migration, err := os.ReadFile(files[0])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(migration))
+		require.NoError(t, err)
+	}
+	createMigrationLedger(t, ctx, pool, 18, false)
+	const original = `{"status":"skipped","baseline_run_id":"main"}`
+	_, err := pool.Exec(ctx, `INSERT INTO ci_run_report VALUES ('pull', '{result}', now(), $1, $1)`, original)
+	require.NoError(t, err)
+	require.NoError(t, db.Migrate(ctx, pool))
+	var preserved string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT report::text FROM ci_run_report WHERE run_id='pull' AND evaluation=1`).Scan(&preserved))
+	assert.JSONEq(t, original, preserved)
+	_, err = pool.Exec(ctx, `INSERT INTO ci_run_report (run_id, result_ids, evaluated_at, report, summary, evaluation) VALUES ('pull', '{result}', now(), '{"status":"failure"}', '{}', 2)`)
+	require.NoError(t, err)
+	down, err := os.ReadFile("migrations/000019_report_evaluations.down.sql")
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, string(down))
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT report::text FROM ci_run_report WHERE run_id='pull'`).Scan(&preserved))
+	assert.JSONEq(t, original, preserved)
 }

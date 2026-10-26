@@ -205,7 +205,7 @@ func historyCommand(stdout io.Writer) *cobra.Command {
 
 func ciCommand(stdout io.Writer) *cobra.Command {
 	cmd := groupCommand("ci", "Generate CI benchmark reports.")
-	cmd.AddCommand(ciReportCommand(stdout))
+	cmd.AddCommand(ciReportCommand(stdout), ciReevaluateCommand(stdout))
 	return cmd
 }
 

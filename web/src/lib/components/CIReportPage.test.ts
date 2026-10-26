@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CIReportPage from "./CIReportPage.svelte";
 
 const GET = vi.fn();
+const POST = vi.fn();
 vi.mock("../api/client", () => ({
-  createBenchDBClient: () => (getBenchDB({ get: GET } as unknown as AxiosInstance)),
+  createBenchDBClient: () => (getBenchDB({ get: GET, post: POST } as unknown as AxiosInstance)),
 }));
 
 const QUERY = {
@@ -25,8 +26,8 @@ it("opens a saved report without requesting a live comparison", async () => {
   GET.mockResolvedValue({ status: 200, data: { ...report, evaluated_at: "2026-09-30T12:00:00Z", analysis_version: 1 } });
   render(CIReportPage, { props: { query: { ...QUERY, saved: true } } });
   await screen.findByText("lookback regression detected");
-  expect(GET).toHaveBeenCalledTimes(1);
-  expect(GET.mock.calls[0]?.[0]).toBe("/api/ci/reports/ci-run");
+  expect(GET.mock.calls.map((call) => call[0])).toEqual(expect.arrayContaining(["/api/ci/reports/ci-run", "/api/auth/capabilities"]));
+  expect(GET.mock.calls.some((call) => call[0] === "/api/ci/report")).toBe(false);
   expect(screen.getByText(/Saved report/)).toBeInTheDocument();
 });
 
@@ -262,6 +263,7 @@ function withLateRegression(count: number, index: number) {
 
 beforeEach(() => {
   GET.mockReset();
+  POST.mockReset();
 });
 
 describe("CIReportPage", () => {
@@ -486,4 +488,15 @@ it("shows each side in its own unit when the units differ", async () => {
   expect(cell("Contender")).toHaveTextContent("130.4 µs");
   expect(cell("Baseline")).toHaveTextContent("77.72 µs");
   expect(cell("Baseline")).not.toHaveTextContent("77,720 s");
+});
+
+it("reevaluates a saved report and navigates to the new immutable evaluation", async () => {
+ GET.mockImplementation(async (path: string) => ({ status: 200, data: path === "/api/auth/capabilities" ? { can_write_results: true } : { ...report, evaluation: 1, evaluated_at: "2026-10-20T12:00:00Z" } }));
+ POST.mockResolvedValue({ status: 200, data: { evaluation: 2 } });
+ render(CIReportPage, { props: { query: { ...QUERY, saved: true } } });
+ await fireEvent.click(await screen.findByRole("button", { name: "Reevaluate" }));
+ await waitFor(() => expect(POST).toHaveBeenCalledTimes(1));
+ expect(POST.mock.calls[0]?.[0]).toBe("/api/ci/reports/ci-run/reevaluate");
+ await waitFor(() => expect(window.location.search).toContain("evaluation=2"));
+ expect(window.location.search).toContain("run_ids=ci-run");
 });
