@@ -65,7 +65,7 @@ func (r *RunReports) Finalize(ctx context.Context, runID string, resultIDs []str
 		}
 	}
 	saved, err := r.store.FinalizeRunReport(ctx, runID, ids, func(ctx context.Context, transaction storage.Store) (storage.RunReport, error) {
-		return r.evaluate(ctx, transaction, runID, baseline, baselineRunID, 1, 0, 0)
+		return r.evaluate(ctx, transaction, runID, baseline, baselineRunID)
 	})
 	if err != nil {
 		return nil, err
@@ -121,8 +121,8 @@ func (r *RunReports) Summaries(ctx context.Context, runIDs []string, latest bool
 	return reports, nil
 }
 
-func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, runID string, baseline CIReportBaseline, baselineRunID string, evaluation int, threshold, thresholdZ float64) (storage.RunReport, error) {
-	query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline, Threshold: threshold, ThresholdZ: thresholdZ}
+func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, runID string, baseline CIReportBaseline, baselineRunID string) (storage.RunReport, error) {
+	query := CIReportQuery{RunIDs: []string{runID}, Baseline: baseline}
 	if baselineRunID != "" {
 		query.Baseline = ""
 		query.BaselineRunIDs = []string{baselineRunID}
@@ -138,8 +138,10 @@ func (r *RunReports) evaluate(ctx context.Context, transaction storage.Store, ru
 		return storage.RunReport{}, ErrRunReportBaselineUnavailable
 	}
 
-	// Keep the original selection mode, but reevaluation always resolves the recorded run.
-	report.Baseline = baseline
+	return r.encodeEvaluation(runID, report, 1)
+}
+
+func (r *RunReports) encodeEvaluation(runID string, report *CIReport, evaluation int) (storage.RunReport, error) {
 	report.Evaluation = evaluation
 	now := time.Now().UTC()
 	report.EvaluatedAt = &now
@@ -178,37 +180,10 @@ func (r *RunReports) Reevaluate(ctx context.Context, runID string) (*RunReportSu
 		if !slices.Equal(original.ResultIDs, actual) {
 			return storage.RunReport{}, storage.ErrConflict
 		}
-		saved, err := r.evaluate(ctx, transaction, runID, report.Baseline, *report.BaselineRunID, evaluation, report.Threshold, report.ThresholdZ)
-		if errors.Is(err, ErrNotFound) {
-			return storage.RunReport{}, storage.ErrConflict
-		}
-		if err != nil {
+		if err := NewCIReporter(transaction, r.publicBaseURL).reevaluate(ctx, &report, original.ResultIDs); err != nil {
 			return storage.RunReport{}, err
 		}
-		var revised CIReport
-		if err := json.Unmarshal(saved.Report, &revised); err != nil {
-			return storage.RunReport{}, err
-		}
-		baselines := make(map[string]string)
-		for _, run := range report.Runs {
-			for _, row := range run.Comparisons {
-				if row.Baseline != nil {
-					baselines[row.Contender.ResultID] = row.Baseline.ResultID
-				}
-			}
-		}
-		for _, run := range revised.Runs {
-			for _, row := range run.Comparisons {
-				baselineID := ""
-				if row.Baseline != nil {
-					baselineID = row.Baseline.ResultID
-				}
-				if baselineID != baselines[row.Contender.ResultID] {
-					return storage.RunReport{}, storage.ErrConflict
-				}
-			}
-		}
-		return saved, nil
+		return r.encodeEvaluation(runID, &report, evaluation)
 	})
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, ErrNotFound

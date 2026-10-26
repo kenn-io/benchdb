@@ -888,8 +888,8 @@ func (r *CIReporter) findBaselineRun(
 // whose analysis needs the baseline's lookback history.
 type ciReportPendingComparison struct {
 	index       int
-	row         storage.CIReportResultRow
-	baselineRow storage.CIReportResultRow
+	row         storage.CompareResultRow
+	baselineRow storage.CompareResultRow
 }
 
 // batchedHistory loads lookback history in one query per baseline commit time.
@@ -995,7 +995,9 @@ func (r *CIReporter) assembleComparisons(
 			comparisons = append(comparisons, comp)
 			continue
 		}
-		pending = append(pending, ciReportPendingComparison{index: len(comparisons), row: row, baselineRow: baselineRow})
+		baseSide := ciReportBaselineSideFromRow(baselineRow)
+		comp.Baseline = &baseSide
+		pending = append(pending, ciReportPendingComparison{index: len(comparisons), row: ciReportCompareInput(row), baselineRow: ciReportCompareInput(baselineRow)})
 		comparisons = append(comparisons, comp)
 	}
 
@@ -1025,13 +1027,11 @@ func (r *CIReporter) analyzeComparison(
 		}
 		return rows, err
 	}
-	analysis, err := r.reader.compareRows(ctx, ciReportCompareInput(item.baselineRow), ciReportCompareInput(item.row), threshold, thresholdZ, countedHistory)
-	baseSide := ciReportBaselineSideFromRow(item.baselineRow)
+	analysis, err := r.reader.compareRows(ctx, item.baselineRow, item.row, threshold, thresholdZ, countedHistory)
 	if errors.Is(err, ErrNotComparable) {
 		comp.Status = CIReportRowStatusNotComparable
 		reason := err.Error()
 		comp.Reason = &reason
-		comp.Baseline = &baseSide
 		return nil
 	}
 	if err != nil {
@@ -1040,10 +1040,9 @@ func (r *CIReporter) analyzeComparison(
 	comp.Analysis = ciReportAnalysisFromCompare(analysis.Analysis)
 	comp.Unit = &analysis.Unit
 	comp.LessIsBetter = &analysis.LessIsBetter
-	baseSide.SVS = &analysis.Baseline.SVS
-	comp.Baseline = &baseSide
+	comp.Baseline.SVS = &analysis.Baseline.SVS
 	comp.Contender.SVS = &analysis.Contender.SVS
-	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ResultID, item.row.ResultID, threshold, thresholdZ)
+	comp.Links.Compare = ciReportCompareLink(item.baselineRow.ID, item.row.ID, threshold, thresholdZ)
 	comp.Status = ciReportComparisonStatus(analysis.Analysis.LookbackZScore)
 	if comp.Status == CIReportRowStatusInsufficient {
 		reason := "Statistical analysis unavailable"

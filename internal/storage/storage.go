@@ -73,6 +73,7 @@ type Store interface {
 	// fingerprint up to asOf, ordered by fingerprint and then commit time.
 	SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]HistoryRow, error)
 	GetResultForCompare(ctx context.Context, id string) (CompareResultRow, error)
+	SelectResultsForCompare(ctx context.Context, ids []string) ([]CompareResultRow, error)
 	SelectBenchmarkResults(ctx context.Context, p ListResultsParams) ([]ResultListRow, error)
 	SelectRecentRuns(ctx context.Context, p RecentRunsParams) ([]RecentRunRow, error)
 	SelectRepositories(ctx context.Context) ([]RepositoryRow, error)

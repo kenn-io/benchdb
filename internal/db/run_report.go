@@ -80,6 +80,20 @@ func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string,
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
+func (s *Store) SelectResultsForCompare(ctx context.Context, ids []string) ([]storage.CompareResultRow, error) {
+	rows, err := s.q.db.Query(ctx, `SELECT br.id, br.run_id, br.history_fingerprint, br.unit, br.data,
+ br.error, br.optional_benchmark_info, br.commit_id, c."timestamp"
+ FROM benchmark_result_local br LEFT JOIN commit c ON c.id = br.commit_id WHERE br.id = ANY($1::text[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (out storage.CompareResultRow, err error) {
+		err = row.Scan(&out.ID, &out.RunID, &out.HistoryFingerprint, &out.Unit, &out.Data,
+			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp)
+		return
+	})
+}
+
 func (s *Store) GetRunReport(ctx context.Context, runID string, evaluation int) (storage.RunReport, error) {
 	var report storage.RunReport
 	err := s.q.db.QueryRow(ctx, `SELECT evaluation, result_ids, evaluated_at, report, summary FROM ci_run_report WHERE run_id = $1 AND ($2 = 0 OR evaluation = $2) ORDER BY evaluation DESC LIMIT 1`, runID, evaluation).Scan(&report.Evaluation, &report.ResultIDs, &report.EvaluatedAt, &report.Report, &report.Summary)

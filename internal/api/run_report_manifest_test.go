@@ -60,6 +60,8 @@ func TestSavedRunReportFinalizesMultipleMetadataGroups(t *testing.T) {
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 			latest := decodeCIReport(t, tapi.Get("/api/ci/reports/pull?evaluation=0"))
 			assert.Equal(t, 2, latest.Evaluation)
+			assert.Equal(t, 2, latest.Summary.Compared)
+			assert.Equal(t, 2, latest.Summary.ContenderResults)
 			require.NotNil(t, latest.BaselineRunID)
 			assert.Equal(t, "main", *latest.BaselineRunID)
 			assert.JSONEq(t, original.Body.String(), tapi.Get("/api/ci/reports/pull").Body.String())

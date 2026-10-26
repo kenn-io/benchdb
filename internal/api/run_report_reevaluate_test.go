@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,74 @@ import (
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/service"
 )
+
+func TestReevaluateSavedBaselineWithMultipleGroups(t *testing.T) {
+	for _, group := range []string{"commits", "metadata"} {
+		t.Run(group, func(t *testing.T) {
+			tapi, pool, ctx := seedCIReportAPI(t, "")
+			store := db.NewStore(pool)
+			api.NewRunReportHandler(service.NewRunReports(store, ""), auth.New(testToken, false, store, nil)).Register(tapi)
+			if group == "commits" {
+				seedResult(t, tapi, seedOpts{runID: "main", sha: "c0", ts: day(0), data: []float64{20}})
+			} else {
+				seedResult(t, tapi, seedOpts{runID: "main", sha: "c1", ts: day(1), name: "other", runReason: "other-group", data: []float64{20}})
+			}
+			baselineID := seedResult(t, tapi, seedOpts{runID: "main", sha: "c1", ts: day(1), data: []float64{30}})
+			id := seedResult(t, tapi, seedOpts{runID: "pull", sha: "c2", ts: day(2), data: []float64{100}})
+			_, err := pool.Exec(ctx, `UPDATE commit SET parent = 'c1', fork_point_sha = 'c1' WHERE repository = $1 AND sha = 'c2'`, defaultRepo)
+			require.NoError(t, err)
+			response := tapi.Post("/api/ci/reports/pull", "Authorization: Bearer "+testToken, map[string]any{"result_ids": []string{id}, "baseline": "latest_default"})
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			original := tapi.Get("/api/ci/reports/pull")
+			before := decodeCIReport(t, original)
+			require.Equal(t, baselineID, before.Runs[0].Comparisons[0].Baseline.ResultID)
+			response = tapi.Post("/api/ci/reports/pull/reevaluate", "Authorization: Bearer "+testToken)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			after := decodeCIReport(t, tapi.Get("/api/ci/reports/pull?evaluation=0"))
+			assert.Equal(t, 2, after.Evaluation)
+			assert.Equal(t, before.Repository, after.Repository)
+			assert.Equal(t, before.Runs[0].BaselineCommit, after.Runs[0].BaselineCommit)
+			assert.Equal(t, before.Runs[0].Comparisons[0].Baseline, after.Runs[0].Comparisons[0].Baseline)
+			assert.JSONEq(t, original.Body.String(), tapi.Get("/api/ci/reports/pull").Body.String())
+		})
+	}
+}
+
+func TestReevaluateKeepsOriginalBaselineMeasurementAfterLaterSubmission(t *testing.T) {
+	for _, baseline := range []string{"latest_default", "explicit_run"} {
+		t.Run(baseline, func(t *testing.T) {
+			tapi, pool, ctx := seedCIReportAPI(t, "")
+			store := db.NewStore(pool)
+			api.NewRunReportHandler(service.NewRunReports(store, ""), auth.New(testToken, false, store, nil)).Register(tapi)
+			baselineID := seedResult(t, tapi, seedOpts{runID: "main", sha: "c1", ts: day(1), data: []float64{30}})
+			id := seedResult(t, tapi, seedOpts{runID: "pull", sha: "c2", ts: day(2), data: []float64{100}})
+			_, err := pool.Exec(ctx, `UPDATE commit SET parent = 'c1', fork_point_sha = 'c1' WHERE repository = $1 AND sha = 'c2'`, defaultRepo)
+			require.NoError(t, err)
+			manifest := map[string]any{"result_ids": []string{id}, "baseline": baseline}
+			if baseline == "explicit_run" {
+				manifest["baseline_run_id"] = "main"
+			}
+			response := tapi.Post("/api/ci/reports/pull", "Authorization: Bearer "+testToken, manifest)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			original := tapi.Get("/api/ci/reports/pull")
+			before := decodeCIReport(t, original)
+			laterID := seedResult(t, tapi, seedOpts{runID: "main", sha: "c1", ts: day(1).Add(time.Hour), data: []float64{1000}})
+			live := decodeCIReport(t, tapi.Get("/api/ci/report?run_ids=pull&baseline_run_ids=main"))
+			require.Equal(t, laterID, live.Runs[0].Comparisons[0].Baseline.ResultID)
+			response = tapi.Post("/api/ci/reports/pull/reevaluate", "Authorization: Bearer "+testToken)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			after := decodeCIReport(t, tapi.Get("/api/ci/reports/pull?evaluation=0"))
+			assert.Equal(t, 2, after.Evaluation)
+			assert.Equal(t, baselineID, after.Runs[0].Comparisons[0].Baseline.ResultID)
+			assert.Equal(t, before.Runs[0].Comparisons[0].Baseline, after.Runs[0].Comparisons[0].Baseline)
+			assert.Equal(t, before.Runs[0].Comparisons[0].Analysis.Pairwise, after.Runs[0].Comparisons[0].Analysis.Pairwise)
+			assert.JSONEq(t, original.Body.String(), tapi.Get("/api/ci/reports/pull").Body.String())
+			// A replacement measurement cannot stand in for a deleted original.
+			require.NoError(t, store.DeleteBenchmarkResult(ctx, baselineID))
+			assert.Equal(t, http.StatusConflict, tapi.Post("/api/ci/reports/pull/reevaluate", "Authorization: Bearer "+testToken).Code)
+		})
+	}
+}
 
 func TestReevaluateSavedReportWithLateHistory(t *testing.T) {
 	for _, baseline := range []string{"explicit_run", "latest_default"} {
@@ -53,6 +122,7 @@ func TestReevaluateSavedReportWithLateHistory(t *testing.T) {
 			assert.Equal(t, "main", *latest.BaselineRunID)
 			require.Len(t, latest.Runs[0].Comparisons, 1)
 			assert.Equal(t, id, latest.Runs[0].Comparisons[0].Contender.ResultID)
+			assert.Nil(t, latest.Runs[0].Comparisons[0].Reason, "successful analysis clears the earlier insufficient-history reason")
 			assert.JSONEq(t, original.Body.String(), tapi.Get("/api/ci/reports/pull").Body.String())
 			assert.JSONEq(t, originalSummary.Body.String(), tapi.Post("/api/ci/reports/pull", "Authorization: Bearer "+testToken, manifest).Body.String())
 			assert.JSONEq(t, tapi.Get("/api/ci/reports/pull?evaluation=0").Body.String(), tapi.Get("/api/ci/reports/pull?evaluation=2").Body.String())
