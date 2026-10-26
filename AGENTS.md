@@ -76,6 +76,9 @@ approvals, token permissions, and secrets are separate controls.
 - Keep timestamps in UTC across storage and API boundaries.
 - Use `testify` assertions in Go tests. PostgreSQL tests use
   `internal/dbtest`, not mocks.
+- Never locate files from a path returned by `runtime.Caller` or a stack
+  trace; builds use `-trimpath`, so those paths are module-relative. Tests run
+  from their package directory, so use paths relative to it.
 - Pass `-shuffle=on` when invoking `go test` directly. Do not pass `-count=1`
   or `-v` for ordinary verification.
 - Number migrations sequentially under `internal/db/migrations` with matching

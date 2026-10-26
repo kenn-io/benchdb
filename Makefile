@@ -7,6 +7,19 @@
 export CGO_ENABLED := 1
 export BENCHDB_DUCKDB_EXTENSION_DIR ?= $(CURDIR)/.cache/duckdb/extensions
 
+# Compile without absolute source paths so every checkout and worktree shares
+# one Go build cache instead of each compiling its own copy of every package.
+# Read `go env` first so flags saved with `go env -w GOFLAGS=...` survive the
+# export. GOFLAGS=-trimpath=false opts out. Debuggers need a source mapping:
+# docs/site/contributing.md#debugging-trimmed-builds.
+ifeq ($(origin GOFLAGS),undefined)
+GOFLAGS := $(shell go env GOFLAGS)
+endif
+ifeq ($(filter -trimpath -trimpath=%,$(GOFLAGS)),)
+override GOFLAGS += -trimpath
+endif
+export GOFLAGS
+
 # Build the public documentation site locally. Zensical reads zensical.toml and
 # writes the rendered reference under ./site/docs. The version is pinned in
 # requirements-docs.txt and reused by CI.
