@@ -91,6 +91,7 @@ type Store interface {
 	SelectLatestDefaultCommit(ctx context.Context, repository string) (CIReportCommitRow, error)
 	SelectCIReportBaselineAncestry(ctx context.Context, repository, sha string, limit int32) ([]CIReportCommitRow, error)
 	CountCIReportRows(ctx context.Context, runs []CIReportRunKey) (int64, error)
+	SelectCIReportCandidateRows(ctx context.Context, runs []CIReportRunKey) ([]CIReportCandidateRow, error)
 	SelectCIReportRows(ctx context.Context, runs []CIReportRunKey, baselineRuns []CIReportRunKey) ([]CIReportResultRow, error)
 	CountBenchmarkResults(ctx context.Context) (int64, error)
 }
@@ -896,6 +897,16 @@ type CIReportCommitRow struct {
 	ForkPointSha *string
 	Timestamp    *time.Time
 	Message      string
+}
+
+// CIReportCandidateRow summarizes one fingerprint in a baseline candidate run.
+// Ranking needs its latest result time, including failed measurements, but no
+// sample payloads or display dimensions.
+type CIReportCandidateRow struct {
+	RunID              string
+	CommitID           string
+	HistoryFingerprint string
+	ResultTimestamp    time.Time
 }
 
 // CIReportResultRow is a report result joined to display identity, hardware,

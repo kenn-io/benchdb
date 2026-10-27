@@ -1492,6 +1492,22 @@ func (s *Store) CountCIReportRows(ctx context.Context, runs []storage.CIReportRu
 	})
 }
 
+// SelectCIReportCandidateRows loads only the facts needed to rank baseline runs.
+func (s *Store) SelectCIReportCandidateRows(ctx context.Context, runs []storage.CIReportRunKey) ([]storage.CIReportCandidateRow, error) {
+	runIDs, commitIDs := ciReportRunKeyArrays(runs)
+	rows, err := s.q.SelectCIReportCandidateRows(ctx, SelectCIReportCandidateRowsParams{RunIds: runIDs, CommitIds: commitIDs})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]storage.CIReportCandidateRow, len(rows))
+	for i, row := range rows {
+		out[i] = storage.CIReportCandidateRow{
+			RunID: row.RunID, CommitID: row.CommitID, HistoryFingerprint: row.HistoryFingerprint, ResultTimestamp: row.ResultTimestamp,
+		}
+	}
+	return out, nil
+}
+
 // SelectCIReportRows returns all selected contender rows plus one deterministic
 // baseline row per selected baseline run/commit/history fingerprint.
 func (s *Store) SelectCIReportRows(ctx context.Context, runs []storage.CIReportRunKey, baselineRuns []storage.CIReportRunKey) ([]storage.CIReportResultRow, error) {
