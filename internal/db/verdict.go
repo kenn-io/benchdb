@@ -45,6 +45,23 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 		repositories := make([]string, 0, len(verdicts))
 		for _, verdict := range verdicts {
 			repositories = append(repositories, verdict.Repository)
+		}
+		// A default-branch writer that changed a repository after the
+		// evaluation read it holds this lock until it commits.
+		locked, err := q.LockRepositoryGenerations(ctx, repositories)
+		if err != nil {
+			return err
+		}
+		current := map[string]int64{}
+		for _, row := range locked {
+			current[row.Repository] = row.Generation
+		}
+		for _, verdict := range verdicts {
+			if current[verdict.Repository] != verdict.Generation {
+				return q.TouchVerdictQueue(ctx, TouchVerdictQueueParams{Kind: string(claim.Kind), Key: claim.Key})
+			}
+		}
+		for _, verdict := range verdicts {
 			if err := q.UpsertRunVerdict(ctx, UpsertRunVerdictParams{
 				RunID:             verdict.RunID,
 				Repository:        verdict.Repository,
@@ -145,6 +162,16 @@ func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// SelectRepositoryGeneration returns the repository's committed
+// default-branch generation, creating its row first so that a later writer's
+// change is one verdict publication can wait for.
+func (s *Store) SelectRepositoryGeneration(ctx context.Context, repository string) (int64, error) {
+	if err := s.q.EnsureRepositoryGeneration(ctx, repository); err != nil {
+		return 0, err
+	}
+	return s.q.SelectRepositoryGeneration(ctx, repository)
 }
 
 // EnqueueVerdict queues a key, or marks an already queued key as changed.

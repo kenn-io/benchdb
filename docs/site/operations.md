@@ -644,9 +644,10 @@ key that fails stays queued and is retried when its lease ends.
   missing ancestry, a run without a verdict, and commit repair re-queue on
   any change. Both kinds of re-queue cover runs from the last 14 days; older
   runs keep their last verdict.
-- A default-branch change while a run's verdict is being computed keeps the
-  run queued, so a verdict computed from the earlier default branch is
-  redone rather than kept.
+- A default-branch change in a run's repository while its verdict is being
+  computed keeps the run queued, so a verdict computed from the earlier
+  default branch is redone rather than stored. An evaluation that starts
+  while such a change is still being written waits for it.
 - The Runs page queues any run it lists that has no stored verdict.
 - The worker scores a benchmark within about a second after a default-branch
   result for it is written or deleted, or after a commit carrying its results

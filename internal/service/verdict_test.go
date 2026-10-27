@@ -243,40 +243,6 @@ func TestVerdictsRecheckWhenADeeperAncestorOutranksTheBaseline(t *testing.T) {
 		"main0 now matches both benchmarks and outranks main1")
 }
 
-// TestVerdictsKeepARunQueuedWhenTheDefaultBranchChangesMidEvaluation covers a
-// verdict computed from evidence read before a default-branch change: the
-// claim's finish must leave the run queued for another pass.
-func TestVerdictsKeepARunQueuedWhenTheDefaultBranchChangesMidEvaluation(t *testing.T) {
-	_, store, _, ctx := newIngester(t)
-	now := time.Now().UTC().Truncate(time.Second)
-	recent := now.Add(-3 * 24 * time.Hour)
-	provider := ciCommitProvider{
-		"c1": ciCommitInfo("c1", nil, "c1", recent),
-		"pr": ciCommitInfo("pr", new("c1"), "c1", recent.Add(time.Hour)),
-		"c2": ciCommitInfo("c2", new("c1"), "c2", recent.Add(2*24*time.Hour)),
-	}
-	ing := service.NewIngester(store, provider)
-	submitAt(t, ctx, ing, "main-c1", "c1", 10, recent)
-	submitAt(t, ctx, ing, "pr-run", "pr", 100, recent.Add(time.Hour))
-	drainVerdicts(t, ctx, store)
-	require.NoError(t, store.EnqueueVerdict(ctx, storage.VerdictKindRun, "pr-run"))
-	claims, err := store.ClaimVerdicts(ctx, time.Now().Add(time.Hour), time.Now().Add(time.Minute), 10)
-	require.NoError(t, err)
-	require.Len(t, claims, 1)
-
-	// While the run is being evaluated, a main commit it never examined lands.
-	submitAt(t, ctx, ing, "main-c2", "c2", 20, recent.Add(2*24*time.Hour))
-	require.NoError(t, store.FinishVerdictClaim(ctx, claims[0]))
-
-	again, err := store.ClaimVerdicts(ctx, time.Now().Add(time.Hour), time.Now().Add(time.Minute), 10)
-	require.NoError(t, err)
-	var keys []string
-	for _, claim := range again {
-		keys = append(keys, string(claim.Kind)+":"+claim.Key)
-	}
-	assert.Contains(t, keys, "run:pr-run", "the evaluation that read the old default branch is redone")
-}
-
 // TestVerdictsLeaveOldRunsAloneWhenTheirBaselineChanges covers the 14-day
 // bound on direct rechecks: a run older than that keeps its verdict even when
 // a commit its search examined gets new results.

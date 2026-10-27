@@ -15,6 +15,22 @@ ALTER TABLE run_verdict
   ADD COLUMN history_until timestamp without time zone;
 CREATE INDEX run_verdict_baseline_commits_index ON run_verdict USING gin (baseline_commit_ids);
 
+-- A repository's generation counts changes to its default-branch history.
+-- Writers bump it inside their own transaction, so the row stays locked until
+-- they commit. A verdict evaluation records the generation before it reads
+-- anything and checks it again when it stores the verdict; a change in
+-- between, even one not yet committed then, leaves the run queued to be
+-- evaluated again.
+CREATE TABLE repository_verdict_generation (
+    repository text PRIMARY KEY,
+    generation bigint NOT NULL
+);
+
+CREATE FUNCTION bump_repository_generation(changed_repository text) RETURNS void LANGUAGE sql AS $$
+    INSERT INTO repository_verdict_generation (repository, generation) VALUES (changed_repository, 1)
+    ON CONFLICT (repository) DO UPDATE SET generation = repository_verdict_generation.generation + 1;
+$$;
+
 -- Any other enqueue of a repository key, such as commit repair, asks for a
 -- full re-evaluation.
 CREATE OR REPLACE FUNCTION enqueue_verdict(queue_kind text, queue_key text) RETURNS void LANGUAGE sql AS $$
@@ -47,6 +63,7 @@ BEGIN
         ELSE
             PERFORM enqueue_repository_verdict(NEW.repository, NEW."timestamp");
         END IF;
+        PERFORM bump_repository_generation(NEW.repository);
     END IF;
     RETURN NULL;
 END;
@@ -59,14 +76,10 @@ DECLARE
     commit_at timestamp without time zone;
 BEGIN
     SELECT c.sha = c.fork_point_sha, c."timestamp" INTO is_default, commit_at FROM commit c WHERE c.id = result_commit FOR SHARE;
-    -- Queue, in run_id order like every multi-key writer, so concurrent
-    -- writers cannot deadlock on queue rows:
-    -- - the result's own run;
-    -- - recent runs whose baseline search examined this commit, within the
-    --   same 14 days the worker's repository recheck covers;
-    -- - every run whose verdict is being computed now: it may have read the
-    --   default branch before this change, so it stays queued when it
-    --   finishes instead of storing a stale verdict.
+    -- Queue the result's own run and recent runs whose baseline search
+    -- examined this commit, within the same 14 days the worker's repository
+    -- recheck covers. Run keys go in run_id order like every multi-key
+    -- writer, so concurrent writers cannot deadlock on queue rows.
     INSERT INTO verdict_queue (kind, key)
     SELECT 'run', queued.run_id
     FROM (
@@ -76,14 +89,12 @@ BEGIN
         WHERE coalesce(is_default, false) AND v.repository = result_repository
           AND v.last_result_at >= (now() AT TIME ZONE 'UTC') - interval '14 days'
           AND v.baseline_commit_ids @> ARRAY[result_commit]::text[]
-        UNION
-        SELECT q.key FROM verdict_queue q
-        WHERE coalesce(is_default, false) AND q.kind = 'run' AND q.claim_token IS NOT NULL
     ) queued
     ORDER BY 2
     ON CONFLICT (kind, key) DO UPDATE SET enqueued_at = clock_timestamp(), history_since = NULL;
     IF coalesce(is_default, false) THEN
         PERFORM enqueue_repository_verdict(result_repository, commit_at);
+        PERFORM bump_repository_generation(result_repository);
     END IF;
     -- A demoted commit's deferred work cannot discover its last deleted
     -- result. Remove any stored benchmark status even when it is off branch.

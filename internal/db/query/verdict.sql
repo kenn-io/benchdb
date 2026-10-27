@@ -229,3 +229,27 @@ SELECT DISTINCT run_id, benchmark_id, commit_repo_url AS repository
 FROM benchmark_result_local
 WHERE commit_id = $1
 ORDER BY run_id, benchmark_id, commit_repo_url;
+
+-- name: EnsureRepositoryGeneration :exec
+-- Creates the repository's generation row, so a later writer updates a row
+-- that verdict publication can wait on rather than inserting one it cannot
+-- see. It waits for a writer that is creating the row.
+INSERT INTO repository_verdict_generation (repository, generation) VALUES (sqlc.arg('repository'), 0)
+ON CONFLICT (repository) DO NOTHING;
+
+-- name: SelectRepositoryGeneration :one
+-- The repository's default-branch generation as committed now.
+SELECT generation FROM repository_verdict_generation WHERE repository = sqlc.arg('repository');
+
+-- name: LockRepositoryGenerations :many
+-- Waits for writers still changing these repositories, then returns their
+-- generations; locks are released when the verdict transaction ends.
+SELECT repository, generation FROM repository_verdict_generation
+WHERE repository = ANY(sqlc.arg('repositories')::text[])
+ORDER BY repository
+FOR SHARE;
+
+-- name: TouchVerdictQueue :exec
+-- Marks a claimed key changed, so finishing the claim leaves it queued.
+UPDATE verdict_queue SET enqueued_at = clock_timestamp()
+WHERE kind = sqlc.arg('kind') AND key = sqlc.arg('key');

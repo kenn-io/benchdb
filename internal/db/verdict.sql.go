@@ -212,6 +212,48 @@ func (q *Queries) EnqueueVerdict(ctx context.Context, arg EnqueueVerdictParams) 
 	return err
 }
 
+const ensureRepositoryGeneration = `-- name: EnsureRepositoryGeneration :exec
+INSERT INTO repository_verdict_generation (repository, generation) VALUES ($1, 0)
+ON CONFLICT (repository) DO NOTHING
+`
+
+// Creates the repository's generation row, so a later writer updates a row
+// that verdict publication can wait on rather than inserting one it cannot
+// see. It waits for a writer that is creating the row.
+func (q *Queries) EnsureRepositoryGeneration(ctx context.Context, repository string) error {
+	_, err := q.db.Exec(ctx, ensureRepositoryGeneration, repository)
+	return err
+}
+
+const lockRepositoryGenerations = `-- name: LockRepositoryGenerations :many
+SELECT repository, generation FROM repository_verdict_generation
+WHERE repository = ANY($1::text[])
+ORDER BY repository
+FOR SHARE
+`
+
+// Waits for writers still changing these repositories, then returns their
+// generations; locks are released when the verdict transaction ends.
+func (q *Queries) LockRepositoryGenerations(ctx context.Context, repositories []string) ([]RepositoryVerdictGeneration, error) {
+	rows, err := q.db.Query(ctx, lockRepositoryGenerations, repositories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RepositoryVerdictGeneration{}
+	for rows.Next() {
+		var i RepositoryVerdictGeneration
+		if err := rows.Scan(&i.Repository, &i.Generation); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockVerdictClaim = `-- name: LockVerdictClaim :one
 SELECT q.enqueued_at
 FROM verdict_queue q
@@ -283,6 +325,18 @@ func (q *Queries) SelectCommitVerdictSubjects(ctx context.Context, commitID *str
 		return nil, err
 	}
 	return items, nil
+}
+
+const selectRepositoryGeneration = `-- name: SelectRepositoryGeneration :one
+SELECT generation FROM repository_verdict_generation WHERE repository = $1
+`
+
+// The repository's default-branch generation as committed now.
+func (q *Queries) SelectRepositoryGeneration(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRow(ctx, selectRepositoryGeneration, repository)
+	var generation int64
+	err := row.Scan(&generation)
+	return generation, err
 }
 
 const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
@@ -436,6 +490,22 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 		return nil, err
 	}
 	return items, nil
+}
+
+const touchVerdictQueue = `-- name: TouchVerdictQueue :exec
+UPDATE verdict_queue SET enqueued_at = clock_timestamp()
+WHERE kind = $1 AND key = $2
+`
+
+type TouchVerdictQueueParams struct {
+	Kind string
+	Key  string
+}
+
+// Marks a claimed key changed, so finishing the claim leaves it queued.
+func (q *Queries) TouchVerdictQueue(ctx context.Context, arg TouchVerdictQueueParams) error {
+	_, err := q.db.Exec(ctx, touchVerdictQueue, arg.Kind, arg.Key)
+	return err
 }
 
 const upsertBenchmarkVerdict = `-- name: UpsertBenchmarkVerdict :exec

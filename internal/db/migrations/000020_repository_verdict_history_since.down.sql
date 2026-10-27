@@ -29,6 +29,8 @@ END;
 $$;
 
 DROP FUNCTION enqueue_repository_verdict(text, timestamp without time zone);
+DROP FUNCTION bump_repository_generation(text);
+DROP TABLE repository_verdict_generation;
 
 CREATE OR REPLACE FUNCTION enqueue_verdict(queue_kind text, queue_key text) RETURNS void LANGUAGE sql AS $$
     INSERT INTO verdict_queue (kind, key) VALUES (queue_kind, queue_key)

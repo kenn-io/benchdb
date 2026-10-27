@@ -150,6 +150,12 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 	for _, subject := range subjects {
 		// A default-branch run is its own baseline and never needs attention;
 		// evaluating it would also fail on runs too large to report on.
+		// Read before the evaluation, so a default-branch change during it
+		// keeps the run queued instead of storing what it read before.
+		generation, err := v.store.SelectRepositoryGeneration(ctx, subject.Repository)
+		if err != nil {
+			return nil, err
+		}
 		var attention *RecentRunAttention
 		var dependency ciReportBaselineDependency
 		if !subject.DefaultBranch {
@@ -171,6 +177,7 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 			DefaultBranch:  subject.DefaultBranch,
 			NeedsAttention: attention != nil,
 			Attention:      encoded,
+			Generation:     generation,
 		}
 		// An unbounded search stays nil, so any default-branch change
 		// rechecks the run.

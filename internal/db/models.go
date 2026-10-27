@@ -450,6 +450,11 @@ type Info struct {
 	Tags []byte
 }
 
+type RepositoryVerdictGeneration struct {
+	Repository string
+	Generation int64
+}
+
 type ResultArtifact struct {
 	ID        googleuuid.UUID
 	ResultID  string
