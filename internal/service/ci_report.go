@@ -129,35 +129,32 @@ type CIReportRun struct {
 }
 
 // ciReportBaselineDependency is the default-branch evidence a run's baseline
-// search read: the ancestry commits it walked, down to the baseline it chose,
-// and the baseline's commit time, which caps the history the analysis reads.
-// A result on another commit, committed after historyUntil, changes neither.
-// The zero value is unbounded: the search depended on commits it could not
-// enumerate, such as an unknown start or an ancestry that stopped early.
+// search read: every ancestry commit it examined, since a candidate at any
+// depth can outrank the one it chose, and the chosen baseline's commit time,
+// which caps the history the analysis reads. A result on another commit,
+// committed after historyUntil, changes neither. The zero value is unbounded:
+// the search depended on commits it could not enumerate.
 type ciReportBaselineDependency struct {
 	bounded      bool
 	commitIDs    []string
 	historyUntil *time.Time
 }
 
-// walk records ancestry the search read: through depth when it chose a
-// baseline there, or all of it when it found none. A search that found none
-// before the ancestry ended early depends on commits it never saw.
-func (d *ciReportBaselineDependency) walk(ancestry []storage.CIReportCommitRow, depth int, found bool) {
-	if !found {
-		depth = len(ancestry) - 1
-		if !ciReportAncestryComplete(ancestry) {
-			d.bounded = false
-		}
+// examine records an ancestry the search ranked. One that ended before its
+// limit at a commit BenchDB does not fully know leaves the search unbounded,
+// whether or not it found a baseline.
+func (d *ciReportBaselineDependency) examine(ancestry []storage.CIReportCommitRow) {
+	if !ciReportAncestryComplete(ancestry) {
+		d.bounded = false
 	}
-	for _, c := range ancestry[:depth+1] {
+	for _, c := range ancestry {
 		d.commitIDs = append(d.commitIDs, c.CommitID)
 	}
 }
 
-// ciReportAncestryComplete reports whether a baseline search that found no
-// baseline saw every commit it could have used: it reached its limit or the
-// repository's root. noBaselineRunError applies the same test.
+// ciReportAncestryComplete reports whether a baseline search saw every commit
+// it could have used: it reached its limit or the repository's root.
+// noBaselineRunError applies the same test.
 func ciReportAncestryComplete(ancestry []storage.CIReportCommitRow) bool {
 	if len(ancestry) == 0 {
 		return false
@@ -568,13 +565,9 @@ func (r *CIReporter) selectBaselineRuns(
 				return nil, err
 			}
 			if tagged {
-				if len(ancestry) == 0 {
-					// The recorded base is not in BenchDB yet; its arrival
-					// would change the search.
-					dependency.bounded = false
-				} else {
-					dependency.walk(ancestry, merged.depth, ok)
-				}
+				// A recorded base not in BenchDB yet leaves the search
+				// unbounded; its arrival would change it.
+				dependency.examine(ancestry)
 			}
 			if ok {
 				runID := merged.runID
@@ -615,7 +608,7 @@ func (r *CIReporter) selectBaselineRuns(
 		if err != nil {
 			return nil, err
 		}
-		dependency.walk(ancestry, candidate.depth, ok)
+		dependency.examine(ancestry)
 		if ok {
 			runID := candidate.runID
 			selection.baselineRunID = &runID

@@ -21,7 +21,8 @@ const VerdictSettle = 15 * time.Second
 const (
 	// runVerdictWindow bounds which pull-request runs a change to a
 	// repository's default-branch history re-evaluates. Older runs keep the
-	// verdict they last had.
+	// verdict they last had. Migration 20's result trigger applies the same
+	// 14 days to runs whose baseline search examined a changed commit.
 	runVerdictWindow = 14 * 24 * time.Hour
 	verdictLease     = 2 * time.Minute
 	verdictBatch     = 20

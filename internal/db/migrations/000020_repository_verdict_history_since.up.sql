@@ -1,9 +1,9 @@
 -- A pull-request run's verdict reads two kinds of default-branch evidence:
--- the ancestry commits its baseline search walked, from the run's recorded
--- base or fork point down to the baseline it chose, and history up to that
--- baseline's commit time. Each verdict records both, so new default-branch
--- results recheck only runs that read them:
--- - a result on a walked commit queues the run directly;
+-- every ancestry commit its baseline search examined, from the run's
+-- recorded base or fork point, and history up to the chosen baseline's commit
+-- time. Each verdict records both, so new default-branch results recheck only
+-- runs that read them:
+-- - a result on an examined commit queues the run directly;
 -- - a repository key carries the earliest commit time of the history that
 --   queued it, and rechecks runs whose history reaches that time.
 -- A NULL baseline_commit_ids means the search depended on commits it could
@@ -59,9 +59,14 @@ DECLARE
     commit_at timestamp without time zone;
 BEGIN
     SELECT c.sha = c.fork_point_sha, c."timestamp" INTO is_default, commit_at FROM commit c WHERE c.id = result_commit FOR SHARE;
-    -- The result's run, and every run whose baseline search walked this
-    -- commit. Run keys go in run_id order, like every multi-key writer, so
-    -- concurrent writers cannot deadlock on queue rows.
+    -- Queue, in run_id order like every multi-key writer, so concurrent
+    -- writers cannot deadlock on queue rows:
+    -- - the result's own run;
+    -- - recent runs whose baseline search examined this commit, within the
+    --   same 14 days the worker's repository recheck covers;
+    -- - every run whose verdict is being computed now: it may have read the
+    --   default branch before this change, so it stays queued when it
+    --   finishes instead of storing a stale verdict.
     INSERT INTO verdict_queue (kind, key)
     SELECT 'run', queued.run_id
     FROM (
@@ -69,7 +74,11 @@ BEGIN
         UNION
         SELECT v.run_id FROM run_verdict v
         WHERE coalesce(is_default, false) AND v.repository = result_repository
+          AND v.last_result_at >= (now() AT TIME ZONE 'UTC') - interval '14 days'
           AND v.baseline_commit_ids @> ARRAY[result_commit]::text[]
+        UNION
+        SELECT q.key FROM verdict_queue q
+        WHERE coalesce(is_default, false) AND q.kind = 'run' AND q.claim_token IS NOT NULL
     ) queued
     ORDER BY 2
     ON CONFLICT (kind, key) DO UPDATE SET enqueued_at = clock_timestamp(), history_since = NULL;

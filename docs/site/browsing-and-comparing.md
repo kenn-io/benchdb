@@ -43,8 +43,8 @@ stopped arriving for 15 seconds. Until then the run shows "Checking…". A run
 being rechecked keeps its last verdict next to "Checking…". When default-branch
 results or commits arrive in a repository, the server rechecks that
 repository's pull-request runs from the last 14 days whose verdict could
-change: runs whose baseline search passed the new results' commit, and runs
-whose analysis read history that recent. A baseline that lands after the pull
+change: runs whose baseline search examined the new results' commit, and
+runs whose analysis read history that recent. A baseline that lands after the pull
 request then still updates its verdict. Other runs keep their verdict, as do
 runs older than 14 days.
 
