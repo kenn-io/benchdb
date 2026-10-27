@@ -43,6 +43,8 @@ nav = [
 ]
 
 [project.theme]
+# The docs fonts are self-hosted and embedded by the site build; see docs/site/stylesheets/extra.css.
+font = false
 features = [
   "navigation.instant",
   "navigation.instant.progress",

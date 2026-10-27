@@ -59,3 +59,7 @@ jobs:
           BENCHDB_DOCS_ASSET_SOURCE: ${{ github.workspace }}/.ci-docs-assets/benchmark-series.png
           BENCHDB_DOCS_SCREENSHOT_SOURCE_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make build-docs
+      - name: Check first paint
+        uses: kenn-io/actions/first-paint@ee1ddcce6a620e49ba96f613bb8d113e0193b4f6 # first-paint, kenn-io/actions#6
+        with:
+          dist: site

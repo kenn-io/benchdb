@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.build_docs_site import (
     DocsSiteError,
+    finish_rendered_docs,
     markdown_twin_path,
     markdown_twin_url,
     published_markdown_pages,
@@ -72,7 +73,7 @@ class BuildDocsSiteTest(unittest.TestCase):
         for page in published_markdown_pages(self.config):
             rendered = rendered_page_path(self.site, page)
             rendered.parent.mkdir(parents=True, exist_ok=True)
-            rendered.write_text("<html>rendered</html>\n", encoding="utf-8")
+            rendered.write_text('<html><head><meta charset="utf-8"></head>rendered</html>\n', encoding="utf-8")
 
     def test_stages_public_nav_pages_and_verifies_complete_site(self) -> None:
         stage_site_root(self.docs, self.website, self.llms, self.site, self.config)
@@ -124,6 +125,51 @@ class BuildDocsSiteTest(unittest.TestCase):
 
         with self.assertRaisesRegex(DocsSiteError, r"image is missing from the site: /assets/gone\.png"):
             stage_site_root(self.docs, self.website, self.llms, self.site, self.config)
+
+    def test_embeds_fonts_and_holds_first_paint_in_rendered_docs(self) -> None:
+        rendered = self.site / "docs"
+        rendered.joinpath("assets/fonts").mkdir(parents=True)
+        rendered.joinpath("assets/fonts/text.woff2").write_bytes(b"wOF2-test")
+        rendered.joinpath("stylesheets").mkdir()
+        rendered.joinpath("stylesheets/extra.css").write_text(
+            '@font-face { src: url("../assets/fonts/text.woff2") format("woff2"); }\n'
+            '.logo { background: url("../assets/logo.svg"); }\n',
+            encoding="utf-8",
+        )
+        rendered.joinpath("quickstart/index.html").write_text(
+            '<head><meta charset="utf-8"><link rel="stylesheet" href="../stylesheets/extra.css"></head>\n',
+            encoding="utf-8",
+        )
+
+        finish_rendered_docs(rendered, ["stylesheets/extra.css"], "hold();")
+
+        self.assertEqual(
+            rendered.joinpath("stylesheets/extra.css").read_text(encoding="utf-8"),
+            '@font-face { src: url("data:font/woff2;base64,d09GMi10ZXN0") format("woff2"); }\n'
+            '.logo { background: url("../assets/logo.svg"); }\n',
+        )
+        self.assertEqual(
+            rendered.joinpath("quickstart/index.html").read_text(encoding="utf-8"),
+            '<head><meta charset="utf-8"><script>hold();</script>'
+            '<link rel="stylesheet" href="../stylesheets/extra.css"></head>\n',
+        )
+
+    def test_rejects_font_missing_from_the_rendered_docs(self) -> None:
+        rendered = self.site / "docs"
+        rendered.joinpath("stylesheets").mkdir()
+        rendered.joinpath("stylesheets/extra.css").write_text(
+            '@font-face { src: url("../assets/fonts/gone.woff2"); }\n', encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(DocsSiteError, r"font is missing from the site: \.\./assets/fonts/gone\.woff2"):
+            finish_rendered_docs(rendered, ["stylesheets/extra.css"], "hold();")
+
+    def test_rejects_rendered_page_without_charset(self) -> None:
+        rendered = self.site / "docs"
+        rendered.joinpath("agents/index.html").write_text("<head><title>Agents</title></head>\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(DocsSiteError, r"rendered page has no <meta charset=\"utf-8\">.*agents/index\.html"):
+            finish_rendered_docs(rendered, [], "hold();")
 
 
 if __name__ == "__main__":

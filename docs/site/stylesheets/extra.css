@@ -1,4 +1,46 @@
+/* The theme's Google Fonts link is off (theme.font = false in zensical.toml).
+   The same faces are self-hosted here, and the site build embeds them in this
+   stylesheet so text never paints in a fallback face first. Italics are not
+   declared because no page uses them. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: fallback;
+  src: url("../assets/fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: fallback;
+  src: url("../assets/fonts/inter-greek.woff2") format("woff2");
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: fallback;
+  src: url("../assets/fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: fallback;
+  src: url("../assets/fonts/jetbrains-mono-greek.woff2") format("woff2");
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
 :root {
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
   --md-primary-fg-color: #1c2330;
   --md-accent-fg-color: #4f7cff;
 }
@@ -20,4 +62,24 @@
 .md-typeset table:not([class]) {
   border-radius: 0.5rem;
   overflow: hidden;
+}
+
+/* The first-paint script hides the page by setting visibility on the root
+   while fonts load. The theme shows these navigation lists with
+   visibility: visible, which would paint them early; inherit shows them the
+   same way once the page is visible. Desktop sections never collapse, so they
+   drop the theme's delayed visibility transition, which would otherwise keep
+   them blank for 250 ms after the page appears. */
+.md-nav__toggle.md-toggle--indeterminate ~ .md-nav,
+.md-nav__toggle:checked ~ .md-nav,
+.md-nav--integrated > .md-nav__list > .md-nav__item--active .md-nav--secondary {
+  visibility: inherit;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-nav__item--section > .md-nav,
+  .md-nav--lifted .md-nav[data-md-level="1"] {
+    visibility: inherit;
+    transition: none;
+  }
 }
