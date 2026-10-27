@@ -86,6 +86,19 @@ SELECT unnest($1::VARCHAR[]) AS run_id,unnest($2::VARCHAR[]) AS commit_id)
 SELECT count(*) FROM benchmark_result br JOIN selected s ON s.run_id=br.run_id AND s.commit_id=br.commit_id`, []any{ids, commits}, scanCount)
 }
 
+func (s *Store) SelectCIReportCandidateRows(ctx context.Context, runs []storage.CIReportRunKey) ([]storage.CIReportCandidateRow, error) {
+	ids, commits := ciRunKeys(runs)
+	return readRows(ctx, s, `WITH selected AS (
+SELECT unnest($1::VARCHAR[]) AS run_id,unnest($2::VARCHAR[]) AS commit_id)
+SELECT br.run_id,br.commit_id,br.history_fingerprint,max(br."timestamp")
+FROM benchmark_result br JOIN selected s ON s.run_id=br.run_id AND s.commit_id=br.commit_id
+GROUP BY br.run_id,br.commit_id,br.history_fingerprint
+ORDER BY br.run_id,br.commit_id,br.history_fingerprint`, []any{ids, commits}, func(row rowScanner) (out storage.CIReportCandidateRow, err error) {
+		err = row.Scan(&out.RunID, &out.CommitID, &out.HistoryFingerprint, &out.ResultTimestamp)
+		return
+	})
+}
+
 func (s *Store) SelectCIReportRows(ctx context.Context, runs, baselineRuns []storage.CIReportRunKey) ([]storage.CIReportResultRow, error) {
 	ids, commits := ciRunKeys(runs)
 	baselineIDs, baselineCommits := ciRunKeys(baselineRuns)

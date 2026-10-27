@@ -821,7 +821,7 @@ func (r *CIReporter) findBaselineRun(
 		if len(candidateRunKeys) == 0 {
 			continue
 		}
-		rows, err := r.store.SelectCIReportRows(ctx, candidateRunKeys, nil)
+		rows, err := r.store.SelectCIReportCandidateRows(ctx, candidateRunKeys)
 		if err != nil {
 			return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline candidate rows: %w", err)
 		}
@@ -831,10 +831,7 @@ func (r *CIReporter) findBaselineRun(
 			if !fingerprints[row.HistoryFingerprint] {
 				continue
 			}
-			key, ok := ciReportResultRunKey(row)
-			if !ok {
-				continue
-			}
+			key := ciReportRunKeyString(row.RunID, row.CommitID)
 			if ts, ok := latestByRunKey[key]; !ok || row.ResultTimestamp.After(ts) {
 				latestByRunKey[key] = row.ResultTimestamp
 			}

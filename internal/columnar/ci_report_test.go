@@ -62,6 +62,14 @@ WHERE br.id=$1) TO `+literal(path)+` (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROU
 	require.Len(t, rows[1].Data, 1000)
 	require.NotNil(t, rows[1].Data[999])
 	assert.InDelta(t, 999.0, *rows[1].Data[999], 1e-9)
+
+	candidates, err := NewStore(pg, e).SelectCIReportCandidateRows(ctx,
+		[]storage.CIReportRunKey{{RunID: baseline.RunID, CommitID: *baseline.CommitID}})
+	require.NoError(t, err)
+	assert.Equal(t, []storage.CIReportCandidateRow{{
+		RunID: baseline.RunID, CommitID: *baseline.CommitID, HistoryFingerprint: baseline.HistoryFingerprint,
+		ResultTimestamp: time.Date(2030, 1, 1, 0, 0, 0, 99999*1000, time.UTC),
+	}}, candidates, "ranking collapses repeated measurements without loading their samples")
 }
 
 func TestCIReportRetainsToleranceAfterArchive(t *testing.T) {

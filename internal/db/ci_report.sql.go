@@ -168,6 +168,62 @@ func (q *Queries) SelectCIReportBaselineAncestry(ctx context.Context, arg Select
 	return items, nil
 }
 
+const selectCIReportCandidateRows = `-- name: SelectCIReportCandidateRows :many
+WITH selected_runs AS (
+  SELECT runs.run_id, commits.commit_id
+  FROM unnest($1::text[]) WITH ORDINALITY AS runs(run_id, ord)
+  JOIN unnest($2::text[]) WITH ORDINALITY AS commits(commit_id, ord) USING (ord)
+)
+SELECT
+  selected.run_id::text AS run_id,
+  selected.commit_id::text AS commit_id,
+  br.history_fingerprint,
+  max(br."timestamp")::timestamp AS result_timestamp
+FROM benchmark_result_local br
+JOIN selected_runs selected
+  ON selected.run_id = br.run_id
+ AND selected.commit_id = br.commit_id
+GROUP BY selected.run_id, selected.commit_id, br.history_fingerprint
+ORDER BY selected.run_id, selected.commit_id, br.history_fingerprint
+`
+
+type SelectCIReportCandidateRowsParams struct {
+	RunIds    []string
+	CommitIds []string
+}
+
+type SelectCIReportCandidateRowsRow struct {
+	RunID              string
+	CommitID           string
+	HistoryFingerprint string
+	ResultTimestamp    time.Time
+}
+
+func (q *Queries) SelectCIReportCandidateRows(ctx context.Context, arg SelectCIReportCandidateRowsParams) ([]SelectCIReportCandidateRowsRow, error) {
+	rows, err := q.db.Query(ctx, selectCIReportCandidateRows, arg.RunIds, arg.CommitIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectCIReportCandidateRowsRow{}
+	for rows.Next() {
+		var i SelectCIReportCandidateRowsRow
+		if err := rows.Scan(
+			&i.RunID,
+			&i.CommitID,
+			&i.HistoryFingerprint,
+			&i.ResultTimestamp,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectCIReportRows = `-- name: SelectCIReportRows :many
 WITH contender_runs AS MATERIALIZED (
   SELECT runs.run_id, commits.commit_id

@@ -34,6 +34,44 @@ type ciResultSeed struct {
 	Error              []byte
 }
 
+func TestSelectCIReportCandidateRows(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seed := newCIReportSeed(t, st, ctx)
+	ts := ciReportTime(1)
+	commitA := insertCIReportCommit(t, st, ctx, ciReportRepo, "commit-a", "", "commit-a", &ts, "first")
+	commitB := insertCIReportCommit(t, st, ctx, ciReportRepo, "commit-b", "", "commit-b", &ts, "second")
+	for _, row := range []ciResultSeed{
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-a", ResultTimestamp: ciReportTime(10)},
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-a", ResultTimestamp: ciReportTime(11)},
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-b", ResultTimestamp: ciReportTime(12)},
+		{RunID: "run-b", CommitID: commitB, HistoryFingerprint: "fp-c", ResultTimestamp: ciReportTime(13)},
+		{RunID: "run-a", CommitID: commitB, HistoryFingerprint: "wrong-commit", ResultTimestamp: ciReportTime(14)},
+		{RunID: "run-b", CommitID: commitA, HistoryFingerprint: "wrong-run", ResultTimestamp: ciReportTime(15)},
+		{RunID: "run-a", HistoryFingerprint: "commitless", ResultTimestamp: ciReportTime(16)},
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-a", ResultTimestamp: ciReportTime(17), Error: []byte(`{"message":"benchmark failed"}`)},
+	} {
+		row.RunTags = []byte(`{}`)
+		row.CommitRepoURL = ciReportRepo
+		row.Unit = new("s")
+		if row.Error == nil {
+			row.Data = []*float64{new(1.0)}
+		}
+		insertCIReportResult(t, st, ctx, seed, row)
+	}
+	rows, err := st.SelectCIReportCandidateRows(ctx, []storage.CIReportRunKey{
+		{RunID: "run-a", CommitID: commitA}, {RunID: "run-b", CommitID: commitB},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []storage.CIReportCandidateRow{
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-a", ResultTimestamp: ciReportTime(17)},
+		{RunID: "run-a", CommitID: commitA, HistoryFingerprint: "fp-b", ResultTimestamp: ciReportTime(12)},
+		{RunID: "run-b", CommitID: commitB, HistoryFingerprint: "fp-c", ResultTimestamp: ciReportTime(13)},
+	}, rows)
+	rows, err = st.SelectCIReportCandidateRows(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
 func TestSelectCIReportRunsByCommit(t *testing.T) {
 	st, _, ctx := newTestStore(t)
 	seed := newCIReportSeed(t, st, ctx)

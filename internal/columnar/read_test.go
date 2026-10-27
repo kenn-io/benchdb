@@ -187,7 +187,18 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 		{"ci-ancestry", func(st storage.Store) (any, error) {
 			return st.SelectCIReportBaselineAncestry(ctx, target.Repository, target.CIRegressionCommitSHA, 10)
 		}},
+		{"ci-report", func(st storage.Store) (any, error) {
+			return service.NewCIReporter(st).Report(ctx, service.CIReportQuery{RunIDs: []string{target.CIRegressionRunID}})
+		}},
 		{"ci-count", func(st storage.Store) (any, error) { return st.CountCIReportRows(ctx, contenderKeys) }},
+		{"ci-candidates", func(st storage.Store) (any, error) {
+			return st.SelectCIReportCandidateRows(ctx, []storage.CIReportRunKey{
+				{RunID: baseline.RunID, CommitID: *baseline.CommitID},
+				{RunID: "annotation-values", CommitID: *baseline.CommitID},
+				{RunID: contender.RunID, CommitID: *baseline.CommitID},
+			})
+		}},
+		{"ci-candidates-empty", func(st storage.Store) (any, error) { return st.SelectCIReportCandidateRows(ctx, nil) }},
 		{"ci-results", func(st storage.Store) (any, error) { return st.SelectCIReportRows(ctx, contenderKeys, baselineKeys) }},
 		{"ci-results-overlap", func(st storage.Store) (any, error) { return st.SelectCIReportRows(ctx, baselineKeys, baselineKeys) }},
 		{"ci-results-empty", func(st storage.Store) (any, error) { return st.SelectCIReportRows(ctx, nil, baselineKeys) }},

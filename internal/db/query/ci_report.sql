@@ -144,6 +144,24 @@ JOIN selected_runs selected
   ON selected.run_id = br.run_id
  AND selected.commit_id = br.commit_id;
 
+-- name: SelectCIReportCandidateRows :many
+WITH selected_runs AS (
+  SELECT runs.run_id, commits.commit_id
+  FROM unnest(sqlc.arg('run_ids')::text[]) WITH ORDINALITY AS runs(run_id, ord)
+  JOIN unnest(sqlc.arg('commit_ids')::text[]) WITH ORDINALITY AS commits(commit_id, ord) USING (ord)
+)
+SELECT
+  selected.run_id::text AS run_id,
+  selected.commit_id::text AS commit_id,
+  br.history_fingerprint,
+  max(br."timestamp")::timestamp AS result_timestamp
+FROM benchmark_result_local br
+JOIN selected_runs selected
+  ON selected.run_id = br.run_id
+ AND selected.commit_id = br.commit_id
+GROUP BY selected.run_id, selected.commit_id, br.history_fingerprint
+ORDER BY selected.run_id, selected.commit_id, br.history_fingerprint;
+
 -- name: SelectCIReportRows :many
 WITH contender_runs AS MATERIALIZED (
   SELECT runs.run_id, commits.commit_id
