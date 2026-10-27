@@ -50,6 +50,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION queue_commit_verdicts() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    -- The generation comes first in the lock order, before queue rows.
+    IF coalesce(NEW.sha = NEW.fork_point_sha, false)
+       OR (TG_OP = 'UPDATE' AND coalesce(OLD.sha = OLD.fork_point_sha, false)) THEN
+        PERFORM bump_repository_generation(NEW.repository);
+    END IF;
     IF TG_OP = 'UPDATE' THEN
         PERFORM enqueue_verdict('commit', NEW.id);
     END IF;
@@ -63,7 +68,6 @@ BEGIN
         ELSE
             PERFORM enqueue_repository_verdict(NEW.repository, NEW."timestamp");
         END IF;
-        PERFORM bump_repository_generation(NEW.repository);
     END IF;
     RETURN NULL;
 END;
@@ -76,6 +80,13 @@ DECLARE
     commit_at timestamp without time zone;
 BEGIN
     SELECT c.sha = c.fork_point_sha, c."timestamp" INTO is_default, commit_at FROM commit c WHERE c.id = result_commit FOR SHARE;
+    -- Bump the generation before looking for dependent runs, the order verdict
+    -- publication also locks in. A verdict being published now either
+    -- finishes first, and the lookup below sees what it depends on, or sees
+    -- the bump and leaves its run queued.
+    IF coalesce(is_default, false) THEN
+        PERFORM bump_repository_generation(result_repository);
+    END IF;
     -- Queue the result's own run and recent runs whose baseline search
     -- examined this commit, within the same 14 days the worker's repository
     -- recheck covers. Run keys go in run_id order like every multi-key
@@ -94,7 +105,6 @@ BEGIN
     ON CONFLICT (kind, key) DO UPDATE SET enqueued_at = clock_timestamp(), history_since = NULL;
     IF coalesce(is_default, false) THEN
         PERFORM enqueue_repository_verdict(result_repository, commit_at);
-        PERFORM bump_repository_generation(result_repository);
     END IF;
     -- A demoted commit's deferred work cannot discover its last deleted
     -- result. Remove any stored benchmark status even when it is off branch.

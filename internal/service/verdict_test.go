@@ -243,6 +243,53 @@ func TestVerdictsRecheckWhenADeeperAncestorOutranksTheBaseline(t *testing.T) {
 		"main0 now matches both benchmarks and outranks main1")
 }
 
+// TestVerdictsSeeAVerdictPublishedWhileTheirResultWaits races the result
+// trigger against a first verdict publication that holds the repository's
+// generation lock. The writer waits at its generation bump, then finds the
+// published verdict's dependency on its commit and queues the run.
+func TestVerdictsSeeAVerdictPublishedWhileTheirResultWaits(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	recent := time.Now().UTC().Truncate(time.Second).Add(-24 * time.Hour)
+	provider := ciCommitProvider{"c1": ciCommitInfo("c1", nil, "c1", recent)}
+	ing := service.NewIngester(store, provider)
+	submitAt(t, ctx, ing, "main-c1", "c1", 10, recent)
+	drainVerdicts(t, ctx, store)
+	var commitID string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM commit WHERE sha = 'c1'`).Scan(&commitID))
+
+	// The publication has taken the generation lock and written its verdict,
+	// which depends on c1, but has not committed.
+	publication, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = publication.Rollback(ctx) })
+	_, err = publication.Exec(ctx, `SELECT generation FROM repository_verdict_generation WHERE repository = $1 FOR SHARE`, testRepo)
+	require.NoError(t, err)
+	_, err = publication.Exec(ctx, `INSERT INTO run_verdict
+(run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, baseline_commit_ids, history_until, computed_at)
+VALUES ('pr-run', $1, $2, 'result', false, false, ARRAY[$3]::text[], $2, clock_timestamp())`, testRepo, recent, commitID)
+	require.NoError(t, err)
+
+	written := make(chan error, 1)
+	go func() {
+		req := machineReq(samples(11, 12, 13), "s")
+		req.RunID, req.BatchID, req.GitHub.Commit, req.Timestamp = "main-c1-again", "main-c1-again-batch", "c1", recent
+		_, err := ing.Submit(ctx, req)
+		written <- err
+	}()
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+		return err == nil && waiting > 0
+	}, 30*time.Second, 10*time.Millisecond, "the result's generation bump waits for the publication")
+	require.NoError(t, publication.Commit(ctx))
+	require.NoError(t, <-written)
+
+	var queued bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM verdict_queue WHERE kind = 'run' AND key = 'pr-run')`).Scan(&queued))
+	assert.True(t, queued, "the result on c1 rechecks the verdict published while it waited")
+}
+
 // TestVerdictsLeaveOldRunsAloneWhenTheirBaselineChanges covers the 14-day
 // bound on direct rechecks: a run older than that keeps its verdict even when
 // a commit its search examined gets new results.

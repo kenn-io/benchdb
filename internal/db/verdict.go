@@ -41,13 +41,17 @@ func (s *Store) ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil tim
 // FinishRunVerdicts replaces the run's verdicts and completes the claim
 // atomically, or returns storage.ErrLeaseLost without writing.
 func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.RunVerdict) error {
-	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
-		repositories := make([]string, 0, len(verdicts))
-		for _, verdict := range verdicts {
-			repositories = append(repositories, verdict.Repository)
-		}
-		// A default-branch writer that changed a repository after the
-		// evaluation read it holds this lock until it commits.
+	repositories := make([]string, 0, len(verdicts))
+	for _, verdict := range verdicts {
+		repositories = append(repositories, verdict.Repository)
+	}
+	var stale bool
+	// Generations lock before the claim, the order default-branch writers
+	// use: a writer bumps a generation before it queues the runs that read
+	// its commit. A writer that changed a repository after the evaluation
+	// read it holds this lock until it commits; one that has not bumped yet
+	// waits here, then sees this verdict when it looks for dependent runs.
+	lockGenerations := func(q *Queries) error {
 		locked, err := q.LockRepositoryGenerations(ctx, repositories)
 		if err != nil {
 			return err
@@ -57,9 +61,13 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 			current[row.Repository] = row.Generation
 		}
 		for _, verdict := range verdicts {
-			if current[verdict.Repository] != verdict.Generation {
-				return q.TouchVerdictQueue(ctx, TouchVerdictQueueParams{Kind: string(claim.Kind), Key: claim.Key})
-			}
+			stale = stale || current[verdict.Repository] != verdict.Generation
+		}
+		return nil
+	}
+	return s.withVerdictClaim(ctx, claim, lockGenerations, func(q *Queries) error {
+		if stale {
+			return q.TouchVerdictQueue(ctx, TouchVerdictQueueParams{Kind: string(claim.Kind), Key: claim.Key})
 		}
 		for _, verdict := range verdicts {
 			if err := q.UpsertRunVerdict(ctx, UpsertRunVerdictParams{
@@ -84,7 +92,7 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 // completes the claim atomically, or returns storage.ErrLeaseLost without
 // writing.
 func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.BenchmarkVerdict) error {
-	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
+	return s.withVerdictClaim(ctx, claim, nil, func(q *Queries) error {
 		machines := make([]string, 0, len(verdicts))
 		for _, verdict := range verdicts {
 			machines = append(machines, verdict.MachineName)
@@ -114,12 +122,14 @@ func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.Verdi
 
 // FinishVerdictClaim completes a claim that writes no verdicts.
 func (s *Store) FinishVerdictClaim(ctx context.Context, claim storage.VerdictClaim) error {
-	return s.withVerdictClaim(ctx, claim, func(*Queries) error { return nil })
+	return s.withVerdictClaim(ctx, claim, nil, func(*Queries) error { return nil })
 }
 
 // withVerdictClaim runs write while holding the claimed queue row, then
 // deletes the row, or releases it when the key was re-enqueued meanwhile.
-func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim, write func(*Queries) error) error {
+// lockFirst, when set, runs before the queue row is locked, for locks that
+// come before queue rows in the lock order.
+func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim, lockFirst, write func(*Queries) error) error {
 	beginner, ok := s.q.db.(interface {
 		Begin(context.Context) (pgx.Tx, error)
 	})
@@ -132,6 +142,11 @@ func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
+	if lockFirst != nil {
+		if err := lockFirst(q); err != nil {
+			return err
+		}
+	}
 	token := pgtype.UUID{Bytes: claim.Token, Valid: true}
 	_, err = q.LockVerdictClaim(ctx, LockVerdictClaimParams{Kind: string(claim.Kind), Key: claim.Key, ClaimToken: token})
 	if errors.Is(err, pgx.ErrNoRows) {
