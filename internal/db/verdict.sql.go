@@ -63,7 +63,7 @@ SET claimed_until = $1::timestamptz,
     claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token, q.history_since
 `
 
 type ClaimVerdictQueueParams struct {
@@ -73,10 +73,11 @@ type ClaimVerdictQueueParams struct {
 }
 
 type ClaimVerdictQueueRow struct {
-	Kind       string
-	Key        string
-	EnqueuedAt pgtype.Timestamptz
-	ClaimToken googleuuid.UUID
+	Kind         string
+	Key          string
+	EnqueuedAt   pgtype.Timestamptz
+	ClaimToken   googleuuid.UUID
+	HistorySince *time.Time
 }
 
 // Claim settled keys with a lease so concurrent servers never process the same
@@ -96,6 +97,7 @@ func (q *Queries) ClaimVerdictQueue(ctx context.Context, arg ClaimVerdictQueuePa
 			&i.Key,
 			&i.EnqueuedAt,
 			&i.ClaimToken,
+			&i.HistorySince,
 		); err != nil {
 			return nil, err
 		}
@@ -210,6 +212,48 @@ func (q *Queries) EnqueueVerdict(ctx context.Context, arg EnqueueVerdictParams) 
 	return err
 }
 
+const ensureRepositoryGeneration = `-- name: EnsureRepositoryGeneration :exec
+INSERT INTO repository_verdict_generation (repository, generation) VALUES ($1, 0)
+ON CONFLICT (repository) DO NOTHING
+`
+
+// Creates the repository's generation row, so a later writer updates a row
+// that verdict publication can wait on rather than inserting one it cannot
+// see. It waits for a writer that is creating the row.
+func (q *Queries) EnsureRepositoryGeneration(ctx context.Context, repository string) error {
+	_, err := q.db.Exec(ctx, ensureRepositoryGeneration, repository)
+	return err
+}
+
+const lockRepositoryGenerations = `-- name: LockRepositoryGenerations :many
+SELECT repository, generation FROM repository_verdict_generation
+WHERE repository = ANY($1::text[])
+ORDER BY repository
+FOR SHARE
+`
+
+// Waits for writers still changing these repositories, then returns their
+// generations; locks are released when the verdict transaction ends.
+func (q *Queries) LockRepositoryGenerations(ctx context.Context, repositories []string) ([]RepositoryVerdictGeneration, error) {
+	rows, err := q.db.Query(ctx, lockRepositoryGenerations, repositories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RepositoryVerdictGeneration{}
+	for rows.Next() {
+		var i RepositoryVerdictGeneration
+		if err := rows.Scan(&i.Repository, &i.Generation); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockVerdictClaim = `-- name: LockVerdictClaim :one
 SELECT q.enqueued_at
 FROM verdict_queue q
@@ -283,24 +327,45 @@ func (q *Queries) SelectCommitVerdictSubjects(ctx context.Context, commitID *str
 	return items, nil
 }
 
+const selectRepositoryGeneration = `-- name: SelectRepositoryGeneration :one
+SELECT generation FROM repository_verdict_generation WHERE repository = $1
+`
+
+// The repository's default-branch generation as committed now.
+func (q *Queries) SelectRepositoryGeneration(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRow(ctx, selectRepositoryGeneration, repository)
+	var generation int64
+	err := row.Scan(&generation)
+	return generation, err
+}
+
 const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
+LEFT JOIN run_verdict v ON v.run_id = br.run_id AND v.repository = br.commit_repo_url
 WHERE br.commit_repo_url = $1
   AND br."timestamp" >= $2::timestamp
   AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
+  AND ($3::timestamp IS NULL OR v.run_id IS NULL
+       OR v.baseline_commit_ids IS NULL
+       OR v.history_until >= $3::timestamp)
 `
 
 type SelectRepositoryVerdictRunsParams struct {
-	Repository string
-	Since      time.Time
+	Repository   string
+	Since        time.Time
+	HistorySince *time.Time
 }
 
 // Runs whose attention can change when default-branch history in the
-// repository changes. Default-branch runs never need attention.
+// repository changes. Default-branch runs never need attention. With
+// history_since, a run is left alone when its stored verdict read no history
+// that recent: results on the commits its baseline search walked queue it
+// directly instead. Runs without a verdict, or whose search could not be
+// bounded, are always included.
 func (q *Queries) SelectRepositoryVerdictRuns(ctx context.Context, arg SelectRepositoryVerdictRunsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since)
+	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since, arg.HistorySince)
 	if err != nil {
 		return nil, err
 	}
@@ -427,6 +492,22 @@ func (q *Queries) SelectRunVerdicts(ctx context.Context, runIds []string) ([]Sel
 	return items, nil
 }
 
+const touchVerdictQueue = `-- name: TouchVerdictQueue :exec
+UPDATE verdict_queue SET enqueued_at = clock_timestamp()
+WHERE kind = $1 AND key = $2
+`
+
+type TouchVerdictQueueParams struct {
+	Kind string
+	Key  string
+}
+
+// Marks a claimed key changed, so finishing the claim leaves it queued.
+func (q *Queries) TouchVerdictQueue(ctx context.Context, arg TouchVerdictQueueParams) error {
+	_, err := q.db.Exec(ctx, touchVerdictQueue, arg.Kind, arg.Key)
+	return err
+}
+
 const upsertBenchmarkVerdict = `-- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
   benchmark_id, machine_name, repository, case_id, point_count, preview_points, unit,
@@ -500,7 +581,7 @@ func (q *Queries) UpsertBenchmarkVerdict(ctx context.Context, arg UpsertBenchmar
 }
 
 const upsertRunVerdict = `-- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, baseline_commit_ids, history_until, computed_at)
 VALUES (
   $1,
   $2,
@@ -509,6 +590,8 @@ VALUES (
   $5,
   $6,
   $7,
+  $8::text[],
+  $9::timestamp,
   clock_timestamp()
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
@@ -517,17 +600,21 @@ ON CONFLICT (run_id, repository) DO UPDATE SET
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
+  baseline_commit_ids = EXCLUDED.baseline_commit_ids,
+  history_until = EXCLUDED.history_until,
   computed_at = EXCLUDED.computed_at
 `
 
 type UpsertRunVerdictParams struct {
-	RunID          string
-	Repository     string
-	LastResultAt   time.Time
-	LastResultID   string
-	DefaultBranch  bool
-	NeedsAttention bool
-	Attention      []byte
+	RunID             string
+	Repository        string
+	LastResultAt      time.Time
+	LastResultID      string
+	DefaultBranch     bool
+	NeedsAttention    bool
+	Attention         []byte
+	BaselineCommitIds []string
+	HistoryUntil      *time.Time
 }
 
 func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictParams) error {
@@ -539,6 +626,8 @@ func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictPara
 		arg.DefaultBranch,
 		arg.NeedsAttention,
 		arg.Attention,
+		arg.BaselineCommitIds,
+		arg.HistoryUntil,
 	)
 	return err
 }

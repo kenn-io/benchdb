@@ -635,9 +635,19 @@ key that fails stays queued and is retried when its lease ends.
 - A benchmark gets one row per machine.
 - The worker evaluates a run once its results have stopped changing for 15
   seconds.
-- New default-branch results or commits in a repository re-queue that
-  repository's pull-request runs with results from the last 14 days. Older
+- Each pull-request verdict records what it read: every default-branch
+  commit its baseline search examined, from the run's recorded base or fork
+  point, and the chosen baseline's commit time, which caps its lookback
+  history. A default-branch result written or deleted on an examined commit
+  re-queues the run. New default-branch results or commits also re-queue
+  runs whose history reaches the new commit time. A search stopped by
+  missing ancestry, a run without a verdict, and commit repair re-queue on
+  any change. Both kinds of re-queue cover runs from the last 14 days; older
   runs keep their last verdict.
+- A default-branch change in a run's repository while its verdict is being
+  computed keeps the run queued, so a verdict computed from the earlier
+  default branch is redone rather than stored. An evaluation that starts
+  while such a change is still being written waits for it.
 - The Runs page queues any run it lists that has no stored verdict.
 - The worker scores a benchmark within about a second after a default-branch
   result for it is written or deleted, or after a commit carrying its results

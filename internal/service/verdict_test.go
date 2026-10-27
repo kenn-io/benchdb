@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,217 @@ func TestVerdictsReevaluateRecentPullRequestRunsWhenBaselineArrives(t *testing.T
 			"runs older than the window keep their last verdict")
 	}
 	assert.Nil(t, after["main-c3"], "default-branch runs never need attention")
+}
+
+// TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives covers the
+// cost of default-branch arrivals. A later main commit is in neither the pull
+// request's baseline search nor its lookback window, so the run's verdict is
+// not recomputed; history backfilled from before its baseline still
+// re-evaluates it.
+func TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	recent := now.Add(-5 * 24 * time.Hour)
+	provider := ciCommitProvider{
+		"c1": ciCommitInfo("c1", nil, "c1", recent),
+		"pr": ciCommitInfo("pr", new("c1"), "c1", recent.Add(time.Hour)),
+		"c2": ciCommitInfo("c2", new("c1"), "c2", recent.Add(3*24*time.Hour)),
+		"c0": ciCommitInfo("c0", nil, "c0", recent.Add(-time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, recent.Add(-time.Hour), func(sha string, at time.Time, value float64) {
+		submitAt(t, ctx, ing, "history-"+sha, sha, value, at)
+	}, 10, 20, 30, 10, 20, 30, 20, 10, 20, 30)
+	submitAt(t, ctx, ing, "main-c1", "c1", 10, recent)
+	submitAt(t, ctx, ing, "pr-run", "pr", 100, recent.Add(time.Hour))
+	drainVerdicts(t, ctx, store)
+	computedAt := func() time.Time {
+		t.Helper()
+		var at time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT computed_at FROM run_verdict WHERE run_id = 'pr-run'`).Scan(&at))
+		return at
+	}
+	first := computedAt()
+
+	submitAt(t, ctx, ing, "main-c2", "c2", 20, recent.Add(3*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	assert.Equal(t, first, computedAt(), "a main commit days after the fork point cannot change the verdict")
+	storedVerdicts(t, ctx, store, "main-c2")
+
+	submitAt(t, ctx, ing, "main-c0", "c0", 20, recent.Add(-time.Hour))
+	drainVerdicts(t, ctx, store)
+	assert.True(t, computedAt().After(first), "history from before the fork point re-evaluates the run")
+}
+
+// TestVerdictsRecheckRunsWhoseBaselineSearchWalkedAChangedCommit covers a
+// merged-main run whose recorded base is newer than its fork point, with an
+// author date days later. Its baseline search walked that base, so delayed
+// results there, and deleting them, recheck the run whatever their commit
+// time.
+func TestVerdictsRecheckRunsWhoseBaselineSearchWalkedAChangedCommit(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	recent := now.Add(-6 * 24 * time.Hour)
+	main1, base, pr := strings.Repeat("1", 40), strings.Repeat("b", 40), strings.Repeat("f", 40)
+	provider := ciCommitProvider{
+		main1: ciCommitInfo(main1, nil, main1, recent),
+		base:  ciCommitInfo(base, new(main1), base, recent.Add(4*24*time.Hour)),
+		pr:    ciCommitInfo(pr, new(main1), main1, recent.Add(time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, recent, func(sha string, at time.Time, value float64) {
+		submitAt(t, ctx, ing, "history-"+sha, sha, value, at)
+	}, 10, 20, 30, 10, 20, 30, 20, 10, 20, 30)
+	submitAt(t, ctx, ing, "main-1", main1, 10, recent)
+	// The base is already known from another benchmark's result, so the
+	// search walks past it to main1; only this benchmark's result is late.
+	other := machineReq(samples(5, 6, 7), "s")
+	other.Tags = map[string]any{"name": "other", "source": "test"}
+	other.RunID, other.BatchID, other.GitHub.Commit, other.Timestamp = "main-base-other", "other-batch", base, recent.Add(4*24*time.Hour)
+	_, err := ing.Submit(ctx, other)
+	require.NoError(t, err)
+	req := machineReq(samples(100, 101, 102), "s")
+	req.RunID, req.BatchID, req.GitHub.Commit, req.Timestamp = "pr-run", "pr-batch", pr, recent.Add(time.Hour)
+	req.RunTags = map[string]any{"measurement-mode": "merged-main", "base-sha": base}
+	_, err = ing.Submit(ctx, req)
+	require.NoError(t, err)
+	drainVerdicts(t, ctx, store)
+	computedAt := func() time.Time {
+		t.Helper()
+		var at time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT computed_at FROM run_verdict WHERE run_id = 'pr-run'`).Scan(&at))
+		return at
+	}
+	first := computedAt()
+
+	delayed := submitAt(t, ctx, ing, "main-base", base, 20, recent.Add(4*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	second := computedAt()
+	assert.True(t, second.After(first), "results arriving on the recorded base recheck the run")
+
+	require.NoError(t, ing.DeleteResult(ctx, delayed.ID))
+	drainVerdicts(t, ctx, store)
+	assert.True(t, computedAt().After(second), "deleting the baseline's results rechecks the run")
+}
+
+// submitBenchmarkAt submits one result for the named benchmark.
+func submitBenchmarkAt(t *testing.T, ctx context.Context, ing *service.Ingester, runID, sha, name string, value float64, at time.Time) *service.Result {
+	t.Helper()
+	req := machineReq(samples(value, value+1, value+2), "s")
+	req.Tags = map[string]any{"name": name, "source": "test"}
+	req.RunID, req.BatchID, req.GitHub.Commit, req.Timestamp = runID, runID+"-"+name, sha, at
+	res, err := ing.Submit(ctx, req)
+	require.NoError(t, err)
+	return res
+}
+
+func runVerdictComputedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string) time.Time {
+	t.Helper()
+	var at time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT computed_at FROM run_verdict WHERE run_id = $1`, runID).Scan(&at))
+	return at
+}
+
+// TestVerdictsRecheckWhenADeeperAncestorOutranksTheBaseline covers baseline
+// ranking across the whole ancestry. A deeper ancestor, with an author date
+// days after the pull request's fork point, later gets results for more of
+// its benchmarks than the chosen baseline and so outranks it.
+func TestVerdictsRecheckWhenADeeperAncestorOutranksTheBaseline(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	recent := now.Add(-6 * 24 * time.Hour)
+	main0, main1, pr := strings.Repeat("0", 40), strings.Repeat("1", 40), strings.Repeat("f", 40)
+	provider := ciCommitProvider{
+		main0: ciCommitInfo(main0, nil, main0, recent.Add(3*24*time.Hour)),
+		main1: ciCommitInfo(main1, new(main0), main1, recent),
+		pr:    ciCommitInfo(pr, new(main1), main1, recent.Add(time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	// main0 is known from an unrelated benchmark, so the search is complete.
+	submitBenchmarkAt(t, ctx, ing, "main-0-other", main0, "other", 5, recent.Add(3*24*time.Hour))
+	submitBenchmarkAt(t, ctx, ing, "main-1", main1, "bench", 10, recent)
+	submitBenchmarkAt(t, ctx, ing, "pr-run", pr, "bench", 100, recent.Add(time.Hour))
+	submitBenchmarkAt(t, ctx, ing, "pr-run", pr, "bench-2", 100, recent.Add(time.Hour))
+	drainVerdicts(t, ctx, store)
+	first := runVerdictComputedAt(t, ctx, pool, "pr-run")
+
+	submitBenchmarkAt(t, ctx, ing, "main-0", main0, "bench", 10, recent.Add(3*24*time.Hour))
+	submitBenchmarkAt(t, ctx, ing, "main-0", main0, "bench-2", 10, recent.Add(3*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	assert.True(t, runVerdictComputedAt(t, ctx, pool, "pr-run").After(first),
+		"main0 now matches both benchmarks and outranks main1")
+}
+
+// TestVerdictsSeeAVerdictPublishedWhileTheirResultWaits races the result
+// trigger against a first verdict publication that holds the repository's
+// generation lock. The writer waits at its generation bump, then finds the
+// published verdict's dependency on its commit and queues the run.
+func TestVerdictsSeeAVerdictPublishedWhileTheirResultWaits(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	recent := time.Now().UTC().Truncate(time.Second).Add(-24 * time.Hour)
+	provider := ciCommitProvider{"c1": ciCommitInfo("c1", nil, "c1", recent)}
+	ing := service.NewIngester(store, provider)
+	submitAt(t, ctx, ing, "main-c1", "c1", 10, recent)
+	drainVerdicts(t, ctx, store)
+	var commitID string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM commit WHERE sha = 'c1'`).Scan(&commitID))
+
+	// The publication has taken the generation lock and written its verdict,
+	// which depends on c1, but has not committed.
+	publication, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = publication.Rollback(ctx) })
+	_, err = publication.Exec(ctx, `SELECT generation FROM repository_verdict_generation WHERE repository = $1 FOR SHARE`, testRepo)
+	require.NoError(t, err)
+	_, err = publication.Exec(ctx, `INSERT INTO run_verdict
+(run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, baseline_commit_ids, history_until, computed_at)
+VALUES ('pr-run', $1, $2, 'result', false, false, ARRAY[$3]::text[], $2, clock_timestamp())`, testRepo, recent, commitID)
+	require.NoError(t, err)
+
+	written := make(chan error, 1)
+	go func() {
+		req := machineReq(samples(11, 12, 13), "s")
+		req.RunID, req.BatchID, req.GitHub.Commit, req.Timestamp = "main-c1-again", "main-c1-again-batch", "c1", recent
+		_, err := ing.Submit(ctx, req)
+		written <- err
+	}()
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+		return err == nil && waiting > 0
+	}, 30*time.Second, 10*time.Millisecond, "the result's generation bump waits for the publication")
+	require.NoError(t, publication.Commit(ctx))
+	require.NoError(t, <-written)
+
+	var queued bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM verdict_queue WHERE kind = 'run' AND key = 'pr-run')`).Scan(&queued))
+	assert.True(t, queued, "the result on c1 rechecks the verdict published while it waited")
+}
+
+// TestVerdictsLeaveOldRunsAloneWhenTheirBaselineChanges covers the 14-day
+// bound on direct rechecks: a run older than that keeps its verdict even when
+// a commit its search examined gets new results.
+func TestVerdictsLeaveOldRunsAloneWhenTheirBaselineChanges(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	base := now.Add(-25 * 24 * time.Hour)
+	provider := ciCommitProvider{
+		"c1":     ciCommitInfo("c1", nil, "c1", base),
+		"old":    ciCommitInfo("old", new("c1"), "c1", now.Add(-20*24*time.Hour)),
+		"recent": ciCommitInfo("recent", new("c1"), "c1", now.Add(-2*24*time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	submitAt(t, ctx, ing, "main-c1", "c1", 10, base)
+	submitAt(t, ctx, ing, "old-run", "old", 100, now.Add(-20*24*time.Hour))
+	submitAt(t, ctx, ing, "recent-run", "recent", 100, now.Add(-2*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	old, recentAt := runVerdictComputedAt(t, ctx, pool, "old-run"), runVerdictComputedAt(t, ctx, pool, "recent-run")
+
+	submitAt(t, ctx, ing, "main-c1-again", "c1", 11, base)
+	drainVerdicts(t, ctx, store)
+	assert.Equal(t, old, runVerdictComputedAt(t, ctx, pool, "old-run"), "runs older than 14 days keep their verdict")
+	assert.True(t, runVerdictComputedAt(t, ctx, pool, "recent-run").After(recentAt))
 }
 
 func TestVerdictsFollowAnnotationsAndDeletes(t *testing.T) {

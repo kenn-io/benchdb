@@ -28,10 +28,11 @@ func (s *Store) ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil tim
 	claims := make([]storage.VerdictClaim, 0, len(rows))
 	for _, row := range rows {
 		claims = append(claims, storage.VerdictClaim{
-			Kind:       storage.VerdictKind(row.Kind),
-			Key:        row.Key,
-			EnqueuedAt: row.EnqueuedAt.Time,
-			Token:      row.ClaimToken,
+			Kind:         storage.VerdictKind(row.Kind),
+			Key:          row.Key,
+			EnqueuedAt:   row.EnqueuedAt.Time,
+			Token:        row.ClaimToken,
+			HistorySince: row.HistorySince,
 		})
 	}
 	return claims, nil
@@ -40,18 +41,45 @@ func (s *Store) ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil tim
 // FinishRunVerdicts replaces the run's verdicts and completes the claim
 // atomically, or returns storage.ErrLeaseLost without writing.
 func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.RunVerdict) error {
-	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
-		repositories := make([]string, 0, len(verdicts))
+	repositories := make([]string, 0, len(verdicts))
+	for _, verdict := range verdicts {
+		repositories = append(repositories, verdict.Repository)
+	}
+	var stale bool
+	// Generations lock before the claim, the order default-branch writers
+	// use: a writer bumps a generation before it queues the runs that read
+	// its commit. A writer that changed a repository after the evaluation
+	// read it holds this lock until it commits; one that has not bumped yet
+	// waits here, then sees this verdict when it looks for dependent runs.
+	lockGenerations := func(q *Queries) error {
+		locked, err := q.LockRepositoryGenerations(ctx, repositories)
+		if err != nil {
+			return err
+		}
+		current := map[string]int64{}
+		for _, row := range locked {
+			current[row.Repository] = row.Generation
+		}
 		for _, verdict := range verdicts {
-			repositories = append(repositories, verdict.Repository)
+			stale = stale || current[verdict.Repository] != verdict.Generation
+		}
+		return nil
+	}
+	return s.withVerdictClaim(ctx, claim, lockGenerations, func(q *Queries) error {
+		if stale {
+			return q.TouchVerdictQueue(ctx, TouchVerdictQueueParams{Kind: string(claim.Kind), Key: claim.Key})
+		}
+		for _, verdict := range verdicts {
 			if err := q.UpsertRunVerdict(ctx, UpsertRunVerdictParams{
-				RunID:          verdict.RunID,
-				Repository:     verdict.Repository,
-				LastResultAt:   verdict.LastResultAt,
-				LastResultID:   verdict.LastResultID,
-				DefaultBranch:  verdict.DefaultBranch,
-				NeedsAttention: verdict.NeedsAttention,
-				Attention:      verdict.Attention,
+				RunID:             verdict.RunID,
+				Repository:        verdict.Repository,
+				LastResultAt:      verdict.LastResultAt,
+				LastResultID:      verdict.LastResultID,
+				DefaultBranch:     verdict.DefaultBranch,
+				NeedsAttention:    verdict.NeedsAttention,
+				Attention:         verdict.Attention,
+				BaselineCommitIds: verdict.BaselineCommitIDs,
+				HistoryUntil:      verdict.HistoryUntil,
 			}); err != nil {
 				return err
 			}
@@ -64,7 +92,7 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 // completes the claim atomically, or returns storage.ErrLeaseLost without
 // writing.
 func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.VerdictClaim, verdicts []storage.BenchmarkVerdict) error {
-	return s.withVerdictClaim(ctx, claim, func(q *Queries) error {
+	return s.withVerdictClaim(ctx, claim, nil, func(q *Queries) error {
 		machines := make([]string, 0, len(verdicts))
 		for _, verdict := range verdicts {
 			machines = append(machines, verdict.MachineName)
@@ -94,12 +122,14 @@ func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.Verdi
 
 // FinishVerdictClaim completes a claim that writes no verdicts.
 func (s *Store) FinishVerdictClaim(ctx context.Context, claim storage.VerdictClaim) error {
-	return s.withVerdictClaim(ctx, claim, func(*Queries) error { return nil })
+	return s.withVerdictClaim(ctx, claim, nil, func(*Queries) error { return nil })
 }
 
 // withVerdictClaim runs write while holding the claimed queue row, then
 // deletes the row, or releases it when the key was re-enqueued meanwhile.
-func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim, write func(*Queries) error) error {
+// lockFirst, when set, runs before the queue row is locked, for locks that
+// come before queue rows in the lock order.
+func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim, lockFirst, write func(*Queries) error) error {
 	beginner, ok := s.q.db.(interface {
 		Begin(context.Context) (pgx.Tx, error)
 	})
@@ -112,6 +142,11 @@ func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
+	if lockFirst != nil {
+		if err := lockFirst(q); err != nil {
+			return err
+		}
+	}
 	token := pgtype.UUID{Bytes: claim.Token, Valid: true}
 	_, err = q.LockVerdictClaim(ctx, LockVerdictClaimParams{Kind: string(claim.Kind), Key: claim.Key, ClaimToken: token})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -144,6 +179,16 @@ func (s *Store) withVerdictClaim(ctx context.Context, claim storage.VerdictClaim
 	return tx.Commit(ctx)
 }
 
+// SelectRepositoryGeneration returns the repository's committed
+// default-branch generation, creating its row first so that a later writer's
+// change is one verdict publication can wait for.
+func (s *Store) SelectRepositoryGeneration(ctx context.Context, repository string) (int64, error) {
+	if err := s.q.EnsureRepositoryGeneration(ctx, repository); err != nil {
+		return 0, err
+	}
+	return s.q.SelectRepositoryGeneration(ctx, repository)
+}
+
 // EnqueueVerdict queues a key, or marks an already queued key as changed.
 func (s *Store) EnqueueVerdict(ctx context.Context, kind storage.VerdictKind, key string) error {
 	return s.q.EnqueueVerdict(ctx, EnqueueVerdictParams{Kind: string(kind), Key: key})
@@ -155,9 +200,13 @@ func (s *Store) EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) 
 }
 
 // SelectRepositoryVerdictRuns lists the repository's non-default-branch runs
-// with results at or after since.
-func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error) {
-	return s.q.SelectRepositoryVerdictRuns(ctx, SelectRepositoryVerdictRunsParams{Repository: repository, Since: since})
+// with results at or after since. With historySince, it lists only runs whose
+// verdict read history committed at or after it, could not bound its
+// baseline search, or is missing.
+func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, historySince *time.Time) ([]string, error) {
+	return s.q.SelectRepositoryVerdictRuns(ctx, SelectRepositoryVerdictRunsParams{
+		Repository: repository, Since: since, HistorySince: historySince,
+	})
 }
 
 // SelectRunVerdictSubjects returns the run's latest result per repository.

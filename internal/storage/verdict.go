@@ -36,6 +36,10 @@ type VerdictClaim struct {
 	Key        string
 	EnqueuedAt time.Time
 	Token      uuid.UUID
+	// HistorySince, for a repository key, is the earliest commit time among
+	// the default-branch history that queued it. Nil means any history, or
+	// the ancestry itself, may have changed.
+	HistorySince *time.Time
 }
 
 // CommitVerdictSubject identifies a run and benchmark affected by commit repair.
@@ -67,6 +71,16 @@ type RunVerdict struct {
 	NeedsAttention bool
 	Attention      []byte
 	Pending        bool
+	// BaselineCommitIDs are the default-branch commits the run's baseline
+	// search walked; results on any of them can change the verdict. Nil means
+	// the search could not be bounded, so any default-branch change can.
+	BaselineCommitIDs []string
+	// HistoryUntil is the baseline's commit time: the verdict read
+	// default-branch history committed at or before it.
+	HistoryUntil *time.Time
+	// Generation is the repository's default-branch generation read before
+	// the evaluation; a verdict whose repository has moved on is not stored.
+	Generation int64
 }
 
 // BenchmarkVerdict is one machine's stored track of a logical benchmark over
@@ -97,7 +111,9 @@ type VerdictStore interface {
 	ClaimVerdicts(ctx context.Context, settledBefore, leaseUntil time.Time, limit int32) ([]VerdictClaim, error)
 	// FinishRunVerdicts replaces the run's verdicts with verdicts and completes
 	// the claim in one transaction. It returns ErrLeaseLost, writing nothing,
-	// when the claim no longer holds the key.
+	// when the claim no longer holds the key. When a repository's
+	// default-branch generation changed since a verdict's Generation, it
+	// writes nothing and leaves the run queued.
 	FinishRunVerdicts(ctx context.Context, claim VerdictClaim, verdicts []RunVerdict) error
 	// FinishVerdictClaim completes a claim that writes no verdicts, with the
 	// same ErrLeaseLost check.
@@ -106,10 +122,13 @@ type VerdictStore interface {
 	// verdicts, with the same ErrLeaseLost check.
 	FinishBenchmarkVerdicts(ctx context.Context, claim VerdictClaim, verdicts []BenchmarkVerdict) error
 	EnqueueVerdict(ctx context.Context, kind VerdictKind, key string) error
+	// SelectRepositoryGeneration returns the repository's committed
+	// default-branch generation, read before evaluating a run against it.
+	SelectRepositoryGeneration(ctx context.Context, repository string) (int64, error)
 	// EnqueueMissingRunVerdicts queues runs without verdicts. It writes
 	// nothing on a read-only connection.
 	EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) error
-	SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time) ([]string, error)
+	SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, historySince *time.Time) ([]string, error)
 	// SelectCommitVerdictSubjects expands commit repair across all stored facts.
 	SelectCommitVerdictSubjects(ctx context.Context, commitID string) ([]CommitVerdictSubject, error)
 	// SelectRunVerdictSubjects returns one subject per repository the run has

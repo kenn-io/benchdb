@@ -16,7 +16,7 @@ SET claimed_until = sqlc.arg('lease_until')::timestamptz,
     claim_token = gen_random_uuid()
 FROM ready
 WHERE q.kind = ready.kind AND q.key = ready.key
-RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token;
+RETURNING q.kind, q.key, q.enqueued_at, q.claim_token::uuid AS claim_token, q.history_since;
 
 -- name: LockVerdictClaim :one
 -- Holds the claimed queue row for the rest of the transaction. No row means
@@ -45,13 +45,21 @@ SELECT enqueue_missing_run_verdicts(sqlc.arg('run_ids')::text[]);
 
 -- name: SelectRepositoryVerdictRuns :many
 -- Runs whose attention can change when default-branch history in the
--- repository changes. Default-branch runs never need attention.
+-- repository changes. Default-branch runs never need attention. With
+-- history_since, a run is left alone when its stored verdict read no history
+-- that recent: results on the commits its baseline search walked queue it
+-- directly instead. Runs without a verdict, or whose search could not be
+-- bounded, are always included.
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
+LEFT JOIN run_verdict v ON v.run_id = br.run_id AND v.repository = br.commit_repo_url
 WHERE br.commit_repo_url = sqlc.arg('repository')
   AND br."timestamp" >= sqlc.arg('since')::timestamp
-  AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha);
+  AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
+  AND (sqlc.narg('history_since')::timestamp IS NULL OR v.run_id IS NULL
+       OR v.baseline_commit_ids IS NULL
+       OR v.history_until >= sqlc.narg('history_since')::timestamp);
 
 -- name: SelectRunVerdictSubjects :many
 -- One subject per repository the run has results in, identified the way the
@@ -68,7 +76,7 @@ WHERE br.run_id = sqlc.arg('run_id')
 ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC;
 
 -- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, baseline_commit_ids, history_until, computed_at)
 VALUES (
   sqlc.arg('run_id'),
   sqlc.arg('repository'),
@@ -77,6 +85,8 @@ VALUES (
   sqlc.arg('default_branch'),
   sqlc.arg('needs_attention'),
   sqlc.narg('attention'),
+  sqlc.narg('baseline_commit_ids')::text[],
+  sqlc.narg('history_until')::timestamp,
   clock_timestamp()
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
@@ -85,6 +95,8 @@ ON CONFLICT (run_id, repository) DO UPDATE SET
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
+  baseline_commit_ids = EXCLUDED.baseline_commit_ids,
+  history_until = EXCLUDED.history_until,
   computed_at = EXCLUDED.computed_at;
 
 -- name: DeleteRunVerdictsExcept :exec
@@ -217,3 +229,27 @@ SELECT DISTINCT run_id, benchmark_id, commit_repo_url AS repository
 FROM benchmark_result_local
 WHERE commit_id = $1
 ORDER BY run_id, benchmark_id, commit_repo_url;
+
+-- name: EnsureRepositoryGeneration :exec
+-- Creates the repository's generation row, so a later writer updates a row
+-- that verdict publication can wait on rather than inserting one it cannot
+-- see. It waits for a writer that is creating the row.
+INSERT INTO repository_verdict_generation (repository, generation) VALUES (sqlc.arg('repository'), 0)
+ON CONFLICT (repository) DO NOTHING;
+
+-- name: SelectRepositoryGeneration :one
+-- The repository's default-branch generation as committed now.
+SELECT generation FROM repository_verdict_generation WHERE repository = sqlc.arg('repository');
+
+-- name: LockRepositoryGenerations :many
+-- Waits for writers still changing these repositories, then returns their
+-- generations; locks are released when the verdict transaction ends.
+SELECT repository, generation FROM repository_verdict_generation
+WHERE repository = ANY(sqlc.arg('repositories')::text[])
+ORDER BY repository
+FOR SHARE;
+
+-- name: TouchVerdictQueue :exec
+-- Marks a claimed key changed, so finishing the claim leaves it queued.
+UPDATE verdict_queue SET enqueued_at = clock_timestamp()
+WHERE kind = sqlc.arg('kind') AND key = sqlc.arg('key');

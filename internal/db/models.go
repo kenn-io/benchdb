@@ -450,6 +450,11 @@ type Info struct {
 	Tags []byte
 }
 
+type RepositoryVerdictGeneration struct {
+	Repository string
+	Generation int64
+}
+
 type ResultArtifact struct {
 	ID        googleuuid.UUID
 	ResultID  string
@@ -486,14 +491,16 @@ type RunMembership struct {
 }
 
 type RunVerdict struct {
-	RunID          string
-	Repository     string
-	LastResultAt   time.Time
-	LastResultID   string
-	DefaultBranch  bool
-	NeedsAttention bool
-	Attention      []byte
-	ComputedAt     pgtype.Timestamptz
+	RunID             string
+	Repository        string
+	LastResultAt      time.Time
+	LastResultID      string
+	DefaultBranch     bool
+	NeedsAttention    bool
+	Attention         []byte
+	ComputedAt        pgtype.Timestamptz
+	BaselineCommitIds []string
+	HistoryUntil      *time.Time
 }
 
 type User struct {
@@ -509,4 +516,5 @@ type VerdictQueue struct {
 	EnqueuedAt   pgtype.Timestamptz
 	ClaimedUntil pgtype.Timestamptz
 	ClaimToken   pgtype.UUID
+	HistorySince *time.Time
 }
