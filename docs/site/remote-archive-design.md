@@ -32,7 +32,7 @@ separate subsystem.
 
 The extraction starts from Kit v0.35.1's `packstore/s3store`, including
 `Inventory`'s pagination and separation of recognized keys from unknown objects.
-BenchDB supplies its own key recognition and deletion policy. Kit v0.42.0,
+BenchDB supplies its own key recognition and deletion policy. Kit v0.44.0,
 which BenchDB pins, ships `objectstore` for local disk, S3, and GCS. Archive
 integration stays a separate change. It should review the module graph and run
 BenchDB's required checks.
