@@ -104,10 +104,10 @@ func TestVerdictsReevaluateRecentPullRequestRunsWhenBaselineArrives(t *testing.T
 }
 
 // TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives covers the
-// cost of default-branch arrivals. A main commit after a pull request's fork
-// point is in neither its baseline search nor its lookback window, so the
-// run's verdict is not recomputed; history backfilled from before the fork
-// point still re-evaluates it.
+// cost of default-branch arrivals. A later main commit is in neither the pull
+// request's baseline search nor its lookback window, so the run's verdict is
+// not recomputed; history backfilled from before its baseline still
+// re-evaluates it.
 func TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives(t *testing.T) {
 	_, store, pool, ctx := newIngester(t)
 	now := time.Now().UTC().Truncate(time.Second)
@@ -141,6 +141,57 @@ func TestVerdictsLeavePullRequestRunsAloneWhenLaterHistoryArrives(t *testing.T) 
 	submitAt(t, ctx, ing, "main-c0", "c0", 20, recent.Add(-time.Hour))
 	drainVerdicts(t, ctx, store)
 	assert.True(t, computedAt().After(first), "history from before the fork point re-evaluates the run")
+}
+
+// TestVerdictsRecheckRunsWhoseBaselineSearchWalkedAChangedCommit covers a
+// merged-main run whose recorded base is newer than its fork point, with an
+// author date days later. Its baseline search walked that base, so delayed
+// results there, and deleting them, recheck the run whatever their commit
+// time.
+func TestVerdictsRecheckRunsWhoseBaselineSearchWalkedAChangedCommit(t *testing.T) {
+	_, store, pool, ctx := newIngester(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	recent := now.Add(-6 * 24 * time.Hour)
+	main1, base, pr := strings.Repeat("1", 40), strings.Repeat("b", 40), strings.Repeat("f", 40)
+	provider := ciCommitProvider{
+		main1: ciCommitInfo(main1, nil, main1, recent),
+		base:  ciCommitInfo(base, new(main1), base, recent.Add(4*24*time.Hour)),
+		pr:    ciCommitInfo(pr, new(main1), main1, recent.Add(time.Hour)),
+	}
+	ing := service.NewIngester(store, provider)
+	seedEarlierHistory(provider, recent, func(sha string, at time.Time, value float64) {
+		submitAt(t, ctx, ing, "history-"+sha, sha, value, at)
+	}, 10, 20, 30, 10, 20, 30, 20, 10, 20, 30)
+	submitAt(t, ctx, ing, "main-1", main1, 10, recent)
+	// The base is already known from another benchmark's result, so the
+	// search walks past it to main1; only this benchmark's result is late.
+	other := machineReq(samples(5, 6, 7), "s")
+	other.Tags = map[string]any{"name": "other", "source": "test"}
+	other.RunID, other.BatchID, other.GitHub.Commit, other.Timestamp = "main-base-other", "other-batch", base, recent.Add(4*24*time.Hour)
+	_, err := ing.Submit(ctx, other)
+	require.NoError(t, err)
+	req := machineReq(samples(100, 101, 102), "s")
+	req.RunID, req.BatchID, req.GitHub.Commit, req.Timestamp = "pr-run", "pr-batch", pr, recent.Add(time.Hour)
+	req.RunTags = map[string]any{"measurement-mode": "merged-main", "base-sha": base}
+	_, err = ing.Submit(ctx, req)
+	require.NoError(t, err)
+	drainVerdicts(t, ctx, store)
+	computedAt := func() time.Time {
+		t.Helper()
+		var at time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT computed_at FROM run_verdict WHERE run_id = 'pr-run'`).Scan(&at))
+		return at
+	}
+	first := computedAt()
+
+	delayed := submitAt(t, ctx, ing, "main-base", base, 20, recent.Add(4*24*time.Hour))
+	drainVerdicts(t, ctx, store)
+	second := computedAt()
+	assert.True(t, second.After(first), "results arriving on the recorded base recheck the run")
+
+	require.NoError(t, ing.DeleteResult(ctx, delayed.ID))
+	drainVerdicts(t, ctx, store)
+	assert.True(t, computedAt().After(second), "deleting the baseline's results rechecks the run")
 }
 
 func TestVerdictsFollowAnnotationsAndDeletes(t *testing.T) {

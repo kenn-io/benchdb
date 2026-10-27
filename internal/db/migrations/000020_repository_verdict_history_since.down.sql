@@ -35,4 +35,6 @@ CREATE OR REPLACE FUNCTION enqueue_verdict(queue_kind text, queue_key text) RETU
     ON CONFLICT (kind, key) DO UPDATE SET enqueued_at = clock_timestamp();
 $$;
 
+DROP INDEX run_verdict_baseline_commits_index;
+ALTER TABLE run_verdict DROP COLUMN history_until, DROP COLUMN baseline_commit_ids;
 ALTER TABLE verdict_queue DROP COLUMN history_since;

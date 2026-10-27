@@ -1,10 +1,19 @@
--- New default-branch history can change a pull-request run's verdict only if
--- the run forked at or after that history: a later commit is neither in its
--- baseline search nor in its lookback window. A repository key records the
--- earliest commit time among the history that queued it, so the worker
--- re-evaluates only runs that could change. NULL re-evaluates every recent
--- run, as before.
+-- A pull-request run's verdict reads two kinds of default-branch evidence:
+-- the ancestry commits its baseline search walked, from the run's recorded
+-- base or fork point down to the baseline it chose, and history up to that
+-- baseline's commit time. Each verdict records both, so new default-branch
+-- results recheck only runs that read them:
+-- - a result on a walked commit queues the run directly;
+-- - a repository key carries the earliest commit time of the history that
+--   queued it, and rechecks runs whose history reaches that time.
+-- A NULL baseline_commit_ids means the search depended on commits it could
+-- not enumerate, such as an unknown start or an ancestry that stopped early;
+-- such runs recheck on any change, as does a NULL history_since.
 ALTER TABLE verdict_queue ADD COLUMN history_since timestamp without time zone;
+ALTER TABLE run_verdict
+  ADD COLUMN baseline_commit_ids text[],
+  ADD COLUMN history_until timestamp without time zone;
+CREATE INDEX run_verdict_baseline_commits_index ON run_verdict USING gin (baseline_commit_ids);
 
 -- Any other enqueue of a repository key, such as commit repair, asks for a
 -- full re-evaluation.
@@ -50,7 +59,20 @@ DECLARE
     commit_at timestamp without time zone;
 BEGIN
     SELECT c.sha = c.fork_point_sha, c."timestamp" INTO is_default, commit_at FROM commit c WHERE c.id = result_commit FOR SHARE;
-    PERFORM enqueue_verdict('run', result_run);
+    -- The result's run, and every run whose baseline search walked this
+    -- commit. Run keys go in run_id order, like every multi-key writer, so
+    -- concurrent writers cannot deadlock on queue rows.
+    INSERT INTO verdict_queue (kind, key)
+    SELECT 'run', queued.run_id
+    FROM (
+        SELECT result_run AS run_id
+        UNION
+        SELECT v.run_id FROM run_verdict v
+        WHERE coalesce(is_default, false) AND v.repository = result_repository
+          AND v.baseline_commit_ids @> ARRAY[result_commit]::text[]
+    ) queued
+    ORDER BY 2
+    ON CONFLICT (kind, key) DO UPDATE SET enqueued_at = clock_timestamp(), history_since = NULL;
     IF coalesce(is_default, false) THEN
         PERFORM enqueue_repository_verdict(result_repository, commit_at);
     END IF;

@@ -200,12 +200,12 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 			slices.Sort(runs)
 			return runs, err
 		}},
-		{"repository-runs-forked-since", func(st storage.Store) (any, error) {
+		{"repository-runs-history-since", func(st storage.Store) (any, error) {
 			runs, err := st.SelectRepositoryVerdictRuns(ctx, target.Repository, time.Time{}, &baseline.Timestamp)
 			slices.Sort(runs)
 			return runs, err
 		}},
-		{"repository-runs-forked-later", func(st storage.Store) (any, error) {
+		{"repository-runs-history-later", func(st storage.Store) (any, error) {
 			return st.SelectRepositoryVerdictRuns(ctx, target.Repository, time.Time{}, new(asOf.AddDate(1, 0, 0)))
 		}},
 		{"commit-subjects", func(st storage.Store) (any, error) {

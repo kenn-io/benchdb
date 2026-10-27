@@ -123,6 +123,50 @@ type CIReportRun struct {
 	CommitsSkipped []string               `json:"commits_skipped"`
 	BaselineError  *CIReportBaselineError `json:"baseline_error"`
 	Comparisons    []CIReportComparison   `json:"comparisons"`
+	// baselineDependency is what the baseline search read, for deciding
+	// which later default-branch changes can alter this run's report.
+	baselineDependency ciReportBaselineDependency
+}
+
+// ciReportBaselineDependency is the default-branch evidence a run's baseline
+// search read: the ancestry commits it walked, down to the baseline it chose,
+// and the baseline's commit time, which caps the history the analysis reads.
+// A result on another commit, committed after historyUntil, changes neither.
+// The zero value is unbounded: the search depended on commits it could not
+// enumerate, such as an unknown start or an ancestry that stopped early.
+type ciReportBaselineDependency struct {
+	bounded      bool
+	commitIDs    []string
+	historyUntil *time.Time
+}
+
+// walk records ancestry the search read: through depth when it chose a
+// baseline there, or all of it when it found none. A search that found none
+// before the ancestry ended early depends on commits it never saw.
+func (d *ciReportBaselineDependency) walk(ancestry []storage.CIReportCommitRow, depth int, found bool) {
+	if !found {
+		depth = len(ancestry) - 1
+		if !ciReportAncestryComplete(ancestry) {
+			d.bounded = false
+		}
+	}
+	for _, c := range ancestry[:depth+1] {
+		d.commitIDs = append(d.commitIDs, c.CommitID)
+	}
+}
+
+// ciReportAncestryComplete reports whether a baseline search that found no
+// baseline saw every commit it could have used: it reached its limit or the
+// repository's root. noBaselineRunError applies the same test.
+func ciReportAncestryComplete(ancestry []storage.CIReportCommitRow) bool {
+	if len(ancestry) == 0 {
+		return false
+	}
+	if len(ancestry) >= CIReportBaselineAncestorLimit {
+		return true
+	}
+	last := ancestry[len(ancestry)-1]
+	return (last.Parent == nil || *last.Parent == "") && (last.Timestamp != nil || last.ForkPointSha != nil)
 }
 
 type CIReportComparison struct {
@@ -485,6 +529,7 @@ type ciReportBaselineSelection struct {
 	commit            *storage.CIReportCommitRow
 	commitsSkipped    []string
 	baselineError     *CIReportBaselineError
+	dependency        ciReportBaselineDependency
 }
 
 type ciReportBaselineCandidate struct {
@@ -516,10 +561,20 @@ func (r *CIReporter) selectBaselineRuns(
 		}
 		// A merged-main run's recorded base is tried first, so it still finds
 		// a baseline when enrichment never recorded the fork point.
+		dependency := ciReportBaselineDependency{bounded: true}
 		if baseline == CIReportBaselineForkPoint && !knownDefaultBranchRun(run) {
-			merged, ancestry, ok, err := r.mergedBaseRun(ctx, run, contendersByRun[run.RunID], derefString(run.CommitForkPointSha))
+			merged, ancestry, tagged, ok, err := r.mergedBaseRun(ctx, run, contendersByRun[run.RunID], derefString(run.CommitForkPointSha))
 			if err != nil {
 				return nil, err
+			}
+			if tagged {
+				if len(ancestry) == 0 {
+					// The recorded base is not in BenchDB yet; its arrival
+					// would change the search.
+					dependency.bounded = false
+				} else {
+					dependency.walk(ancestry, merged.depth, ok)
+				}
 			}
 			if ok {
 				runID := merged.runID
@@ -527,6 +582,8 @@ func (r *CIReporter) selectBaselineRuns(
 				selection.baselineCommitID = merged.commitID
 				selection.commit = &merged.commit
 				selection.commitsSkipped = ciReportSkippedCommits(ancestry, merged.depth)
+				dependency.historyUntil = merged.commit.Timestamp
+				selection.dependency = dependency
 				selections[run.RunID] = selection
 				continue
 			}
@@ -558,15 +615,18 @@ func (r *CIReporter) selectBaselineRuns(
 		if err != nil {
 			return nil, err
 		}
+		dependency.walk(ancestry, candidate.depth, ok)
 		if ok {
 			runID := candidate.runID
 			selection.baselineRunID = &runID
 			selection.baselineCommitID = candidate.commitID
 			selection.commit = &candidate.commit
 			selection.commitsSkipped = ciReportSkippedCommits(ancestry, candidate.depth)
+			dependency.historyUntil = candidate.commit.Timestamp
 		} else {
 			selection.baselineError = noBaselineRunError(run, baseline, ancestry)
 		}
+		selection.dependency = dependency
 		selections[run.RunID] = selection
 	}
 	return selections, nil
@@ -714,29 +774,32 @@ func knownDefaultBranchRun(run storage.CIReportRunRow) bool {
 // request. It reports false when the run has no such tag, when the tag names
 // the fork point itself, or when no measurement is found, so the caller falls
 // back to the fork point.
+// mergedBaseRun searches from a merged-main run's recorded base. tagged
+// reports whether the run records a usable base, so the search ran, even when
+// the base is not in BenchDB yet.
 func (r *CIReporter) mergedBaseRun(
 	ctx context.Context,
 	run storage.CIReportRunRow,
 	contenderRows []storage.CIReportResultRow,
 	forkPointSHA string,
-) (ciReportBaselineCandidate, []storage.CIReportCommitRow, bool, error) {
+) (candidate ciReportBaselineCandidate, ancestry []storage.CIReportCommitRow, tagged, ok bool, err error) {
 	tags, err := jsonObject(run.RunTags)
 	if err != nil {
-		return ciReportBaselineCandidate{}, nil, false, fmt.Errorf("decode run tags for %s: %w", run.RunID, err)
+		return ciReportBaselineCandidate{}, nil, false, false, fmt.Errorf("decode run tags for %s: %w", run.RunID, err)
 	}
 	base, _ := tags[mergedBaseTag].(string)
 	if !fullSHA.MatchString(base) || base == forkPointSHA {
-		return ciReportBaselineCandidate{}, nil, false, nil
+		return ciReportBaselineCandidate{}, nil, false, false, nil
 	}
-	ancestry, err := r.store.SelectCIReportBaselineAncestry(ctx, commit.NormalizeRepoURL(run.CommitRepoURL), base, CIReportBaselineAncestorLimit)
+	ancestry, err = r.store.SelectCIReportBaselineAncestry(ctx, commit.NormalizeRepoURL(run.CommitRepoURL), base, CIReportBaselineAncestorLimit)
 	if err != nil {
-		return ciReportBaselineCandidate{}, nil, false, fmt.Errorf("select ci report merged base ancestry: %w", err)
+		return ciReportBaselineCandidate{}, nil, true, false, fmt.Errorf("select ci report merged base ancestry: %w", err)
 	}
 	if len(ancestry) == 0 {
-		return ciReportBaselineCandidate{}, nil, false, nil
+		return ciReportBaselineCandidate{}, nil, true, false, nil
 	}
-	candidate, ok, err := r.findBaselineRun(ctx, run, contenderRows, ancestry)
-	return candidate, ancestry, ok, err
+	candidate, ok, err = r.findBaselineRun(ctx, run, contenderRows, ancestry)
+	return candidate, ancestry, true, ok, err
 }
 
 func (r *CIReporter) resolveBaselineCandidate(
@@ -1156,6 +1219,7 @@ func ciReportAnalysisFromCompare(analysis CompareAnalysis) *CIReportAnalysis {
 func (r *CIReport) applyBaselineSelections(selections map[string]ciReportBaselineSelection) {
 	for i := range r.Runs {
 		selection := selections[r.Runs[i].RunID]
+		r.Runs[i].baselineDependency = selection.dependency
 		if selection.baselineRunID != nil {
 			r.Runs[i].BaselineRunID = selection.baselineRunID
 		}

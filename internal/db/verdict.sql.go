@@ -289,27 +289,29 @@ const selectRepositoryVerdictRuns = `-- name: SelectRepositoryVerdictRuns :many
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
-LEFT JOIN commit f ON f.repository = c.repository AND f.sha = c.fork_point_sha
+LEFT JOIN run_verdict v ON v.run_id = br.run_id AND v.repository = br.commit_repo_url
 WHERE br.commit_repo_url = $1
   AND br."timestamp" >= $2::timestamp
   AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
-  AND ($3::timestamp IS NULL OR f."timestamp" IS NULL
-       OR f."timestamp" >= $3::timestamp)
+  AND ($3::timestamp IS NULL OR v.run_id IS NULL
+       OR v.baseline_commit_ids IS NULL
+       OR v.history_until >= $3::timestamp)
 `
 
 type SelectRepositoryVerdictRunsParams struct {
-	Repository  string
-	Since       time.Time
-	ForkedSince *time.Time
+	Repository   string
+	Since        time.Time
+	HistorySince *time.Time
 }
 
 // Runs whose attention can change when default-branch history in the
 // repository changes. Default-branch runs never need attention. With
-// forked_since, a run forked earlier is left alone: history after its fork
-// point is in neither its baseline search nor its lookback window. A run
-// whose fork point is unknown is always included.
+// history_since, a run is left alone when its stored verdict read no history
+// that recent: results on the commits its baseline search walked queue it
+// directly instead. Runs without a verdict, or whose search could not be
+// bounded, are always included.
 func (q *Queries) SelectRepositoryVerdictRuns(ctx context.Context, arg SelectRepositoryVerdictRunsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since, arg.ForkedSince)
+	rows, err := q.db.Query(ctx, selectRepositoryVerdictRuns, arg.Repository, arg.Since, arg.HistorySince)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +511,7 @@ func (q *Queries) UpsertBenchmarkVerdict(ctx context.Context, arg UpsertBenchmar
 }
 
 const upsertRunVerdict = `-- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, baseline_commit_ids, history_until, computed_at)
 VALUES (
   $1,
   $2,
@@ -518,6 +520,8 @@ VALUES (
   $5,
   $6,
   $7,
+  $8::text[],
+  $9::timestamp,
   clock_timestamp()
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
@@ -526,17 +530,21 @@ ON CONFLICT (run_id, repository) DO UPDATE SET
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
+  baseline_commit_ids = EXCLUDED.baseline_commit_ids,
+  history_until = EXCLUDED.history_until,
   computed_at = EXCLUDED.computed_at
 `
 
 type UpsertRunVerdictParams struct {
-	RunID          string
-	Repository     string
-	LastResultAt   time.Time
-	LastResultID   string
-	DefaultBranch  bool
-	NeedsAttention bool
-	Attention      []byte
+	RunID             string
+	Repository        string
+	LastResultAt      time.Time
+	LastResultID      string
+	DefaultBranch     bool
+	NeedsAttention    bool
+	Attention         []byte
+	BaselineCommitIds []string
+	HistoryUntil      *time.Time
 }
 
 func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictParams) error {
@@ -548,6 +556,8 @@ func (q *Queries) UpsertRunVerdict(ctx context.Context, arg UpsertRunVerdictPara
 		arg.DefaultBranch,
 		arg.NeedsAttention,
 		arg.Attention,
+		arg.BaselineCommitIds,
+		arg.HistoryUntil,
 	)
 	return err
 }

@@ -23,12 +23,8 @@ const (
 	// repository's default-branch history re-evaluates. Older runs keep the
 	// verdict they last had.
 	runVerdictWindow = 14 * 24 * time.Hour
-	// forkTimestampSlack widens which runs new default-branch history
-	// re-evaluates, because commit timestamps are not always in ancestry
-	// order: a rebased ancestor can carry a later time than its descendant.
-	forkTimestampSlack = 24 * time.Hour
-	verdictLease       = 2 * time.Minute
-	verdictBatch       = 20
+	verdictLease     = 2 * time.Minute
+	verdictBatch     = 20
 	// verdictTick bounds how long a new benchmark result waits to be scored,
 	// since benchmark keys need no settling. An idle tick is one indexed
 	// query.
@@ -123,18 +119,14 @@ func (v *Verdicts) process(ctx context.Context, claim storage.VerdictClaim) erro
 }
 
 // queueRepositoryRuns re-evaluates the recent pull-request runs that changed
-// default-branch history can affect. A run's verdict compares it with a
-// baseline found at or before its fork point, against the history before that
-// baseline, so history committed after the fork point changes neither. When
-// the history's earliest commit time is known, only runs forked at or after it
-// are queued; otherwise every recent run is.
+// default-branch history can affect. Results on a commit a run's baseline
+// search walked already queued that run, so this queues runs whose stored
+// verdict read history committed at or after historySince, plus runs whose
+// search could not be bounded and runs without a verdict. A nil historySince
+// queues every recent run.
 func (v *Verdicts) queueRepositoryRuns(ctx context.Context, repository string, historySince *time.Time) error {
 	since := v.now().UTC().Add(-runVerdictWindow)
-	var forkedSince *time.Time
-	if historySince != nil {
-		forkedSince = new(historySince.Add(-forkTimestampSlack))
-	}
-	runIDs, err := v.store.SelectRepositoryVerdictRuns(ctx, repository, since, forkedSince)
+	runIDs, err := v.store.SelectRepositoryVerdictRuns(ctx, repository, since, historySince)
 	if err != nil {
 		return err
 	}
@@ -158,8 +150,9 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 		// A default-branch run is its own baseline and never needs attention;
 		// evaluating it would also fail on runs too large to report on.
 		var attention *RecentRunAttention
+		var dependency ciReportBaselineDependency
 		if !subject.DefaultBranch {
-			if attention, err = runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA); err != nil {
+			if attention, dependency, err = runAttention(ctx, v.reporter, runID, subject.Repository, subject.CommitSHA); err != nil {
 				return nil, err
 			}
 		}
@@ -169,7 +162,7 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 				return nil, fmt.Errorf("encode attention: %w", err)
 			}
 		}
-		verdicts = append(verdicts, storage.RunVerdict{
+		verdict := storage.RunVerdict{
 			RunID:          runID,
 			Repository:     subject.Repository,
 			LastResultAt:   subject.LastResultAt,
@@ -177,7 +170,14 @@ func (v *Verdicts) runVerdicts(ctx context.Context, runID string) ([]storage.Run
 			DefaultBranch:  subject.DefaultBranch,
 			NeedsAttention: attention != nil,
 			Attention:      encoded,
-		})
+		}
+		// An unbounded search stays nil, so any default-branch change
+		// rechecks the run.
+		if dependency.bounded {
+			verdict.BaselineCommitIDs = dependency.commitIDs
+			verdict.HistoryUntil = dependency.historyUntil
+		}
+		verdicts = append(verdicts, verdict)
 	}
 	return verdicts, nil
 }
@@ -209,7 +209,11 @@ func (v *Verdicts) Run(ctx context.Context) {
 // returns nil when the run needs no attention, including when the run has no
 // comparable report. A report the server refuses to evaluate needs attention;
 // any other error is returned so the caller can retry.
-func runAttention(ctx context.Context, reporter *CIReporter, runID, repository string, commitSHA *string) (*RecentRunAttention, error) {
+// runAttention evaluates a pull-request run against its fork point and
+// reports what default-branch evidence that evaluation read.
+func runAttention(
+	ctx context.Context, reporter *CIReporter, runID, repository string, commitSHA *string,
+) (*RecentRunAttention, ciReportBaselineDependency, error) {
 	q := CIReportQuery{
 		RunIDs:   []string{runID},
 		Baseline: CIReportBaselineForkPoint,
@@ -220,17 +224,23 @@ func runAttention(ctx context.Context, reporter *CIReporter, runID, repository s
 	}
 	report, err := reporter.Report(ctx, q)
 	if errors.Is(err, ErrNotFound) {
-		return nil, nil
+		return nil, ciReportBaselineDependency{}, nil
 	}
 	if invalid, ok := errors.AsType[*ValidationError](err); ok {
 		return &RecentRunAttention{
 			Status:       CIReportStatusActionRequired,
 			StatusReason: "CI report could not be evaluated: " + invalid.Message,
 			ReportURL:    reporter.ciReportURL(q, repository, commitSHA, CIReportBaselineForkPoint, 0, 0),
-		}, nil
+		}, ciReportBaselineDependency{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("evaluate CI report: %w", err)
+		return nil, ciReportBaselineDependency{}, fmt.Errorf("evaluate CI report: %w", err)
 	}
-	return recentRunAttentionFromReport(report), nil
+	var dependency ciReportBaselineDependency
+	for _, run := range report.Runs {
+		if run.RunID == runID {
+			dependency = run.baselineDependency
+		}
+	}
+	return recentRunAttentionFromReport(report), dependency, nil
 }

@@ -46,13 +46,15 @@ func (s *Store) FinishRunVerdicts(ctx context.Context, claim storage.VerdictClai
 		for _, verdict := range verdicts {
 			repositories = append(repositories, verdict.Repository)
 			if err := q.UpsertRunVerdict(ctx, UpsertRunVerdictParams{
-				RunID:          verdict.RunID,
-				Repository:     verdict.Repository,
-				LastResultAt:   verdict.LastResultAt,
-				LastResultID:   verdict.LastResultID,
-				DefaultBranch:  verdict.DefaultBranch,
-				NeedsAttention: verdict.NeedsAttention,
-				Attention:      verdict.Attention,
+				RunID:             verdict.RunID,
+				Repository:        verdict.Repository,
+				LastResultAt:      verdict.LastResultAt,
+				LastResultID:      verdict.LastResultID,
+				DefaultBranch:     verdict.DefaultBranch,
+				NeedsAttention:    verdict.NeedsAttention,
+				Attention:         verdict.Attention,
+				BaselineCommitIds: verdict.BaselineCommitIDs,
+				HistoryUntil:      verdict.HistoryUntil,
 			}); err != nil {
 				return err
 			}
@@ -156,11 +158,12 @@ func (s *Store) EnqueueMissingRunVerdicts(ctx context.Context, runIDs []string) 
 }
 
 // SelectRepositoryVerdictRuns lists the repository's non-default-branch runs
-// with results at or after since. With forkedSince, it lists only runs forked
-// at or after it, or whose fork point is unknown.
-func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, forkedSince *time.Time) ([]string, error) {
+// with results at or after since. With historySince, it lists only runs whose
+// verdict read history committed at or after it, could not bound its
+// baseline search, or is missing.
+func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, historySince *time.Time) ([]string, error) {
 	return s.q.SelectRepositoryVerdictRuns(ctx, SelectRepositoryVerdictRunsParams{
-		Repository: repository, Since: since, ForkedSince: forkedSince,
+		Repository: repository, Since: since, HistorySince: historySince,
 	})
 }
 

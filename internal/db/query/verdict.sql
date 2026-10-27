@@ -46,18 +46,20 @@ SELECT enqueue_missing_run_verdicts(sqlc.arg('run_ids')::text[]);
 -- name: SelectRepositoryVerdictRuns :many
 -- Runs whose attention can change when default-branch history in the
 -- repository changes. Default-branch runs never need attention. With
--- forked_since, a run forked earlier is left alone: history after its fork
--- point is in neither its baseline search nor its lookback window. A run
--- whose fork point is unknown is always included.
+-- history_since, a run is left alone when its stored verdict read no history
+-- that recent: results on the commits its baseline search walked queue it
+-- directly instead. Runs without a verdict, or whose search could not be
+-- bounded, are always included.
 SELECT DISTINCT br.run_id
 FROM benchmark_result_local br
 LEFT JOIN commit c ON c.id = br.commit_id
-LEFT JOIN commit f ON f.repository = c.repository AND f.sha = c.fork_point_sha
+LEFT JOIN run_verdict v ON v.run_id = br.run_id AND v.repository = br.commit_repo_url
 WHERE br.commit_repo_url = sqlc.arg('repository')
   AND br."timestamp" >= sqlc.arg('since')::timestamp
   AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
-  AND (sqlc.narg('forked_since')::timestamp IS NULL OR f."timestamp" IS NULL
-       OR f."timestamp" >= sqlc.narg('forked_since')::timestamp);
+  AND (sqlc.narg('history_since')::timestamp IS NULL OR v.run_id IS NULL
+       OR v.baseline_commit_ids IS NULL
+       OR v.history_until >= sqlc.narg('history_since')::timestamp);
 
 -- name: SelectRunVerdictSubjects :many
 -- One subject per repository the run has results in, identified the way the
@@ -74,7 +76,7 @@ WHERE br.run_id = sqlc.arg('run_id')
 ORDER BY br.commit_repo_url, br."timestamp" DESC, br.id DESC;
 
 -- name: UpsertRunVerdict :exec
-INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, computed_at)
+INSERT INTO run_verdict (run_id, repository, last_result_at, last_result_id, default_branch, needs_attention, attention, baseline_commit_ids, history_until, computed_at)
 VALUES (
   sqlc.arg('run_id'),
   sqlc.arg('repository'),
@@ -83,6 +85,8 @@ VALUES (
   sqlc.arg('default_branch'),
   sqlc.arg('needs_attention'),
   sqlc.narg('attention'),
+  sqlc.narg('baseline_commit_ids')::text[],
+  sqlc.narg('history_until')::timestamp,
   clock_timestamp()
 )
 ON CONFLICT (run_id, repository) DO UPDATE SET
@@ -91,6 +95,8 @@ ON CONFLICT (run_id, repository) DO UPDATE SET
   default_branch = EXCLUDED.default_branch,
   needs_attention = EXCLUDED.needs_attention,
   attention = EXCLUDED.attention,
+  baseline_commit_ids = EXCLUDED.baseline_commit_ids,
+  history_until = EXCLUDED.history_until,
   computed_at = EXCLUDED.computed_at;
 
 -- name: DeleteRunVerdictsExcept :exec
