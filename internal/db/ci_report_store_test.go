@@ -72,7 +72,7 @@ func TestSelectCIReportCandidateRows(t *testing.T) {
 	assert.Empty(t, rows)
 }
 
-func TestSelectCIReportRunsByCommit(t *testing.T) {
+func TestSelectCIReportRunsByCommits(t *testing.T) {
 	st, _, ctx := newTestStore(t)
 	seed := newCIReportSeed(t, st, ctx)
 	ts := ciReportTime(1)
@@ -106,7 +106,7 @@ func TestSelectCIReportRunsByCommit(t *testing.T) {
 		ResultTimestamp: ciReportTime(14), Unit: new("ns"), Data: []*float64{new(5.0)},
 	})
 
-	rows, err := st.SelectCIReportRunsByCommit(ctx, ciReportRepo, "commit-a")
+	rows, err := st.SelectCIReportRunsByCommits(ctx, ciReportRepo, []string{"commit-a"})
 
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "two distinct runs for the normalized repo+commit")
@@ -131,6 +131,16 @@ func TestSelectCIReportRunsByCommit(t *testing.T) {
 	assert.True(t, runA.CommitTimestamp.Equal(ts))
 	require.NotNil(t, runA.CommitMessage)
 	assert.Equal(t, "contender", *runA.CommitMessage)
+
+	rows, err = st.SelectCIReportRunsByCommits(ctx, ciReportRepo, []string{"commit-a", "commit-b", "commit-a", "missing"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"run-a", "run-b", "run-other-sha"}, ciReportRunIDs(rows))
+	byRun = ciReportRunsByID(rows)
+	assert.Equal(t, &otherShaCommitID, byRun["run-other-sha"].CommitID)
+
+	rows, err = st.SelectCIReportRunsByCommits(ctx, ciReportRepo, nil)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
 }
 
 func TestSelectCIReportRunsByIDs(t *testing.T) {

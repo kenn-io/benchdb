@@ -178,7 +178,15 @@ func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
 		{"repositories", func(st storage.Store) (any, error) { return st.SelectRepositories(ctx) }},
 		{"ci-runs", func(st storage.Store) (any, error) { return st.SelectCIReportRunsByIDs(ctx, runIDs) }},
 		{"ci-commit-runs", func(st storage.Store) (any, error) {
-			return st.SelectCIReportRunsByCommit(ctx, target.Repository, target.CIRegressionCommitSHA)
+			return st.SelectCIReportRunsByCommits(ctx, target.Repository, []string{target.CIRegressionCommitSHA})
+		}},
+		{"ci-multiple-commit-runs", func(st storage.Store) (any, error) {
+			return st.SelectCIReportRunsByCommits(ctx, target.Repository, []string{
+				target.CIRegressionCommitSHA, target.CIActionRequiredCommitSHA, target.CIRegressionCommitSHA, "old-commit", "missing",
+			})
+		}},
+		{"ci-empty-commit-runs", func(st storage.Store) (any, error) {
+			return st.SelectCIReportRunsByCommits(ctx, target.Repository, nil)
 		}},
 		{"ci-commit", func(st storage.Store) (any, error) {
 			return st.GetCIReportCommit(ctx, target.Repository, target.CIRegressionCommitSHA)

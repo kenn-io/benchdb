@@ -18,10 +18,10 @@ func scanCIRun(row rowScanner) (out storage.CIReportRunRow, err error) {
 	return
 }
 
-func (s *Store) SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]storage.CIReportRunRow, error) {
+func (s *Store) SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) ([]storage.CIReportRunRow, error) {
 	return readRows(ctx, s, `SELECT DISTINCT `+ciRunColumns+`
 FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
-WHERE c.repository=$1 AND c.sha=$2 ORDER BY br.run_id`, []any{repository, sha}, scanCIRun)
+WHERE c.repository=$1 AND c.sha IN (SELECT unnest($2::VARCHAR[])) ORDER BY br.run_id,c.id`, []any{repository, shas}, scanCIRun)
 }
 
 func (s *Store) SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]storage.CIReportRunRow, error) {

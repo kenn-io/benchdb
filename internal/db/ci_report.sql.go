@@ -389,7 +389,7 @@ func (q *Queries) SelectCIReportRows(ctx context.Context, arg SelectCIReportRows
 	return items, nil
 }
 
-const selectCIReportRunsByCommit = `-- name: SelectCIReportRunsByCommit :many
+const selectCIReportRunsByCommits = `-- name: SelectCIReportRunsByCommits :many
 SELECT
   br.run_id,
   br.run_tags,
@@ -405,7 +405,7 @@ SELECT
 FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE c.repository = $1::text
-  AND c.sha = $2::text
+  AND c.sha = ANY($2::text[])
 GROUP BY
   br.run_id,
   br.run_tags,
@@ -418,15 +418,15 @@ GROUP BY
   c.fork_point_sha,
   c."timestamp",
   c.message
-ORDER BY br.run_id
+ORDER BY br.run_id, c.id
 `
 
-type SelectCIReportRunsByCommitParams struct {
+type SelectCIReportRunsByCommitsParams struct {
 	Repository string
-	Sha        string
+	Shas       []string
 }
 
-type SelectCIReportRunsByCommitRow struct {
+type SelectCIReportRunsByCommitsRow struct {
 	RunID              string
 	RunTags            []byte
 	RunReason          *string
@@ -440,15 +440,15 @@ type SelectCIReportRunsByCommitRow struct {
 	CommitMessage      string
 }
 
-func (q *Queries) SelectCIReportRunsByCommit(ctx context.Context, arg SelectCIReportRunsByCommitParams) ([]SelectCIReportRunsByCommitRow, error) {
-	rows, err := q.db.Query(ctx, selectCIReportRunsByCommit, arg.Repository, arg.Sha)
+func (q *Queries) SelectCIReportRunsByCommits(ctx context.Context, arg SelectCIReportRunsByCommitsParams) ([]SelectCIReportRunsByCommitsRow, error) {
+	rows, err := q.db.Query(ctx, selectCIReportRunsByCommits, arg.Repository, arg.Shas)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SelectCIReportRunsByCommitRow{}
+	items := []SelectCIReportRunsByCommitsRow{}
 	for rows.Next() {
-		var i SelectCIReportRunsByCommitRow
+		var i SelectCIReportRunsByCommitsRow
 		if err := rows.Scan(
 			&i.RunID,
 			&i.RunTags,

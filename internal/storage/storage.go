@@ -85,7 +85,7 @@ type Store interface {
 	// SelectBenchmarkList reads a benchmark page, its scope's status counts,
 	// and whether statuses are pending, all from one database snapshot.
 	SelectBenchmarkList(ctx context.Context, p BenchmarkListParams) (BenchmarkList, error)
-	SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]CIReportRunRow, error)
+	SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) ([]CIReportRunRow, error)
 	SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]CIReportRunRow, error)
 	GetCIReportCommit(ctx context.Context, repository, sha string) (CIReportCommitRow, error)
 	SelectLatestDefaultCommit(ctx context.Context, repository string) (CIReportCommitRow, error)

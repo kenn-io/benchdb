@@ -1416,12 +1416,12 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 	return seriesMembersRowsFromRows(rows), nil
 }
 
-// SelectCIReportRunsByCommit returns distinct runs for a normalized repository
-// and commit SHA, with contender commit metadata for baseline resolution.
-func (s *Store) SelectCIReportRunsByCommit(ctx context.Context, repository, sha string) ([]storage.CIReportRunRow, error) {
-	rows, err := s.q.SelectCIReportRunsByCommit(ctx, SelectCIReportRunsByCommitParams{
+// SelectCIReportRunsByCommits returns distinct runs for a normalized repository
+// and commit SHAs, with commit metadata for baseline resolution.
+func (s *Store) SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) ([]storage.CIReportRunRow, error) {
+	rows, err := s.q.SelectCIReportRunsByCommits(ctx, SelectCIReportRunsByCommitsParams{
 		Repository: repository,
-		Sha:        sha,
+		Shas:       shas,
 	})
 	if err != nil {
 		return nil, err
