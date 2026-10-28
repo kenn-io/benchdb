@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -181,4 +182,33 @@ func TestConcurrentFirstClaimsOfOneArchiveRoot(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "dataset-id\n", string(marker))
 	}
+}
+
+// TestStartupTakesNoConnectionUnderTheGuard opens an archive on a pool of
+// one connection. Report finalization holds a pooled connection, then waits
+// for a reader guard behind any queued cleanup. Startup must not wait for a
+// pooled connection while its guard holds the shared reclamation lock, or
+// cleanup would wait for startup, finalization for cleanup, and startup for
+// finalization.
+func TestStartupTakesNoConnectionUnderTheGuard(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	cfg := pool.Config()
+	cfg.MaxConns = 1
+	var underGuard atomic.Int32
+	cfg.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+		var held bool
+		err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND mode='ShareLock' AND granted
+AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND (classid::bigint<<32|objid::bigint)=$1)`, reclamationLock).Scan(&held)
+		if held {
+			underGuard.Add(1)
+		}
+		return err == nil, err
+	}
+	single, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(single.Close)
+	e, err := Open(ctx, single, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Settle: time.Nanosecond})
+	require.NoError(t, err)
+	require.NoError(t, e.Close())
+	assert.Zero(t, underGuard.Load(), "pooled connections acquired while the startup guard was held")
 }

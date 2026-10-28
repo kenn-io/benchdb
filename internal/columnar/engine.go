@@ -464,8 +464,18 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 		return ctx.Err()
 	}
 	defer lock.Close()
+	// Reserve the application connection that binds storage before taking
+	// the reader guard, the order report finalization uses: its run lock, then
+	// a guard. Waiting for a pooled connection while holding the guard could
+	// wait on a finalization that is queued behind cleanup, which in turn
+	// waits for this guard.
+	conn, err := e.pg.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve a database connection for archive startup: %w", err)
+	}
+	defer conn.Release()
 	var id string
-	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
+	if err := conn.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
 	}
 	if err := e.coord.checkSessionAffinity(ctx); err != nil {
@@ -497,7 +507,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	if err := e.prepareStaging(); err != nil {
 		return err
 	}
-	if err := e.claimStorage(ctx, id, files); err != nil {
+	if err := e.claimStorage(ctx, conn, id, files); err != nil {
 		return err
 	}
 	if e.location.remote() {
@@ -510,20 +520,21 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 // matching the active binding is claimed by its marker. Otherwise startup
 // is refused, unless checkRebind allows the move; the new namespace is then
 // claimed before the binding moves, so a refused claim leaves the database
-// bound as it was. Remote startup checks the marker, not every object.
-func (e *Engine) claimStorage(ctx context.Context, id string, files int64) error {
+// bound as it was. Remote startup checks the marker, not every object. Every
+// binding query runs on conn, which startup reserved before its guard.
+func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64) error {
 	metadata, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
-	active, err := activeStorage(metadata, e.pg, "")
+	active, err := activeStorage(metadata, conn, "")
 	if err != nil {
 		return err
 	}
 	bound := e.location.binds(active)
 	used := false
 	if bound {
-		used, err = storageUsed(metadata, e.pg, active.id)
+		used, err = storageUsed(metadata, conn, active.id)
 	} else {
-		err = e.checkRebind(metadata, e.pg, active)
+		err = e.checkRebind(metadata, conn, active)
 	}
 	if err != nil {
 		return err
@@ -542,10 +553,10 @@ func (e *Engine) claimStorage(ctx context.Context, id string, files int64) error
 		}
 	}
 	if !bound {
-		return e.rebindStorage(ctx, active)
+		return e.rebindStorage(ctx, conn, active)
 	}
 	e.archive.storageID = active.id
-	return e.recordClaim(ctx, active)
+	return e.recordClaim(ctx, conn, active)
 }
 
 // prepareStaging creates the working directories where units stage files

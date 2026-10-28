@@ -23,6 +23,7 @@ import (
 	"cloud.google.com/go/auth/credentials"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.kenn.io/kit/objectstore"
 )
 
@@ -639,10 +640,10 @@ func (e *Engine) checkRebind(ctx context.Context, q rowQueryer, active storageBi
 // after its namespace is claimed, if the binding it replaces is still the
 // one checkRebind allowed. Publication and upload intents share-lock the
 // active row, so the move waits for any that are in flight.
-func (e *Engine) rebindStorage(ctx context.Context, replaced storageBinding) error {
+func (e *Engine) rebindStorage(ctx context.Context, conn *pgxpool.Conn, replaced storageBinding) error {
 	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
-	tx, err := e.pg.Begin(ctx)
+	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("bind archive storage: %w", err)
 	}
@@ -680,13 +681,13 @@ RETURNING id`, want.backend, want.namespace(), want.endpoint).Scan(&id); err != 
 // recordClaim marks the active binding claimed after this engine verified or
 // published its marker. Read-only processes need an already claimed binding:
 // otherwise a subsequent remote startup could move it underneath their reads.
-func (e *Engine) recordClaim(ctx context.Context, binding storageBinding) error {
+func (e *Engine) recordClaim(ctx context.Context, conn *pgxpool.Conn, binding storageBinding) error {
 	if binding.claimed {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
-	tag, err := e.pg.Exec(ctx, `UPDATE archive_storage SET claimed_at=coalesce(claimed_at,clock_timestamp()) WHERE id=$1 AND active`, binding.id)
+	tag, err := conn.Exec(ctx, `UPDATE archive_storage SET claimed_at=coalesce(claimed_at,clock_timestamp()) WHERE id=$1 AND active`, binding.id)
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == readOnlyTransaction {
 		return errors.New("the archive storage binding has not been claimed; start a writable BenchDB process before opening it read-only")
 	}

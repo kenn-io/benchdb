@@ -97,7 +97,10 @@ func TestReaperNameConflictMatchesDocker(t *testing.T) {
 			var request testcontainers.GenericContainerRequest
 			request.Image = Postgres15Image
 			request.Name = name
-			first, err := testcontainers.GenericContainer(ctx, request)
+			// Other test binaries can race this one for the shared reaper.
+			first, err := retryReaperRace(ctx, t, "start the first container", func() (testcontainers.Container, error) {
+				return testcontainers.GenericContainer(ctx, request)
+			})
 			testcontainers.CleanupContainer(t, first)
 			require.NoError(t, err)
 
