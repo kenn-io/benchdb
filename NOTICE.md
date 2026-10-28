@@ -10,3 +10,9 @@ Kenn Software LLC and other contributors.
 
 BenchDB is independently developed and is not affiliated with or endorsed by
 the Conbench maintainers.
+
+## Fonts
+
+The documentation site embeds the Inter and JetBrains Mono typefaces, which
+are licensed under the SIL Open Font License, Version 1.1. The license texts
+are in `docs/site/assets/fonts/`.

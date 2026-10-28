@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import importlib
 import re
 import shutil
@@ -20,6 +21,8 @@ IMG_TAG_RE = re.compile(r"<img\b[^>]*>")
 IMG_SRC_RE = re.compile(r'\ssrc="(?P<src>[^"]+)"')
 IMG_SIZE_ATTR_RE = re.compile(r'\s+(?:width|height)="[^"]*"')
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+FONT_URL_RE = re.compile(r'url\("(?P<path>[^"]+\.woff2)"\)')
+CHARSET_META = '<meta charset="utf-8">'
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -115,6 +118,38 @@ def size_local_images(html: str, site_root: Path) -> str:
     return IMG_TAG_RE.sub(rewrite, html)
 
 
+def embed_fonts(stylesheet: Path) -> None:
+    """Replace each woff2 url() in a built stylesheet with a data URL.
+
+    A font in a separate file is requested only after the stylesheet is parsed,
+    so the page paints first in a fallback face. Embedded, the font arrives with
+    the stylesheet that blocks rendering.
+    """
+
+    def embed(match: re.Match[str]) -> str:
+        font = stylesheet.parent / match.group("path")
+        if not font.is_file():
+            raise DocsSiteError(f"font is missing from the site: {match.group('path')} in {stylesheet}")
+        return f'url("data:font/woff2;base64,{base64.b64encode(font.read_bytes()).decode("ascii")}")'
+
+    stylesheet.write_text(FONT_URL_RE.sub(embed, stylesheet.read_text(encoding="utf-8")), encoding="utf-8")
+
+
+def finish_rendered_docs(rendered_docs: Path, extra_css: list[str], script: str) -> None:
+    """Embed fonts in the extra stylesheets and inline the first-paint script in every page.
+
+    The script goes directly after the charset declaration, which must stay
+    within the first 1024 bytes, so it runs before any stylesheet link.
+    """
+    for stylesheet in extra_css:
+        embed_fonts(rendered_docs / stylesheet)
+    for page in sorted(rendered_docs.rglob("*.html")):
+        html = page.read_text(encoding="utf-8")
+        if CHARSET_META not in html:
+            raise DocsSiteError(f"rendered page has no {CHARSET_META} to place the first-paint script after: {page}")
+        page.write_text(html.replace(CHARSET_META, f"{CHARSET_META}<script>{script}</script>", 1), encoding="utf-8")
+
+
 def stage_site_root(
     docs_source: Path,
     website_source: Path,
@@ -177,6 +212,11 @@ def build(repo_root: Path) -> None:
         repo_root / "docs" / "llms.txt",
         site_root,
         config,
+    )
+    finish_rendered_docs(
+        site_root / "docs",
+        config["project"].get("extra_css", []),
+        (repo_root / "docs" / "hold-first-paint.js").read_text(encoding="utf-8"),
     )
     verify_site_root(site_root, config)
     print(f"tiered documentation site OK ({len(published_markdown_pages(config))} reference pages)")
