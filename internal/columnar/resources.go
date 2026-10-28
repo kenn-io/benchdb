@@ -7,15 +7,25 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"go.kenn.io/benchdb/internal/runtimeconfig"
 )
 
 // ConfigFromEnv loads the archive settings shared by the server and admin jobs.
 func ConfigFromEnv() (Config, error) {
 	cfg := Config{
 		Dir: os.Getenv("BENCHDB_DATA_DIR"), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"),
+		ArchiveURL: os.Getenv("BENCHDB_ARCHIVE_URL"), S3Endpoint: os.Getenv("BENCHDB_ARCHIVE_S3_ENDPOINT"),
+		S3Region: os.Getenv("BENCHDB_ARCHIVE_S3_REGION"), S3URLStyle: os.Getenv("BENCHDB_ARCHIVE_S3_URL_STYLE"),
+		GCSCredentialsFile: os.Getenv("BENCHDB_ARCHIVE_GCS_CREDENTIALS_FILE"),
 	}
 	if cfg.Dir == "" {
 		return Config{}, errors.New("BENCHDB_DATA_DIR is required for the managed archive")
+	}
+	if _, err := parseArchiveLocation(cfg); err != nil {
+		return Config{}, err
 	}
 	for _, setting := range []struct {
 		name  string
@@ -33,12 +43,29 @@ func ConfigFromEnv() (Config, error) {
 			*setting.value = n
 		}
 	}
+	if value, set := os.LookupEnv("BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES"); set {
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || n <= 0 {
+			return Config{}, errCatalogCacheBytes
+		}
+		cfg.CatalogCacheBytes = n
+	}
 	if value, set := os.LookupEnv("BENCHDB_ANALYTICAL_READ_TIMEOUT"); set {
 		timeout, err := time.ParseDuration(value)
 		if err != nil || timeout <= 0 {
 			return Config{}, errors.New("BENCHDB_ANALYTICAL_READ_TIMEOUT must be a positive duration")
 		}
 		cfg.ReadTimeout = timeout
+	}
+	coordination, err := runtimeconfig.Secret("BENCHDB_ARCHIVE_COORDINATION_DB_URL")
+	if err != nil {
+		return Config{}, err
+	}
+	if coordination != "" {
+		if _, err := pgxpool.ParseConfig(coordination); err != nil {
+			return Config{}, errors.New("BENCHDB_ARCHIVE_COORDINATION_DB_URL must be a valid PostgreSQL connection URL")
+		}
+		cfg.CoordinationDBURL = coordination
 	}
 	if value := os.Getenv("BENCHDB_MAINTENANCE_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)
@@ -47,7 +74,10 @@ func ConfigFromEnv() (Config, error) {
 		}
 		cfg.Interval = interval
 	}
-	_, err := cfg.resourceLimits()
+	if cfg.Retention, err = retentionFromEnv(); err != nil {
+		return Config{}, err
+	}
+	_, err = cfg.resourceLimits()
 	return cfg, err
 }
 

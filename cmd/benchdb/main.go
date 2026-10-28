@@ -14,6 +14,7 @@
 //	benchdb admin repair-commits [--repository URL] [--limit N] [--cursor CURSOR] [--dry-run] [--backfill] [--backfill-timeout DURATION] [--github-timeout DURATION] [--format text|json]
 //	benchdb admin alerts evaluate [--format text|json]
 //	benchdb admin alerts deliver [--channel webhook|slack|github-check|github-comment|email] [--webhook-url URL] [--slack-webhook-url URL] [--github-repository URL] [--github-token TOKEN] [--github-api-url URL] [--email-smtp-addr HOST:PORT] [--email-from ADDRESS] [--email-to ADDRESS[,ADDRESS...]] [--email-username USERNAME] [--email-password PASSWORD] [--limit N] [--retry-after DURATION] [--timeout DURATION] [--format text|json]
+//	benchdb admin archive recover-staging
 //	benchdb migrate
 //	benchdb health [--server URL] [--timeout DURATION]
 //	benchdb serve
@@ -263,6 +264,7 @@ func adminCommand(stdout, stderr io.Writer) *cobra.Command {
 	alerts.AddCommand(adminAlertsDeliverCommand(stdout, stderr))
 	alerts.AddCommand(adminAlertsSyncCommand(stdout, stderr))
 	cmd.AddCommand(alerts)
+	cmd.AddCommand(adminArchiveCommand(stdout))
 	return cmd
 }
 

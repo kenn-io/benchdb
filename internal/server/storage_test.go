@@ -55,7 +55,9 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	require.NoError(t, err)
 	before, err := engine.StorageStatus(ctx)
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, before.PendingRowsEstimate)
+	// PostgreSQL's asynchronously updated live-tuple statistic is an estimate,
+	// even immediately after ANALYZE. ArchivedRows below is an exact count.
+	assert.Positive(t, before.PendingRowsEstimate)
 	assert.Zero(t, before.ArchivedRows)
 	_, err = engine.Maintain(ctx)
 	require.NoError(t, err)
@@ -90,7 +92,7 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	assert.EqualValues(t, 1, body.ArchivedRows)
 	assert.EqualValues(t, 1, body.ParquetFiles)
 	assert.Positive(t, body.ParquetBytes)
-	assert.EqualValues(t, 2, body.CatalogFiles)
+	assert.EqualValues(t, 5, body.CatalogFiles, "two summary catalogs and three lookup segments")
 	assert.Positive(t, body.CatalogBytes)
 	assert.Positive(t, body.VolumeAvailableBytes)
 	assert.GreaterOrEqual(t, body.VolumeTotalBytes, body.VolumeAvailableBytes)
@@ -119,7 +121,7 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_sample_success 1\n")
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_archived_rows 1\n")
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_parquet_files 1\n")
-	assert.Contains(t, rec.Body.String(), "benchdb_storage_catalog_files 2\n")
+	assert.Contains(t, rec.Body.String(), "benchdb_storage_catalog_files 5\n")
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_maintenance_running 0\n")
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_maintenance_enabled 1\n")
 	assert.NotContains(t, rec.Body.String(), "data/")

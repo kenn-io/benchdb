@@ -23,7 +23,8 @@ env:
 jobs:
   go:
     runs-on: namespace-profile-linux-8cpu
-    timeout-minutes: 20
+    # Lint and vet run before make go-test, which allows its tests 30 minutes.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -55,6 +56,44 @@ jobs:
         run: make go-lint-ci
       - run: make go-vet
       - run: make go-test
+
+  archive-coordination:
+    name: archive-coordination (${{ matrix.name }})
+    runs-on: namespace-profile-linux-8cpu
+    # Each of the two go test runs below may take up to 30 minutes.
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgres-15
+            image: postgres:15.2-alpine
+          # Keep in sync with Postgres17Image in internal/dbtest/archive.go.
+          - name: postgres-17
+            image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    env:
+      BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE: ${{ matrix.image }}
+      BENCHDB_DUCKDB_EXTENSION_DIR: ${{ github.workspace }}/.cache/duckdb/extensions
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require a selected PostgreSQL image
+        run: test -n "$BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE"
+      - run: make duckdb-extensions
+      # No -short: the harness fails, not skips, when Docker or an image is
+      # missing. The remote tests start a disposable S3-compatible service
+      # (dbtest.S3Image) with fixture credentials. Later archive tasks add
+      # their packages and -run patterns here.
+      - name: Run archive coordination tests
+        run: |
+          go test -shuffle=on -timeout 30m ./internal/dbtest/...
+          go test -shuffle=on -timeout 30m ./internal/columnar \
+            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere|TestScheduledMaintenanceFollowsSharedSchedule|TestLostOwnerLeavesSharedSchedule|TestInheritedArchiveTimeouts|TestArchiveConnectionBudget|TestCoordinationRejectsTransactionPooling|TestRemoteIdentityAndRestart|TestRemoteBindingRejectsChangedLocation|TestRemoteNamespaceClaim|TestAWSCredentialRefresh)$'
 
   web:
     runs-on: namespace-profile-linux-4cpu
@@ -174,6 +213,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+      - run: make server-image-extension-check
       - run: make server-container-smoke
       # Check the dashboard and the API reference at /docs as the binary serves them.
       - name: Start the server for the first-paint check

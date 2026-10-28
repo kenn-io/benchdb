@@ -65,7 +65,7 @@ func TestMaintenanceReclaimsFilesBetweenRewrites(t *testing.T) {
 			pool, err := pgxpool.NewWithConfig(ctx, cfg)
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10})
+			e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 2, TargetRows: 10, Retention: immediateRetention})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
 			commitID, err := db.NewStore(pool).GetOrCreateCommit(ctx, storage.InsertCommitParams{Sha: "maintenance", Repository: "https://example.test/maintenance"})
@@ -93,7 +93,7 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 			// Make both catalogs stale without adding a result or fact mutation.
 			_, err = pool.Exec(ctx, `UPDATE "commit" SET "timestamp"='2024-01-01',fork_point_sha=sha WHERE id=$1`, commitID)
 			require.NoError(t, err)
-			require.NoError(t, e.runMaintenance(ctx, time.Now().UTC()))
+			require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error { return e.runMaintenance(ctx, owner, time.Now().UTC()) }))
 			select {
 			case results := <-tracer.observed:
 				require.Len(t, results, len(tracer.retiredPaths))
@@ -105,6 +105,9 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 			}
 			assert.Equal(t, 2*len(tracer.retiredPaths), e.maintenanceStatus().RemovedFiles, "include cleanup from every pass")
 			require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+				if err := tx.selectFacts(ctx, queryScope{AllFacts: true}); err != nil {
+					return err
+				}
 				var count int
 				if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&count); err != nil {
 					return err
@@ -114,6 +117,36 @@ NULL::VARCHAR AS error, %s AS commit_id FROM range(2) t(i)) TO %s (FORMAT PARQUE
 			}))
 		})
 	}
+}
+
+// elapseMaintenanceWait moves the shared schedule's run times back, as though
+// its interval had passed, so the next scheduled attempt finds a cycle due.
+func elapseMaintenanceWait(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	tag, err := pool.Exec(ctx, `UPDATE archive_maintenance SET status=status
+|| jsonb_build_object('next_run_at', now()-interval '1 second')
+|| jsonb_strip_nulls(jsonb_build_object(
+	'last_started_at', (status->>'last_started_at')::timestamptz-interval '1 day',
+	'last_finished_at', (status->>'last_finished_at')::timestamptz-interval '1 day'))`)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, tag.RowsAffected(), "a writer has imported the schedule")
+}
+
+// saveOwnedMaintenance saves e's schedule as the maintenance owner would.
+// Engines built without Open get a coordinator for the duration of the test.
+func saveOwnedMaintenance(t *testing.T, ctx context.Context, e *Engine) {
+	t.Helper()
+	if e.coord == nil {
+		cfg := e.cfg
+		cfg.Readers = 1
+		coord, err := newArchiveCoordinator(e.pg, cfg)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, coord.close()) })
+		e.coord = coord
+	}
+	require.NoError(t, e.withOwner(ctx, e.coord.tryOwner, func(owner *maintenanceOwner) error {
+		return e.saveMaintenance(ctx, owner)
+	}))
 }
 
 func TestMaintenanceWaitsForScheduledWindow(t *testing.T) {
@@ -143,6 +176,7 @@ func TestScheduledMaintenanceRecordsSuccessAndFailure(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	require.NoError(t, e.importMaintenance(ctx))
+	elapseMaintenanceWait(t, ctx, pool)
 	require.NoError(t, e.runScheduledMaintenance(ctx))
 	status := e.maintenanceStatus()
 	assert.Equal(t, "scheduled", status.State)
@@ -154,6 +188,7 @@ func TestScheduledMaintenanceRecordsSuccessAndFailure(t *testing.T) {
 	require.NoError(t, err)
 	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET arrived_at=now()-interval '1 day'`)
 	require.NoError(t, os.RemoveAll(e.cfg.Dir+"/data"))
+	elapseMaintenanceWait(t, ctx, pool)
 	require.Error(t, e.runScheduledMaintenance(ctx))
 	failed := e.maintenanceStatus()
 	assert.Equal(t, "failed", failed.State)
@@ -180,7 +215,7 @@ func TestMaintenanceScheduleSurvivesRestart(t *testing.T) {
 	require.NotNil(t, initial.NextRunAt)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), *initial.NextRunAt, time.Second)
 	first.maintenance.Enabled = true
-	require.NoError(t, first.saveMaintenance(ctx))
+	saveOwnedMaintenance(t, ctx, first)
 	second := &Engine{pg: pool, cfg: first.cfg}
 	require.NoError(t, second.loadMaintenance(ctx))
 	assert.Equal(t, initial.NextRunAt, second.maintenance.NextRunAt, "restart must not postpone or immediately run maintenance")
@@ -189,7 +224,7 @@ func TestMaintenanceScheduleSurvivesRestart(t *testing.T) {
 	first.maintenance.State = "running"
 	first.maintenance.LastStartedAt = &started
 	first.maintenance.NextRunAt = new(started.Add(time.Hour))
-	require.NoError(t, first.saveMaintenance(ctx))
+	saveOwnedMaintenance(t, ctx, first)
 	require.NoError(t, second.loadMaintenance(ctx))
 	assert.Equal(t, "interrupted", second.maintenance.State)
 	assert.Equal(t, first.maintenance.NextRunAt, second.maintenance.NextRunAt)
@@ -210,7 +245,7 @@ func TestMaintenanceCycleDrainsOnlyCapturedArrivals(t *testing.T) {
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 25})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	require.NoError(t, e.runMaintenance(ctx, cutoff))
+	require.NoError(t, e.withBuilder(ctx, func(owner *maintenanceOwner) error { return e.runMaintenance(ctx, owner, cutoff) }))
 	assert.Equal(t, count-1, e.maintenanceStatus().ExportedRows, "all eligible batches drain in this cycle")
 	var remaining []string
 	rows, err := pool.Query(ctx, `SELECT id FROM benchmark_result`)
@@ -246,7 +281,11 @@ func TestScheduleImportOnce(t *testing.T) {
 	originalNextRun := time.Now().UTC().Add(7 * time.Hour).Truncate(time.Microsecond)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(fmt.Sprintf(`{"state":"scheduled","phase":"idle","next_run_at":%q}`, originalNextRun.Format(time.RFC3339Nano))), 0600))
-	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
+	first := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour, Readers: 1}}
+	coord, err := newArchiveCoordinator(pool, first.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, coord.close()) })
+	first.coord = coord
 	require.NoError(t, first.loadMaintenance(ctx))
 	// Run is the writer entry point. Wait for its durable startup save, then
 	// stop it well before the imported window becomes eligible.
@@ -276,6 +315,13 @@ func TestScheduleReadOnlyStartup(t *testing.T) {
 	require.NoError(t, err)
 	defer readers.Close()
 	dir := t.TempDir()
+	// A read-only startup cannot claim a fresh binding against a concurrent
+	// remote startup. Claim it through a writable connection first.
+	_, err = Open(ctx, readers, Config{Dir: dir, Readers: 1})
+	require.ErrorContains(t, err, "start a writable BenchDB process")
+	initial, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
+	require.NoError(t, err)
+	require.NoError(t, initial.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"running","next_run_at":"2099-01-01T00:00:00Z"}`), 0600))
 	e, err := Open(ctx, readers, Config{Dir: dir, Readers: 1})
 	require.NoError(t, err)
@@ -300,7 +346,7 @@ func TestScheduleImportDoesNotAccelerateAfterIntervalReduction(t *testing.T) {
 	require.NoError(t, e.importMaintenance(ctx))
 	assert.Equal(t, time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC), *e.maintenance.NextRunAt)
 	assert.Equal(t, "interrupted", e.maintenance.State)
-	require.NoError(t, e.saveMaintenance(ctx))
+	saveOwnedMaintenance(t, ctx, e)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "maintenance.json"), []byte(`{"state":"scheduled","next_run_at":"2099-01-01T01:00:00Z"}`), 0600))
 	require.NoError(t, e.importMaintenance(ctx))
 	assert.Equal(t, time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC), *e.maintenance.NextRunAt, "import marker prevents rereading changed legacy state")
@@ -317,6 +363,7 @@ func TestScheduleWriteFailurePreventsWork(t *testing.T) {
 	dir := t.TempDir()
 	writer := &Engine{pg: pool, cfg: Config{Dir: dir, Interval: time.Hour}}
 	require.NoError(t, writer.importMaintenance(ctx))
+	elapseMaintenanceWait(t, ctx, pool)
 	e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, e.Close()) }()
@@ -407,4 +454,60 @@ FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
 			})
 		}
 	}
+}
+
+// TestLockedScheduleDoesNotHoldMaintenance holds a row lock on the shared
+// schedule, as a stuck session would. Archive sessions have no PostgreSQL
+// lock timeout, so startup and a scheduled cycle must each give up within
+// their metadata deadlines, release maintenance ownership, and leave the
+// shared record unchanged.
+func TestLockedScheduleDoesNotHoldMaintenance(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e := openRetentionArchive(t, ctx, pool, t.TempDir(), 0)
+	require.NoError(t, e.importMaintenance(ctx))
+	elapseMaintenanceWait(t, ctx, pool)
+	shared := func() string {
+		t.Helper()
+		var status string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT status::text FROM archive_maintenance WHERE singleton`).Scan(&status))
+		return status
+	}
+	before := shared()
+	locker, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = locker.Rollback(context.Background()) })
+	_, err = locker.Exec(ctx, `SELECT 1 FROM archive_maintenance WHERE singleton FOR UPDATE`)
+	require.NoError(t, err)
+
+	// within fails the test if call is still waiting for the lock after limit.
+	within := func(limit time.Duration, call func() error) error {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- call() }()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(limit):
+			require.NoError(t, locker.Rollback(ctx))
+			<-done
+			require.FailNow(t, "the call waited for the schedule lock past its deadline")
+			return nil
+		}
+	}
+	err = within(metadataTimeout+5*time.Second, func() error { return e.startMaintenance(ctx) })
+	require.Error(t, err, "startup cannot save a locked schedule")
+	assert.True(t, retryableScheduleError(err), "Run retries startup after a lock wait: %v", err)
+
+	// The cycle's first save and its final save each wait one deadline.
+	err = within(2*metadataTimeout+10*time.Second, func() error { return e.runScheduledMaintenance(ctx) })
+	require.Error(t, err, "a cycle cannot save a locked schedule")
+	status := e.maintenanceStatus()
+	assert.Equal(t, "failed", status.State)
+	assert.Equal(t, "schedule", status.Phase)
+
+	owner, err := e.coord.tryOwner(ctx)
+	require.NoError(t, err, "the stalled saves released maintenance ownership")
+	require.NoError(t, owner.Close(ctx))
+	require.NoError(t, locker.Rollback(ctx))
+	assert.Equal(t, before, shared(), "no save reached the shared record")
 }

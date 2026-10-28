@@ -41,6 +41,9 @@ func TestCIReportRepeatedBaselineFitsDefaultMemory(t *testing.T) {
 		relative := fmt.Sprintf("data/repeated-baseline-%06d.parquet", start)
 		path := filepath.Join(dir, relative)
 		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+			if err := tx.selectFacts(ctx, queryScope{ResultIDs: []string{baseline.ID}}); err != nil {
+				return err
+			}
 			_, err := tx.tx.ExecContext(ctx, `COPY (
 SELECT br.* REPLACE (
 'repeated-baseline-'||lpad(generated.i::VARCHAR,6,'0') AS id,
@@ -51,6 +54,7 @@ WHERE br.id=$1) TO `+literal(path)+` (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROU
 			return err
 		}))
 		publishArchiveFixture(t, ctx, e, relative, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), 10000)
+		indexArchiveFixture(t, ctx, e, relative)
 	}
 	rows, err := NewStore(pg, e).SelectCIReportRows(ctx,
 		[]storage.CIReportRunKey{{RunID: contender.RunID, CommitID: *contender.CommitID}},

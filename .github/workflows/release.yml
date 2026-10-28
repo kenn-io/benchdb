@@ -48,6 +48,14 @@ jobs:
           file: Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: false
+      - name: Load packaged DuckDB extensions offline on both platforms
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.server
+          target: extension-check
+          platforms: linux/amd64,linux/arm64
+          push: false
 
   publish:
     if: github.event_name == 'release' && github.repository == 'kenn-io/benchdb' && !github.event.release.prerelease && !github.event.release.draft

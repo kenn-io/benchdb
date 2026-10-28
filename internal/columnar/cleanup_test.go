@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +31,7 @@ func TestArchiveCleanupDrainsOverlappingReaders(t *testing.T) {
 			pool, ctx := dbtest.NewPool(t)
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2}
+			cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Retention: time.Hour}
 			e, err := Open(ctx, pool, cfg)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
@@ -46,10 +45,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			other, err := Open(ctx, pool, cfg)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, other.Close()) })
-			orphan := filepath.Join(cfg.Dir, "data", "retired.parquet")
-			require.NoError(t, os.WriteFile(orphan, []byte("retired output"), 0600))
-			// A crashed cleaner can leave its marker, but cannot retain its lock.
-			require.NoError(t, os.WriteFile(filepath.Join(cfg.Dir, ".cleanup-pending"), nil, 0600))
+			orphan := dueRetirement(t, ctx, e)
 			var workers sync.WaitGroup
 			defer func() { cancel(); workers.Wait() }()
 			startRead := func(engine *Engine, release <-chan struct{}) (<-chan struct{}, <-chan error) {
@@ -61,6 +57,9 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 						case <-release:
 						case <-ctx.Done():
 							return ctx.Err()
+						}
+						if err := tx.selectFacts(ctx, queryScope{AllFacts: true}); err != nil {
+							return err
 						}
 						var ids string
 						if err := tx.QueryRowContext(ctx, `SELECT string_agg(id,',' ORDER BY id) FROM benchmark_result`).Scan(&ids); err != nil {
@@ -87,28 +86,18 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			readyB, doneB := startRead(other, releaseB)
 			wait(readyB)
 			for range 3 {
-				removed, err := e.cleanup(ctx)
+				removed, err := e.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Zero(t, removed, "brief contention can defer cleanup")
 			}
 			cleanupCtx, stopCleanup := context.WithCancel(ctx)
 			defer stopCleanup()
 			cleaned := make(chan error, 1)
-			workers.Go(func() { _, err := e.cleanup(cleanupCtx); cleaned <- err })
-			// Synchronize with the real admission lock, then offer more reads while
-			// two existing readers still overlap. A second Engine must obey the gate.
-			gate := flock.New(filepath.Join(cfg.Dir, ".readers-admission.lock"))
-			defer gate.Close()
-			require.Eventually(t, func() bool {
-				if _, err := os.Stat(filepath.Join(cfg.Dir, ".cleanup-pending")); err != nil {
-					return false
-				}
-				ok, err := gate.TryLock()
-				if ok {
-					require.NoError(t, gate.Unlock())
-				}
-				return err == nil && !ok
-			}, 2*time.Second, time.Millisecond, "cleanup must eventually gate new readers")
+			workers.Go(func() { _, err := e.reclaimNow(cleanupCtx); cleaned <- err })
+			// Wait for the queued exclusive request, then offer more reads while
+			// two existing readers still overlap. A second Engine must queue too.
+			require.Eventually(t, func() bool { return reclamationWaiters(ctx, pool, "ExclusiveLock") == 1 },
+				2*time.Second, time.Millisecond, "cleanup must eventually queue ahead of new readers")
 			blockedCtx, stopRead := context.WithCancel(ctx)
 			defer stopRead()
 			canceledRead := make(chan error, 1)
@@ -117,9 +106,11 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 					return errors.New("new query entered while cleanup was draining readers")
 				})
 			})
-			require.Eventually(t, func() bool { return len(e.readers) == 0 }, 2*time.Second, time.Millisecond, "queued read must acquire its handle")
+			require.Eventually(t, func() bool { return reclamationWaiters(ctx, pool, "ShareLock") == 1 },
+				2*time.Second, time.Millisecond, "queued read must wait behind the cleaner")
 			stopRead()
 			require.ErrorIs(t, <-canceledRead, context.Canceled, "queued reads remain cancelable")
+			assert.Zero(t, reclamationWaiters(ctx, pool, "ShareLock"), "a canceled read leaves the lock queue")
 			readyNew, doneNew := startRead(other, releaseNew)
 			close(releaseA)
 			require.NoError(t, <-doneA)
@@ -143,7 +134,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 			close(releaseNew)
 			require.NoError(t, <-doneNew)
 			if cancelCleanup {
-				removed, err := e.cleanup(ctx)
+				removed, err := e.reclaimNow(ctx)
 				require.NoError(t, err)
 				assert.Equal(t, 1, removed, "cleanup can retry after cancellation")
 			}
@@ -153,9 +144,11 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 
 type cleanupAcquireKey struct{}
 
-// Trace the real pool to place cleanup between finalization's PostgreSQL
-// transaction acquisition and its analytical read, without replacing either.
+// Trace the real application pool to pause finalization after it acquires its
+// PostgreSQL transaction, or to observe an acquisition marked by the caller.
+// Coordination pools copy this tracer, so acquisitions are matched to pool.
 type cleanupLockTracer struct {
+	pool           *pgxpool.Pool
 	runStarted     chan struct{}
 	resumeRun      chan struct{}
 	cleanupStarted chan struct{}
@@ -174,8 +167,8 @@ func (tr *cleanupLockTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d
 
 func (*cleanupLockTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-func (tr *cleanupLockTracer) TraceAcquireStart(ctx context.Context, _ *pgxpool.Pool, _ pgxpool.TraceAcquireStartData) context.Context {
-	if ctx.Value(cleanupAcquireKey{}) != nil {
+func (tr *cleanupLockTracer) TraceAcquireStart(ctx context.Context, pool *pgxpool.Pool, _ pgxpool.TraceAcquireStartData) context.Context {
+	if pool == tr.pool && ctx.Value(cleanupAcquireKey{}) != nil {
 		select {
 		case <-tr.cleanupStarted:
 		default:
@@ -192,25 +185,19 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	original, ctx := dbtest.NewPool(t)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	tracer := &cleanupLockTracer{runStarted: make(chan struct{}), resumeRun: make(chan struct{}), cleanupStarted: make(chan struct{})}
-	defer func() {
-		select {
-		case <-tracer.resumeRun:
-		default:
-			close(tracer.resumeRun)
-		}
-	}()
+	tracer := &cleanupLockTracer{runStarted: make(chan struct{}), resumeRun: make(chan struct{})}
+	resumeRun := sync.OnceFunc(func() { close(tracer.resumeRun) })
+	defer resumeRun()
 	cfg := original.Config()
 	cfg.MaxConns = 1
 	cfg.ConnConfig.Tracer = tracer
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Retention: time.Hour})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet")
-	require.NoError(t, os.WriteFile(orphan, []byte("unpublished output"), 0600))
+	orphan := dueRetirement(t, ctx, e)
 	store := NewStore(db.NewStore(pool), e)
 	finalizeCtx, cancelFinalize := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFinalize()
@@ -227,22 +214,43 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 		require.FailNow(t, "finalization did not acquire its PostgreSQL transaction")
 	}
 	require.EqualValues(t, 1, pool.Stat().AcquiredConns())
-	cleaned := make(chan error, 1)
-	go func() {
-		_, err := e.cleanup(context.WithValue(ctx, cleanupAcquireKey{}, true))
-		cleaned <- err
-	}()
-	select {
-	case <-tracer.cleanupStarted:
-	case <-ctx.Done():
-		require.FailNow(t, "cleanup did not request a PostgreSQL connection")
-	}
-	close(tracer.resumeRun)
-	assert.NoError(t, <-finalized, "cleanup must not hold the reader lock while waiting for finalization's pooled connection")
-	require.NoError(t, <-cleaned)
+	// Cleanup runs on reserved coordination sessions. Finalization holding the
+	// only application connection cannot stall it, and cleanup holds nothing
+	// finalization needs.
+	removed, err := e.reclaimNow(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	_, err = os.Stat(orphan)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	resumeRun()
+	require.NoError(t, <-finalized)
 	report, err := store.GetRunReport(ctx, "empty-run", 1)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"status":"success"}`, string(report.Report))
+}
+
+// Ownership already excludes BenchDB publishers on other sessions. A session
+// holding the publication lock without ownership, such as a server version
+// from before ownership existed, must still defer cleanup.
+func TestCleanupDefersToPublicationOutsideOwnership(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet.staging")
+	require.NoError(t, os.WriteFile(orphan, []byte("publication in progress"), 0600))
+	publisher, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = publisher.Rollback(ctx) }()
+	_, err = publisher.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, publicationLock)
+	require.NoError(t, err)
+	removed, err := e.reclaimNow(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, removed)
 	_, err = os.Stat(orphan)
-	assert.ErrorIs(t, err, os.ErrNotExist, "cleanup proceeds after finalization releases the pooled connection")
+	require.NoError(t, err, "cleanup must wait for the publication's outcome")
+	require.NoError(t, publisher.Rollback(ctx))
+	removed, err = e.reclaimNow(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
 }

@@ -134,6 +134,10 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	require.NoError(t, err)
 	extensions := os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")
 	isolateLoadConfigEnv(t)
+	// Claim the archive before starting the server with read-only credentials.
+	engine, err := columnar.Open(ctx, pool, columnar.Config{Dir: os.Getenv("BENCHDB_DATA_DIR"), ExtensionDir: extensions})
+	require.NoError(t, err)
+	require.NoError(t, engine.Close())
 	databaseURL, err := url.Parse(pool.Config().ConnString())
 	require.NoError(t, err)
 	query := databaseURL.Query()

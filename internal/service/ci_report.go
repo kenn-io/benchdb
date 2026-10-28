@@ -93,6 +93,10 @@ type CIReport struct {
 	Runs            []CIReportRun        `json:"runs"`
 	ReportURL       string               `json:"report_url"`
 	Comparisons     []CIReportComparison `json:"-"`
+	// baselineDependencies is what each run's baseline search read, by run
+	// ID, for deciding which later default-branch changes can alter the
+	// report. It is never saved with a report.
+	baselineDependencies map[string]ciReportBaselineDependency
 }
 
 type CIReportSummary struct {
@@ -123,9 +127,6 @@ type CIReportRun struct {
 	CommitsSkipped []string               `json:"commits_skipped"`
 	BaselineError  *CIReportBaselineError `json:"baseline_error"`
 	Comparisons    []CIReportComparison   `json:"comparisons"`
-	// baselineDependency is what the baseline search read, for deciding
-	// which later default-branch changes can alter this run's report.
-	baselineDependency ciReportBaselineDependency
 }
 
 // ciReportBaselineDependency is the default-branch evidence a run's baseline
@@ -1222,7 +1223,10 @@ func ciReportAnalysisFromCompare(analysis CompareAnalysis) *CIReportAnalysis {
 func (r *CIReport) applyBaselineSelections(selections map[string]ciReportBaselineSelection) {
 	for i := range r.Runs {
 		selection := selections[r.Runs[i].RunID]
-		r.Runs[i].baselineDependency = selection.dependency
+		if r.baselineDependencies == nil {
+			r.baselineDependencies = map[string]ciReportBaselineDependency{}
+		}
+		r.baselineDependencies[r.Runs[i].RunID] = selection.dependency
 		if selection.baselineRunID != nil {
 			r.Runs[i].BaselineRunID = selection.baselineRunID
 		}

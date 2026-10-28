@@ -189,6 +189,7 @@ type ArchiveStorage struct {
 	Namespace string
 	Endpoint  string
 	Active    bool
+	ClaimedAt pgtype.Timestamptz
 }
 
 type ArchiveUpload struct {

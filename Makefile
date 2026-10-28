@@ -141,6 +141,11 @@ server-container-up:
 server-container-down:
 	$(SERVER_COMPOSE) down -v --remove-orphans
 
+# Load the image's packaged DuckDB extensions with networking disabled.
+.PHONY: server-image-extension-check
+server-image-extension-check:
+	docker build --file Dockerfile.server --target extension-check .
+
 .PHONY: server-container-smoke
 server-container-smoke:
 	@set -e; \
@@ -208,10 +213,11 @@ go-vet:
 	go vet ./...
 
 # Full Go suite. Postgres-backed tests use testcontainers and skip when Docker
-# is unavailable.
+# is unavailable. The archive package alone took up to 20 minutes on a
+# loaded host, so the limit is 30 minutes.
 .PHONY: go-test
 go-test: duckdb-extensions
-	go test -shuffle=on ./...
+	go test -shuffle=on -timeout 30m ./...
 
 # Fast Go tests: -short skips the Postgres-backed tests (no Docker needed).
 .PHONY: go-test-short

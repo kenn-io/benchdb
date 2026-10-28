@@ -3,13 +3,10 @@ package columnar
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/gofrs/flock"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -101,7 +98,7 @@ func TestReadDeadlineDuckDB(t *testing.T) {
 	e, store, _ := deadlineEngine(t)
 	ctx := deadlineCaller(t)
 	started := time.Now()
-	readErr := store.read(ctx, func(ctx context.Context, q queryer) error {
+	readErr := store.read(ctx, queryScope{}, func(ctx context.Context, q queryer) error {
 		var sum float64
 		return q.QueryRowContext(ctx, `SELECT sum(sin(i)) FROM range(1000000000000) t(i)`).Scan(&sum)
 	})
@@ -119,7 +116,7 @@ func TestReadDeadlinePostgres(t *testing.T) {
 	done := make(chan error, 1)
 	started := time.Now()
 	go func() {
-		done <- store.read(ctx, func(ctx context.Context, q queryer) error {
+		done <- store.read(ctx, queryScope{}, func(ctx context.Context, q queryer) error {
 			var n int
 			return q.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg','SELECT 1 AS n FROM pg_sleep(30)')`).Scan(&n)
 		})
@@ -168,7 +165,7 @@ func TestFinalizeDeadlineShared(t *testing.T) {
 			initialDeadline, ok := ctx.Deadline()
 			require.True(t, ok)
 			assert.LessOrEqual(t, initialDeadline.UnixNano(), started.Add(time.Second+50*time.Millisecond).UnixNano())
-			err := transaction.(*Store).read(ctx, func(ctx context.Context, q queryer) error {
+			err := transaction.(*Store).read(ctx, queryScope{}, func(ctx context.Context, q queryer) error {
 				nestedDeadline, ok := ctx.Deadline()
 				require.True(t, ok)
 				assert.LessOrEqual(t, nestedDeadline.UnixNano(), initialDeadline.UnixNano())
@@ -261,27 +258,16 @@ func TestReadDeadlineDuringClose(t *testing.T) {
 }
 
 func TestReadDeadlineCoordination(t *testing.T) {
-	e, _, _ := deadlineEngine(t)
-	for _, name := range []string{".readers.lock", ".readers-admission.lock"} {
-		t.Run(name, func(t *testing.T) {
-			lock := flock.New(filepath.Join(e.cfg.Dir, name))
-			require.NoError(t, lock.Lock())
-			t.Cleanup(func() { require.NoError(t, lock.Close()) })
-			if name == ".readers-admission.lock" {
-				pending := filepath.Join(e.cfg.Dir, ".cleanup-pending")
-				require.NoError(t, os.WriteFile(pending, nil, 0600))
-				t.Cleanup(func() { require.NoError(t, os.Remove(pending)) })
-			}
-			ctx := deadlineCaller(t)
-			callbackRan := false
-			started := time.Now()
-			readErr := e.Read(ctx, func(context.Context, *ReadSnapshot) error { callbackRan = true; return nil })
-			require.ErrorIs(t, readErr, context.DeadlineExceeded)
-			assert.False(t, callbackRan)
-			assert.Less(t, time.Since(started), 3*time.Second)
-			require.NoError(t, lock.Close())
-		})
-	}
+	e, _, pool := deadlineEngine(t)
+	release := holdReclamation(t, context.Background(), pool)
+	ctx := deadlineCaller(t)
+	callbackRan := false
+	started := time.Now()
+	readErr := e.Read(ctx, func(context.Context, *ReadSnapshot) error { callbackRan = true; return nil })
+	require.ErrorIs(t, readErr, context.DeadlineExceeded)
+	assert.False(t, callbackRan)
+	assert.Less(t, time.Since(started), 3*time.Second)
+	release()
 	nextReadErr := e.Read(context.Background(), func(ctx context.Context, snapshot *ReadSnapshot) error {
 		var n int
 		return snapshot.QueryRowContext(ctx, `SELECT 1`).Scan(&n)
@@ -381,11 +367,7 @@ func TestReadDeadlineRollbackCompletion(t *testing.T) {
 		var available bool
 		require.NoError(t, pool.QueryRow(t.Context(), `SELECT pg_try_advisory_xact_lock(74, 1)`).Scan(&available))
 		require.True(t, available, "Read returned before its PostgreSQL transaction released the lock")
-		guard := flock.New(filepath.Join(e.cfg.Dir, ".readers.lock"))
-		acquired, err := guard.TryLock()
-		require.NoError(t, err)
-		require.True(t, acquired, "Read must release its guard after transaction completion")
-		require.NoError(t, guard.Close())
+		require.True(t, reclamationAvailable(t, t.Context(), pool), "Read must release its guard after transaction completion")
 		nextReadErr := e.Read(context.Background(), func(ctx context.Context, snapshot *ReadSnapshot) error {
 			var n int
 			err := snapshot.QueryRowContext(ctx, `SELECT 1`).Scan(&n)

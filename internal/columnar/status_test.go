@@ -3,9 +3,11 @@ package columnar
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -64,4 +66,44 @@ func TestStorageStatusFailureDoesNotReportEmptyStorage(t *testing.T) {
 	status, err := e.StorageStatus(ctx)
 	require.Error(t, err)
 	assert.True(t, status.SampledAt.IsZero(), "a failed sample has no successful observation time")
+}
+
+// TestStorageStatusMeasuresALocalArchiveWhereItsFilesLive covers a file://
+// archive on another filesystem than the working directory: its capacity is
+// the archive's.
+func TestStorageStatusMeasuresALocalArchiveWhereItsFilesLive(t *testing.T) {
+	work, err := os.MkdirTemp(".", "status-work-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(work)) })
+	work, err = filepath.Abs(work)
+	require.NoError(t, err)
+	workVolume, err := disk.Usage(work)
+	require.NoError(t, err)
+	var root string
+	for _, parent := range []string{"", "/dev/shm"} {
+		candidate, err := os.MkdirTemp(parent, "status-archive-")
+		if err != nil {
+			continue
+		}
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(candidate)) })
+		if volume, err := disk.Usage(candidate); err == nil && volume.Total != workVolume.Total {
+			root = candidate
+			break
+		}
+	}
+	if root == "" {
+		t.Skip("needs an archive directory on a filesystem of a different size than the working directory")
+	}
+	archiveVolume, err := disk.Usage(root)
+	require.NoError(t, err)
+	pool, ctx := dbtest.NewPool(t)
+	e, err := Open(ctx, pool, Config{Dir: work, ArchiveURL: "file://" + root, Readers: 1,
+		ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+
+	status, err := e.StorageStatus(ctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, archiveVolume.Total, status.VolumeTotalBytes)
 }

@@ -3,11 +3,9 @@ package columnar
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -151,13 +149,8 @@ INSERT INTO verdict_queue (kind,key) VALUES ('commit','head-id');`)
 		}
 		check(t)
 	})
-	t.Run("cleanup-admission", func(t *testing.T) {
-		gate := flock.New(filepath.Join(e.cfg.Dir, ".readers-admission.lock"))
-		require.NoError(t, gate.Lock())
-		t.Cleanup(func() { require.NoError(t, gate.Close()) })
-		pending := filepath.Join(e.cfg.Dir, ".cleanup-pending")
-		require.NoError(t, os.WriteFile(pending, nil, 0600))
-		t.Cleanup(func() { require.NoError(t, os.Remove(pending)) })
+	t.Run("cleanup-reclamation", func(t *testing.T) {
+		holdReclamation(t, ctx, pool)
 		check(t)
 	})
 }

@@ -222,6 +222,9 @@ func TestExactSeriesPageFitsBoundedMemory(t *testing.T) {
 		relative := fmt.Sprintf("data/wide-series-%06d.parquet", start)
 		path := filepath.Join(dir, relative)
 		require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+			if err := tx.selectFacts(ctx, queryScope{ResultIDs: []string{summary.ProductSmoke.BaselineResultID}}); err != nil {
+				return err
+			}
 			_, err := tx.tx.ExecContext(ctx, `COPY (
 SELECT br.* REPLACE (
 'wide-series-'||lpad(generated.i::VARCHAR,6,'0') AS id,
@@ -233,6 +236,7 @@ WHERE br.id=$1) TO `+literal(path)+` (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROU
 			return err
 		}))
 		publishArchiveFixture(t, ctx, e, relative, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), 10000)
+		indexArchiveFixture(t, ctx, e, relative)
 	}
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		if _, err := tx.tx.ExecContext(ctx, `SET memory_limit='128MB'; SET max_temp_directory_size='64MB'`); err != nil {

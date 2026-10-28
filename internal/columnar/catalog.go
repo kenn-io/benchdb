@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -26,44 +25,94 @@ LEFT JOIN "commit" c ON c.id=d.commit_id
 WHERE d.commit_timestamp IS DISTINCT FROM c."timestamp"
 OR d.on_default_branch IS DISTINCT FROM coalesce(c.sha=c.fork_point_sha,false)`
 
-func (e *Engine) catalogViews(ctx context.Context, tx *sql.Tx, files []archiveFile) error {
-	for _, catalog := range []struct {
-		name, empty string
-		series      bool
-	}{
-		{"archive_run_catalog", `SELECT NULL::VARCHAR AS archive_path,NULL::VARCHAR AS run_id,NULL::VARCHAR AS commit_repo_url,
+// summaryViews are the per-read summary catalog views. A read creates each
+// only when a query needs it; see ReadSnapshot.runSummaries and
+// ReadSnapshot.seriesSummaries.
+var summaryViews = []string{"archive_run_catalog", "archive_series_catalog", "archive_stale_series"}
+
+// summaryCatalog is one per-file summary catalog, read as a view over the
+// pinned manifest's files.
+type summaryCatalog struct {
+	view string
+	// keysSQL lists the pinned manifest's keys of this catalog in PostgreSQL.
+	keysSQL string
+	key     func(archiveFile) string
+	// empty is the view's shape when the manifest has no files.
+	empty string
+}
+
+var (
+	runSummaryCatalog = summaryCatalog{
+		view: "archive_run_catalog", keysSQL: `SELECT runs_path FROM archive_file`,
+		key: func(f archiveFile) string { return f.RunsPath },
+		empty: `SELECT NULL::VARCHAR AS archive_path,NULL::VARCHAR AS run_id,NULL::VARCHAR AS commit_repo_url,
 NULL::TIMESTAMP AS first_result_at,NULL::TIMESTAMP AS last_result_at,0::BIGINT AS result_count,
-0::BIGINT AS error_count,NULL::VARCHAR AS latest_result_id WHERE false`, false},
-		{"archive_series_catalog", `SELECT NULL::VARCHAR AS archive_path,NULL::VARCHAR AS history_fingerprint,
+0::BIGINT AS error_count,NULL::VARCHAR AS latest_result_id WHERE false`,
+	}
+	seriesSummaryCatalog = summaryCatalog{
+		view: "archive_series_catalog", keysSQL: `SELECT series_path FROM archive_file`,
+		key: func(f archiveFile) string { return f.SeriesPath },
+		empty: `SELECT NULL::VARCHAR AS archive_path,NULL::VARCHAR AS history_fingerprint,
 NULL::VARCHAR AS case_id,NULL::VARCHAR AS context_id,NULL::VARCHAR AS hardware_id,NULL::VARCHAR AS commit_repo_url,
 NULL::VARCHAR AS latest_result_id,NULL::TIMESTAMP AS commit_timestamp,NULL::TIMESTAMP AS first_commit_timestamp,
-0::BIGINT AS point_count WHERE false`, true},
-	} {
-		source := catalog.empty
-		if len(files) > 0 {
-			paths := make([]string, 0, len(files))
-			for _, file := range files {
-				relative := file.RunsPath
-				if catalog.series {
-					relative = file.SeriesPath
-				}
-				path, err := e.filePath(relative)
-				if err != nil {
-					return err
-				}
-				paths = append(paths, literal(path))
-			}
-			source = `SELECT * FROM read_parquet([` + strings.Join(paths, ",") + `],hive_partitioning=false)`
-		}
-		if _, err := tx.ExecContext(ctx, `CREATE OR REPLACE TEMP VIEW `+catalog.name+` AS `+source); err != nil {
-			return err
-		}
+0::BIGINT AS point_count WHERE false`,
 	}
-	_, err := tx.ExecContext(ctx, `CREATE OR REPLACE TEMP VIEW archive_stale_series AS SELECT * FROM postgres_query('pg',`+literal(staleCatalogSQL)+`)`)
+)
+
+// runSummaries creates the run summary view the first time one of the read's
+// queries needs it. It opens no series summary, so a run query does not
+// depend on, wait for, or cache the series catalogs. Remote summaries are
+// read from the catalog cache.
+func (s *ReadSnapshot) runSummaries(ctx context.Context) error {
+	if s.runSummariesReady {
+		return nil
+	}
+	if err := s.summaryView(ctx, runSummaryCatalog); err != nil {
+		return err
+	}
+	s.runSummariesReady = true
+	return nil
+}
+
+// seriesSummaries creates the series summary view, and the stale-series
+// view that qualifies it, the first time one of the read's queries needs
+// them.
+func (s *ReadSnapshot) seriesSummaries(ctx context.Context) error {
+	if s.seriesSummariesReady {
+		return nil
+	}
+	if err := s.summaryView(ctx, seriesSummaryCatalog); err != nil {
+		return err
+	}
+	if _, err := s.tx.ExecContext(ctx, `CREATE TEMP VIEW archive_stale_series AS SELECT * FROM postgres_query('pg',`+literal(staleCatalogSQL)+`)`); err != nil {
+		return err
+	}
+	s.seriesSummariesReady = true
+	return nil
+}
+
+func (s *ReadSnapshot) summaryView(ctx context.Context, catalog summaryCatalog) error {
+	source := catalog.empty
+	if len(s.files) > 0 {
+		keys := make([]string, len(s.files))
+		for i, file := range s.files {
+			keys[i] = catalog.key(file)
+		}
+		locations, err := s.catalogLocations(ctx, keys, catalog.keysSQL)
+		if err != nil {
+			return fmt.Errorf("open archive summary catalogs: %w", err)
+		}
+		paths := make([]string, len(locations))
+		for i, location := range locations {
+			paths[i] = literal(location)
+		}
+		source = `SELECT * FROM read_parquet([` + strings.Join(paths, ",") + `],hive_partitioning=false)`
+	}
+	_, err := s.tx.ExecContext(ctx, `CREATE TEMP VIEW `+catalog.view+` AS `+source)
 	return err
 }
 
-func (e *Engine) buildCatalogs(ctx context.Context, tx *sql.Tx, file *archiveFile) error {
+func (e *Engine) buildCatalogs(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, file *archiveFile) error {
 	source, err := e.parquetSource([]archiveFile{*file})
 	if err != nil {
 		return err
@@ -91,7 +140,7 @@ FROM `+source+` br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.commit_id 
 min("timestamp") AS first_result_at,max("timestamp") AS last_result_at,count(*) AS result_count,
 count(*) FILTER(WHERE error IS NOT NULL) AS error_count,arg_max(id,("timestamp",id)) AS latest_result_id
 FROM ` + source + ` GROUP BY run_id,commit_repo_url`
-	file.RunsBytes, err = e.writeParquet(ctx, tx, file.RunsPath, runs, "commit_repo_url,last_result_at DESC,run_id")
+	file.RunsBytes, err = e.writeParquet(ctx, owner, tx, file.RunsPath, runs, "commit_repo_url,last_result_at DESC,run_id")
 	if err != nil {
 		return fmt.Errorf("write run catalog: %w", err)
 	}
@@ -104,21 +153,23 @@ min(c."timestamp") FILTER(WHERE ` + historyMembership + `) AS first_commit_times
 count(*) FILTER(WHERE ` + historyMembership + `) AS point_count
 FROM ` + source + ` br LEFT JOIN "commit" c ON c.id=br.commit_id
 GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commit_repo_url`
-	file.SeriesBytes, err = e.writeParquet(ctx, tx, file.SeriesPath, series, "history_fingerprint,case_id,context_id,hardware_id,commit_repo_url")
+	file.SeriesBytes, err = e.writeParquet(ctx, owner, tx, file.SeriesPath, series, "history_fingerprint,case_id,context_id,hardware_id,commit_repo_url")
 	if err != nil {
 		return fmt.Errorf("write series catalog: %w", err)
 	}
 	return nil
 }
 
-// Write immutable files completely, compare every value, then make the durable
-// name available for publication. Unpublished files are reclaimed by cleanup.
-func (e *Engine) writeParquet(ctx context.Context, tx *sql.Tx, relative, source, order string) (int64, error) {
-	path, err := e.filePath(relative)
-	if err != nil {
+// Stage immutable files locally, compare every value, then publish the staged
+// file to its key through Kit. The stage is scratch: Kit makes the published
+// copy durable, and a crash ends the unit, so the stage needs no sync.
+// Reclamation removes stages that a crash leaves behind.
+func (e *Engine) writeParquet(ctx context.Context, owner *maintenanceOwner, tx *sql.Tx, relative, source, order string) (int64, error) {
+	if _, err := e.objectURL(relative); err != nil {
 		return 0, err
 	}
-	stage := path + ".staging"
+	key := filepath.ToSlash(relative)
+	stage := e.stagePath(key)
 	if _, err := tx.ExecContext(ctx, `COPY (`+source+` ORDER BY `+order+`) TO `+literal(stage)+` (FORMAT PARQUET,COMPRESSION ZSTD,ROW_GROUP_SIZE 122880)`); err != nil {
 		return 0, err
 	}
@@ -133,23 +184,17 @@ func (e *Engine) writeParquet(ctx context.Context, tx *sql.Tx, relative, source,
 	if difference != 0 {
 		return 0, errors.New("parquet values do not match the archive source")
 	}
-	if err := syncPath(stage); err != nil {
-		return 0, err
-	}
-	info, err := os.Stat(stage)
+	receipt, err := e.publishStaged(ctx, owner, key, stage)
 	if err != nil {
 		return 0, err
 	}
-	if err := os.Link(stage, path); err != nil {
-		return 0, err
-	}
-	if err := os.Remove(stage); err != nil {
-		return 0, err
-	}
-	if err := syncPath(filepath.Dir(path)); err != nil {
-		return 0, err
-	}
-	return info.Size(), nil
+	return receipt.Object.Size, nil
+}
+
+// stagePath is the scratch file that holds a key's validated contents while
+// its unit publishes them.
+func (e *Engine) stagePath(key string) string {
+	return filepath.Join(e.cfg.Dir, filepath.FromSlash(key)) + ".staging"
 }
 
 func publishArchiveFile(ctx context.Context, pg pgx.Tx, file archiveFile) error {
@@ -174,16 +219,12 @@ func publishCatalogCommits(ctx context.Context, pg pgx.Tx, file archiveFile) err
 
 // Refresh one file per pass. The captured dependency values keep repairs that
 // race publication visible as stale, even after this transaction commits.
-func (e *Engine) refreshCatalog(ctx context.Context) (int, error) {
-	pg, err := e.pg.Begin(ctx)
-	if err != nil {
+func (e *Engine) refreshCatalog(ctx context.Context, owner *maintenanceOwner) (int, error) {
+	ctx, pg, acquired, err := e.openPublication(ctx, owner)
+	if err != nil || !acquired {
 		return 0, err
 	}
-	defer func() { _ = pg.Rollback(ctx) }()
-	var acquired bool
-	if err := pg.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(881196320207125)`).Scan(&acquired); err != nil || !acquired {
-		return 0, err
-	}
+	defer owner.endPublication()
 	tx, err := e.builder.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -205,7 +246,8 @@ func (e *Engine) refreshCatalog(ctx context.Context) (int, error) {
 		if file.Path != path {
 			continue
 		}
-		if err := e.buildCatalogs(ctx, tx, &file); err != nil {
+		replaced := []string{file.RunsPath, file.SeriesPath}
+		if err := e.buildCatalogs(ctx, owner, tx, &file); err != nil {
 			return 0, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -214,13 +256,16 @@ func (e *Engine) refreshCatalog(ctx context.Context) (int, error) {
 		if _, err := pg.Exec(ctx, `UPDATE archive_file SET runs_path=$2,runs_bytes=$3,series_path=$4,series_bytes=$5 WHERE path=$1`, file.Path, file.RunsPath, file.RunsBytes, file.SeriesPath, file.SeriesBytes); err != nil {
 			return 0, err
 		}
+		if err := e.retire(ctx, pg, replaced...); err != nil {
+			return 0, err
+		}
 		if _, err := pg.Exec(ctx, `DELETE FROM archive_file_commit WHERE archive_path=$1`, file.Path); err != nil {
 			return 0, err
 		}
 		if err := publishCatalogCommits(ctx, pg, file); err != nil {
 			return 0, err
 		}
-		return 1, pg.Commit(ctx)
+		return 1, e.commitPublication(ctx, owner)
 	}
 	return 0, errors.New("stale catalog file was not in the manifest")
 }

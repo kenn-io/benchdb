@@ -41,6 +41,9 @@ func TestArchivePublishesCatalogsWithFacts(t *testing.T) {
 		assert.Positive(t, size)
 	}
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if err := tx.seriesSummaries(ctx); err != nil {
+			return err
+		}
 		var id string
 		var count int64
 		if err := tx.QueryRowContext(ctx, `SELECT latest_result_id,point_count FROM archive_series_catalog WHERE latest_result_id=?`, page[0].LatestResultID).Scan(&id, &count); err != nil {
@@ -79,7 +82,7 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	id, err := pg.InsertBenchmarkResult(ctx, storage.InsertBenchmarkResultParams{CaseID: caseID, ContextID: contextID, InfoID: infoID, HardwareID: hardwareID, CommitID: &commitID,
 		RunID: "catalog-race", HistoryFingerprint: "catalog-race", RunTags: []byte(`{}`), CommitRepoUrl: "https://example.test/catalog-race", Timestamp: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), Data: []*float64{new(1.0)}})
 	require.NoError(t, err)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Threads: 4, Settle: time.Nanosecond})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 2, Threads: 4, Settle: time.Nanosecond, Retention: immediateRetention})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	_, err = e.Maintain(ctx)
@@ -91,6 +94,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	readerDone := make(chan error, 1)
 	go func() {
 		readerDone <- e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+			if err := tx.seriesSummaries(ctx); err != nil {
+				return err
+			}
 			var count int64
 			err := tx.QueryRowContext(ctx, `SELECT sum(point_count) FROM archive_series_catalog`).Scan(&count)
 			if err == nil && count != 0 {
@@ -153,6 +159,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT commit_timestamp FROM archive_file_commit WHERE commit_id=$1`, commitID).Scan(&captured))
 	assert.Equal(t, time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC), captured)
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if err := tx.seriesSummaries(ctx); err != nil {
+			return err
+		}
 		var stale int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM archive_stale_series`).Scan(&stale); err != nil {
 			return err
@@ -177,6 +186,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	_, err = os.Stat(filepath.Join(e.cfg.Dir, original))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if err := tx.seriesSummaries(ctx); err != nil {
+			return err
+		}
 		var stale int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM archive_stale_series`).Scan(&stale); err != nil {
 			return err

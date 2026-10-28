@@ -125,7 +125,9 @@ The server therefore inherits no auth, session, seed, OIDC, GitHub token, or
 `DATABASE_URL` setting from your shell. The connection URL sets
 `default_transaction_read_only=on`, `statement_timeout=30s`,
 `lock_timeout=2s`, `idle_in_transaction_session_timeout=30s`, and
-`application_name=benchdb-admin-prod-clone-compat`.
+`application_name=benchdb-admin-prod-clone-compat`. Archive connections replace
+these timeouts with the analytical read deadline; see
+[Operations](operations.md#persistent-result-storage).
 
 The script stops if the port already serves a BenchDB API. On a read-only
 connection the server skips archive maintenance, artifact collection, and
