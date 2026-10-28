@@ -257,7 +257,7 @@ AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&r
 			var readAfterGuardLoss error
 			select {
 			case readAfterGuardLoss = <-done:
-			case <-time.After(10 * time.Second):
+			case <-time.After(5 * time.Second):
 				stacktest.Dump(t)
 				require.FailNow(t, "the read did not stop after its guard session ended")
 			}

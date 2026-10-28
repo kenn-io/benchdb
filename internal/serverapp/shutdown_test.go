@@ -225,7 +225,6 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	select {
 	case <-requestDone:
 	case <-time.After(5 * time.Second):
-		stacktest.Dump(t)
 		assert.Fail(t, "HTTP client did not finish after cleanup")
 	}
 }
