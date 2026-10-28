@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	go.kenn.io/kit v0.44.0
+	go.kenn.io/kit v0.47.0
 	golang.org/x/oauth2 v0.37.0
 )
 

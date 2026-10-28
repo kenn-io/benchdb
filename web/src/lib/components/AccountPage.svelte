@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { NumberInput } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -37,9 +38,9 @@
   let ruleRepository = $state("");
   let ruleBaseline = $state("fork_point");
   let ruleRunReason = $state("");
-  let ruleThreshold = $state("5");
-  let ruleThresholdZ = $state("2");
-  let ruleConfirmRuns = $state("2");
+  let ruleThreshold = $state<number | null>(5);
+  let ruleThresholdZ = $state<number | null>(2);
+  let ruleConfirmRuns = $state<number | null>(2);
   let ruleEnabled = $state(true);
   let eventRequestToken = 0;
 
@@ -209,9 +210,9 @@
     ruleRepository = "";
     ruleRunReason = "";
     ruleBaseline = "fork_point";
-    ruleThreshold = "5";
-    ruleThresholdZ = "2";
-    ruleConfirmRuns = "2";
+    ruleThreshold = 5;
+    ruleThresholdZ = 2;
+    ruleConfirmRuns = 2;
     ruleEnabled = true;
   }
 
@@ -308,18 +309,14 @@
     return fallback;
   }
 
-  function positiveNumber(raw: string | number): number | null {
-    const text = String(raw).trim();
-    if (text === "") return null;
-    const n = Number(text);
-    return Number.isFinite(n) && n > 0 ? n : null;
+  function positiveNumber(raw: number | null): number | null {
+    if (raw === null || !Number.isFinite(raw) || raw <= 0) return null;
+    return raw;
   }
 
-  function wholeNumber(raw: string | number): number | null {
-    const text = String(raw).trim();
-    if (text === "") return null;
-    const n = Number(text);
-    return Number.isInteger(n) && n > 0 ? n : null;
+  function wholeNumber(raw: number | null): number | null {
+    if (raw === null || !Number.isInteger(raw) || raw <= 0) return null;
+    return raw;
   }
 
   function dateText(value: string | undefined | null): string {
@@ -481,15 +478,15 @@
         </label>
         <label>
           <span>Pairwise threshold</span>
-          <input type="number" min="0" step="0.1" bind:value={ruleThreshold} />
+          <NumberInput min={0} step={0.1} block bind:value={ruleThreshold} />
         </label>
         <label>
           <span>Z-score threshold</span>
-          <input type="number" min="0" step="0.1" bind:value={ruleThresholdZ} />
+          <NumberInput min={0} step={0.1} block bind:value={ruleThresholdZ} />
         </label>
         <label>
           <span>Confirm runs</span>
-          <input type="number" min="1" max="10" step="1" bind:value={ruleConfirmRuns} />
+          <NumberInput min={1} max={10} step={1} block bind:value={ruleConfirmRuns} />
         </label>
         <label class="check-field">
           <input type="checkbox" bind:checked={ruleEnabled} />
@@ -700,7 +697,9 @@
   }
   .rule-form {
     display: grid;
-    grid-template-columns: minmax(160px, 1fr) minmax(260px, 2fr) repeat(4, minmax(120px, 0.8fr)) max-content max-content;
+    /* Confirm runs sits with the other fields. A max-content track would grow
+       to NumberInput's 180px preferred width and spill past the panel. */
+    grid-template-columns: minmax(160px, 1.4fr) minmax(200px, 2fr) repeat(5, minmax(88px, 1fr)) max-content;
     align-items: end;
     gap: 10px;
     margin-bottom: 12px;
@@ -709,11 +708,16 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
     color: var(--c-text-muted);
     font-size: 0.76rem;
     font-weight: 700;
   }
-  input,
+  .rule-form :global(.kit-number-input) {
+    width: 100%;
+    min-width: 0;
+  }
+  input:not(.kit-text-input__control),
   select {
     min-height: 30px;
     min-width: 0;
