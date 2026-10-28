@@ -86,9 +86,10 @@ but refuses after durable schedule import or new lifecycle, lookup, retention,
 or remote-binding state exists: older binaries cannot preserve that state.
 BenchDB still has no down-migration command. Restore the matched database and
 archive backup with the previous binary when rolling back. Do not remove
-retention records to force a downgrade. After a future archive transfer, retain
-its source and transfer recovery records with the matching database backup;
-changing only the archive URL is not a recovery procedure.
+retention records to force a downgrade. Migration 22 adds archive transfer
+records. After an archive transfer, keep the source archive with the database
+backups taken before it; changing only the archive URL is not a recovery
+procedure. See [Move the archive to new storage](operations.md#move-the-archive-to-new-storage).
 
 ## Upgrade in place
 

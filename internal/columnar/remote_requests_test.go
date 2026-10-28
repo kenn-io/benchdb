@@ -32,6 +32,8 @@ type s3Gateway struct {
 	mu     sync.Mutex
 	seen   []gatewayRequest
 	hold   func(key string) bool
+	// fail answers the matching requests with 403 instead of forwarding them.
+	fail func(method, key string) bool
 	// held receives each key whose response is held; release ends every hold.
 	held    chan string
 	release chan struct{}
@@ -63,8 +65,13 @@ func newS3Gateway(t *testing.T, s3 dbtest.S3, prefix string) *s3Gateway {
 		g.mu.Lock()
 		g.seen = append(g.seen, gatewayRequest{method: r.Method, key: key, duckdb: strings.Contains(strings.ToLower(r.UserAgent()), "duckdb")})
 		hold := g.hold != nil && r.Method == http.MethodGet && g.hold(key)
+		fail := g.fail != nil && g.fail(r.Method, key)
 		release := g.release
 		g.mu.Unlock()
+		if fail {
+			http.Error(w, "injected failure", http.StatusForbidden)
+			return
+		}
 		if hold {
 			g.held <- key
 			select {
@@ -95,6 +102,13 @@ func (g *s3Gateway) holdKeys(hold func(key string) bool) {
 		g.release = make(chan struct{})
 	}
 	g.hold = hold
+}
+
+// failRequests fails the requests that fail selects; nil stops failing.
+func (g *s3Gateway) failRequests(fail func(method, key string) bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.fail = fail
 }
 
 func (g *s3Gateway) mark() int {

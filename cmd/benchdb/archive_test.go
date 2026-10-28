@@ -183,3 +183,50 @@ func TestAdminArchiveRecoverStagingGivesUpOnSilentDatabase(t *testing.T) {
 		require.FailNow(t, "recovery waited for a silent database past its connection deadline")
 	}
 }
+
+// TestAdminArchiveAuditReportsCheckedObjects audits a new archive, which
+// references no objects yet.
+func TestAdminArchiveAuditReportsCheckedObjects(t *testing.T) {
+	pool, _ := dbtest.NewPool(t)
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "audit"}, &stdout, &stderr)
+
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	assert.Equal(t, "Objects checked: 0\nBytes referenced: 0\nMissing: 0\nChanged: 0\n", stdout.String())
+}
+
+func TestAdminArchiveTransferRequiresDestination(t *testing.T) {
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "transfer"}, &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "--destination is required")
+}
+
+// TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance shows
+// that a running server stops the transfer before it writes anything.
+func TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	owner, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	_, err = owner.Exec(ctx, `SELECT pg_advisory_lock($1)`, archiveOwnerLock)
+	require.NoError(t, err)
+	t.Cleanup(owner.Release)
+	destination := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "transfer", "--destination", "file://" + destination}, &stdout, &stderr)
+
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "stop every BenchDB server")
+	entries, err := os.ReadDir(destination)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "the refused transfer writes nothing")
+}

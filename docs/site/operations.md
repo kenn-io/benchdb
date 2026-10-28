@@ -404,6 +404,90 @@ allows, and it is longer than any upload BenchDB attempts. Do not add an
 expiration action: BenchDB decides when archive objects are deleted, using
 `BENCHDB_ARCHIVE_RETENTION`.
 
+### Audit the archive
+
+Startup checks every local fact file's size, but for an S3 or GCS archive it
+checks only the dataset marker. Run an audit after a restore or a transfer,
+before you serve traffic:
+
+```bash
+benchdb admin archive audit
+```
+
+The audit requests the metadata of every fact file and catalog that the
+database references in the configured archive. It compares each object's size,
+and its revision when the receipt records one. It prints the objects checked,
+the bytes they hold, and the missing and changed counts. It exits with an error
+that names the first problem keys if any object is missing or changed. It
+needs the same settings as the server, and it keeps cleanup from deleting
+objects while it runs.
+
+### Move the archive to new storage
+
+`benchdb admin archive transfer` copies a stopped deployment's archive to new
+storage, such as from the local volume to S3, and switches the database to it.
+It is not a live migration.
+
+1. Stop the server, scheduled `admin` jobs, and every result publisher.
+2. Take a recovery backup of PostgreSQL and the current archive from the same
+   stopped deployment.
+3. Check that the lookup backfill has finished. The transfer refuses an archive
+   whose lookup catalogs are incomplete; let the server run maintenance until
+   it finishes, then stop it again.
+4. Run the transfer with the server's current settings, naming the destination:
+
+    ```bash
+    benchdb admin archive transfer --destination s3://example-bucket/benchdb \
+      --destination-s3-region us-west-2
+    ```
+
+    Use `--destination-s3-endpoint` and `--destination-s3-url-style` for an
+    S3-compatible service, and `--destination-gcs-credentials-file` for GCS.
+    The destination must be empty. The command copies every fact file and
+    catalog that the database references, keeps their keys, and verifies each
+    copy's SHA-256. When every copy is verified, one database transaction
+    switches the archive binding to the destination.
+5. Set `BENCHDB_ARCHIVE_URL` and its provider settings to the destination,
+   start the server, and run `benchdb admin archive audit`. Open the results
+   and history pages, and check that the next maintenance cycle succeeds.
+
+If the transfer stops, for example on a network failure, run the same command
+again. It resumes the unfinished transfer and does not copy verified objects
+again. If the command failed without saying whether the switch happened, run
+it again: it reads the outcome from the database. The command fails while any
+process owns archive maintenance, and it refuses a destination that holds
+other objects.
+
+The transfer never deletes the source archive. Backups of the database taken
+before the switch name the source and still need it. Keep the source until no
+such backup remains in your restore window, then remove it yourself.
+
+Changing `BENCHDB_ARCHIVE_URL` back is not a rollback. After the server writes
+to the destination, the source lacks those results, and the database refuses
+the old URL. To go back, restore the matching database and source backup, or
+transfer again while stopped.
+
+### Restore a backup of a remote archive
+
+A database backup of a remote archive is useful only with the archive objects
+it references. Cleanup keeps retired objects for `BENCHDB_ARCHIVE_RETENTION`,
+so a point-in-time restore inside that window finds them.
+
+1. Unset `BENCHDB_ARCHIVE_RETENTION` on every process that still runs against
+   the archive, so that cleanup pauses. Keep it unset until the restored
+   deployment is validated.
+2. For an in-place restore, stop the original server and every publisher
+   before the restored database uses the archive.
+3. Restore PostgreSQL, start one process with the archive settings the restored
+   database names, and run `benchdb admin archive audit` before you serve.
+4. For a clone or a restore test that runs beside the original, transfer the
+   restored database's archive to a new, empty prefix before you enable
+   maintenance or writes. Two databases must never clean up one prefix.
+
+A PostgreSQL dump alone is not a backup of an archived deployment: archived
+measurements live only in the archive. Bucket versioning alone is not one
+either, because BenchDB reads exact keys and never selects an older version.
+
 ## Serve behind a path prefix
 
 Set `BENCHDB_INTENDED_BASE_URL=https://example.com/tools/bench` to serve the

@@ -337,6 +337,42 @@ owns archive maintenance. See
 [Recover staging files after a crash](operations.md#recover-staging-files-after-a-crash)
 for when to run it.
 
+### `benchdb admin archive audit`
+
+Check that every object the archive manifest references exists:
+
+```bash
+benchdb admin archive audit
+```
+
+The command takes no flags. It needs the server's `BENCHDB_DB_URL`,
+`BENCHDB_DATA_DIR`, and `BENCHDB_ARCHIVE_*` settings. It prints the objects
+checked, the bytes they hold, and the missing and changed counts, and it exits
+with an error if any object is missing or changed. See
+[Audit the archive](operations.md#audit-the-archive).
+
+### `benchdb admin archive transfer`
+
+Copy a stopped deployment's archive to new storage and switch the database to
+it:
+
+```bash
+benchdb admin archive transfer --destination s3://example-bucket/benchdb
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--destination` | none | Destination archive URL: `file:///path`, `s3://bucket/prefix`, or `gs://bucket/prefix`. Required. |
+| `--destination-s3-endpoint` | none | S3-compatible endpoint origin for an `s3://` destination. |
+| `--destination-s3-region` | `us-east-1` | Region for an `s3://` destination. |
+| `--destination-s3-url-style` | `vhost` | `path` or `vhost` addressing for an `s3://` destination. |
+| `--destination-gcs-credentials-file` | none | Google credentials JSON file for a `gs://` destination. Empty uses Application Default Credentials. |
+
+The source is the archive the server's `BENCHDB_ARCHIVE_*` settings name. The
+command fails while another process owns archive maintenance. Run it again to
+resume an interrupted transfer. See
+[Move the archive to new storage](operations.md#move-the-archive-to-new-storage).
+
 ### `benchdb admin alerts sync`
 
 Make one account's alert rules match a JSON file:
