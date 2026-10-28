@@ -654,7 +654,7 @@ func seriesPageRowsFromQRecentRows(rows []SelectSeriesPageForQRecentRow) []stora
 	return out
 }
 
-func ciReportRunRowsFromCommitRows(rows []SelectCIReportRunsByCommitRow) []storage.CIReportRunRow {
+func ciReportRunRowsFromCommitRows(rows []SelectCIReportRunsByCommitsRow) []storage.CIReportRunRow {
 	out := make([]storage.CIReportRunRow, len(rows))
 	for i, r := range rows {
 		out[i] = storage.CIReportRunRow{

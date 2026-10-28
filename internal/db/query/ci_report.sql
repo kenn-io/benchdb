@@ -1,4 +1,4 @@
--- name: SelectCIReportRunsByCommit :many
+-- name: SelectCIReportRunsByCommits :many
 SELECT
   br.run_id,
   br.run_tags,
@@ -14,7 +14,7 @@ SELECT
 FROM benchmark_result_local br
 JOIN commit c ON c.id = br.commit_id
 WHERE c.repository = sqlc.arg('repository')::text
-  AND c.sha = sqlc.arg('sha')::text
+  AND c.sha = ANY(sqlc.arg('shas')::text[])
 GROUP BY
   br.run_id,
   br.run_tags,
@@ -27,7 +27,7 @@ GROUP BY
   c.fork_point_sha,
   c."timestamp",
   c.message
-ORDER BY br.run_id;
+ORDER BY br.run_id, c.id;
 
 -- name: SelectCIReportRunsByIDs :many
 SELECT

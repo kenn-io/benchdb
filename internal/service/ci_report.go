@@ -404,7 +404,7 @@ func (r *CIReporter) selectCommitModeRuns(ctx context.Context, q CIReportQuery) 
 	out := ciReportRunSelection{
 		repository: repository, commitSHA: &sha, commitSelector: true,
 	}
-	rows, err := r.store.SelectCIReportRunsByCommit(ctx, repository, sha)
+	rows, err := r.store.SelectCIReportRunsByCommits(ctx, repository, []string{sha})
 	if err != nil {
 		return ciReportRunSelection{}, fmt.Errorf("select ci report runs by commit: %w", err)
 	}
@@ -854,50 +854,63 @@ func (r *CIReporter) findBaselineRun(
 		return ciReportBaselineCandidate{}, false, nil
 	}
 
-	var candidates []ciReportBaselineCandidate
+	if len(ancestry) == 0 {
+		return ciReportBaselineCandidate{}, false, nil
+	}
+
+	// Search the bounded ancestry together so each commit does not open two
+	// more analytical reads. Run IDs can repeat on different commits.
+	shas := ciReportCommitSHAs(ancestry)
 	repository := commit.NormalizeRepoURL(contender.CommitRepoURL)
-	for depth, c := range ancestry {
-		runs, err := r.store.SelectCIReportRunsByCommit(ctx, repository, c.CommitSha)
-		if err != nil {
-			return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline runs: %w", err)
-		}
-		runMeta := map[string]storage.CIReportRunRow{}
-		candidateRunKeys := []storage.CIReportRunKey{}
-		for _, run := range runs {
-			if run.CommitID == nil {
-				continue
-			}
-			if run.RunID == contender.RunID && contender.CommitID != nil && *run.CommitID == *contender.CommitID {
-				continue
-			}
-			key := ciReportRunKeyString(run.RunID, *run.CommitID)
-			runMeta[key] = run
-			candidateRunKeys = append(candidateRunKeys, storage.CIReportRunKey{RunID: run.RunID, CommitID: *run.CommitID})
-		}
-		if len(candidateRunKeys) == 0 {
+	runs, err := r.store.SelectCIReportRunsByCommits(ctx, repository, shas)
+	if err != nil {
+		return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline runs: %w", err)
+	}
+	runsByCommit := map[string]map[string]storage.CIReportRunRow{}
+	candidateRunKeys := []storage.CIReportRunKey{}
+	for _, run := range runs {
+		if run.CommitID == nil {
 			continue
 		}
-		rows, err := r.store.SelectCIReportCandidateRows(ctx, candidateRunKeys)
-		if err != nil {
-			return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline candidate rows: %w", err)
+		if run.RunID == contender.RunID && contender.CommitID != nil && *run.CommitID == *contender.CommitID {
+			continue
 		}
-		latestByRunKey := map[string]time.Time{}
-		fingerprintsByRunKey := map[string]map[string]bool{}
-		for _, row := range rows {
-			if !fingerprints[row.HistoryFingerprint] {
+		key := ciReportRunKeyString(run.RunID, *run.CommitID)
+		if runsByCommit[*run.CommitID] == nil {
+			runsByCommit[*run.CommitID] = map[string]storage.CIReportRunRow{}
+		}
+		runsByCommit[*run.CommitID][key] = run
+		candidateRunKeys = append(candidateRunKeys, storage.CIReportRunKey{RunID: run.RunID, CommitID: *run.CommitID})
+	}
+	if len(candidateRunKeys) == 0 {
+		return ciReportBaselineCandidate{}, false, nil
+	}
+	rows, err := r.store.SelectCIReportCandidateRows(ctx, candidateRunKeys)
+	if err != nil {
+		return ciReportBaselineCandidate{}, false, fmt.Errorf("select ci report baseline candidate rows: %w", err)
+	}
+	latestByRunKey := map[string]time.Time{}
+	fingerprintsByRunKey := map[string]map[string]bool{}
+	for _, row := range rows {
+		if !fingerprints[row.HistoryFingerprint] {
+			continue
+		}
+		key := ciReportRunKeyString(row.RunID, row.CommitID)
+		if ts, ok := latestByRunKey[key]; !ok || row.ResultTimestamp.After(ts) {
+			latestByRunKey[key] = row.ResultTimestamp
+		}
+		if fingerprintsByRunKey[key] == nil {
+			fingerprintsByRunKey[key] = map[string]bool{}
+		}
+		fingerprintsByRunKey[key][row.HistoryFingerprint] = true
+	}
+	var candidates []ciReportBaselineCandidate
+	for depth, c := range ancestry {
+		for runKey, meta := range runsByCommit[c.CommitID] {
+			ts, ok := latestByRunKey[runKey]
+			if !ok {
 				continue
 			}
-			key := ciReportRunKeyString(row.RunID, row.CommitID)
-			if ts, ok := latestByRunKey[key]; !ok || row.ResultTimestamp.After(ts) {
-				latestByRunKey[key] = row.ResultTimestamp
-			}
-			if fingerprintsByRunKey[key] == nil {
-				fingerprintsByRunKey[key] = map[string]bool{}
-			}
-			fingerprintsByRunKey[key][row.HistoryFingerprint] = true
-		}
-		for runKey, ts := range latestByRunKey {
-			meta := runMeta[runKey]
 			candidates = append(candidates, ciReportBaselineCandidate{
 				runID: meta.RunID, commitID: metaCommitID(meta), runReason: meta.RunReason, commit: c, depth: depth,
 				resultTimestamp:          ts,
