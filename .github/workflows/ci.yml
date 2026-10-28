@@ -15,6 +15,7 @@ permissions:
 
 env:
   CGO_ENABLED: "1"
+  GOTRACEBACK: all
   # "|" falls back to the source repo on any proxy error, including HTTP/2 stream resets mid-download.
   GOPROXY: https://proxy.golang.org|direct
   # Module-relative source paths let every checkout share Go build cache entries.

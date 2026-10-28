@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/dbtest"
 )
@@ -180,6 +181,7 @@ func TestAdminArchiveRecoverStagingGivesUpOnSilentDatabase(t *testing.T) {
 		assert.Equal(t, 1, got)
 		assert.Contains(t, stderr.String(), "connect database failed")
 	case <-time.After(recoverStagingConnectTimeout + 5*time.Second):
+		stacktest.Dump(t)
 		require.FailNow(t, "recovery waited for a silent database past its connection deadline")
 	}
 }

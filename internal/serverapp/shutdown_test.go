@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/db"
@@ -46,6 +47,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 			case err := <-serverDone:
 				assert.NoError(t, err)
 			case <-time.After(15 * time.Second):
+				stacktest.Dump(t)
 				assert.Fail(t, "server did not stop after releasing the fixture lock")
 			}
 		}
@@ -114,6 +116,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 		require.NoError(t, response.err)
 		assert.Equal(t, http.StatusCreated, response.status, "%s", response.body)
 	case <-time.After(5 * time.Second):
+		stacktest.Dump(t)
 		require.FailNow(t, "ingest did not finish during the shutdown drain")
 	}
 	var stored int
@@ -124,6 +127,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 		serverStopped = true
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
+		stacktest.Dump(t)
 		require.FailNow(t, "server did not stop after the ingest completed")
 	}
 }
@@ -163,6 +167,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 			select {
 			case <-serverDone:
 			case <-time.After(10 * time.Second):
+				stacktest.Dump(t)
 				assert.Fail(t, "server did not stop after releasing the fixture lock")
 			}
 		}
@@ -210,6 +215,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 		serverStopped = true
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(12 * time.Second):
+		stacktest.Dump(t)
 		assert.Fail(t, "server shutdown left the HTTP database read running past its shutdown deadline")
 	}
 	// Cleanup releases the database lock even on failure, so this regression
@@ -219,6 +225,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	select {
 	case <-requestDone:
 	case <-time.After(5 * time.Second):
+		stacktest.Dump(t)
 		assert.Fail(t, "HTTP client did not finish after cleanup")
 	}
 }
@@ -277,6 +284,7 @@ func TestEngineCancelsPostgresLockWait(t *testing.T) {
 	case result := <-readDone:
 		require.ErrorIs(t, result.err, context.Canceled)
 	case <-time.After(5 * time.Second):
+		stacktest.Dump(t)
 		require.FailNow(t, "canceled Engine.Read still waits on PostgreSQL")
 	}
 	var otherStillBlocked bool
@@ -305,6 +313,7 @@ func TestEngineCancelsPostgresLockWait(t *testing.T) {
 			require.NoError(t, result.err)
 			require.Equal(t, int64(1), result.count)
 		case <-time.After(5 * time.Second):
+			stacktest.Dump(t)
 			require.FailNow(t, "reader did not finish after releasing the fixture lock")
 		}
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
@@ -432,6 +433,7 @@ func receiveSMTPMessage(t *testing.T, messages <-chan smtpTestMessage) smtpTestM
 	case message := <-messages:
 		return message
 	case <-time.After(2 * time.Second):
+		stacktest.Dump(t)
 		require.FailNow(t, "timed out waiting for SMTP message")
 		return smtpTestMessage{}
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/kit/objectstore"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -257,6 +258,7 @@ AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&r
 			select {
 			case readAfterGuardLoss = <-done:
 			case <-time.After(10 * time.Second):
+				stacktest.Dump(t)
 				require.FailNow(t, "the read did not stop after its guard session ended")
 			}
 			require.Error(t, readAfterGuardLoss)

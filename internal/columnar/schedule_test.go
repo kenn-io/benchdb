@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -420,6 +421,7 @@ FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
 					select {
 					case <-done:
 					case <-time.After(5 * time.Second):
+						stacktest.Dump(t)
 						assert.Fail(t, "maintenance did not stop after cancellation")
 					}
 				})
@@ -449,6 +451,7 @@ FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
 				select {
 				case <-done:
 				case <-time.After(time.Second):
+					stacktest.Dump(t)
 					require.FailNow(t, "cancellation must interrupt initialization backoff")
 				}
 			})
@@ -488,6 +491,7 @@ func TestLockedScheduleDoesNotHoldMaintenance(t *testing.T) {
 		case err := <-done:
 			return err
 		case <-time.After(limit):
+			stacktest.Dump(t)
 			require.NoError(t, locker.Rollback(ctx))
 			<-done
 			require.FailNow(t, "the call waited for the schedule lock past its deadline")
