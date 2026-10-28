@@ -2,6 +2,7 @@
   import { appURL } from "../base-path";
   import { onMount, untrack } from "svelte";
   import {
+    NumberInput,
     SelectDropdown,
     type SelectDropdownOption,
   } from "@kenn-io/kit-ui";
@@ -239,11 +240,10 @@
     );
   }
 
-  /** positive parses a threshold input; junk or non-positive values mean
-   * "back to the server default" (null), matching parseCompareQuery. */
-  function positive(value: string): number | null {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? n : null;
+  /** positive keeps a threshold the server should apply. An empty field or a
+   * non-positive number means the server default, matching parseCompareQuery. */
+  function positive(value: number | null): number | null {
+    return value !== null && Number.isFinite(value) && value > 0 ? value : null;
   }
 
   function countText(n: number, noun: string): string {
@@ -384,6 +384,7 @@
                 {#each commitChoices as c (c.resultId)}
                   <tr class:is-baseline={baselineID === c.resultId} class:is-contender={contenderID === c.resultId}>
                     <td data-label="baseline">
+                      <!-- kit-ui-check-ignore: baseline and contender are two choices in one commit table; RadioGroup is one short list -->
                       <input
                         type="radio"
                         class="pick base"
@@ -394,6 +395,7 @@
                       />
                     </td>
                     <td data-label="contender">
+                      <!-- kit-ui-check-ignore: baseline and contender are two choices in one commit table; RadioGroup is one short list -->
                       <input
                         type="radio"
                         class="pick cont"
@@ -528,22 +530,20 @@
     <section class="panel controls threshold-panel" aria-label="Threshold controls">
       <label>
         threshold %
-        <input
-          type="number"
-          min="0.1"
-          step="0.1"
+        <NumberInput
+          min={0.1}
+          step={0.1}
           value={query.threshold ?? 5}
-          onchange={(e) => setThreshold({ threshold: positive(e.currentTarget.value) })}
+          onchange={(value) => setThreshold({ threshold: positive(value) })}
         />
       </label>
       <label>
         threshold σ
-        <input
-          type="number"
-          min="0.1"
-          step="0.1"
+        <NumberInput
+          min={0.1}
+          step={0.1}
           value={query.thresholdZ ?? m.lookback?.z_threshold ?? 2}
-          onchange={(e) => setThreshold({ thresholdZ: positive(e.currentTarget.value) })}
+          onchange={(value) => setThreshold({ thresholdZ: positive(value) })}
         />
       </label>
     </section>
@@ -903,14 +903,8 @@
     text-transform: uppercase;
     letter-spacing: 0;
   }
-  .controls input {
-    font-size: 0.85rem;
-    padding: 0.25rem 0.4rem;
+  .controls :global(.kit-number-input) {
     width: 5rem;
-    border: 1px solid var(--c-control-border);
-    border-radius: 4px;
-    background: var(--c-bg-inset);
-    color: var(--c-text);
   }
   .sides-list {
     max-width: 100%;

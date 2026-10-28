@@ -406,7 +406,9 @@ describe("ComparePage", () => {
     mockHappy(REGRESSED, null);
     const { rerender } = render(ComparePage, { props: { query: QUERY } });
     await waitFor(() => screen.getByText("regressed"));
-    await fireEvent.change(screen.getByLabelText(/threshold σ/i), { target: { value: "3" } });
+    const zInput = screen.getByLabelText(/threshold σ/i);
+    await fireEvent.input(zInput, { target: { value: "3" } });
+    await fireEvent.blur(zInput);
     expect(window.location.search).toBe("?baseline=b1&contender=c1&threshold_z=3");
 
     GET.mockClear();
