@@ -212,3 +212,50 @@ AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND 
 	require.NoError(t, e.Close())
 	assert.Zero(t, underGuard.Load(), "pooled connections acquired while the startup guard was held")
 }
+
+// TestStartupOutlastsIdleSessionTimeout makes startup wait for its reader
+// guard longer than the application role's idle_session_timeout, as it does
+// while cleanup holds the reclamation lock. Startup must still bind storage
+// afterwards.
+func TestStartupOutlastsIdleSessionTimeout(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	const appName = "benchdb-startup-idle-test"
+	cfg := pool.Config()
+	cfg.ConnConfig.RuntimeParams["application_name"] = appName
+	cfg.ConnConfig.RuntimeParams["idle_session_timeout"] = "200ms"
+	// Discard pooled connections that the timeout has ended, as a long-lived
+	// application pool would after its health check.
+	cfg.ShouldPing = func(context.Context, pgxpool.ShouldPingParams) bool { return true }
+	app, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(app.Close)
+
+	cleanup, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer cleanup.Release()
+	_, err = cleanup.Exec(ctx, `SELECT pg_advisory_lock($1)`, reclamationLock)
+	require.NoError(t, err)
+	opened := make(chan error, 1)
+	go func() {
+		e, err := Open(ctx, app, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Settle: time.Nanosecond})
+		if err == nil {
+			err = e.Close()
+		}
+		opened <- err
+	}()
+	count := func(query string, args ...any) int {
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, query, args...).Scan(&n))
+		return n
+	}
+	require.Eventually(t, func() bool {
+		return count(`SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted
+AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND (classid::bigint<<32|objid::bigint)=$1`, reclamationLock) == 1
+	}, 30*time.Second, 10*time.Millisecond, "startup waits for its guard")
+	require.Eventually(t, func() bool {
+		return count(`SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1`, appName) == 0
+	}, 30*time.Second, 10*time.Millisecond, "the idle timeout ends every idle application session")
+	_, err = cleanup.Exec(ctx, `SELECT pg_advisory_unlock($1)`, reclamationLock)
+	require.NoError(t, err)
+	require.NoError(t, <-opened)
+}

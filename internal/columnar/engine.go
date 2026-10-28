@@ -464,23 +464,24 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 		return ctx.Err()
 	}
 	defer lock.Close()
-	// Reserve the application connection that binds storage before taking
-	// the reader guard, the order report finalization uses: its run lock, then
-	// a guard. Waiting for a pooled connection while holding the guard could
-	// wait on a finalization that is queued behind cleanup, which in turn
-	// waits for this guard.
-	conn, err := e.pg.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("reserve a database connection for archive startup: %w", err)
-	}
-	defer conn.Release()
 	var id string
-	if err := conn.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
+	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
 	}
 	if err := e.coord.checkSessionAffinity(ctx); err != nil {
 		return err
 	}
+	// Reserve the session that binds storage before taking the reader guard,
+	// the order report finalization uses: its run lock, then a guard. Waiting
+	// for a connection while holding the guard could wait on a finalization
+	// queued behind cleanup, which in turn waits for this guard. A
+	// maintenance session has no PostgreSQL idle timeout, so it survives a
+	// long wait for the guard; an application connection might not.
+	conn, err := e.coord.maintenance.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve archive maintenance session: %w", errors.Join(err, ctx.Err()))
+	}
+	defer conn.Release()
 	host, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("name archive cycle owner: %w", err)
@@ -521,7 +522,8 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 // is refused, unless checkRebind allows the move; the new namespace is then
 // claimed before the binding moves, so a refused claim leaves the database
 // bound as it was. Remote startup checks the marker, not every object. Every
-// binding query runs on conn, which startup reserved before its guard.
+// binding query runs on conn, an archive session that startup reserved before
+// its guard.
 func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64) error {
 	metadata, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
