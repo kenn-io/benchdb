@@ -687,14 +687,24 @@ func (e *Engine) recordClaim(ctx context.Context, conn *pgxpool.Conn, binding st
 	}
 	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
-	tag, err := conn.Exec(ctx, `UPDATE archive_storage SET claimed_at=coalesce(claimed_at,clock_timestamp()) WHERE id=$1 AND active`, binding.id)
+	// Only an unclaimed row is updated. Another startup can claim the binding
+	// first and start maintenance, which share-locks the row; updating it again
+	// would wait for that maintenance to finish.
+	tag, err := conn.Exec(ctx, `UPDATE archive_storage SET claimed_at=clock_timestamp() WHERE id=$1 AND active AND claimed_at IS NULL`, binding.id)
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == readOnlyTransaction {
 		return errors.New("the archive storage binding has not been claimed; start a writable BenchDB process before opening it read-only")
 	}
 	if err != nil {
 		return fmt.Errorf("record the archive storage claim: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var claimed bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM archive_storage WHERE id=$1 AND active AND claimed_at IS NOT NULL)`, binding.id).Scan(&claimed); err != nil {
+		return fmt.Errorf("read the archive storage claim: %w", err)
+	}
+	if !claimed {
 		return errBindingChanged
 	}
 	return nil

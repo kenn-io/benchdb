@@ -259,3 +259,30 @@ AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND 
 	require.NoError(t, err)
 	require.NoError(t, <-opened)
 }
+
+// TestLateClaimDoesNotWaitForMaintenance has another startup claim the
+// binding after this one read it as unclaimed, then start maintenance, which
+// share-locks the binding row. This startup's claim must accept the existing
+// one instead of waiting for maintenance to finish.
+func TestLateClaimDoesNotWaitForMaintenance(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	binding, err := activeStorage(ctx, pool, "")
+	require.NoError(t, err)
+	require.False(t, binding.claimed)
+
+	_, err = pool.Exec(ctx, `UPDATE archive_storage SET claimed_at=clock_timestamp() WHERE id=$1`, binding.id)
+	require.NoError(t, err)
+	maintenance, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = maintenance.Rollback(ctx) }()
+	_, err = maintenance.Exec(ctx, `SELECT active FROM archive_storage WHERE id=$1 FOR SHARE`, binding.id)
+	require.NoError(t, err)
+
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	// Well inside the claim's own metadata deadline.
+	quick, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	require.NoError(t, (&Engine{}).recordClaim(quick, conn, binding))
+}
