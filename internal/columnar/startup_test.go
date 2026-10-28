@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,8 +105,8 @@ VALUES ('result','run','series','2024-01-01',true)`)
 	}
 }
 
-// Pause just before the local startup sends its claim, allowing a real remote
-// startup to commit its rebind first. No database operation is replaced.
+// Pause just before the local startup sends its claim. No database operation
+// is replaced.
 type storageClaimTracer struct {
 	started chan struct{}
 	resume  chan struct{}
@@ -124,7 +125,10 @@ func (tr *storageClaimTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, 
 
 func (*storageClaimTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-func TestLocalStartupRejectsConcurrentRemoteRebind(t *testing.T) {
+// TestRemoteStartupWaitsForLocalClaim pauses a local startup just before it
+// records its claim. A remote startup of the same database waits for that
+// claim instead of moving the binding underneath it, then is refused.
+func TestRemoteStartupWaitsForLocalClaim(t *testing.T) {
 	r, ctx := newRemoteArchive(t)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -134,29 +138,34 @@ func TestLocalStartupRejectsConcurrentRemoteRebind(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	result := make(chan error, 1)
-	done := make(chan struct{})
-	dir := t.TempDir()
-	go func() {
-		defer close(done)
-		e, err := Open(ctx, pool, Config{Dir: dir, Readers: 1, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")})
+	open := func(pool *pgxpool.Pool, cfg Config, result chan<- error) {
+		e, err := Open(ctx, pool, cfg)
 		if e != nil {
-			_ = e.Close()
+			err = errors.Join(err, e.Close())
 		}
 		result <- err
-	}()
-	defer func() { cancel(); <-done }()
+	}
+	local, remote := make(chan error, 1), make(chan error, 1)
+	go open(pool, Config{Dir: t.TempDir(), Readers: 1, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")}, local)
 	select {
 	case <-tracer.started:
 	case <-ctx.Done():
 		require.NoError(t, ctx.Err(), "local startup must reach its storage claim")
 	}
-	r.open(t, ctx, r.config("archive", t.TempDir()))
+	remoteCfg := r.config("archive", t.TempDir())
+	remoteCfg.dialArchive = loopbackDial(t)
+	go open(r.pool, remoteCfg, remote)
+	require.Eventually(t, func() bool {
+		var waiting int
+		require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted
+AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND (classid::bigint<<32|objid::bigint)=$1`, bindingLock).Scan(&waiting))
+		return waiting == 1
+	}, 30*time.Second, 10*time.Millisecond, "the remote startup waits for the local claim")
 	close(tracer.resume)
-	err = <-result
-	require.ErrorIs(t, err, errBindingChanged)
+	require.NoError(t, <-local)
+	require.ErrorContains(t, <-remote, "the archive database is bound to")
 	backend, _, claimed := activeBinding(t, ctx, r.pool)
-	assert.Equal(t, backendS3, backend)
+	assert.Equal(t, backendFile, backend)
 	assert.True(t, claimed)
 }
 
