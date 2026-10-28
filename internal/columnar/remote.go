@@ -537,7 +537,16 @@ func (e *Engine) claimNamespace(ctx context.Context, id string, used bool) error
 	if err != nil {
 		return fmt.Errorf("list the configured archive namespace: %w", err)
 	}
+	// A concurrent first startup of this database can publish the marker after
+	// the first read, so it is read again before the namespace is refused.
 	if len(page.Objects) > 0 {
+		claimed, err := e.readMarker(ctx)
+		if err == nil {
+			return checkMarker(claimed, id)
+		}
+		if !errors.Is(err, objectstore.ErrNotFound) {
+			return err
+		}
 		return errors.New("the configured archive namespace is not empty and has no BenchDB dataset marker; choose an empty bucket prefix in BENCHDB_ARCHIVE_URL")
 	}
 	marker := []byte(id + "\n")
@@ -649,6 +658,11 @@ func (e *Engine) rebindStorage(ctx context.Context, conn *pgxpool.Conn, replaced
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	active, err := activeStorage(ctx, tx, " FOR UPDATE")
+	if err == nil && active != replaced && e.location.binds(active) {
+		// A concurrent startup already bound this location.
+		e.archive.storageID = active.id
+		return nil
+	}
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && active != replaced) {
 		return errBindingChanged
 	}

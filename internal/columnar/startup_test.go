@@ -1,7 +1,9 @@
 package columnar
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/objectstore"
 
 	"go.kenn.io/benchdb/internal/dbtest"
 )
@@ -285,4 +288,52 @@ func TestLateClaimDoesNotWaitForMaintenance(t *testing.T) {
 	quick, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	require.NoError(t, (&Engine{}).recordClaim(quick, conn, binding))
+}
+
+// TestConcurrentFirstRemoteStartups replays the steps of a second first
+// startup that read the database's state before the first one bound the same
+// remote location and published its dataset marker. The second must accept
+// both, and still refuse another database's marker.
+func TestConcurrentFirstRemoteStartups(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	location, err := parseArchiveLocation(Config{ArchiveURL: "s3://bucket/shared", S3Region: "us-east-1"})
+	require.NoError(t, err)
+	initial, err := activeStorage(ctx, pool, "")
+	require.NoError(t, err)
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	first, second := &Engine{location: location}, &Engine{location: location}
+	require.NoError(t, first.rebindStorage(ctx, conn, initial))
+	require.NoError(t, second.rebindStorage(ctx, conn, initial), "the second startup read the initial binding")
+	assert.Equal(t, first.archive.storageID, second.archive.storageID)
+
+	// The first startup published its marker after this one first read it,
+	// so the namespace listing finds it.
+	local, err := parseArchiveLocation(Config{Dir: t.TempDir()})
+	require.NoError(t, err)
+	objects, err := openArchiveObjects(ctx, local, nil)
+	require.NoError(t, err)
+	marker := []byte("dataset-id\n")
+	_, err = objects.Publish(ctx, datasetMarker, bytes.NewReader(marker), int64(len(marker)), sha256.Sum256(marker))
+	require.NoError(t, err)
+	e := &Engine{objects: &lateMarkerSeam{archiveObjects: objects}}
+	require.NoError(t, e.claimNamespace(ctx, "dataset-id", false))
+	e = &Engine{objects: &lateMarkerSeam{archiveObjects: objects}}
+	require.ErrorContains(t, e.claimNamespace(ctx, "other-id", false), "different database")
+}
+
+// lateMarkerSeam hides the dataset marker from its first inspection, as
+// though another startup published it just after.
+type lateMarkerSeam struct {
+	archiveObjects
+	inspected bool
+}
+
+func (s *lateMarkerSeam) Inspect(ctx context.Context, key string) (objectstore.Metadata, error) {
+	if key == datasetMarker && !s.inspected {
+		s.inspected = true
+		return objectstore.Metadata{}, objectstore.ErrNotFound
+	}
+	return s.archiveObjects.Inspect(ctx, key)
 }
