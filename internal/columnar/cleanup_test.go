@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -77,6 +78,7 @@ NULL::VARCHAR AS error, NULL::VARCHAR AS commit_id FROM range(2) t(i)) TO `+lite
 				select {
 				case <-ready:
 				case <-ctx.Done():
+					stacktest.Dump(t)
 					require.FailNow(t, "reader did not start", "%v", ctx.Err())
 				}
 			}
@@ -211,6 +213,7 @@ func TestArchiveCleanupAllowsFinalizationWithExhaustedPool(t *testing.T) {
 	select {
 	case <-tracer.runStarted:
 	case <-ctx.Done():
+		stacktest.Dump(t)
 		require.FailNow(t, "finalization did not acquire its PostgreSQL transaction")
 	}
 	require.EqualValues(t, 1, pool.Stat().AcquiredConns())
