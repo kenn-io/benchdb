@@ -1042,8 +1042,11 @@ func recentRunIDs(ctx context.Context, q *Queries, p storage.RecentRunsParams) (
 	return ids, nil
 }
 
-// SelectRepositories returns every repository with benchmark commits, most
-// recently active first.
+// SelectRepositories returns every repository with a live result in hot
+// storage, the backlog, or the archive. It reads run_membership, so the
+// archived Store serves it from PostgreSQL without opening a fact file. Order:
+// latest commit timestamp of the repository, newest first, then name;
+// repositories without a timestamped commit sort last by name.
 func (s *Store) SelectRepositories(ctx context.Context) ([]storage.RepositoryRow, error) {
 	rows, err := s.q.SelectRepositories(ctx)
 	if err != nil {

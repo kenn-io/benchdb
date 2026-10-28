@@ -43,6 +43,38 @@ enable remote storage or change physical file cleanup. Logical file IDs and
 lookup catalogs are populated by later maintenance, rather than during the
 schema migration.
 
+The first maintenance cycles after the upgrade build lookup catalogs for every
+existing archive file. Each cycle starts new build steps for up to 15 minutes
+before its export, and the build resumes where it stopped after a restart.
+It sorts lookup entries in `BENCHDB_DATA_DIR/.lookup-backfill`, so budget
+local disk for about twice the size of the finished lookup catalogs. Once the
+build starts uploading catalogs, that cycle continues until it installs them
+and retires the lookup files written since the upgrade. A failed upload is
+retried in the next cycle. If the server restarts while catalogs are being
+uploaded, the next build uploads all of them again, and the earlier copies
+are kept as orphans for the `BENCHDB_ARCHIVE_RETENTION` window, so leave
+archive space for one extra copy of the catalogs. Later steps index the
+files exported during the build, then mark the catalogs complete and remove
+the directory. PostgreSQL records which of these files are indexed, so after
+a database restore the build indexes again any file the restore rolled back.
+Each sorted run records the archive file it read. When a restore points a file
+back to an older copy, the build sorts that file again, or indexes it again
+before it marks the catalogs complete. When a restore brings back an archive
+file that the build never listed, such as one whose rows were all deleted when
+the build started, the build starts again from the beginning.
+A failed build step is logged and fails the cycle in the
+`catalogs` phase, but the cycle still exports, compacts, and cleans up.
+Removing the directory while BenchDB is stopped restarts the build from the
+beginning. BenchDB does the same, with a warning, when it cannot read a file
+in the directory, for example one written by an earlier version.
+
+**Archive cleanup now waits for `BENCHDB_ARCHIVE_RETENTION`.** Until you set
+it, the server keeps every retired and orphaned Parquet file, logs a warning
+at startup and in each maintenance cycle, and disk usage grows. Choose a value
+that covers your oldest restorable database backup plus restore time, such as
+`864h` for 35 days of backups, and budget volume space for the retained files
+before upgrading. See [retention](storage-roadmap.md#retention-and-reclamation).
+
 Retirement deadlines start when a later transaction observes committed
 retirement using PostgreSQL's wall clock. A retention increase extends existing
 promises; a decrease or pause preserves them. These records, object receipts,

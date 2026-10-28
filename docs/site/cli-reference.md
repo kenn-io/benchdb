@@ -322,6 +322,21 @@ least one usable token, or all of `BENCHDB_COMMIT_GITHUB_APP_ID`,
 `BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID`, and
 `BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE`. Setting both is an error.
 
+### `benchdb admin archive recover-staging`
+
+Remove staging files that a crashed publisher left in the local archive:
+
+```bash
+benchdb admin archive recover-staging
+```
+
+The command takes no flags. It prints the number of files removed and the bytes
+reclaimed. It needs the server's `BENCHDB_DB_URL` and `BENCHDB_DATA_DIR`, and it
+creates no files, so it runs on a full volume. It fails while another process
+owns archive maintenance. See
+[Recover staging files after a crash](operations.md#recover-staging-files-after-a-crash)
+for when to run it.
+
 ### `benchdb admin alerts sync`
 
 Make one account's alert rules match a JSON file:

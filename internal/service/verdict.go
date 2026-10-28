@@ -244,11 +244,5 @@ func runAttention(
 	if err != nil {
 		return nil, ciReportBaselineDependency{}, fmt.Errorf("evaluate CI report: %w", err)
 	}
-	var dependency ciReportBaselineDependency
-	for _, run := range report.Runs {
-		if run.RunID == runID {
-			dependency = run.baselineDependency
-		}
-	}
-	return recentRunAttentionFromReport(report), dependency, nil
+	return recentRunAttentionFromReport(report), report.baselineDependencies[runID], nil
 }

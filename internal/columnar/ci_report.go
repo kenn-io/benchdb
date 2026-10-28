@@ -3,6 +3,7 @@ package columnar
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -18,14 +19,27 @@ func scanCIRun(row rowScanner) (out storage.CIReportRunRow, err error) {
 	return
 }
 
-func (s *Store) SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) ([]storage.CIReportRunRow, error) {
-	return readRows(ctx, s, `SELECT DISTINCT `+ciRunColumns+`
+// SelectCIReportRunsByCommits resolves the commits in PostgreSQL, then reads
+// the files whose commit membership includes them.
+func (s *Store) SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) (out []storage.CIReportRunRow, err error) {
+	err = s.pinned(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
+		commits, err := collectRows(ctx, snapshot, `SELECT id FROM "commit" WHERE repository=$1 AND sha IN (SELECT unnest($2::VARCHAR[]))`, []any{repository, shas}, scanString)
+		if err != nil {
+			return err
+		}
+		if err := snapshot.selectFacts(ctx, queryScope{CommitIDs: commits}); err != nil {
+			return err
+		}
+		out, err = collectRows(ctx, snapshot, `SELECT DISTINCT `+ciRunColumns+`
 FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
 WHERE c.repository=$1 AND c.sha IN (SELECT unnest($2::VARCHAR[])) ORDER BY br.run_id,c.id`, []any{repository, shas}, scanCIRun)
+		return err
+	})
+	return
 }
 
 func (s *Store) SelectCIReportRunsByIDs(ctx context.Context, runIDs []string) ([]storage.CIReportRunRow, error) {
-	return readRows(ctx, s, `SELECT DISTINCT `+ciRunColumns+`
+	return readRows(ctx, s, queryScope{RunIDs: runIDs}, `SELECT DISTINCT `+ciRunColumns+`
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id
 WHERE br.run_id IN (SELECT unnest($1::VARCHAR[])) ORDER BY br.run_id`, []any{runIDs}, scanCIRun)
 }
@@ -39,12 +53,14 @@ func scanCICommit(row rowScanner) (out storage.CIReportCommitRow, err error) {
 
 // Finalization must select baseline metadata from the same snapshot as facts.
 // postgres_query keeps these indexed lookups in PostgreSQL, including recursion.
+// Metadata reads select no facts, and outside finalization they use
+// PostgreSQL without an analytical reader.
 func (s *Store) GetCIReportCommit(ctx context.Context, repository, sha string) (storage.CIReportCommitRow, error) {
 	if s.snapshot == nil {
 		return s.Store.GetCIReportCommit(ctx, repository, sha)
 	}
 	query := `SELECT ` + ciCommitColumns + ` FROM "commit" WHERE repository=` + literal(repository) + ` AND sha=` + literal(sha)
-	return readOne(ctx, s, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
+	return scanOne(ctx, s.snapshot, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
 }
 
 func (s *Store) SelectLatestDefaultCommit(ctx context.Context, repository string) (storage.CIReportCommitRow, error) {
@@ -53,7 +69,7 @@ func (s *Store) SelectLatestDefaultCommit(ctx context.Context, repository string
 	}
 	query := `SELECT ` + ciCommitColumns + ` FROM "commit" WHERE repository=` + literal(repository) + `
 AND sha=fork_point_sha AND "timestamp" IS NOT NULL ORDER BY "timestamp" DESC,sha DESC LIMIT 1`
-	return readOne(ctx, s, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
+	return scanOne(ctx, s.snapshot, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
 }
 
 func (s *Store) SelectCIReportBaselineAncestry(ctx context.Context, repository, sha string, limit int32) ([]storage.CIReportCommitRow, error) {
@@ -68,7 +84,7 @@ SELECT c.id,c.sha,c.repository,c.parent,c.fork_point_sha,c."timestamp",c.message
 FROM ancestry a JOIN "commit" c ON c.repository=a.repository AND c.sha=a.parent
 WHERE a.depth<%d)
 SELECT `+ciCommitColumns+` FROM ancestry ORDER BY depth`, literal(repository), literal(sha), limit, limit)
-	return readRows(ctx, s, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
+	return collectRows(ctx, s.snapshot, `SELECT * FROM postgres_query('pg',`+literal(query)+`)`, nil, scanCICommit)
 }
 
 func ciRunKeys(runs []storage.CIReportRunKey) ([]string, []string) {
@@ -81,14 +97,14 @@ func ciRunKeys(runs []storage.CIReportRunKey) ([]string, []string) {
 
 func (s *Store) CountCIReportRows(ctx context.Context, runs []storage.CIReportRunKey) (int64, error) {
 	ids, commits := ciRunKeys(runs)
-	return readOne(ctx, s, `WITH selected AS (
+	return readOne(ctx, s, queryScope{RunIDs: ids}, `WITH selected AS (
 SELECT unnest($1::VARCHAR[]) AS run_id,unnest($2::VARCHAR[]) AS commit_id)
 SELECT count(*) FROM benchmark_result br JOIN selected s ON s.run_id=br.run_id AND s.commit_id=br.commit_id`, []any{ids, commits}, scanCount)
 }
 
 func (s *Store) SelectCIReportCandidateRows(ctx context.Context, runs []storage.CIReportRunKey) ([]storage.CIReportCandidateRow, error) {
 	ids, commits := ciRunKeys(runs)
-	return readRows(ctx, s, `WITH selected AS (
+	return readRows(ctx, s, queryScope{RunIDs: ids}, `WITH selected AS (
 SELECT unnest($1::VARCHAR[]) AS run_id,unnest($2::VARCHAR[]) AS commit_id)
 SELECT br.run_id,br.commit_id,br.history_fingerprint,max(br."timestamp")
 FROM benchmark_result br JOIN selected s ON s.run_id=br.run_id AND s.commit_id=br.commit_id
@@ -105,7 +121,7 @@ func (s *Store) SelectCIReportRows(ctx context.Context, runs, baselineRuns []sto
 	// Carry only selected runs' payloads into the dimension joins. Joining
 	// selected IDs back to the archive lets remote cardinality estimates turn
 	// a small report into a payload hash build over every archived result.
-	return readRows(ctx, s, `WITH contenders AS (
+	return readRows(ctx, s, queryScope{RunIDs: append(slices.Clone(ids), baselineIDs...)}, `WITH contenders AS (
 SELECT unnest($1::VARCHAR[]) AS run_id,unnest($2::VARCHAR[]) AS commit_id),
 baselines AS (SELECT unnest($3::VARCHAR[]) AS run_id,unnest($4::VARCHAR[]) AS commit_id),
 contender_results AS MATERIALIZED (
@@ -140,18 +156,37 @@ ORDER BY br.side_order,br.run_id,br.history_fingerprint,br."timestamp",br.id`,
 		})
 }
 
-func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, historySince *time.Time) ([]string, error) {
-	return readRows(ctx, s, `SELECT DISTINCT br.run_id FROM benchmark_result br
+// SelectRepositoryVerdictRuns discovers the repository's archived runs since
+// the cutoff from the run summaries, then reads only those runs' facts. With
+// historySince, it keeps only runs whose verdict read history committed at or
+// after it, could not bound its baseline search, or is missing.
+func (s *Store) SelectRepositoryVerdictRuns(ctx context.Context, repository string, since time.Time, historySince *time.Time) (out []string, err error) {
+	err = s.pinned(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
+		if err := snapshot.runSummaries(ctx); err != nil {
+			return err
+		}
+		runs, err := collectRows(ctx, snapshot, `SELECT DISTINCT run_id FROM archive_run_catalog
+WHERE commit_repo_url=$1 AND last_result_at>=$2`, []any{repository, since}, scanString)
+		if err != nil {
+			return err
+		}
+		if err := snapshot.selectFacts(ctx, queryScope{RunIDs: runs}); err != nil {
+			return err
+		}
+		out, err = collectRows(ctx, snapshot, `SELECT DISTINCT br.run_id FROM benchmark_result br
 LEFT JOIN "commit" c ON c.id=br.commit_id
 LEFT JOIN run_verdict v ON v.run_id=br.run_id AND v.repository=br.commit_repo_url
 WHERE br.commit_repo_url=$1 AND br."timestamp">=$2
 AND (c.id IS NULL OR c.sha IS DISTINCT FROM c.fork_point_sha)
 AND ($3::TIMESTAMP IS NULL OR v.run_id IS NULL OR v.baseline_commit_ids IS NULL
      OR v.history_until>=$3::TIMESTAMP)`, []any{repository, since, historySince}, scanString)
+		return err
+	})
+	return
 }
 
 func (s *Store) SelectRunVerdictSubjects(ctx context.Context, runID string) ([]storage.RunVerdictSubject, error) {
-	return readRows(ctx, s, `SELECT br.commit_repo_url,c.sha,coalesce(c.sha=c.fork_point_sha,false),br."timestamp",br.id
+	return readRows(ctx, s, queryScope{RunIDs: []string{runID}}, `SELECT br.commit_repo_url,c.sha,coalesce(c.sha=c.fork_point_sha,false),br."timestamp",br.id
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.run_id=$1
 QUALIFY row_number() OVER (PARTITION BY br.commit_repo_url ORDER BY br."timestamp" DESC,br.id DESC)=1
 ORDER BY br.commit_repo_url`, []any{runID}, func(row rowScanner) (out storage.RunVerdictSubject, err error) {
@@ -161,7 +196,7 @@ ORDER BY br.commit_repo_url`, []any{runID}, func(row rowScanner) (out storage.Ru
 }
 
 func (s *Store) SelectCommitVerdictSubjects(ctx context.Context, commitID string) ([]storage.CommitVerdictSubject, error) {
-	return readRows(ctx, s, `SELECT DISTINCT run_id,benchmark_id,commit_repo_url FROM benchmark_result WHERE commit_id=$1`, []any{commitID}, func(row rowScanner) (out storage.CommitVerdictSubject, err error) {
+	return readRows(ctx, s, queryScope{CommitIDs: []string{commitID}}, `SELECT DISTINCT run_id,benchmark_id,commit_repo_url FROM benchmark_result WHERE commit_id=$1`, []any{commitID}, func(row rowScanner) (out storage.CommitVerdictSubject, err error) {
 		err = row.Scan(&out.RunID, &out.BenchmarkID, &out.Repository)
 		return
 	})

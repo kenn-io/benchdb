@@ -24,11 +24,27 @@ RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -o /out/benchdb ./cmd/benchdb
 RUN scripts/install_duckdb_extensions.sh /out/duckdb/extensions
 
-FROM debian:bookworm-slim
+# Only the extension-check target builds this test binary.
+FROM go-build AS extension-check-build
+RUN CGO_ENABLED=1 go test -c -o /out/columnar.test ./internal/columnar
+
+FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -m 0700 -o 65532 -g 65532 /var/lib/benchdb
+
+# Loads the image's packaged DuckDB extensions with networking disabled and
+# reads S3 and GCS objects from a loopback service through them. Build it
+# with --target extension-check; the final image does not contain the test.
+FROM runtime AS extension-check
+COPY --from=go-build /out/duckdb/extensions /usr/local/share/benchdb/duckdb/extensions
+COPY --from=extension-check-build /out/columnar.test /usr/local/bin/columnar.test
+ENV BENCHDB_DUCKDB_EXTENSION_DIR=/usr/local/share/benchdb/duckdb/extensions
+USER 65532:65532
+RUN --network=none ["/usr/local/bin/columnar.test", "-test.run", "^TestPackagedExtensionsLoadOffline$"]
+
+FROM runtime
 
 COPY --from=go-build /out/benchdb /usr/local/bin/benchdb
 COPY --from=go-build /out/duckdb/extensions /usr/local/share/benchdb/duckdb/extensions

@@ -16,7 +16,7 @@ import (
 
 func TestArchiveCompactionAccumulatesSmallArrivals(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Retention: immediateRetention})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	// Publish real synthetic files to exercise the default million-row target
@@ -63,6 +63,9 @@ VALUES('compaction-0000000','2024-01-01','compaction','fp','{"approved":true}')`
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM result_mutation`).Scan(&mutations))
 	assert.Zero(t, mutations, "the annotation is baked independently of small-file accumulation")
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if err := tx.selectFacts(ctx, queryScope{ResultIDs: []string{"compaction-0000000"}}); err != nil {
+			return err
+		}
 		var annotations string
 		if err := tx.QueryRowContext(ctx, `SELECT change_annotations FROM benchmark_result WHERE id='compaction-0000000'`).Scan(&annotations); err != nil {
 			return err
@@ -85,6 +88,9 @@ VALUES('compaction-0000000','2024-01-01','compaction','fp','{"approved":true}')`
 	require.NoError(t, err)
 	assert.Len(t, paths, 1, "maintenance removes the retired input files")
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
+		if err := tx.selectFacts(ctx, queryScope{AllFacts: true}); err != nil {
+			return err
+		}
 		var count, distinct, nullSamples int64
 		var sum float64
 		if err := tx.QueryRowContext(ctx, `SELECT count(*),count(DISTINCT id),sum(data[1]),count(*) FILTER(WHERE data[2] IS NULL) FROM benchmark_result`).Scan(&count, &distinct, &sum, &nullSamples); err != nil {
@@ -100,7 +106,7 @@ VALUES('compaction-0000000','2024-01-01','compaction','fp','{"approved":true}')`
 
 func TestArchiveCompactionFillsTargetBesideTinyFile(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 10, TargetRows: 100})
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, BatchRows: 10, TargetRows: 100, Retention: immediateRetention})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	for i, count := range []int{1, 50, 50} {

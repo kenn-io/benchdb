@@ -8,39 +8,6 @@ import (
 	"go.kenn.io/benchdb/internal/storage"
 )
 
-// Catalog membership includes ineligible history groups so edits to commits or
-// annotations can still find every file that contributes to a series.
-func catalogFiles(ctx context.Context, q queryer, files []archiveFile, pathsQuery string, args []any) ([]archiveFile, error) {
-	paths, err := collectRows(ctx, q, pathsQuery, args, scanString)
-	if err != nil {
-		return nil, err
-	}
-	selected := make(map[string]bool, len(paths))
-	for _, path := range paths {
-		selected[path] = true
-	}
-	out := make([]archiveFile, 0, len(paths))
-	for _, file := range files {
-		if selected[file.Path] {
-			out = append(out, file)
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) seriesSource(ctx context.Context, q queryer, fingerprints []string) (string, error) {
-	files, err := s.engine.manifest(ctx, q)
-	if err != nil {
-		return "", err
-	}
-	files, err = catalogFiles(ctx, q, files, `SELECT DISTINCT archive_path FROM archive_series_catalog
-WHERE history_fingerprint IN (SELECT unnest($1::VARCHAR[]))`, []any{fingerprints})
-	if err != nil {
-		return "", err
-	}
-	return s.engine.logicalSource(files, true)
-}
-
 const affectedSeriesSQL = `SELECT history_fingerprint FROM pg.public.result_mutation
 UNION SELECT c.history_fingerprint FROM archive_series_catalog c
 JOIN archive_stale_series s ON s.archive_path=c.archive_path`
@@ -58,13 +25,13 @@ GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commi
 
 func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParams) (out []storage.SeriesPageRow, err error) {
 	out = []storage.SeriesPageRow{}
-	err = s.read(ctx, func(ctx context.Context, q queryer) error {
-		files, err := s.engine.manifest(ctx, q)
-		if err != nil {
+	err = s.pinned(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
+		// Summaries describe unaffected series. Mutated or stale series are
+		// recomputed from their own facts; hot rows read no archive file.
+		if err := snapshot.seriesSummaries(ctx); err != nil {
 			return err
 		}
-		affectedFiles, err := catalogFiles(ctx, q, files, `SELECT DISTINCT archive_path FROM archive_series_catalog
-WHERE history_fingerprint IN (`+affectedSeriesSQL+`)`, nil)
+		affected, err := collectRows(ctx, snapshot, `SELECT DISTINCT history_fingerprint FROM (`+affectedSeriesSQL+`)`, nil, scanString)
 		if err != nil {
 			return err
 		}
@@ -74,18 +41,18 @@ WHERE history_fingerprint IN (`+affectedSeriesSQL+`)`, nil)
 		}
 		groups := `SELECT ` + seriesGroupColumns + ` FROM archive_series_catalog
 WHERE history_fingerprint NOT IN (` + affectedSeriesSQL + `) UNION ALL ` + seriesGroupsSQL(hot, "true")
-		if len(affectedFiles) > 0 {
-			cold, err := s.engine.logicalSource(affectedFiles, false)
-			if err != nil {
-				return err
-			}
+		cold, err := snapshot.archivedFacts(ctx, queryScope{Fingerprints: affected})
+		if err != nil {
+			return err
+		}
+		if cold != "" {
 			groups += ` UNION ALL ` + seriesGroupsSQL(cold, `br.history_fingerprint IN (`+affectedSeriesSQL+`)`)
 		}
 		type selectedSeries struct {
 			fingerprint, id string
 			count           int64
 		}
-		page, err := collectRows(ctx, q, `WITH groups AS MATERIALIZED (`+groups+`), latest AS (
+		page, err := collectRows(ctx, snapshot, `WITH groups AS MATERIALIZED (`+groups+`), latest AS (
 SELECT m.history_fingerprint,arg_max(m.latest_result_id,(m.commit_timestamp,m.latest_result_id)) AS id,
 max(m.commit_timestamp) AS commit_timestamp
 FROM groups m JOIN "case" cs ON cs.id=m.case_id JOIN hardware hw ON hw.id=m.hardware_id
@@ -104,27 +71,22 @@ GROUP BY p.history_fingerprint,p.id,p.commit_timestamp ORDER BY p.commit_timesta
 		if err != nil || len(page) == 0 {
 			return err
 		}
-		fingerprints := make([]string, len(page))
+		latestIDs := make([]string, len(page))
 		ids := make([]string, len(page))
 		values := make([]string, len(page))
 		for i, item := range page {
-			fingerprints[i] = item.fingerprint
+			latestIDs[i] = item.id
 			ids[i] = literal(item.id)
 			values[i] = fmt.Sprintf("(%s,%s,%d::BIGINT)", literal(item.fingerprint), literal(item.id), item.count)
 		}
-		selectedFiles, err := catalogFiles(ctx, q, files, `SELECT DISTINCT archive_path FROM archive_series_catalog
-WHERE history_fingerprint IN (SELECT unnest($1::VARCHAR[]))`, []any{fingerprints})
-		if err != nil {
+		// Only the page's latest results carry measurements into the answer.
+		if err := snapshot.selectFacts(ctx, queryScope{ResultIDs: latestIDs}); err != nil {
 			return err
 		}
-		source, err := s.engine.logicalSource(selectedFiles, true)
-		if err != nil {
-			return err
-		}
-		out, err = collectRows(ctx, q, `SELECT p.history_fingerprint,p.id,br."timestamp",c.sha,c."timestamp",br.commit_repo_url,
+		out, err = collectRows(ctx, snapshot, `SELECT p.history_fingerprint,p.id,br."timestamp",c.sha,c."timestamp",br.commit_repo_url,
 br.unit,br.data,p.point_count,cs.name,cs.tags,ctx.tags,hw.id,hw.name,hw.type,hw.hash
 FROM (VALUES `+strings.Join(values, ",")+`) p(history_fingerprint,id,point_count)
-JOIN (SELECT * FROM (`+source+`) WHERE id IN (`+strings.Join(ids, ",")+`)) br ON br.id=p.id
+JOIN (SELECT * FROM benchmark_result WHERE id IN (`+strings.Join(ids, ",")+`)) br ON br.id=p.id
 JOIN "commit" c ON c.id=br.commit_id JOIN "case" cs ON cs.id=br.case_id
 JOIN context ctx ON ctx.id=br.context_id JOIN hardware hw ON hw.id=br.hardware_id
 ORDER BY c."timestamp" DESC,p.history_fingerprint DESC`, nil, scanSeriesPage)

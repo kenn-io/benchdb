@@ -30,7 +30,8 @@ func (e *Engine) StorageStatus(ctx context.Context) (storage.StorageStatus, erro
 pg_database_size(current_database()),
 (SELECT coalesce(sum(n_live_tup),0)::bigint FROM pg_stat_all_tables WHERE schemaname='public' AND relname IN ('benchmark_result','benchmark_result_backlog')),
 coalesce(sum(row_count),0)::bigint, coalesce(sum(byte_size),0)::bigint, count(*),
-coalesce(sum(runs_bytes + series_bytes),0)::bigint, count(*) * 2,
+coalesce(sum(runs_bytes + series_bytes),0)::bigint + (SELECT coalesce(sum(byte_size),0)::bigint FROM archive_lookup_segment),
+count(*) * 2 + (SELECT count(*) FROM archive_lookup_segment),
 (SELECT count(*) FROM result_mutation),
 (SELECT count(*) FROM (`+staleCatalogSQL+`) stale)
 FROM archive_file`).Scan(&sample.PostgresBytes, &sample.PendingRowsEstimate, &sample.ArchivedRows,
@@ -39,7 +40,13 @@ FROM archive_file`).Scan(&sample.PostgresBytes, &sample.PendingRowsEstimate, &sa
 		if err != nil {
 			return storage.StorageStatus{}, fmt.Errorf("measure storage metadata: %w", err)
 		}
-		volume, err := disk.UsageWithContext(ctx, e.cfg.Dir)
+		// A local archive's capacity is where its files live; a remote
+		// archive's is the working directory that caches it.
+		volumeDir := e.cfg.Dir
+		if e.location.backend == backendFile {
+			volumeDir = e.location.root
+		}
+		volume, err := disk.UsageWithContext(ctx, volumeDir)
 		if err != nil {
 			return storage.StorageStatus{}, fmt.Errorf("measure archive volume: %w", err)
 		}

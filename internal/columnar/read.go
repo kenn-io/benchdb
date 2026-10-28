@@ -11,15 +11,21 @@ import (
 
 type rowScanner interface{ Scan(...any) error }
 
-func readOne[T any](ctx context.Context, s *Store, query string, args []any, scan func(rowScanner) (T, error)) (out T, err error) {
-	err = s.read(ctx, func(ctx context.Context, q queryer) error {
-		out, err = scan(q.QueryRowContext(ctx, query, args...))
+func readOne[T any](ctx context.Context, s *Store, scope queryScope, query string, args []any, scan func(rowScanner) (T, error)) (out T, err error) {
+	err = s.read(ctx, scope, func(ctx context.Context, q queryer) error {
+		out, err = scanOne(ctx, q, query, args, scan)
 		return err
 	})
+	return
+}
+
+// scanOne reads one row, mapping no rows to storage.ErrNotFound.
+func scanOne[T any](ctx context.Context, q queryer, query string, args []any, scan func(rowScanner) (T, error)) (T, error) {
+	out, err := scan(q.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotFound
 	}
-	return
+	return out, err
 }
 
 func collectRows[T any](ctx context.Context, q queryer, query string, args []any, scan func(rowScanner) (T, error)) ([]T, error) {
@@ -39,8 +45,8 @@ func collectRows[T any](ctx context.Context, q queryer, query string, args []any
 	return out, rows.Err()
 }
 
-func readRows[T any](ctx context.Context, s *Store, query string, args []any, scan func(rowScanner) (T, error)) (out []T, err error) {
-	err = s.read(ctx, func(ctx context.Context, q queryer) error {
+func readRows[T any](ctx context.Context, s *Store, scope queryScope, query string, args []any, scan func(rowScanner) (T, error)) (out []T, err error) {
+	err = s.read(ctx, scope, func(ctx context.Context, q queryer) error {
 		out, err = collectRows(ctx, q, query, args, scan)
 		return err
 	})
@@ -121,8 +127,9 @@ func (s stringList) Scan(value any) error {
 func scanString(row rowScanner) (value string, err error) { err = row.Scan(&value); return }
 func scanCount(row rowScanner) (value int64, err error)   { err = row.Scan(&value); return }
 
+// CountBenchmarkResults counts every visible result, so it reads every file.
 func (s *Store) CountBenchmarkResults(ctx context.Context) (int64, error) {
-	return readOne(ctx, s, `SELECT count(*) FROM benchmark_result`, nil, scanCount)
+	return readOne(ctx, s, queryScope{AllFacts: true}, `SELECT count(*) FROM benchmark_result`, nil, scanCount)
 }
 
 const resultColumns = `id, case_id, context_id, info_id, hardware_id,
@@ -142,11 +149,11 @@ func scanResult(row rowScanner) (out storage.BenchmarkResult, err error) {
 }
 
 func (s *Store) GetBenchmarkResultByID(ctx context.Context, id string) (storage.BenchmarkResult, error) {
-	return readOne(ctx, s, `SELECT `+resultColumns+` FROM benchmark_result WHERE id=$1`, []any{id}, scanResult)
+	return readOne(ctx, s, queryScope{ResultIDs: []string{id}}, `SELECT `+resultColumns+` FROM benchmark_result WHERE id=$1`, []any{id}, scanResult)
 }
 
 func (s *Store) GetBenchmarkResultDetail(ctx context.Context, id string) (storage.ResultDetailRow, error) {
-	return readOne(ctx, s, `SELECT br.id, br.run_id, br.run_tags, br.run_reason, br.batch_id,
+	return readOne(ctx, s, queryScope{ResultIDs: []string{id}}, `SELECT br.id, br.run_id, br.run_tags, br.run_reason, br.batch_id,
 br."timestamp", br.commit_repo_url, br.history_fingerprint, br.unit, br.time_unit, br.iterations,
 br.error, br.data, br.times, br.mean, br.min, br.max, br.median, br.q1, br.q3, br.stdev, br.iqr,
 br.validation, br.optional_benchmark_info, br.change_annotations,
@@ -168,7 +175,7 @@ WHERE br.id=$1`, []any{id}, func(row rowScanner) (out storage.ResultDetailRow, e
 }
 
 func (s *Store) GetResultForCompare(ctx context.Context, id string) (storage.CompareResultRow, error) {
-	return readOne(ctx, s, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
+	return readOne(ctx, s, queryScope{ResultIDs: []string{id}}, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
 br.error,br.optional_benchmark_info,br.commit_id,c."timestamp"
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.id=$1`, []any{id}, func(row rowScanner) (out storage.CompareResultRow, err error) {
 		err = row.Scan(&out.ID, &out.RunID, &out.HistoryFingerprint, &out.Unit, nullableFloats{&out.Data},
@@ -178,11 +185,11 @@ FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.id=$
 }
 
 func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string, error) {
-	return readRows(ctx, s, `SELECT id FROM benchmark_result WHERE run_id=$1 ORDER BY id`, []any{runID}, scanString)
+	return readRows(ctx, s, queryScope{RunIDs: []string{runID}}, `SELECT id FROM benchmark_result WHERE run_id=$1 ORDER BY id`, []any{runID}, scanString)
 }
 
 func (s *Store) SelectResultsForCompare(ctx context.Context, ids []string) ([]storage.CompareResultRow, error) {
-	return readRows(ctx, s, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
+	return readRows(ctx, s, queryScope{ResultIDs: ids}, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
 br.error,br.optional_benchmark_info,br.commit_id,c."timestamp"
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id
 WHERE br.id IN (SELECT unnest($1::VARCHAR[]))`, []any{ids}, func(row rowScanner) (out storage.CompareResultRow, err error) {

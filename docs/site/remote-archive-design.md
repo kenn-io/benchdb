@@ -1,9 +1,14 @@
 # Remote archive storage design
 
 This is the proposed extension to [managed Parquet storage](storage-roadmap.md).
-It is not implemented. Operators will be able to keep the authoritative
-measurement files and catalogs in a local directory, S3, or Google Cloud
-Storage (GCS), while BenchDB continues to manage them on its hourly schedule.
+It is partly implemented: [Operations](operations.md#configuration) lists the
+archive settings that exist. S3 and GCS are not yet supported for production:
+archive transfer and provider contract tests remain. Remote reads and
+maintenance units stop at their deadlines, including requests DuckDB makes
+itself. Operators will be
+able to keep the authoritative measurement files and catalogs in a local
+directory, S3, or Google Cloud Storage (GCS), while BenchDB continues to manage
+them on its hourly schedule.
 
 The purpose is to remove the requirement that a server's local volume hold
 the full history. PostgreSQL remains the authority for which objects belong
@@ -214,11 +219,11 @@ See [DuckDB's PostgreSQL connection pool](https://duckdb.org/docs/current/core_e
 
 ### File selection before remote reads
 
-Remote storage must not ship with the current default view over every fact
-file. `Engine.Read` currently creates that view before the callback; only the
-series and recent-runs paths explicitly narrow fact files. A SQL filter over
-an all-file view is insufficient: binding or reading Parquet footers can still
-contact unrelated objects.
+Remote storage must not ship with a default view over every fact file. A SQL
+filter over an all-file view is insufficient: binding or reading Parquet
+footers can still contact unrelated objects. Local reads already select their
+files this way, as [managed Parquet storage](storage-roadmap.md#reading-results)
+describes; remote reads use the same selection.
 
 The reader first pins the manifest and resolves its query scope, then builds
 the fact view from only the candidate files. Candidate selection, hot rows,
@@ -232,7 +237,7 @@ including during report finalization. Empty candidates still query hot rows.
 | Runs or verdict subjects for a commit | Existing `archive_file_commit` membership, with a new index starting with `commit_id`; restrict run discovery to those files' summaries. |
 | Series history and lookback analysis | Fingerprint-to-file lookup catalog; apply eligibility and overlays from the pinned snapshot. |
 | Recent runs, series browsing, latest alert candidate | Summary catalogs select the page or candidate runs, then the corresponding lookup catalogs select facts. |
-| Submission keys and metadata-only queries | PostgreSQL directly, without acquiring an analytical reader. Finalization keeps metadata in its pinned snapshot. |
+| Submission keys, the repository list (from `run_membership`), and other metadata-only queries | PostgreSQL directly, without acquiring an analytical reader. Finalization keeps metadata in its pinned snapshot. |
 
 Add immutable Parquet lookup catalogs mapping result IDs, run IDs, and history
 fingerprints to stable logical file IDs. Partition their lookup keys, sort
@@ -311,26 +316,71 @@ HMAC keys is not used. A reviewer probe against the pinned DuckDB 1.5.5
 `httpfs` build showed bearer authentication on HEAD and range requests. A wrong
 token failed, and replacing the secret restored the query.
 
-DuckDB does not refresh a bearer token itself. Each DuckDB handle records the
-expiry of the token in its secret. `Engine.Read` holds its handle exclusively,
-so before it starts a query it replaces that handle's secret when the token
-expires within a renewal margin. The margin must exceed the longest operation
-the handle can run: the analytical read deadline for readers, and the
-maintenance unit deadline for the builder, plus clock skew. With the 2-minute
-read deadline and 15-minute maintenance units, a 20-minute margin covers both.
-Google's access tokens normally last about an hour. A cached token can still
-be returned shortly before it expires, so the credential's token cache must
-refresh at least one margin early; confirm that setting on the pinned
-`cloud.google.com/go/auth` version. A token source that cannot supply a token
-outliving the margin is a startup or read error, not a reason to continue with
-an expiring secret. BenchDB reads its credential configuration once at startup,
-so changing it requires a restart. Token renewal within that credential,
-including workload identity, needs no restart.
+DuckDB does not refresh a bearer token itself, so BenchDB checks the token in
+each DuckDB handle's secret before the handle does work. The token must
+remain valid for the analytical read deadline plus one minute of skew:
+3 minutes with the default 2-minute deadline.
 
-Tests use a fake token source with short lifetimes. They show that a reader
-replaces an expiring secret before its query, that a query never starts with a
-token that expires inside its deadline, and that a token-source failure fails
-the read instead of using a stale token.
+- A read checks once, before it starts, against its own deadline.
+- The maintenance handle checks before each of its statements, against the
+  same 3-minute floor. It does not require the token to outlive the
+  maintenance unit, which can run for 15 minutes.
+
+A token that clears the floor is used as it is. When it does not, BenchDB
+asks the credential for a newer token and replaces the handle's secret. If
+the newer token still cannot clear the floor, or the credential fails, the
+read or statement fails; a failed statement fails its maintenance unit. A
+statement that runs past its token's expiry fails when the provider rejects
+the token, which also fails its unit. The next maintenance cycle retries a
+failed unit, so no published state depends on one token.
+
+Google's access tokens normally last about an hour. BenchDB starts asking for
+a newer token 20 minutes before the current one expires. That renewal margin
+is the 15-minute unit deadline plus 5 minutes, and the credential's token
+cache uses it as its early-refresh window. The cache returns a token outside
+the window without a request, and inside it fetches a new one while the
+caller waits; the pinned `cloud.google.com/go/auth` version honors this
+setting. Inside the margin, BenchDB keeps using the current token while it
+clears the floor, and asks for a newer one in the background at most once a
+minute.
+
+- An operation whose token clears the floor never waits for a token
+  request, even one already in flight.
+- An operation whose token cannot clear the floor waits for the request in
+  flight, or starts one, and stops waiting at its own deadline.
+- Only one token request runs at a time, and each has a 30-second timeout,
+  so a stalled token endpoint cannot hold it for a maintenance unit's
+  15 minutes.
+
+Metadata-server credentials are supported: Compute Engine, GKE with workload
+identity, and Cloud Run. A metadata server keeps returning the same token
+until about 5 minutes before it expires. With the default 2-minute read
+deadline, the 3-minute floor stays below those 5 minutes, so reads and
+maintenance statements keep working through the whole hour.
+
+This holds only while the floor stays below 5 minutes, which means a
+`BENCHDB_ANALYTICAL_READ_TIMEOUT` below 4 minutes. With a longer read
+deadline, the floor reaches the point where the metadata server still
+returns the old token. Reads and maintenance statements then fail for part
+of each hour: roughly the read deadline minus 4 minutes, until the metadata
+server issues a new token.
+
+BenchDB reads its credential configuration once at startup, so changing it
+requires a restart. Token renewal within that credential, including workload
+identity, needs no restart.
+
+Tests use a token endpoint with short lifetimes, scaled down so that a
+30-second lifetime stands for an hour. A metadata-style endpoint returns the
+same token until shortly before it expires. Reads and maintenance cycles
+succeed through a whole lifetime and its replacement, including cycles that
+start with less than the unit deadline left. Every request carries a token
+that outlives its read or cycle's deadline plus skew, measured from when that
+read or cycle started, and requests for a new token stay bounded. A stalled
+token endpoint does not delay a read whose token clears the floor, and a read
+that needs a new token returns at its deadline.
+A token below the floor, or a failing token source, fails reads and
+maintenance. A statement that outlives its token fails its unit, and the
+next cycle succeeds.
 
 ### DuckDB, cache, and working space
 
@@ -343,17 +393,59 @@ REFRESH auto`, with the configured chain, endpoint, and scope. The packaged
 DuckDB v1.5.5 and matching extensions accepted this configuration in a local
 probe. Expiry and renewal on long-lived handles still require an integration
 test.
+DuckDB's `httpfs` checks for cancellation only between requests, so a stalled
+or trickling response would hold a read about two minutes past its deadline
+with the default timeout and retries. Every remote engine therefore sends
+DuckDB's requests through its own loopback proxy, Kit's `httpproxy`:
+
+- Each DuckDB handle has its own random proxy credentials, set as the
+  handle's `http_proxy` settings. The proxy reaches only the archive's
+  endpoint: the configured S3 endpoint, AWS's regional endpoint
+  (`s3.<region>.amazonaws.com`, named explicitly in the S3 secret) with the
+  bucket's virtual host, or `storage.googleapis.com`.
+- A read binds its handle to the read context, and a maintenance unit binds
+  the builder to the unit context. When the context ends, the proxy closes
+  the handle's connections. DuckDB's request fails, and the read returns
+  `DeadlineExceeded` once DuckDB has exited; the reclamation guard is still
+  released last.
+- HTTPS goes through `CONNECT` tunnels, so TLS and provider credentials stay
+  between DuckDB and the provider.
+
 See [DuckDB S3/GCS authentication](https://duckdb.org/docs/current/core_extensions/httpfs/s3api),
 [partial Parquet reads](https://duckdb.org/docs/current/core_extensions/httpfs/https),
 and [AWS credential refresh](https://duckdb.org/docs/current/core_extensions/aws#auto-refresh).
 
-Only immutable summary and lookup catalogs enter the initial disk cache. Cache
-entries are keyed by storage identity, object key, and checksum. A hit is
-usable only for the current manifest; entries are pinned until the query ends.
-Downloads use private staging and verification before cache publication.
-Eviction skips pinned entries. When the configured byte budget cannot admit
-another catalog, DuckDB reads that catalog remotely. Losing the cache affects
-latency, not history. General fact-file caching is outside this first release.
+Only immutable summary and lookup catalogs enter the disk cache; facts never
+do. The implementation:
+
+- Each engine owns its cache, in its process-owned scratch directory under
+  `BENCHDB_DATA_DIR`. Close removes it, and the next startup reclaims one a
+  crashed process left. Processes sharing a working directory therefore need
+  no shared cache accounting.
+- Entries are keyed by storage identity, object key, and the SHA-256 that
+  `archive_object` records for the object, read in the pinned snapshot. A
+  remote catalog without a recorded checksum fails the read.
+- A download streams the object at its recorded revision through Kit into a
+  private staging file, checks its size and SHA-256, and renames it into
+  place. A mismatch fails the read. The download uses the read's context, so
+  it stops at the read deadline.
+- An entry stays pinned until its read has closed its DuckDB transaction and
+  connection. Eviction removes the least recently used unpinned entries.
+  Cached bytes, including downloads in flight, never exceed
+  `BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES` (512 MiB by default). When pinned
+  entries leave no room, or a catalog is larger than the budget, DuckDB reads
+  that catalog at its exact remote URL, through the proxy above.
+- A hit checks that the file still has its verified identity, size, and
+  modification time; otherwise the entry is downloaded again. Re-hashing every
+  hit would cost up to the whole budget for each broad read, so a change that
+  keeps the file's size and timestamp is not detected.
+- Losing the cache affects latency, not history.
+
+A read creates its summary catalog views only when one of its queries uses
+them. A point lookup therefore opens its lookup segments and its fact files,
+and no summary object. DuckDB also keeps remote file data in memory per
+handle (`enable_external_file_cache`); that cache is bounded by the handle's
+memory limit.
 
 Remote startup validates the archive identity and configuration without
 downloading the archive or issuing one request per historical file. This is

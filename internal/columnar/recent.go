@@ -40,48 +40,21 @@ func (s *Store) recentRunPage(ctx context.Context, p storage.RecentRunsParams) (
 		return out, nil
 	}
 	limit := int64(p.Offset) + int64(p.PageSize)
-	err = s.read(ctx, func(ctx context.Context, q queryer) error {
+	err = s.pinned(ctx, func(ctx context.Context, q *ReadSnapshot) error {
 		candidates, err := postgresRecentCandidates(ctx, q, p.Repository, limit)
 		if err != nil {
 			return err
 		}
-		files, err := s.engine.manifest(ctx, q)
+		archived, err := archivedRecentCandidates(ctx, q, p.Repository, limit)
 		if err != nil {
 			return err
 		}
-		where := "true"
-		if p.Repository != nil {
-			where = "commit_repo_url=" + literal(*p.Repository)
-		}
-		if len(files) > 0 {
-			// A deleted newest result invalidates every summary for its run,
-			// including contributions from other files and repositories.
-			affected := `SELECT DISTINCT run_id FROM pg.public.result_mutation WHERE deleted`
-			cold := `SELECT run_id,last_result_at FROM archive_run_catalog WHERE run_id NOT IN (` + affected + `) AND ` + where
-			affectedFiles, err := catalogFiles(ctx, q, files, `SELECT DISTINCT archive_path FROM archive_run_catalog WHERE run_id IN (`+affected+`)`, nil)
-			if err != nil {
-				return err
-			}
-			if len(affectedFiles) > 0 {
-				source, err := s.engine.logicalSource(affectedFiles, false)
-				if err != nil {
-					return err
-				}
-				cold += ` UNION ALL SELECT run_id,max("timestamp") AS last_result_at FROM (` + source + `)
-WHERE run_id IN (` + affected + `) AND ` + where + ` GROUP BY run_id`
-			}
-			archived, err := collectRows(ctx, q, `SELECT run_id,max(last_result_at) FROM (`+cold+`)
-GROUP BY run_id ORDER BY max(last_result_at) DESC,run_id DESC LIMIT ?`, []any{limit}, scanRecentCandidate)
-			if err != nil {
-				return err
-			}
-			candidates = append(candidates, archived...)
-		}
+		candidates = append(candidates, archived...)
 		// A global top-K run must be in the top K of at least one tier.
 		// Merge by recency before deduplicating shared hot/cold run IDs.
 		slices.SortFunc(candidates, compareRecentCandidates)
 		seen := map[string]bool{}
-		ids := []string{}
+		selected := []string{}
 		var skipped int32
 		for _, candidate := range candidates {
 			if seen[candidate.runID] {
@@ -92,34 +65,71 @@ GROUP BY run_id ORDER BY max(last_result_at) DESC,run_id DESC LIMIT ?`, []any{li
 				skipped++
 				continue
 			}
-			ids = append(ids, literal(candidate.runID))
-			if len(ids) == int(p.PageSize) {
+			selected = append(selected, candidate.runID)
+			if len(selected) == int(p.PageSize) {
 				break
 			}
 		}
-		if len(ids) == 0 {
+		if len(selected) == 0 {
 			return nil
 		}
-		where += " AND run_id IN(" + strings.Join(ids, ",") + ")"
+		ids := make([]string, len(selected))
+		for i, runID := range selected {
+			ids[i] = literal(runID)
+		}
+		where := repositoryFilter(p.Repository) + " AND run_id IN(" + strings.Join(ids, ",") + ")"
 		// Explicit PostgreSQL SQL keeps the run-ID index lookup on that side
 		// of the connector; a DuckDB join does not guarantee that pushdown.
 		pgQuery := `SELECT id,run_id,"timestamp",error::text,history_fingerprint,batch_id,hardware_id,run_reason,run_tags::text,commit_repo_url,commit_id FROM benchmark_result_local WHERE ` + where
 		source := `SELECT * FROM postgres_query('pg',` + literal(pgQuery) + `)`
-		selectedFiles, err := catalogFiles(ctx, q, files, `SELECT DISTINCT archive_path FROM archive_run_catalog WHERE run_id IN (`+strings.Join(ids, ",")+`)`, nil)
+		cold, err := q.archivedFacts(ctx, queryScope{RunIDs: selected})
 		if err != nil {
 			return err
 		}
-		if len(selectedFiles) > 0 {
-			cold, err := s.engine.logicalSource(selectedFiles, false)
-			if err != nil {
-				return err
-			}
+		if cold != "" {
 			source += ` UNION ALL SELECT ` + recentColumns + ` FROM (` + cold + `) WHERE ` + where
 		}
 		out, err = collectRows(ctx, q, "WITH "+fmt.Sprintf(recentSummarySQL, source), nil, scanRecentRun)
 		return err
 	})
 	return
+}
+
+func repositoryFilter(repository *string) string {
+	if repository == nil {
+		return "true"
+	}
+	return "commit_repo_url=" + literal(*repository)
+}
+
+// archivedRecentCandidates returns the newest archived runs from the run
+// summaries. A deleted newest result invalidates every summary for its run,
+// including contributions from other files and repositories, so those runs
+// are aggregated from their own facts.
+func archivedRecentCandidates(ctx context.Context, q *ReadSnapshot, repository *string, limit int64) ([]recentCandidate, error) {
+	if len(q.files) == 0 {
+		return nil, nil
+	}
+	if err := q.runSummaries(ctx); err != nil {
+		return nil, err
+	}
+	where := repositoryFilter(repository)
+	affected, err := collectRows(ctx, q, `SELECT DISTINCT run_id FROM pg.public.result_mutation WHERE deleted`, nil, scanString)
+	if err != nil {
+		return nil, err
+	}
+	cold := `SELECT run_id,last_result_at FROM archive_run_catalog
+WHERE run_id NOT IN (SELECT DISTINCT run_id FROM pg.public.result_mutation WHERE deleted) AND ` + where
+	source, err := q.archivedFacts(ctx, queryScope{RunIDs: affected})
+	if err != nil {
+		return nil, err
+	}
+	if source != "" {
+		cold += ` UNION ALL SELECT run_id,max("timestamp") AS last_result_at FROM (` + source + `)
+WHERE run_id IN (SELECT DISTINCT run_id FROM pg.public.result_mutation WHERE deleted) AND ` + where + ` GROUP BY run_id`
+	}
+	return collectRows(ctx, q, `SELECT run_id,max(last_result_at) FROM (`+cold+`)
+GROUP BY run_id ORDER BY max(last_result_at) DESC,run_id DESC LIMIT ?`, []any{limit}, scanRecentCandidate)
 }
 
 // Traverse PostgreSQL's existing timestamp indexes until enough distinct runs
@@ -141,10 +151,7 @@ func postgresRecentCandidates(ctx context.Context, q queryer, repository *string
 		}
 		return false
 	}
-	filter := "true"
-	if repository != nil {
-		filter = "commit_repo_url=" + literal(*repository)
-	}
+	filter := repositoryFilter(repository)
 	var last *time.Time
 	for int64(len(out)) < limit {
 		where := filter

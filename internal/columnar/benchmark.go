@@ -34,16 +34,20 @@ CASE WHEN bool_and(unit IS NOT NULL) AND count(DISTINCT unit)=1 THEN min(status_
 list(machine_name ORDER BY machine_name) AS machine_names,sum(point_count) AS point_count
 FROM scoped GROUP BY benchmark_id,repository,case_name,case_tags)`
 
-// Filter measurement IDs before the final join: inflated dimension estimates
-// can otherwise put the entire archive on the hash join's build side.
-const benchmarkPageSQL = benchmarkScope + `,
+// benchmarkPageScope selects the page and each benchmark's latest track from
+// verdict metadata alone, before any fact file is chosen.
+const benchmarkPageScope = benchmarkScope + `,
 page AS (
 SELECT * FROM benchmark WHERE ($7::INTEGER IS NULL OR status_rank=$7)
 AND ($8::INTEGER IS NULL OR (status_rank,case_name,benchmark_id)>($8::INTEGER,$9::VARCHAR,$10::VARCHAR))
 ORDER BY status_rank,case_name,benchmark_id LIMIT $11),
 latest AS (
 SELECT s.* FROM scoped s JOIN page p ON p.benchmark_id=s.benchmark_id
-QUALIFY row_number() OVER(PARTITION BY s.benchmark_id ORDER BY s.latest_commit_timestamp DESC,s.latest_result_id DESC)=1),
+QUALIFY row_number() OVER(PARTITION BY s.benchmark_id ORDER BY s.latest_commit_timestamp DESC,s.latest_result_id DESC)=1)`
+
+// Filter measurement IDs before the final join: inflated dimension estimates
+// can otherwise put the entire archive on the hash join's build side.
+const benchmarkPageSQL = benchmarkPageScope + `,
 changes AS (
 SELECT s.benchmark_id,s.change_percent,s.machine_name FROM scoped s JOIN page p ON p.benchmark_id=s.benchmark_id
 QUALIFY row_number() OVER(PARTITION BY s.benchmark_id ORDER BY s.status_rank,abs(s.change_percent) DESC NULLS LAST,s.machine_name)=1),
@@ -103,6 +107,36 @@ OR EXISTS(SELECT 1 FROM benchmark_membership m WHERE m.benchmark_id=q.key AND m.
 OR (q.kind='commit' AND ($1::VARCHAR IS NULL
 OR EXISTS(SELECT 1 FROM "commit" c WHERE c.id=q.key AND c.repository=$1))))`
 
+// benchmarkFacts names the page's facts: the latest results' measurements,
+// and for a time-filtered count, every series of the page's benchmarks. The
+// series summaries keep each group's case and repository, which determine its
+// benchmark ID.
+func benchmarkFacts(ctx context.Context, q *ReadSnapshot, p storage.BenchmarkListParams, pageArgs []any) (queryScope, error) {
+	type pageEntry struct{ benchmarkID, latestID string }
+	page, err := collectRows(ctx, q, benchmarkPageScope+` SELECT p.benchmark_id,l.latest_result_id
+FROM page p JOIN latest l ON l.benchmark_id=p.benchmark_id`, pageArgs, func(row rowScanner) (out pageEntry, err error) {
+		err = row.Scan(&out.benchmarkID, &out.latestID)
+		return
+	})
+	if err != nil || len(page) == 0 {
+		return queryScope{}, err
+	}
+	scope := queryScope{}
+	benchmarks := make([]string, len(page))
+	for i, entry := range page {
+		benchmarks[i] = entry.benchmarkID
+		scope.ResultIDs = append(scope.ResultIDs, entry.latestID)
+	}
+	if p.ActiveSince != nil || p.ActiveUntil != nil {
+		if err := q.seriesSummaries(ctx); err != nil {
+			return queryScope{}, err
+		}
+		scope.Fingerprints, err = collectRows(ctx, q, `SELECT DISTINCT history_fingerprint FROM archive_series_catalog
+WHERE md5(case_id||commit_repo_url) IN (SELECT unnest($1::VARCHAR[]))`, []any{benchmarks}, scanString)
+	}
+	return scope, err
+}
+
 func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkListParams) (out storage.BenchmarkList, err error) {
 	args := []any{p.Q, p.Hardware, p.Repository, p.BenchmarkID, p.ActiveSince, p.ActiveUntil}
 	var statusRank, cursorRank *int
@@ -122,7 +156,14 @@ func (s *Store) SelectBenchmarkList(ctx context.Context, p storage.BenchmarkList
 		cursorRank, cursorName, cursorID = &rank, &p.Cursor.Name, &p.Cursor.ID
 	}
 	pageArgs := append(slices.Clone(args), statusRank, cursorRank, cursorName, cursorID, int64(p.PageSize)+1)
-	err = s.read(ctx, func(ctx context.Context, q queryer) error {
+	err = s.pinned(ctx, func(ctx context.Context, q *ReadSnapshot) error {
+		scope, e := benchmarkFacts(ctx, q, p, pageArgs)
+		if e != nil {
+			return e
+		}
+		if e := q.selectFacts(ctx, scope); e != nil {
+			return e
+		}
 		rows, e := collectRows(ctx, q, benchmarkPageSQL, pageArgs, scanBenchmark)
 		if e != nil {
 			return e

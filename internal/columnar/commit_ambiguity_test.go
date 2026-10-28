@@ -125,7 +125,7 @@ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pause_publication();
 	var pid uint32
 	require.Eventually(t, func() bool {
 		return pool.QueryRow(ctx, `SELECT pid FROM pg_stat_activity
-WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='advisory'`).Scan(&pid) == nil
+WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait_event='advisory'`).Scan(&pid) == nil
 	}, 10*time.Second, 10*time.Millisecond)
 	// Refuse new connections too: pgx tries a separate CancelRequest after a
 	// transport failure. Existing idle connections can still run cleanup.
@@ -140,28 +140,54 @@ WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='
 		require.FailNow(t, "maintenance did not return after the transport failed")
 	}
 	require.Error(t, result.err)
-	// A later maintenance cycle must also defer cleanup while the original
-	// publication is unresolved; skipping only the failed call is insufficient.
-	retry, err := e.Maintain(ctx)
-	require.Error(t, err)
+	// The unresolved publication's backend still holds maintenance ownership,
+	// so no later cycle, from any process, can start cleanup until that
+	// session ends. This engine reaches PostgreSQL directly.
+	staged, err := filepath.Glob(filepath.Join(e.cfg.Dir, "*", "*.parquet*"))
+	require.NoError(t, err)
+	require.NotEmpty(t, staged, "the uncertain publication wrote its files")
+	reopened, err := Open(ctx, pool, e.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	retryCtx, stopRetry := context.WithTimeout(ctx, 5*time.Second)
+	defer stopRetry()
+	retry, err := reopened.Maintain(retryCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "acquire archive maintenance ownership")
+	assert.Zero(t, retry.RemovedFiles)
+	for _, path := range staged {
+		_, err := os.Stat(path)
+		require.NoError(t, err, "a blocked retry must not remove the uncertain publication's files")
+	}
 	var published int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published))
 	require.Zero(t, published, "publication is still committing")
+	cycleState, intents := publicationCycle(t, ctx, pool, "pending")
+	assert.Equal(t, "running", cycleState, "an unknown commit outcome abandons nothing")
+	// One fact file, its two summary catalogs, and one result, run, and
+	// fingerprint lookup segment.
+	const exportedObjects = 6
+	assert.Equal(t, exportedObjects, intents, "the uncertain publication keeps every key reserved")
 	_, err = blocker.Exec(ctx, `SELECT pg_advisory_unlock(90251234)`)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return pool.QueryRow(ctx, `SELECT count(*) FROM archive_file`).Scan(&published) == nil && published == 1
 	}, 10*time.Second, 10*time.Millisecond, "PostgreSQL must actually commit after the client error")
+	// The publisher's session still owns maintenance: the relay keeps its
+	// backend socket open, where PostgreSQL would eventually detect the lost
+	// client. End that session as PostgreSQL would.
+	_, err = pool.Exec(ctx, `SELECT pg_terminate_backend($1)`, pid)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var alive bool
+		return pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1)`, pid).Scan(&alive) == nil && !alive
+	}, 10*time.Second, 10*time.Millisecond)
 	var hot int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result WHERE id=$1`, id).Scan(&hot))
 	require.Zero(t, hot)
 	var dataPath, runsPath, seriesPath string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT path,runs_path,series_path FROM archive_file`).Scan(&dataPath, &runsPath, &seriesPath))
 	assert.Zero(t, result.stats.RemovedFiles)
-	assert.Zero(t, retry.RemovedFiles)
-	reopened, err := Open(ctx, pool, e.cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	orphan := filepath.Join(e.cfg.Dir, "data", "unpublished.parquet.staging")
 	require.NoError(t, os.WriteFile(orphan, []byte("abandoned export"), 0600))
 	cleaned, err := reopened.Maintain(ctx)
@@ -176,4 +202,25 @@ WHERE application_name='uncertain-publisher' AND query='commit' AND wait_event='
 	archived, err := NewStore(pg, reopened).GetBenchmarkResultByID(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, []*float64{new(1.0)}, archived.Data)
+	// The commit that landed consumed its intents. Resolving under the
+	// publication lock found it committed, not abandoned.
+	cycleState, intents = publicationCycle(t, ctx, pool, "verified")
+	assert.Equal(t, "committed", cycleState)
+	assert.Equal(t, exportedObjects, intents)
+	var receipted int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM archive_file f
+CROSS JOIN LATERAL (VALUES (f.path),(f.runs_path),(f.series_path)) k(key)
+JOIN archive_object o ON o.key=k.key WHERE o.verification_method IS NOT NULL`).Scan(&receipted))
+	assert.Equal(t, 3, receipted, "every published object has a verified receipt")
+}
+
+// publicationCycle returns the only archive cycle's state and its number of
+// intents in intentState.
+func publicationCycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, intentState string) (string, int) {
+	t.Helper()
+	var state string
+	var intents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT c.state,count(*) FILTER (WHERE u.state=$1)
+FROM archive_cycle c JOIN archive_upload u ON u.cycle_id=c.id GROUP BY c.id,c.state`, intentState).Scan(&state, &intents))
+	return state, intents
 }
