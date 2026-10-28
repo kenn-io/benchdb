@@ -426,7 +426,8 @@ objects while it runs.
 
 `benchdb admin archive transfer` copies a stopped deployment's archive to new
 storage, such as from the local volume to S3, and switches the database to it.
-It is not a live migration.
+It is not a live migration. To move a local archive to another directory, stop
+BenchDB and copy the directory instead.
 
 1. Stop the server, scheduled `admin` jobs, and every result publisher.
 2. Take a recovery backup of PostgreSQL and the current archive from the same
@@ -443,20 +444,25 @@ It is not a live migration.
 
     Use `--destination-s3-endpoint` and `--destination-s3-url-style` for an
     S3-compatible service, and `--destination-gcs-credentials-file` for GCS.
-    The destination must be empty. The command copies every fact file and
-    catalog that the database references, keeps their keys, and verifies each
-    copy's SHA-256. When every copy is verified, one database transaction
-    switches the archive binding to the destination.
+    The destination must be empty. The command first writes a `transfer`
+    marker that names this transfer, then copies every fact file and catalog
+    that the database references, keeps their keys, and verifies each copy's
+    SHA-256. When every copy is verified, one database transaction switches
+    the archive binding to the destination.
 5. Set `BENCHDB_ARCHIVE_URL` and its provider settings to the destination,
    start the server, and run `benchdb admin archive audit`. Open the results
    and history pages, and check that the next maintenance cycle succeeds.
 
 If the transfer stops, for example on a network failure, run the same command
-again. It resumes the unfinished transfer and does not copy verified objects
-again. If the command failed without saying whether the switch happened, run
-it again: it reads the outcome from the database. The command fails while any
-process owns archive maintenance, and it refuses a destination that holds
-other objects.
+again. It resumes the unfinished transfer. It checks that each copy an earlier
+run verified is still at the destination, and copies only the rest. If the
+command failed without saying whether the switch happened, run it again with
+the same settings: it reads the outcome from the database. While a transfer is
+unfinished, a transfer to another destination is refused once the first has
+copied anything; one that copied nothing is replaced. The command fails while
+any process owns archive maintenance. It refuses a destination that holds other
+objects, including another copy of this archive, such as the prefix that a
+restored database came from.
 
 The transfer never deletes the source archive. Backups of the database taken
 before the switch name the source and still need it. Keep the source until no

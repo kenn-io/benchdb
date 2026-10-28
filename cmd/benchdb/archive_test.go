@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
@@ -229,4 +230,34 @@ func TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance(t *testin
 	entries, err := os.ReadDir(destination)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "the refused transfer writes nothing")
+}
+
+// TestAdminArchiveTransferRerunAfterCutover runs the command again after a
+// transfer committed, as an operator does when the first run's outcome was
+// lost. The source settings no longer open the archive, so the rerun must
+// read the outcome from the database and succeed.
+func TestAdminArchiveTransferRerunAfterCutover(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	s3 := dbtest.NewS3(t)
+	dbtest.IssueAWSCredentials(t, s3.AccessKey, s3.SecretKey, time.Now().Add(time.Hour))
+	dataDir := t.TempDir()
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", dataDir)
+	// One maintenance cycle completes the lookup directory of the new archive.
+	engine, err := columnar.Open(ctx, pool, columnar.Config{Dir: dataDir, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")})
+	require.NoError(t, err)
+	_, err = engine.Maintain(ctx)
+	require.NoError(t, err)
+	require.NoError(t, engine.Close())
+	args := []string{"admin", "archive", "transfer", "--destination", "s3://" + s3.Bucket + "/moved",
+		"--destination-s3-endpoint", s3.Endpoint, "--destination-s3-url-style", "path"}
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run(args, &stdout, &stderr), "stderr=%s", stderr.String())
+	assert.Contains(t, stdout.String(), "The database now uses s3://"+s3.Bucket+"/moved")
+
+	stdout.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run(args, &stdout, &stderr), "stderr=%s", stderr.String())
+	assert.Contains(t, stdout.String(), "The transfer already completed")
 }

@@ -1,6 +1,7 @@
 package columnar
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json/v2"
@@ -8,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"uuid"
 
 	"cloud.google.com/go/auth"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.kenn.io/kit/objectstore"
 )
 
@@ -39,20 +42,18 @@ var (
 // TransferArchive copies the active archive to destination and switches the
 // database to it. It is a stopped-deployment operation: it takes maintenance
 // ownership without waiting, so it fails while a server runs maintenance.
-// The destination must be empty or hold this database's marker from an
-// interrupted transfer to it. Each copy keeps its key and is verified against
-// the source's SHA-256; Kit never replaces an existing key, so a resumed copy
-// of identical bytes is verified again and different bytes fail. One
-// transaction records the destination receipts, moves the lookup directory,
-// and switches the active binding. The source is never deleted: database
-// backups that name it still need it.
+// The destination must be empty, or hold the transfer marker of this
+// database's unfinished transfer to it; a copy of the dataset that another
+// database or deployment uses is refused. Each copy keeps its key and is
+// verified against the source's SHA-256; Kit never replaces an existing key,
+// so a resumed copy of identical bytes is verified again and different bytes
+// fail. One transaction records the destination receipts, moves the lookup
+// directory, and switches the active binding. The source is never deleted:
+// database backups that name it still need it.
 func (e *Engine) TransferArchive(ctx context.Context, destination Config) (result TransferResult, err error) {
-	if destination.ArchiveURL == "" {
-		return TransferResult{}, errors.New("the transfer destination must be a file://, s3://, or gs:// URL")
-	}
-	target, err := parseArchiveLocation(destination)
+	target, err := transferTarget(destination)
 	if err != nil {
-		return TransferResult{}, fmt.Errorf("transfer destination: %w", err)
+		return TransferResult{}, err
 	}
 	err = e.withOwner(ctx, e.coord.tryOwner, func(owner *maintenanceOwner) error {
 		result, err = e.transfer(ctx, owner, target, destination.GCSCredentialsFile)
@@ -64,21 +65,72 @@ func (e *Engine) TransferArchive(ctx context.Context, destination Config) (resul
 	return result, err
 }
 
-// transferRun is one transfer's durable identity.
+func transferTarget(destination Config) (archiveLocation, error) {
+	if destination.ArchiveURL == "" {
+		return archiveLocation{}, errors.New("the transfer destination must be a file://, s3://, or gs:// URL")
+	}
+	target, err := parseArchiveLocation(destination)
+	if err != nil {
+		return archiveLocation{}, fmt.Errorf("transfer destination: %w", err)
+	}
+	return target, nil
+}
+
+// CompletedTransfer reports a committed transfer to destination that left it
+// the database's active storage. A transfer command whose cutover committed
+// but whose response was lost can no longer open the source archive, because
+// the database refuses the source's settings; running it again reads the
+// outcome here instead.
+func CompletedTransfer(ctx context.Context, pg *pgxpool.Pool, destination Config) (TransferResult, bool, error) {
+	target, err := transferTarget(destination)
+	if err != nil {
+		return TransferResult{}, false, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
+	defer cancel()
+	return completedTransfer(ctx, pg, target)
+}
+
+func completedTransfer(ctx context.Context, q rowQueryer, target archiveLocation) (TransferResult, bool, error) {
+	active, err := activeStorage(ctx, q, "")
+	if err != nil {
+		return TransferResult{}, false, err
+	}
+	if !target.binds(active) {
+		return TransferResult{}, false, nil
+	}
+	var id uuid.UUID
+	err = q.QueryRow(ctx, `SELECT id FROM archive_transfer WHERE destination_storage_id=$1 AND cutover_at IS NOT NULL
+ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TransferResult{}, false, nil
+	}
+	if err != nil {
+		return TransferResult{}, false, fmt.Errorf("read completed archive transfers: %w", err)
+	}
+	return TransferResult{ID: id, CutOver: true}, true, nil
+}
+
+// transferRun is one transfer's durable identity. saved is false for a new
+// transfer until the destination passes its checks and the row is written.
 type transferRun struct {
 	id, source, destination uuid.UUID
-	cutOver                 bool
+	saved                   bool
+	// replaces is an unfinished transfer to another destination that copied
+	// nothing; saving this run removes it.
+	replaces *uuid.UUID
 }
 
 func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target archiveLocation, gcsCredentials string) (TransferResult, error) {
-	run, err := e.startTransfer(ctx, owner, target)
+	done, completed, err := completedTransfer(ctx, owner.conn, target)
+	if err != nil || completed {
+		return done, err
+	}
+	run, err := e.planTransfer(ctx, owner, target)
 	if err != nil {
 		return TransferResult{}, err
 	}
-	result := TransferResult{ID: run.id, CutOver: run.cutOver}
-	if run.cutOver {
-		return result, nil
-	}
+	result := TransferResult{ID: run.id}
 	var google *auth.Credentials
 	if target.backend == backendGCS {
 		if google, err = googleCredentials(gcsCredentials, e.tokenMargin); err != nil {
@@ -92,13 +144,20 @@ func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target a
 	if closer, ok := objects.(io.Closer); ok {
 		defer func() { _ = closer.Close() }()
 	}
+	if err := checkDestination(ctx, objects, run.id); err != nil {
+		return result, err
+	}
+	if !run.saved {
+		if run, err = e.saveTransfer(ctx, owner, target, run); err != nil {
+			return result, err
+		}
+	}
 	dataset, err := e.datasetID(ctx, owner)
 	if err != nil {
 		return result, err
 	}
-	destination := &Engine{location: target, objects: objects}
-	if err := destination.claimNamespace(ctx, dataset, false); err != nil {
-		return result, fmt.Errorf("claim the transfer destination: %w", err)
+	if err := claimDestination(ctx, objects, dataset, run.id); err != nil {
+		return result, err
 	}
 	sources, err := e.transferSources(ctx, owner, run)
 	if err != nil {
@@ -107,7 +166,11 @@ func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target a
 	for _, source := range sources {
 		result.Objects++
 		result.Bytes += source.size
-		if source.verified {
+		reuse, err := stillVerified(ctx, objects, source)
+		if err != nil {
+			return result, err
+		}
+		if reuse {
 			result.Reused++
 			continue
 		}
@@ -125,10 +188,9 @@ func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target a
 	return result, nil
 }
 
-// startTransfer resumes the unfinished transfer to target or starts one. A
-// transfer whose cutover already committed is reported as finished, which
-// resolves a cutover whose commit response was lost.
-func (e *Engine) startTransfer(ctx context.Context, owner *maintenanceOwner, target archiveLocation) (transferRun, error) {
+// planTransfer checks that the source can be transferred and resumes the
+// unfinished transfer to target, or plans a new one without recording it.
+func (e *Engine) planTransfer(ctx context.Context, owner *maintenanceOwner, target archiveLocation) (transferRun, error) {
 	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
 	q := owner.conn
@@ -136,18 +198,15 @@ func (e *Engine) startTransfer(ctx context.Context, owner *maintenanceOwner, tar
 	if err != nil {
 		return transferRun{}, err
 	}
-	var run transferRun
-	if target.binds(active) {
-		err := q.QueryRow(ctx, `SELECT id,source_storage_id,destination_storage_id FROM archive_transfer
-WHERE destination_storage_id=$1 AND cutover_at IS NOT NULL ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&run.id, &run.source, &run.destination)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return transferRun{}, errors.New("the transfer destination is already the database's active archive storage")
-		}
-		run.cutOver = err == nil
-		return run, err
-	}
 	if active.id != e.archive.storageID {
 		return transferRun{}, errStorageMoved
+	}
+	if target.binds(active) {
+		if target.remote() {
+			return transferRun{}, errors.New("the transfer destination is already the database's active archive storage")
+		}
+		// Local bindings record no path, so any two directories compare equal.
+		return transferRun{}, errors.New("a transfer cannot move a local archive to another local directory; stop BenchDB and copy the directory instead")
 	}
 	complete, err := lookupDirectoryComplete(ctx, q)
 	if err != nil {
@@ -163,20 +222,43 @@ WHERE destination_storage_id=$1 AND cutover_at IS NOT NULL ORDER BY cutover_at D
 	if open {
 		return transferRun{}, errTransferCycleOpen
 	}
+	var run transferRun
 	var unfinished storageBinding
-	err = q.QueryRow(ctx, `SELECT t.id,t.source_storage_id,t.destination_storage_id,d.backend,d.namespace,d.endpoint
+	var copied bool
+	err = q.QueryRow(ctx, `SELECT t.id,t.source_storage_id,t.destination_storage_id,d.backend,d.namespace,d.endpoint,
+EXISTS(SELECT 1 FROM archive_transfer_object o WHERE o.transfer_id=t.id)
 FROM archive_transfer t JOIN archive_storage d ON d.id=t.destination_storage_id WHERE t.cutover_at IS NULL`).
-		Scan(&run.id, &run.source, &run.destination, &unfinished.backend, &unfinished.namespace, &unfinished.endpoint)
+		Scan(&run.id, &run.source, &run.destination, &unfinished.backend, &unfinished.namespace, &unfinished.endpoint, &copied)
 	switch {
-	case err == nil && (run.source != active.id || !target.binds(unfinished)):
-		return transferRun{}, fmt.Errorf("an unfinished transfer to %s exists; resume it with that destination", unfinished)
-	case err == nil:
-		return run, nil
-	case !errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, pgx.ErrNoRows):
+		return transferRun{id: uuid.New(), source: active.id}, nil
+	case err != nil:
 		return transferRun{}, fmt.Errorf("read unfinished archive transfers: %w", err)
+	case run.source == active.id && target.binds(unfinished):
+		run.saved = true
+		return run, nil
+	case !copied:
+		return transferRun{id: uuid.New(), source: active.id, replaces: &run.id}, nil
 	}
-	run = transferRun{id: uuid.New(), source: active.id}
-	err = pgx.BeginFunc(ctx, q, func(tx pgx.Tx) error {
+	return transferRun{}, fmt.Errorf("an unfinished transfer to %s has copied objects; resume it with that destination", unfinished)
+}
+
+// saveTransfer records a planned transfer and its destination binding, and
+// removes the unfinished transfer it replaces if that still copied nothing.
+func (e *Engine) saveTransfer(ctx context.Context, owner *maintenanceOwner, target archiveLocation, run transferRun) (transferRun, error) {
+	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
+	defer cancel()
+	err := pgx.BeginFunc(ctx, owner.conn, func(tx pgx.Tx) error {
+		if run.replaces != nil {
+			tag, err := tx.Exec(ctx, `DELETE FROM archive_transfer t WHERE id=$1 AND cutover_at IS NULL
+AND NOT EXISTS (SELECT 1 FROM archive_transfer_object o WHERE o.transfer_id=t.id)`, *run.replaces)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() != 1 {
+				return errors.New("the unfinished archive transfer changed; run the transfer again")
+			}
+		}
 		if err := tx.QueryRow(ctx, `INSERT INTO archive_storage(dataset_id,backend,namespace,endpoint)
 SELECT id,$1,$2,$3 FROM archive_dataset WHERE singleton
 ON CONFLICT (dataset_id,backend,namespace,endpoint) DO UPDATE SET backend=excluded.backend RETURNING id`,
@@ -190,7 +272,58 @@ ON CONFLICT (dataset_id,backend,namespace,endpoint) DO UPDATE SET backend=exclud
 	if err != nil {
 		return transferRun{}, fmt.Errorf("record the archive transfer: %w", err)
 	}
+	run.saved, run.replaces = true, nil
 	return run, nil
+}
+
+// transferMarker names the transfer that claimed a destination. The dataset
+// marker alone cannot: a restored copy of this database has the same dataset
+// identity as the deployment it was copied from.
+const transferMarker = "transfer"
+
+// checkDestination accepts an empty namespace, or one that holds the transfer
+// marker of transfer id. It writes nothing, so a refused destination leaves no
+// trace in the database or the namespace.
+func checkDestination(ctx context.Context, objects archiveObjects, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
+	defer cancel()
+	claimed, err := readSmallObject(ctx, objects, transferMarker)
+	if err == nil {
+		if strings.TrimSpace(claimed) != id.String() {
+			return errors.New("the transfer destination belongs to another archive transfer; choose an empty destination")
+		}
+		return nil
+	}
+	if !errors.Is(err, objectstore.ErrNotFound) {
+		return fmt.Errorf("read the transfer destination's marker: %w", err)
+	}
+	page, err := objects.ListPage(ctx, "", "", 1)
+	if err != nil {
+		return fmt.Errorf("list the transfer destination: %w", err)
+	}
+	if len(page.Objects) > 0 {
+		return errors.New("the transfer destination is not empty and was not claimed by this transfer; choose an empty destination")
+	}
+	return nil
+}
+
+// claimDestination publishes the transfer marker, then the dataset marker.
+// Publication never replaces a key, so a concurrent claim of the same
+// namespace fails one of them.
+func claimDestination(ctx context.Context, objects archiveObjects, dataset string, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
+	defer cancel()
+	for _, marker := range []struct{ key, value string }{{transferMarker, id.String()}, {datasetMarker, dataset}} {
+		data := []byte(marker.value + "\n")
+		_, err := objects.Publish(ctx, marker.key, bytes.NewReader(data), int64(len(data)), sha256.Sum256(data))
+		if errors.Is(err, objectstore.ErrExists) {
+			return errors.New("the transfer destination was claimed by another archive; choose an empty destination")
+		}
+		if err != nil {
+			return fmt.Errorf("claim the transfer destination: %w", err)
+		}
+	}
+	return nil
 }
 
 func (e *Engine) datasetID(ctx context.Context, owner *maintenanceOwner) (string, error) {
@@ -204,12 +337,13 @@ func (e *Engine) datasetID(ctx context.Context, owner *maintenanceOwner) (string
 }
 
 // transferSource is one referenced object in the source storage. sha256 is
-// nil for a local file published before receipts existed.
+// nil for a local file published before receipts existed. copied is the
+// destination receipt an earlier run of the transfer recorded, if any.
 type transferSource struct {
-	key      string
-	size     int64
-	sha256   []byte
-	verified bool
+	key    string
+	size   int64
+	sha256 []byte
+	copied *objectReceipt
 }
 
 // referencedKeys names every key the manifest and lookup directory of
@@ -222,27 +356,56 @@ func (e *Engine) transferSources(ctx context.Context, owner *maintenanceOwner, r
 	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
 	rows, err := owner.conn.Query(ctx, `WITH `+referencedKeys+`
-SELECT r.key,o.byte_size,o.sha256,EXISTS(SELECT 1 FROM archive_transfer_object t WHERE t.transfer_id=$2 AND t.key=r.key)
-FROM referenced r LEFT JOIN archive_object o ON o.storage_id=$1 AND o.key=r.key ORDER BY r.key`, run.source, run.id)
+SELECT r.key,o.byte_size,o.sha256,t.receipt FROM referenced r
+LEFT JOIN archive_object o ON o.storage_id=$1 AND o.key=r.key
+LEFT JOIN archive_transfer_object t ON t.transfer_id=$2 AND t.key=r.key ORDER BY r.key`, run.source, run.id)
 	if err != nil {
 		return nil, fmt.Errorf("read the objects to transfer: %w", err)
 	}
 	sources, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (transferSource, error) {
 		var source transferSource
 		var size *int64
-		if err := row.Scan(&source.key, &size, &source.sha256, &source.verified); err != nil {
+		var copied []byte
+		if err := row.Scan(&source.key, &size, &source.sha256, &copied); err != nil {
 			return source, err
 		}
 		if size == nil {
 			return source, fmt.Errorf("archive object %s has no receipt in the source storage", source.key)
 		}
 		source.size = *size
+		if copied != nil {
+			source.copied = &objectReceipt{}
+			if err := json.Unmarshal(copied, source.copied); err != nil {
+				return source, fmt.Errorf("decode the receipt of transferred object %s: %w", source.key, err)
+			}
+		}
 		return source, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read the objects to transfer: %w", err)
 	}
 	return sources, nil
+}
+
+// stillVerified reports whether an earlier run's copy of source is still at
+// the destination with the size and revision of its receipt. A copy that is
+// gone or changed is copied again, so saved progress never stands in for an
+// object the destination lacks.
+func stillVerified(ctx context.Context, destination archiveObjects, source transferSource) (bool, error) {
+	if source.copied == nil {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
+	defer cancel()
+	meta, err := destination.Inspect(ctx, source.key)
+	if errors.Is(err, objectstore.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect transferred object %s: %w", source.key, err)
+	}
+	receipt := source.copied
+	return meta.Size == receipt.Size && (receipt.Revision == "" || meta.Revision == receipt.Revision), nil
 }
 
 // copyObject publishes one source object at the same destination key and

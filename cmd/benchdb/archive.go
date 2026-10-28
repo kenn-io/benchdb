@@ -118,8 +118,8 @@ func loadAdminArchiveConfig(cmd *cobra.Command, args []string, cfg *adminArchive
 	return nil
 }
 
-// withArchive opens the archive engine for one admin operation.
-func withArchive(ctx context.Context, cfg adminArchiveConfig, fn func(*columnar.Engine) error) error {
+// withDatabase connects to the database for one admin operation.
+func withDatabase(ctx context.Context, cfg adminArchiveConfig, fn func(*pgxpool.Pool) error) error {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return errors.New("connect database failed")
@@ -130,9 +130,14 @@ func withArchive(ctx context.Context, cfg adminArchiveConfig, fn func(*columnar.
 	if err := pool.Ping(pingCtx); err != nil {
 		return errors.New("connect database failed")
 	}
-	opening, cancelOpen := context.WithTimeout(ctx, archiveOpenTimeout)
+	return fn(pool)
+}
+
+// withArchive opens the archive engine for one admin operation.
+func withArchive(ctx context.Context, pool *pgxpool.Pool, cfg adminArchiveConfig, fn func(*columnar.Engine) error) error {
+	opening, cancel := context.WithTimeout(ctx, archiveOpenTimeout)
 	engine, err := columnar.Open(opening, pool, cfg.Archive)
-	cancelOpen()
+	cancel()
 	if err != nil {
 		return fmt.Errorf("open managed archive: %w", err)
 	}
@@ -156,13 +161,15 @@ func newAdminArchiveAuditCommand(stdout io.Writer) *cobra.Command {
 			return loadAdminArchiveConfig(cmd, args, &cfg)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withArchive(cmd.Context(), cfg, func(engine *columnar.Engine) error {
-				result, err := engine.AuditArchive(cmd.Context())
-				if _, writeErr := fmt.Fprintf(stdout, "Objects checked: %d\nBytes referenced: %d\nMissing: %d\nChanged: %d\n",
-					result.Objects, result.Bytes, len(result.Missing), len(result.Changed)); writeErr != nil {
-					return errors.Join(err, writeErr)
-				}
-				return err
+			return withDatabase(cmd.Context(), cfg, func(pool *pgxpool.Pool) error {
+				return withArchive(cmd.Context(), pool, cfg, func(engine *columnar.Engine) error {
+					result, err := engine.AuditArchive(cmd.Context())
+					if _, writeErr := fmt.Fprintf(stdout, "Objects checked: %d\nBytes referenced: %d\nMissing: %d\nChanged: %d\n",
+						result.Objects, result.Bytes, len(result.Missing), len(result.Changed)); writeErr != nil {
+						return errors.Join(err, writeErr)
+					}
+					return err
+				})
 			})
 		},
 	})
@@ -191,15 +198,28 @@ func newAdminArchiveTransferCommand(stdout io.Writer) *cobra.Command {
 			return loadAdminArchiveConfig(cmd, args, &cfg)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withArchive(cmd.Context(), cfg, func(engine *columnar.Engine) error {
-				result, err := engine.TransferArchive(cmd.Context(), destination)
+			return withDatabase(cmd.Context(), cfg, func(pool *pgxpool.Pool) error {
+				// After a committed cutover the source settings no longer open
+				// the archive, so a rerun reads the outcome first.
+				done, completed, err := columnar.CompletedTransfer(cmd.Context(), pool, destination)
 				if err != nil {
 					return err
 				}
-				_, err = fmt.Fprintf(stdout, "Transfer: %s\nObjects: %d\nBytes: %d\nCopied: %d\nAlready verified: %d\n"+
-					"The database now uses %s. Set BENCHDB_ARCHIVE_URL to it before starting BenchDB.\n",
-					result.ID, result.Objects, result.Bytes, result.Copied, result.Reused, destination.ArchiveURL)
-				return err
+				if completed {
+					_, err = fmt.Fprintf(stdout, "Transfer: %s\nThe transfer already completed. The database uses %s; "+
+						"set BENCHDB_ARCHIVE_URL to it before starting BenchDB.\n", done.ID, destination.ArchiveURL)
+					return err
+				}
+				return withArchive(cmd.Context(), pool, cfg, func(engine *columnar.Engine) error {
+					result, err := engine.TransferArchive(cmd.Context(), destination)
+					if err != nil {
+						return err
+					}
+					_, err = fmt.Fprintf(stdout, "Transfer: %s\nObjects: %d\nBytes: %d\nCopied: %d\nAlready verified: %d\n"+
+						"The database now uses %s. Set BENCHDB_ARCHIVE_URL to it before starting BenchDB.\n",
+						result.ID, result.Objects, result.Bytes, result.Copied, result.Reused, destination.ArchiveURL)
+					return err
+				})
 			})
 		},
 	})

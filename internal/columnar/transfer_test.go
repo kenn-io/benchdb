@@ -106,8 +106,9 @@ func TestTransferResume(t *testing.T) {
 }
 
 // TestTransferLostCutoverResponse runs the transfer again after its cutover
-// committed, as an operator does when the first run's outcome is unknown. The
-// rerun resolves the cutover from the transfer row without copying anything.
+// committed, as an operator does when the first run's outcome is unknown. A
+// fresh process with the source settings can no longer open the archive, so
+// the rerun resolves the cutover from the transfer row, without copying.
 func TestTransferLostCutoverResponse(t *testing.T) {
 	f := newTransferFixture(t)
 	destination := f.destination(t)
@@ -117,12 +118,18 @@ func TestTransferLostCutoverResponse(t *testing.T) {
 	expectedBinding := activeBackend(t, f.ctx, f.remote.pool)
 	mark := f.gateway.mark()
 
+	_, err = Open(f.ctx, f.remote.pool, f.source.cfg)
+	require.ErrorContains(t, err, "moving an archive needs the transfer procedure", "the source settings no longer open the archive")
+	resolved, completed, err := CompletedTransfer(f.ctx, f.remote.pool, destination)
+	require.NoError(t, err)
+	assert.True(t, completed)
+	assert.Equal(t, TransferResult{ID: first.ID, CutOver: true}, resolved)
 	rerun, err := f.source.TransferArchive(f.ctx, destination)
 	require.NoError(t, err)
 	bindingAfterResolvedCommit := activeBackend(t, f.ctx, f.remote.pool)
 	assert.Equal(t, expectedBinding, bindingAfterResolvedCommit)
 	assert.Equal(t, TransferResult{ID: first.ID, CutOver: true}, rerun)
-	assert.Empty(t, f.gateway.gets(mark, "", false), "the rerun reads nothing from the destination")
+	assert.Empty(t, f.gateway.gets(mark, "", false), "resolution reads nothing from the destination")
 
 	// The source engine's storage moved, so it no longer publishes.
 	_, err = f.source.Maintain(f.ctx)
@@ -147,9 +154,71 @@ func TestTransferRejectsUnreadyCatalogs(t *testing.T) {
 	_, err = f.remote.s3.Client.PutObject(f.ctx, bucket, "moved/unrelated.txt", bytes.NewReader(unrelated), int64(len(unrelated)), minio.PutObjectOptions{})
 	require.NoError(t, err)
 	_, err = f.source.TransferArchive(f.ctx, destination)
-	require.ErrorContains(t, err, "not empty and has no BenchDB dataset marker")
+	require.ErrorContains(t, err, "not empty and was not claimed by this transfer")
 	assert.Equal(t, []string{"unrelated.txt"}, f.remote.keys(t, f.ctx, "moved"), "the occupied destination is untouched")
 	assert.Equal(t, "a local archive directory", activeBackend(t, f.ctx, f.remote.pool))
+
+	// The refusal recorded no transfer, so a corrected destination works.
+	corrected := f.remote.gatewayConfig(f.gateway, "corrected", t)
+	result, err := f.source.TransferArchive(f.ctx, corrected)
+	require.NoError(t, err)
+	assert.True(t, result.CutOver)
+}
+
+// TestTransferRefusesAnotherCopyOfTheDataset refuses a destination that holds
+// this dataset's marker but no marker of this transfer, such as the prefix a
+// restored copy of the database came from. Cleanup run by the copy would
+// treat that deployment's newer objects as orphans.
+func TestTransferRefusesAnotherCopyOfTheDataset(t *testing.T) {
+	f := newTransferFixture(t)
+	var dataset string
+	require.NoError(t, f.remote.pool.QueryRow(f.ctx, `SELECT id::text FROM archive_dataset WHERE singleton`).Scan(&dataset))
+	marker := []byte(dataset + "\n")
+	_, err := f.remote.s3.Client.PutObject(f.ctx, f.remote.s3.Bucket, "moved/dataset", bytes.NewReader(marker), int64(len(marker)), minio.PutObjectOptions{})
+	require.NoError(t, err)
+
+	_, err = f.source.TransferArchive(f.ctx, f.destination(t))
+	require.ErrorContains(t, err, "not empty and was not claimed by this transfer")
+	assert.Equal(t, []string{"dataset"}, f.remote.keys(t, f.ctx, "moved"))
+	assert.Zero(t, verifiedTransferObjects(t, f.ctx, f.remote.pool))
+}
+
+// TestTransferRecopiesMissingVerifiedObjects removes a copy that an
+// interrupted run verified. The resumed run copies it again instead of
+// trusting the saved receipt, and the destination passes an audit.
+func TestTransferRecopiesMissingVerifiedObjects(t *testing.T) {
+	f := newTransferFixture(t)
+	destination := f.destination(t)
+	f.gateway.failRequests(func(method, key string) bool {
+		return method == http.MethodPut && strings.HasPrefix(key, "data/")
+	})
+	_, err := f.source.TransferArchive(f.ctx, destination)
+	require.Error(t, err)
+	verified := verifiedTransferObjects(t, f.ctx, f.remote.pool)
+	var removed string
+	require.NoError(t, f.remote.pool.QueryRow(f.ctx, `SELECT key FROM archive_transfer_object ORDER BY key LIMIT 1`).Scan(&removed))
+	require.NoError(t, f.remote.s3.Client.RemoveObject(f.ctx, f.remote.s3.Bucket, "moved/"+removed, minio.RemoveObjectOptions{}))
+
+	f.gateway.failRequests(nil)
+	resumed, err := f.source.TransferArchive(f.ctx, destination)
+	require.NoError(t, err)
+	assert.Equal(t, verified-1, resumed.Reused)
+	moved := f.remote.open(t, f.ctx, destination)
+	_, err = moved.AuditArchive(f.ctx)
+	require.NoError(t, err)
+}
+
+// TestTransferRefusesLocalDestinationForLocalArchive refuses a local-to-local
+// transfer: local bindings record no path, so the two directories would be
+// one binding.
+func TestTransferRefusesLocalDestinationForLocalArchive(t *testing.T) {
+	f := newTransferFixture(t)
+	other := t.TempDir()
+	_, err := f.source.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + other})
+	require.ErrorContains(t, err, "cannot move a local archive to another local directory")
+	entries, err := os.ReadDir(other)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }
 
 // TestRestoredManifestReadsRetainedKeys restores a database snapshot taken
