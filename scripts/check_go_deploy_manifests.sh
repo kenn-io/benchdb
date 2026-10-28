@@ -16,7 +16,7 @@ export BENCHDB_ADDR=":8080"
 export BENCHDB_DUCKDB_THREADS="2"
 export BENCHDB_DUCKDB_MEMORY_MB="1024"
 export BENCHDB_DUCKDB_READERS="1"
-unset BENCHDB_MAINTENANCE_INTERVAL
+unset BENCHDB_MAINTENANCE_INTERVAL BENCHDB_ARCHIVE_RETENTION
 export BENCHDB_INTENDED_BASE_URL="https://benchdb.example.com"
 export CERTIFICATE_ARN="arn:aws:acm:us-east-1:000000000000:certificate/example"
 export DB_NAME="benchdb"
@@ -658,6 +658,12 @@ write_key_set \
 	> "$tmp/config-expected-keys"
 json_map_keys "$render_config" "data" > "$tmp/config-render-keys"
 require_key_sets_equal "benchdb config contract" "$tmp/config-expected-keys" "$tmp/config-render-keys"
+render_retention_config="$tmp/retention-config.yml"
+if BENCHDB_ARCHIVE_RETENTION=864h render_config_manifest > "$render_retention_config"; then
+	require_config_value "$render_retention_config" "BENCHDB_ARCHIVE_RETENTION" "864h"
+else
+	record_failure "failed to render ConfigMap with archive retention"
+fi
 
 require_missing "$root/ci/minikube"
 require_missing "$root/benchdb-config.yml"

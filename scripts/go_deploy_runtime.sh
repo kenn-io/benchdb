@@ -324,8 +324,9 @@ keys = [
 missing = [key for key in keys if os.environ.get(key, "") == ""]
 if missing:
     raise SystemExit(f"missing or empty ConfigMap values: {', '.join(missing)}")
-if os.environ.get("BENCHDB_MAINTENANCE_INTERVAL"):
-    keys.append("BENCHDB_MAINTENANCE_INTERVAL")
+for optional in ("BENCHDB_MAINTENANCE_INTERVAL", "BENCHDB_ARCHIVE_RETENTION"):
+    if os.environ.get(optional):
+        keys.append(optional)
 
 json.dump(
     {
