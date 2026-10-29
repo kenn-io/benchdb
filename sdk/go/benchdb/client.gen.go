@@ -2106,6 +2106,9 @@ func (c *Client) AuthCallbackWithResponse(ctx context.Context, options *AuthCall
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
 		out.ApplicationProblemPlusJSONDefault = new(AuthCallbackResponse)
 		bodyBytes := resp.Content
 		if len(bodyBytes) > 0 {
@@ -2119,9 +2122,6 @@ func (c *Client) AuthCallbackWithResponse(ctx context.Context, options *AuthCall
 					Err:           err,
 				}
 			}
-		}
-		if resp.StatusCode/100 == 2 {
-			return out, nil
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
@@ -2282,6 +2282,9 @@ func (c *Client) AuthCliStartWithResponse(ctx context.Context, options *AuthCliS
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
 		out.ApplicationProblemPlusJSONDefault = new(AuthCliStartResponse)
 		bodyBytes := resp.Content
 		if len(bodyBytes) > 0 {
@@ -2295,9 +2298,6 @@ func (c *Client) AuthCliStartWithResponse(ctx context.Context, options *AuthCliS
 					Err:           err,
 				}
 			}
-		}
-		if resp.StatusCode/100 == 2 {
-			return out, nil
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
@@ -2335,6 +2335,9 @@ func (c *Client) AuthLoginWithResponse(ctx context.Context, reqEditors ...runtim
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
 		out.ApplicationProblemPlusJSONDefault = new(AuthLoginResponse)
 		bodyBytes := resp.Content
 		if len(bodyBytes) > 0 {
@@ -2348,9 +2351,6 @@ func (c *Client) AuthLoginWithResponse(ctx context.Context, reqEditors ...runtim
 					Err:           err,
 				}
 			}
-		}
-		if resp.StatusCode/100 == 2 {
-			return out, nil
 		}
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
