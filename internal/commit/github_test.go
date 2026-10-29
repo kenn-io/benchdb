@@ -207,11 +207,7 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	srv := githubtest.NewServer(t)
 	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-time.After(5 * time.Second):
-		}
+		time.Sleep(300 * time.Millisecond)
 		_, _ = w.Write(githubtest.Fixture(t, "github_child.json"))
 	})
 	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), 50*time.Millisecond, nil) //nolint:kennlint // deadlinetest: budget expiry is the expected result while the response is delayed
@@ -222,7 +218,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, info.Timestamp, "budget blown -> unknown commit")
-	assert.Less(t, time.Since(start), 250*time.Millisecond, "Resolve must return before the delayed response")
+	assert.Less(t, time.Since(start), 250*time.Millisecond, "Resolve must respect the budget, not the handler sleep")
 }
 
 func TestGitHubProviderNoCommitYieldsNil(t *testing.T) {
