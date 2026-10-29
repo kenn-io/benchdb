@@ -206,14 +206,13 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 
 func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	srv := githubtest.NewServer(t)
-	started, handlerDone := make(chan struct{}), make(chan struct{})
+	started := make(chan struct{})
 	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(_ http.ResponseWriter, r *http.Request) {
 		close(started)
-		defer close(handlerDone)
 		<-r.Context().Done()
 	})
 	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), time.Second, nil)
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx := t.Context()
 	var info *commit.Info
 	var err error
 	resolved := make(chan struct{})
@@ -221,15 +220,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 		info, err = p.Resolve(ctx, commit.Request{Commit: childSha, Repository: "https://github.com/org/repo"})
 		close(resolved)
 	}()
-	defer func() {
-		cancel()
-		<-resolved
-		select {
-		case <-started:
-			<-handlerDone
-		default:
-		}
-	}()
+	t.Cleanup(func() { <-resolved })
 
 	select {
 	case <-started:
@@ -242,7 +233,6 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 		require.FailNow(t, "Resolve did not respect the provider budget")
 	}
 	require.NoError(t, err)
-	require.NotNil(t, info)
 	assert.Nil(t, info.Timestamp, "budget blown -> unknown commit")
 }
 
