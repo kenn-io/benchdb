@@ -116,6 +116,8 @@ h3 { margin-bottom: 10px; font-size: 20px; line-height: 1.25; letter-spacing: -.
 .step-number, .feature-mark { display: block; width: auto; height: auto; margin-bottom: 24px; color: var(--blue-bright); font-family: var(--mono); font-size: 12px; font-weight: 700; }
 .feature-mark { font-size: 15px; }
 
+/* The bottom border is the only edge between this band and the interfaces
+   section after it; that section draws no top border of its own. */
 .context-section { border-block: 1px solid var(--line); background: var(--bg-soft); }
 .context-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 100px; align-items: center; }
 .text-link { display: inline-block; margin-top: 14px; color: var(--blue-bright); font-size: 14px; font-weight: 750; }
@@ -126,7 +128,6 @@ h3 { margin-bottom: 10px; font-size: 20px; line-height: 1.25; letter-spacing: -.
 .context-icon { flex: 0 0 24px; color: var(--blue-bright); font-family: var(--mono); font-weight: 800; }
 .context-row div { display: flex; flex-direction: column; }.context-row strong { font-size: 14px; }.context-row small { color: var(--muted); font-size: 12px; }
 
-.interfaces { border-top: 1px solid var(--line); }
 .audience { border-top: 1px solid var(--line); background: #101722; }
 .audience-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .audience-heading { grid-row: span 2; padding: 30px 50px 30px 0; align-self: center; }
