@@ -1,0 +1,127 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "osvVulnerabilityAlerts": true,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "prCreation": "not-pending",
+  "internalChecksFilter": "strict",
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null,
+    "prCreation": "immediate"
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "Go dependencies",
+      "groupSlug": "go-dependencies",
+      "postUpdateOptions": ["gomodUpdateImportPaths", "gomodTidy"]
+    },
+    {
+      "description": [
+        "scripts/install_duckdb_extensions.sh pins the DuckDB extensions to the DuckDB release inside duckdb-go. Update its version in the same pull request; extension loading fails until they match."
+      ],
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/duckdb/duckdb-go/**"],
+      "groupName": "DuckDB",
+      "groupSlug": "duckdb"
+    },
+    {
+      "matchManagers": ["bun"],
+      "groupName": "JavaScript dependencies",
+      "groupSlug": "javascript-dependencies"
+    },
+    {
+      "description": ["Update Vite, its Svelte plugin, and Vitest together."],
+      "matchManagers": ["bun"],
+      "matchPackageNames": ["vite", "vitest", "@vitest/**", "@sveltejs/vite-plugin-svelte"],
+      "groupName": "Vite toolchain",
+      "groupSlug": "vite-toolchain"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "groupSlug": "github-actions"
+    },
+    {
+      "matchManagers": ["docker-compose", "dockerfile"],
+      "groupName": "Docker images",
+      "groupSlug": "docker-images"
+    },
+    {
+      "description": [
+        "A PostgreSQL major version cannot open an older major's data directory. Upgrade it deliberately, with a dump and restore."
+      ],
+      "matchManagers": ["docker-compose", "dockerfile"],
+      "matchPackageNames": ["postgres", "library/postgres"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": [
+        "Bun runs the web build in CI and images. Update every Bun pin with the JavaScript dependencies."
+      ],
+      "matchDepNames": ["oven-sh/bun", "oven/bun", "docker.io/oven/bun"],
+      "groupName": "JavaScript dependencies",
+      "groupSlug": "javascript-dependencies"
+    },
+    {
+      "matchManagers": ["pip_requirements"],
+      "groupName": "Documentation dependencies",
+      "groupSlug": "docs-dependencies"
+    },
+    {
+      "description": [
+        "The Kit lint plugin in .custom-gcl.yml builds against the Kit module in go.mod. Update both together."
+      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["go.kenn.io/kit"],
+      "groupName": "Go dependencies",
+      "groupSlug": "go-dependencies"
+    },
+    {
+      "matchDepNames": ["golangci/golangci-lint"],
+      "groupName": "golangci-lint",
+      "groupSlug": "golangci-lint"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["bun-version:\\s*[\"']?(?<currentValue>\\d+\\.\\d+\\.\\d+)[\"']?"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "oven-sh/bun",
+      "extractVersionTemplate": "^bun-v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)docker-compose\\.docs-screenshots\\.yml$/"],
+      "matchStrings": ["BUN_VERSION:\\s*[\"']?(?<currentValue>\\d+\\.\\d+\\.\\d+)[\"']?"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "oven-sh/bun",
+      "extractVersionTemplate": "^bun-v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)\\.custom-gcl\\.yml$/"],
+      "matchStrings": ["^version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "golangci/golangci-lint",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)\\.custom-gcl\\.yml$/"],
+      "matchStrings": [
+        "module:\\s*go\\.kenn\\.io/kit\\s+import:[^\\n]*\\s+version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "go",
+      "depNameTemplate": "go.kenn.io/kit",
+      "versioningTemplate": "semver"
+    }
+  ]
+}
