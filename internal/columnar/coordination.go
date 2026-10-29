@@ -22,10 +22,13 @@ import (
 // Each publication or cleanup transaction runs on the owner session and takes
 // transaction-level publicationLock; cleanup then takes exclusive
 // reclamationLock in the same transaction. Maintenance never takes a run lock.
+// Startup takes session-level bindingLock on a maintenance session before its
+// reader guard, so processes read and claim the storage binding one at a time.
 const (
 	publicationLock int64 = 881196320207125
 	ownerLock       int64 = 881196320207126
 	reclamationLock int64 = 881196320207127
+	bindingLock     int64 = 881196320207128
 )
 
 const (

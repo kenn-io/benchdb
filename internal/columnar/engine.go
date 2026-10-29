@@ -481,7 +481,23 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("reserve archive maintenance session: %w", errors.Join(err, ctx.Err()))
 	}
-	defer conn.Release()
+	// Concurrent first startups would otherwise each read the binding before
+	// the other changed it. Waiting here holds no guard, so cleanup does not
+	// wait for it.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, bindingLock); err != nil {
+		// The request can be granted just before cancellation reaches it.
+		return fmt.Errorf("wait for another process to finish claiming archive storage: %w", errors.Join(err, ctx.Err(), discard(conn)))
+	}
+	defer func() {
+		// Closing a client does not end a pooled backend, so unlock first.
+		unlock, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		if _, unlockErr := conn.Exec(unlock, `SELECT pg_advisory_unlock($1)`, bindingLock); unlockErr != nil {
+			err = errors.Join(err, unlockErr, discard(conn))
+			return
+		}
+		conn.Release()
+	}()
 	host, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("name archive cycle owner: %w", err)

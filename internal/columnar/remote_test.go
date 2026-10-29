@@ -1018,6 +1018,45 @@ func TestArchiveBindingNeverSplits(t *testing.T) {
 	assert.Zero(t, uploads)
 }
 
+// TestOverlappingFirstRemoteStartups releases two first startups of one
+// remote archive together. Each waits for the binding lock without holding a
+// reader guard, then they claim one at a time and share one binding.
+func TestOverlappingFirstRemoteStartups(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	holder, err := r.pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer holder.Release()
+	_, err = holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, bindingLock)
+	require.NoError(t, err)
+
+	engines := make([]*Engine, 2)
+	errs := make([]error, len(engines))
+	var wg sync.WaitGroup
+	for i := range engines {
+		cfg := r.config("shared", t.TempDir())
+		cfg.dialArchive = loopbackDial(t)
+		wg.Go(func() { engines[i], errs[i] = Open(ctx, r.pool, cfg) })
+	}
+	locks := func(key int64, mode string, granted bool) int {
+		var n int
+		require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND mode=$2 AND granted=$3
+AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND (classid::bigint<<32|objid::bigint)=$1`, key, mode, granted).Scan(&n))
+		return n
+	}
+	require.Eventually(t, func() bool { return locks(bindingLock, "ExclusiveLock", false) == 2 }, time.Minute, 10*time.Millisecond)
+	assert.Zero(t, locks(reclamationLock, "ShareLock", true), "a startup waiting to claim holds no reader guard")
+	_, err = holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, bindingLock)
+	require.NoError(t, err)
+	wg.Wait()
+	for i, e := range engines {
+		require.NoError(t, errs[i])
+		t.Cleanup(func() { require.NoError(t, e.Close()) })
+	}
+	assert.Equal(t, engines[0].archive.storageID, engines[1].archive.storageID)
+	backend, namespace, claimed := activeBinding(t, ctx, r.pool)
+	assert.Equal(t, []any{backendS3, r.s3.Bucket + "/shared/", true}, []any{backend, namespace, claimed})
+}
+
 // TestClaimedLocalArchiveRefusesRemoteURL shows that a local archive that an
 // engine has opened is never moved to a remote URL, even before it holds
 // any archive state.
