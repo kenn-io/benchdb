@@ -13,6 +13,7 @@ linters:
     - govet
     - ineffassign
     - kennlint
+    - kennnolint
     - misspell
     - modernize
     - staticcheck
@@ -20,6 +21,10 @@ linters:
     - unused
   settings:
     custom:
+      kennnolint:
+        type: module
+        description: Require a kit analyzer and reason in suppressions.
+        original-url: go.kenn.io/kit/lint/nolintdirective
       kennlint:
         type: module
         description: Kit deadlinetest, sub-second wall-clock budgets in tests outside synctest.
