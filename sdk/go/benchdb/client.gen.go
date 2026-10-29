@@ -1761,10 +1761,22 @@ func (c *Client) ListAlertRulesWithResponse(ctx context.Context, options *ListAl
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListAlertRulesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListAlertRulesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -1811,10 +1823,22 @@ func (c *Client) CreateAlertRuleWithResponse(ctx context.Context, options *Creat
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(CreateAlertRuleErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "CreateAlertRuleErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -1846,10 +1870,22 @@ func (c *Client) DeleteAlertRuleWithResponse(ctx context.Context, options *Delet
 	switch resp.StatusCode {
 	case 204:
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(DeleteAlertRuleErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "DeleteAlertRuleErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -1895,10 +1931,22 @@ func (c *Client) GetAlertRuleWithResponse(ctx context.Context, options *GetAlert
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetAlertRuleErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetAlertRuleErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -1945,10 +1993,22 @@ func (c *Client) UpdateAlertRuleWithResponse(ctx context.Context, options *Updat
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(UpdateAlertRuleErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "UpdateAlertRuleErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -1994,10 +2054,22 @@ func (c *Client) ListAlertEventsWithResponse(ctx context.Context, options *ListA
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListAlertEventsErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListAlertEventsErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2027,10 +2099,31 @@ func (c *Client) AuthCallbackWithResponse(ctx context.Context, options *AuthCall
 	}
 
 	switch resp.StatusCode {
-	case 200:
-		return out, nil
+	case 302:
+		out.Headers302 = &AuthCallbackResp302Headers{
+			Location:  resp.Headers.Get("Location"),
+			SetCookie: resp.Headers.Get("Set-Cookie"),
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthCallbackResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthCallbackResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2075,10 +2168,22 @@ func (c *Client) AuthCapabilitiesWithResponse(ctx context.Context, reqEditors ..
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthCapabilitiesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthCapabilitiesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2125,10 +2230,22 @@ func (c *Client) AuthCliExchangeWithResponse(ctx context.Context, options *AuthC
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthCliExchangeErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthCliExchangeErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2158,10 +2275,31 @@ func (c *Client) AuthCliStartWithResponse(ctx context.Context, options *AuthCliS
 	}
 
 	switch resp.StatusCode {
-	case 200:
-		return out, nil
+	case 302:
+		out.Headers302 = &AuthCliStartResp302Headers{
+			Location:  resp.Headers.Get("Location"),
+			SetCookie: resp.Headers.Get("Set-Cookie"),
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthCliStartResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthCliStartResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2190,10 +2328,31 @@ func (c *Client) AuthLoginWithResponse(ctx context.Context, reqEditors ...runtim
 	}
 
 	switch resp.StatusCode {
-	case 200:
-		return out, nil
+	case 302:
+		out.Headers302 = &AuthLoginResp302Headers{
+			Location:  resp.Headers.Get("Location"),
+			SetCookie: resp.Headers.Get("Set-Cookie"),
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthLoginResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthLoginResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		if resp.StatusCode/100 == 2 {
+			return out, nil
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2227,10 +2386,22 @@ func (c *Client) AuthLogoutWithResponse(ctx context.Context, reqEditors ...runti
 			SetCookie: resp.Headers.Get("Set-Cookie"),
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(AuthLogoutErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "AuthLogoutErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2276,10 +2447,22 @@ func (c *Client) ListBenchmarkResultsWithResponse(ctx context.Context, options *
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListBenchmarkResultsErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListBenchmarkResultsErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2311,10 +2494,22 @@ func (c *Client) DeleteResultWithResponse(ctx context.Context, options *DeleteRe
 	switch resp.StatusCode {
 	case 204:
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(DeleteResultErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "DeleteResultErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2360,10 +2555,22 @@ func (c *Client) GetBenchmarkResultWithResponse(ctx context.Context, options *Ge
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetBenchmarkResultErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetBenchmarkResultErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2410,10 +2617,22 @@ func (c *Client) UpdateResultWithResponse(ctx context.Context, options *UpdateRe
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(UpdateResultErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "UpdateResultErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2460,10 +2679,22 @@ func (c *Client) UploadResultArtifactWithResponse(ctx context.Context, options *
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(UploadResultArtifactErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "UploadResultArtifactErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2495,10 +2726,22 @@ func (c *Client) DeleteResultArtifactWithResponse(ctx context.Context, options *
 	switch resp.StatusCode {
 	case 204:
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(DeleteResultArtifactErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "DeleteResultArtifactErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2647,10 +2890,22 @@ func (c *Client) ListBenchmarksWithResponse(ctx context.Context, options *ListBe
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListBenchmarksErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListBenchmarksErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2696,10 +2951,22 @@ func (c *Client) GetBenchmarkHistoryWithResponse(ctx context.Context, options *G
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetBenchmarkHistoryErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetBenchmarkHistoryErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2745,10 +3012,22 @@ func (c *Client) GetCiReportWithResponse(ctx context.Context, options *GetCiRepo
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetCiReportErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetCiReportErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2794,10 +3073,22 @@ func (c *Client) GetRunReportSummariesWithResponse(ctx context.Context, options 
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetRunReportSummariesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetRunReportSummariesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2843,10 +3134,22 @@ func (c *Client) GetSavedRunReportWithResponse(ctx context.Context, options *Get
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetSavedRunReportErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetSavedRunReportErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2893,10 +3196,22 @@ func (c *Client) FinalizeRunReportWithResponse(ctx context.Context, options *Fin
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(FinalizeRunReportErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "FinalizeRunReportErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2942,10 +3257,22 @@ func (c *Client) ReevaluateRunReportWithResponse(ctx context.Context, options *R
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ReevaluateRunReportErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ReevaluateRunReportErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -2991,10 +3318,22 @@ func (c *Client) CompareBenchmarkResultsWithResponse(ctx context.Context, option
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(CompareBenchmarkResultsErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "CompareBenchmarkResultsErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3040,10 +3379,22 @@ func (c *Client) GetHistoryWithResponse(ctx context.Context, options *GetHistory
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetHistoryErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetHistoryErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3089,10 +3440,22 @@ func (c *Client) GetHistoryForResultWithResponse(ctx context.Context, options *G
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(GetHistoryForResultErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "GetHistoryForResultErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3138,10 +3501,22 @@ func (c *Client) ListMachinesWithResponse(ctx context.Context, options *ListMach
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListMachinesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListMachinesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3186,10 +3561,22 @@ func (c *Client) PingWithResponse(ctx context.Context, reqEditors ...runtime.Req
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(PingErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "PingErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3234,10 +3621,22 @@ func (c *Client) ListRepositoriesWithResponse(ctx context.Context, reqEditors ..
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListRepositoriesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListRepositoriesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3284,10 +3683,22 @@ func (c *Client) SubmitResultWithResponse(ctx context.Context, options *SubmitRe
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(SubmitResultErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "SubmitResultErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3333,10 +3744,22 @@ func (c *Client) ListRecentRunsWithResponse(ctx context.Context, options *ListRe
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListRecentRunsErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListRecentRunsErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3382,10 +3805,22 @@ func (c *Client) ListSeriesWithResponse(ctx context.Context, options *ListSeries
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListSeriesErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListSeriesErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3509,10 +3944,22 @@ func (c *Client) ListTokensWithResponse(ctx context.Context, options *ListTokens
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(ListTokensErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "ListTokensErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3559,10 +4006,22 @@ func (c *Client) CreateTokenWithResponse(ctx context.Context, options *CreateTok
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(CreateTokenErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "CreateTokenErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3594,10 +4053,22 @@ func (c *Client) DeleteTokenWithResponse(ctx context.Context, options *DeleteTok
 	switch resp.StatusCode {
 	case 204:
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(DeleteTokenErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "DeleteTokenErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -3642,10 +4113,22 @@ func (c *Client) UsersMeWithResponse(ctx context.Context, reqEditors ...runtime.
 			}
 		}
 		return out, nil
-	case 500:
-		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
-		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+		out.ApplicationProblemPlusJSONDefault = new(UsersMeErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "UsersMeErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -4528,76 +5011,105 @@ type UsersMeResponse = MeOutputBody
 type UsersMeErrorResponse = ErrorModel
 
 type ListAlertRulesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListAlertRulesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListAlertRulesResponse
+	ApplicationProblemPlusJSONDefault *ListAlertRulesErrorResponse
 }
 
 type CreateAlertRuleResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON201      *CreateAlertRuleResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON201                           *CreateAlertRuleResponse
+	ApplicationProblemPlusJSONDefault *CreateAlertRuleErrorResponse
 }
 
 type DeleteAlertRuleResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	ApplicationProblemPlusJSONDefault *DeleteAlertRuleErrorResponse
 }
 
 type GetAlertRuleResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetAlertRuleResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetAlertRuleResponse
+	ApplicationProblemPlusJSONDefault *GetAlertRuleErrorResponse
 }
 
 type UpdateAlertRuleResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *UpdateAlertRuleResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *UpdateAlertRuleResponse
+	ApplicationProblemPlusJSONDefault *UpdateAlertRuleErrorResponse
 }
 
 type ListAlertEventsResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListAlertEventsResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListAlertEventsResponse
+	ApplicationProblemPlusJSONDefault *ListAlertEventsErrorResponse
+}
+
+type AuthCallbackResp302Headers struct {
+	Location  string `header:"Location"`
+	SetCookie string `header:"Set-Cookie"`
 }
 
 type AuthCallbackResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	Headers302                        *AuthCallbackResp302Headers
+	ApplicationProblemPlusJSONDefault *AuthCallbackResponse
 }
 
 type AuthCapabilitiesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *AuthCapabilitiesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *AuthCapabilitiesResponse
+	ApplicationProblemPlusJSONDefault *AuthCapabilitiesErrorResponse
 }
 
 type AuthCliExchangeResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *AuthCliExchangeResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *AuthCliExchangeResponse
+	ApplicationProblemPlusJSONDefault *AuthCliExchangeErrorResponse
+}
+
+type AuthCliStartResp302Headers struct {
+	Location  string `header:"Location"`
+	SetCookie string `header:"Set-Cookie"`
 }
 
 type AuthCliStartResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	Headers302                        *AuthCliStartResp302Headers
+	ApplicationProblemPlusJSONDefault *AuthCliStartResponse
+}
+
+type AuthLoginResp302Headers struct {
+	Location  string `header:"Location"`
+	SetCookie string `header:"Set-Cookie"`
 }
 
 type AuthLoginResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	Headers302                        *AuthLoginResp302Headers
+	ApplicationProblemPlusJSONDefault *AuthLoginResponse
 }
 
 type AuthLogoutResp204Headers struct {
@@ -4605,50 +5117,57 @@ type AuthLogoutResp204Headers struct {
 }
 
 type AuthLogoutResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	Headers204   *AuthLogoutResp204Headers
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	Headers204                        *AuthLogoutResp204Headers
+	ApplicationProblemPlusJSONDefault *AuthLogoutErrorResponse
 }
 
 type ListBenchmarkResultsResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListBenchmarkResultsResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListBenchmarkResultsResponse
+	ApplicationProblemPlusJSONDefault *ListBenchmarkResultsErrorResponse
 }
 
 type DeleteResultResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	ApplicationProblemPlusJSONDefault *DeleteResultErrorResponse
 }
 
 type GetBenchmarkResultResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetBenchmarkResultResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetBenchmarkResultResponse
+	ApplicationProblemPlusJSONDefault *GetBenchmarkResultErrorResponse
 }
 
 type UpdateResultResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *UpdateResultResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *UpdateResultResponse
+	ApplicationProblemPlusJSONDefault *UpdateResultErrorResponse
 }
 
 type UploadResultArtifactResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON201      *UploadResultArtifactResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON201                           *UploadResultArtifactResponse
+	ApplicationProblemPlusJSONDefault *UploadResultArtifactErrorResponse
 }
 
 type DeleteResultArtifactResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	ApplicationProblemPlusJSONDefault *DeleteResultArtifactErrorResponse
 }
 
 type DownloadResultArtifactResp200Headers struct {
@@ -4670,115 +5189,131 @@ type DownloadResultArtifactResp struct {
 }
 
 type ListBenchmarksResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListBenchmarksResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListBenchmarksResponse
+	ApplicationProblemPlusJSONDefault *ListBenchmarksErrorResponse
 }
 
 type GetBenchmarkHistoryResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetBenchmarkHistoryResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetBenchmarkHistoryResponse
+	ApplicationProblemPlusJSONDefault *GetBenchmarkHistoryErrorResponse
 }
 
 type GetCiReportResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetCiReportResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetCiReportResponse
+	ApplicationProblemPlusJSONDefault *GetCiReportErrorResponse
 }
 
 type GetRunReportSummariesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetRunReportSummariesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetRunReportSummariesResponse
+	ApplicationProblemPlusJSONDefault *GetRunReportSummariesErrorResponse
 }
 
 type GetSavedRunReportResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetSavedRunReportResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetSavedRunReportResponse
+	ApplicationProblemPlusJSONDefault *GetSavedRunReportErrorResponse
 }
 
 type FinalizeRunReportResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *FinalizeRunReportResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *FinalizeRunReportResponse
+	ApplicationProblemPlusJSONDefault *FinalizeRunReportErrorResponse
 }
 
 type ReevaluateRunReportResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ReevaluateRunReportResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ReevaluateRunReportResponse
+	ApplicationProblemPlusJSONDefault *ReevaluateRunReportErrorResponse
 }
 
 type CompareBenchmarkResultsResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *CompareBenchmarkResultsResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *CompareBenchmarkResultsResponse
+	ApplicationProblemPlusJSONDefault *CompareBenchmarkResultsErrorResponse
 }
 
 type GetHistoryResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetHistoryResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetHistoryResponse
+	ApplicationProblemPlusJSONDefault *GetHistoryErrorResponse
 }
 
 type GetHistoryForResultResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *GetHistoryForResultResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *GetHistoryForResultResponse
+	ApplicationProblemPlusJSONDefault *GetHistoryForResultErrorResponse
 }
 
 type ListMachinesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListMachinesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListMachinesResponse
+	ApplicationProblemPlusJSONDefault *ListMachinesErrorResponse
 }
 
 type PingResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *PingResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *PingResponse
+	ApplicationProblemPlusJSONDefault *PingErrorResponse
 }
 
 type ListRepositoriesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListRepositoriesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListRepositoriesResponse
+	ApplicationProblemPlusJSONDefault *ListRepositoriesErrorResponse
 }
 
 type SubmitResultResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON201      *SubmitResultResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON201                           *SubmitResultResponse
+	ApplicationProblemPlusJSONDefault *SubmitResultErrorResponse
 }
 
 type ListRecentRunsResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListRecentRunsResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListRecentRunsResponse
+	ApplicationProblemPlusJSONDefault *ListRecentRunsErrorResponse
 }
 
 type ListSeriesResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListSeriesResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListSeriesResponse
+	ApplicationProblemPlusJSONDefault *ListSeriesErrorResponse
 }
 
 type StorageStatusResp struct {
@@ -4791,41 +5326,45 @@ type StorageStatusResp struct {
 }
 
 type ListTokensResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *ListTokensResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *ListTokensResponse
+	ApplicationProblemPlusJSONDefault *ListTokensErrorResponse
 }
 
 type CreateTokenResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON201      *CreateTokenResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON201                           *CreateTokenResponse
+	ApplicationProblemPlusJSONDefault *CreateTokenErrorResponse
 }
 
 type DeleteTokenResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	ApplicationProblemPlusJSONDefault *DeleteTokenErrorResponse
 }
 
 type UsersMeResp struct {
-	HTTPResponse *http.Response
-	Body         []byte
-	StatusCode   int
-	JSON200      *UsersMeResponse
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *UsersMeResponse
+	ApplicationProblemPlusJSONDefault *UsersMeErrorResponse
 }
 
 type Aggregates struct {
-	Iqr    *float64 `json:"iqr,omitempty"`
-	Max    *float64 `json:"max,omitempty"`
-	Mean   *float64 `json:"mean,omitempty"`
-	Median *float64 `json:"median,omitempty"`
-	Min    *float64 `json:"min,omitempty"`
-	Q1     *float64 `json:"q1,omitempty"`
-	Q3     *float64 `json:"q3,omitempty"`
-	Stdev  *float64 `json:"stdev,omitempty"`
+	Iqr    *float64 `json:"iqr"`
+	Max    *float64 `json:"max"`
+	Mean   *float64 `json:"mean"`
+	Median *float64 `json:"median"`
+	Min    *float64 `json:"min"`
+	Q1     *float64 `json:"q1"`
+	Q3     *float64 `json:"q3"`
+	Stdev  *float64 `json:"stdev"`
 }
 
 type AlertEventView struct {
@@ -4942,12 +5481,12 @@ type BenchmarkHistory struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema       *string          `json:"$schema,omitempty"`
 	BenchmarkID  string           `json:"benchmark_id" validate:"required"`
-	LessIsBetter *bool            `json:"less_is_better,omitempty"`
+	LessIsBetter *bool            `json:"less_is_better"`
 	Name         string           `json:"name" validate:"required"`
 	Repository   string           `json:"repository" validate:"required"`
 	Tags         map[string]any   `json:"tags"`
-	Tracks       []BenchmarkTrack `json:"tracks,omitempty" validate:"required"`
-	Unit         *string          `json:"unit,omitempty" validate:"required"`
+	Tracks       []BenchmarkTrack `json:"tracks" validate:"required"`
+	Unit         *string          `json:"unit" validate:"required"`
 }
 
 func (b BenchmarkHistory) Validate() error {
@@ -4960,6 +5499,9 @@ func (b BenchmarkHistory) Validate() error {
 	}
 	if err := typesValidator.Var(b.Repository, "required"); err != nil {
 		errors = errors.Append("Repository", err)
+	}
+	if err := typesValidator.Var(b.Tracks, "required"); err != nil {
+		errors = errors.Append("Tracks", err)
 	}
 	for i, item := range b.Tracks {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -4983,25 +5525,25 @@ type BenchmarkListItem struct {
 	BenchmarkID string `json:"benchmark_id" validate:"required"`
 
 	// ChangeMachine The machine whose track sets status and change_percent.
-	ChangeMachine *string `json:"change_machine,omitempty" validate:"required"`
+	ChangeMachine *string `json:"change_machine" validate:"required"`
 
 	// ChangePercent How far the latest point on change_machine moved from its history window's mean, in percent of the mean; positive means a higher value. Null when the tracks share no unit or the mean is zero.
-	ChangePercent                *float64                `json:"change_percent,omitempty"`
+	ChangePercent                *float64                `json:"change_percent"`
 	LatestCommitSha              string                  `json:"latest_commit_sha" validate:"required"`
 	LatestCommitTimestamp        time.Time               `json:"latest_commit_timestamp" validate:"required"`
 	LatestResultID               string                  `json:"latest_result_id" validate:"required"`
 	LatestResultTimestamp        time.Time               `json:"latest_result_timestamp" validate:"required"`
-	LatestSingleValueSummary     *float64                `json:"latest_single_value_summary,omitempty"`
-	LatestSingleValueSummaryType *string                 `json:"latest_single_value_summary_type,omitempty" validate:"required"`
-	LessIsBetter                 *bool                   `json:"less_is_better,omitempty"`
-	MachineNames                 []string                `json:"machine_names,omitempty" validate:"required"`
+	LatestSingleValueSummary     *float64                `json:"latest_single_value_summary"`
+	LatestSingleValueSummaryType *string                 `json:"latest_single_value_summary_type" validate:"required"`
+	LessIsBetter                 *bool                   `json:"less_is_better"`
+	MachineNames                 []string                `json:"machine_names" validate:"required"`
 	Name                         string                  `json:"name" validate:"required"`
 	PointCount                   int64                   `json:"point_count"`
-	PreviewTracks                []BenchmarkPreviewTrack `json:"preview_tracks,omitempty" validate:"required"`
+	PreviewTracks                []BenchmarkPreviewTrack `json:"preview_tracks" validate:"required"`
 	Repository                   string                  `json:"repository" validate:"required"`
 	Status                       BenchmarkListItemStatus `json:"status" validate:"required"`
 	Tags                         map[string]any          `json:"tags"`
-	Unit                         *string                 `json:"unit,omitempty" validate:"required"`
+	Unit                         *string                 `json:"unit" validate:"required"`
 }
 
 func (b BenchmarkListItem) Validate() error {
@@ -5037,6 +5579,9 @@ func (b BenchmarkListItem) Validate() error {
 	if err := typesValidator.Var(b.Name, "required"); err != nil {
 		errors = errors.Append("Name", err)
 	}
+	if err := typesValidator.Var(b.PreviewTracks, "required"); err != nil {
+		errors = errors.Append("PreviewTracks", err)
+	}
 	for i, item := range b.PreviewTracks {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5066,8 +5611,8 @@ func (b BenchmarkListItem) Validate() error {
 type BenchmarkPage struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema         *string               `json:"$schema,omitempty"`
-	Benchmarks     []BenchmarkListItem   `json:"benchmarks,omitempty" validate:"required"`
-	NextPageCursor *string               `json:"next_page_cursor,omitempty" validate:"required"`
+	Benchmarks     []BenchmarkListItem   `json:"benchmarks" validate:"required"`
+	NextPageCursor *string               `json:"next_page_cursor" validate:"required"`
 	StatusCounts   BenchmarkStatusCounts `json:"status_counts"`
 
 	// StatusesPending A queued recompute can still change benchmarks in the repository filter; statuses settle within seconds.
@@ -5076,6 +5621,9 @@ type BenchmarkPage struct {
 
 func (b BenchmarkPage) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(b.Benchmarks, "required"); err != nil {
+		errors = errors.Append("Benchmarks", err)
+	}
 	for i, item := range b.Benchmarks {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5102,7 +5650,7 @@ func (b BenchmarkPage) Validate() error {
 type BenchmarkPreviewPoint struct {
 	CommitTimestamp time.Time `json:"commit_timestamp" validate:"required"`
 	ResultID        string    `json:"result_id" validate:"required"`
-	Unit            *string   `json:"unit,omitempty" validate:"required"`
+	Unit            *string   `json:"unit" validate:"required"`
 	Value           float64   `json:"value"`
 }
 
@@ -5112,13 +5660,16 @@ func (b BenchmarkPreviewPoint) Validate() error {
 
 type BenchmarkPreviewTrack struct {
 	MachineName string                  `json:"machine_name" validate:"required"`
-	Points      []BenchmarkPreviewPoint `json:"points,omitempty" validate:"required"`
+	Points      []BenchmarkPreviewPoint `json:"points" validate:"required"`
 }
 
 func (b BenchmarkPreviewTrack) Validate() error {
 	var errors runtime.ValidationErrors
 	if err := typesValidator.Var(b.MachineName, "required"); err != nil {
 		errors = errors.Append("MachineName", err)
+	}
+	if err := typesValidator.Var(b.Points, "required"); err != nil {
+		errors = errors.Append("Points", err)
 	}
 	for i, item := range b.Points {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -5137,7 +5688,7 @@ type BenchmarkSegment struct {
 	Context            map[string]any  `json:"context"`
 	Hardware           Hardware        `json:"hardware"`
 	HistoryFingerprint string          `json:"history_fingerprint" validate:"required"`
-	Samples            []HistorySample `json:"samples,omitempty" validate:"required"`
+	Samples            []HistorySample `json:"samples" validate:"required"`
 }
 
 func (b BenchmarkSegment) Validate() error {
@@ -5149,6 +5700,9 @@ func (b BenchmarkSegment) Validate() error {
 	}
 	if err := typesValidator.Var(b.HistoryFingerprint, "required"); err != nil {
 		errors = errors.Append("HistoryFingerprint", err)
+	}
+	if err := typesValidator.Var(b.Samples, "required"); err != nil {
+		errors = errors.Append("Samples", err)
 	}
 	for i, item := range b.Samples {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -5172,13 +5726,16 @@ type BenchmarkStatusCounts struct {
 
 type BenchmarkTrack struct {
 	MachineName string             `json:"machine_name" validate:"required"`
-	Segments    []BenchmarkSegment `json:"segments,omitempty" validate:"required"`
+	Segments    []BenchmarkSegment `json:"segments" validate:"required"`
 }
 
 func (b BenchmarkTrack) Validate() error {
 	var errors runtime.ValidationErrors
 	if err := typesValidator.Var(b.MachineName, "required"); err != nil {
 		errors = errors.Append("MachineName", err)
+	}
+	if err := typesValidator.Var(b.Segments, "required"); err != nil {
+		errors = errors.Append("Segments", err)
 	}
 	for i, item := range b.Segments {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -5201,16 +5758,16 @@ type CIReport struct {
 
 	// BaselineRunID Resolved baseline run for a saved report.
 	BaselineRunID *string    `json:"baseline_run_id,omitempty"`
-	CommitSha     *string    `json:"commit_sha,omitempty" validate:"required"`
+	CommitSha     *string    `json:"commit_sha" validate:"required"`
 	EvaluatedAt   *time.Time `json:"evaluated_at,omitempty"`
 
 	// Evaluation Saved evaluation number; original reports use 1.
 	Evaluation     *int64          `json:"evaluation,omitempty"`
-	MissingRunIds  []string        `json:"missing_run_ids,omitempty" validate:"required"`
+	MissingRunIds  []string        `json:"missing_run_ids" validate:"required"`
 	ReportURL      string          `json:"report_url" validate:"required"`
 	Repository     string          `json:"repository" validate:"required"`
-	Runs           []CIReportRun   `json:"runs,omitempty" validate:"required"`
-	SelectedRunIds []string        `json:"selected_run_ids,omitempty" validate:"required"`
+	Runs           []CIReportRun   `json:"runs" validate:"required"`
+	SelectedRunIds []string        `json:"selected_run_ids" validate:"required"`
 	Status         CIReportStatus  `json:"status" validate:"required"`
 	StatusReason   string          `json:"status_reason" validate:"required"`
 	Summary        CIReportSummary `json:"summary"`
@@ -5236,6 +5793,9 @@ func (c CIReport) Validate() error {
 	}
 	if err := typesValidator.Var(c.Repository, "required"); err != nil {
 		errors = errors.Append("Repository", err)
+	}
+	if err := typesValidator.Var(c.Runs, "required"); err != nil {
+		errors = errors.Append("Runs", err)
 	}
 	for i, item := range c.Runs {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -5267,8 +5827,8 @@ func (c CIReport) Validate() error {
 }
 
 type CIReportAnalysis struct {
-	LookbackZScore *LookbackAnalysis `json:"lookback_z_score,omitempty"`
-	Pairwise       *PairwiseAnalysis `json:"pairwise,omitempty"`
+	LookbackZScore *LookbackAnalysis `json:"lookback_z_score"`
+	Pairwise       *PairwiseAnalysis `json:"pairwise"`
 }
 
 func (c CIReportAnalysis) Validate() error {
@@ -5296,7 +5856,7 @@ func (c CIReportAnalysis) Validate() error {
 type CIReportBaselineError struct {
 	Baseline              string   `json:"baseline" validate:"required"`
 	Code                  string   `json:"code" validate:"required"`
-	CommitSha             *string  `json:"commit_sha,omitempty" validate:"required"`
+	CommitSha             *string  `json:"commit_sha" validate:"required"`
 	Message               string   `json:"message" validate:"required"`
 	RunID                 string   `json:"run_id" validate:"required"`
 	SearchedAncestorLimit *int64   `json:"searched_ancestor_limit,omitempty"`
@@ -5308,14 +5868,14 @@ func (c CIReportBaselineError) Validate() error {
 }
 
 type CIReportBaselineSide struct {
-	CommitSha              *string    `json:"commit_sha,omitempty" validate:"required"`
-	CommitTimestamp        *time.Time `json:"commit_timestamp,omitempty" validate:"required"`
+	CommitSha              *string    `json:"commit_sha" validate:"required"`
+	CommitTimestamp        *time.Time `json:"commit_timestamp" validate:"required"`
 	ResultID               string     `json:"result_id" validate:"required"`
 	ResultTimestamp        time.Time  `json:"result_timestamp" validate:"required"`
 	RunID                  string     `json:"run_id" validate:"required"`
-	SingleValueSummary     *float64   `json:"single_value_summary,omitempty"`
+	SingleValueSummary     *float64   `json:"single_value_summary"`
 	SingleValueSummaryType string     `json:"single_value_summary_type" validate:"required"`
-	Unit                   *string    `json:"unit,omitempty" validate:"required"`
+	Unit                   *string    `json:"unit" validate:"required"`
 }
 
 func (c CIReportBaselineSide) Validate() error {
@@ -5323,11 +5883,11 @@ func (c CIReportBaselineSide) Validate() error {
 }
 
 type CIReportComparison struct {
-	Analysis           *CIReportAnalysis     `json:"analysis,omitempty"`
-	Baseline           *CIReportBaselineSide `json:"baseline,omitempty"`
+	Analysis           *CIReportAnalysis     `json:"analysis"`
+	Baseline           *CIReportBaselineSide `json:"baseline"`
 	Contender          CIReportSide          `json:"contender"`
 	Context            map[string]any        `json:"context"`
-	ErrorData          map[string]any        `json:"error,omitempty"`
+	ErrorData          map[string]any        `json:"error"`
 	Hardware           Hardware              `json:"hardware"`
 	HistoryFingerprint string                `json:"history_fingerprint" validate:"required"`
 
@@ -5337,13 +5897,13 @@ type CIReportComparison struct {
 	// HistoryRequired Minimum history results required for statistical analysis.
 	HistoryRequired *int64                   `json:"history_required,omitempty"`
 	Info            map[string]any           `json:"info"`
-	LessIsBetter    *bool                    `json:"less_is_better,omitempty"`
+	LessIsBetter    *bool                    `json:"less_is_better"`
 	Links           CIReportRowLinks         `json:"links"`
 	Name            string                   `json:"name" validate:"required"`
 	Reason          *string                  `json:"reason,omitempty"`
 	Status          CIReportComparisonStatus `json:"status" validate:"required"`
 	Tags            map[string]any           `json:"tags"`
-	Unit            *string                  `json:"unit,omitempty" validate:"required"`
+	Unit            *string                  `json:"unit" validate:"required"`
 }
 
 func (c CIReportComparison) Validate() error {
@@ -5410,14 +5970,14 @@ func (c CIReportRowLinks) Validate() error {
 }
 
 type CIReportRun struct {
-	BaselineCommit *Commit                `json:"baseline_commit,omitempty"`
-	BaselineError  *CIReportBaselineError `json:"baseline_error,omitempty"`
-	BaselineRunID  *string                `json:"baseline_run_id,omitempty" validate:"required"`
-	Commit         *Commit                `json:"commit,omitempty"`
-	CommitsSkipped []string               `json:"commits_skipped,omitempty" validate:"required"`
-	Comparisons    []CIReportComparison   `json:"comparisons,omitempty" validate:"required"`
+	BaselineCommit *Commit                `json:"baseline_commit"`
+	BaselineError  *CIReportBaselineError `json:"baseline_error"`
+	BaselineRunID  *string                `json:"baseline_run_id" validate:"required"`
+	Commit         *Commit                `json:"commit"`
+	CommitsSkipped []string               `json:"commits_skipped" validate:"required"`
+	Comparisons    []CIReportComparison   `json:"comparisons" validate:"required"`
 	RunID          string                 `json:"run_id" validate:"required"`
-	RunReason      *string                `json:"run_reason,omitempty" validate:"required"`
+	RunReason      *string                `json:"run_reason" validate:"required"`
 	RunTags        map[string]any         `json:"run_tags"`
 }
 
@@ -5452,6 +6012,9 @@ func (c CIReportRun) Validate() error {
 	if err := typesValidator.Var(c.CommitsSkipped, "required"); err != nil {
 		errors = errors.Append("CommitsSkipped", err)
 	}
+	if err := typesValidator.Var(c.Comparisons, "required"); err != nil {
+		errors = errors.Append("Comparisons", err)
+	}
 	for i, item := range c.Comparisons {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5475,13 +6038,13 @@ func (c CIReportRun) Validate() error {
 
 type CIReportSide struct {
 	BeginsDistributionChange bool           `json:"begins_distribution_change"`
-	CommitSha                *string        `json:"commit_sha,omitempty" validate:"required"`
-	CommitTimestamp          *time.Time     `json:"commit_timestamp,omitempty" validate:"required"`
-	ErrorData                map[string]any `json:"error,omitempty"`
+	CommitSha                *string        `json:"commit_sha" validate:"required"`
+	CommitTimestamp          *time.Time     `json:"commit_timestamp" validate:"required"`
+	ErrorData                map[string]any `json:"error"`
 	ResultID                 string         `json:"result_id" validate:"required"`
 	ResultTimestamp          time.Time      `json:"result_timestamp" validate:"required"`
 	RunID                    string         `json:"run_id" validate:"required"`
-	SingleValueSummary       *float64       `json:"single_value_summary,omitempty"`
+	SingleValueSummary       *float64       `json:"single_value_summary"`
 	SingleValueSummaryType   string         `json:"single_value_summary_type" validate:"required"`
 }
 
@@ -5567,7 +6130,7 @@ type Commit struct {
 	Message         string     `json:"message" validate:"required"`
 	Repository      string     `json:"repository" validate:"required"`
 	Sha             string     `json:"sha" validate:"required"`
-	Timestamp       *time.Time `json:"timestamp,omitempty" validate:"required"`
+	Timestamp       *time.Time `json:"timestamp" validate:"required"`
 }
 
 func (c Commit) Validate() error {
@@ -5575,8 +6138,8 @@ func (c Commit) Validate() error {
 }
 
 type CompareAnalysis struct {
-	LookbackZScore *LookbackAnalysis `json:"lookback_z_score,omitempty"`
-	Pairwise       *PairwiseAnalysis `json:"pairwise,omitempty"`
+	LookbackZScore *LookbackAnalysis `json:"lookback_z_score"`
+	Pairwise       *PairwiseAnalysis `json:"pairwise"`
 }
 
 func (c CompareAnalysis) Validate() error {
@@ -5750,7 +6313,7 @@ type FinalizeRunReportInputBody struct {
 
 	// BaselineRunID Required for explicit_run; omitted for latest_default.
 	BaselineRunID *string  `json:"baseline_run_id,omitempty" validate:"omitempty,max=255"`
-	ResultIds     []string `json:"result_ids,omitempty" validate:"required"`
+	ResultIds     []string `json:"result_ids" validate:"required"`
 }
 
 func (f FinalizeRunReportInputBody) Validate() error {
@@ -5767,6 +6330,12 @@ func (f FinalizeRunReportInputBody) Validate() error {
 	}
 	if err := typesValidator.Var(f.ResultIds, "required"); err != nil {
 		errors = errors.Append("ResultIds", err)
+	}
+	if f.ResultIds != nil && len(f.ResultIds) < 1 {
+		errors = errors.Add("ResultIds", fmt.Sprintf("must have at least 1 items, got %d", len(f.ResultIds)))
+	}
+	if len(f.ResultIds) > 5000 {
+		errors = errors.Add("ResultIds", fmt.Sprintf("must have at most 5000 items, got %d", len(f.ResultIds)))
 	}
 	if len(errors) == 0 {
 		return nil
@@ -5818,17 +6387,17 @@ type HistorySample struct {
 	CommitHash             string         `json:"commit_hash" validate:"required"`
 	CommitMessage          string         `json:"commit_message" validate:"required"`
 	CommitRepository       string         `json:"commit_repository" validate:"required"`
-	CommitTimestamp        *time.Time     `json:"commit_timestamp,omitempty" validate:"required"`
-	Data                   []float64      `json:"data,omitempty" validate:"required"`
+	CommitTimestamp        *time.Time     `json:"commit_timestamp" validate:"required"`
+	Data                   []float64      `json:"data" validate:"required"`
 	HardwareHash           string         `json:"hardware_hash" validate:"required"`
 	Info                   map[string]any `json:"info"`
-	Mean                   *float64       `json:"mean,omitempty"`
+	Mean                   *float64       `json:"mean"`
 	ResultTimestamp        time.Time      `json:"result_timestamp" validate:"required"`
 	RunTags                map[string]any `json:"run_tags"`
 	SingleValueSummary     float64        `json:"single_value_summary"`
 	SingleValueSummaryType string         `json:"single_value_summary_type" validate:"required"`
-	Unit                   *string        `json:"unit,omitempty" validate:"required"`
-	Zscorestats            *ZScoreStats   `json:"zscorestats,omitempty"`
+	Unit                   *string        `json:"unit" validate:"required"`
+	Zscorestats            *ZScoreStats   `json:"zscorestats"`
 }
 
 func (h HistorySample) Validate() error {
@@ -5884,13 +6453,16 @@ type HistorySeries struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema             *string         `json:"$schema,omitempty"`
 	HistoryFingerprint string          `json:"history_fingerprint" validate:"required"`
-	Samples            []HistorySample `json:"samples,omitempty" validate:"required"`
+	Samples            []HistorySample `json:"samples" validate:"required"`
 }
 
 func (h HistorySeries) Validate() error {
 	var errors runtime.ValidationErrors
 	if err := typesValidator.Var(h.HistoryFingerprint, "required"); err != nil {
 		errors = errors.Append("HistoryFingerprint", err)
+	}
+	if err := typesValidator.Var(h.Samples, "required"); err != nil {
+		errors = errors.Append("Samples", err)
 	}
 	for i, item := range h.Samples {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -5908,11 +6480,14 @@ func (h HistorySeries) Validate() error {
 type ListAlertEventsOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string          `json:"$schema,omitempty"`
-	Events []AlertEventView `json:"events,omitempty" validate:"required"`
+	Events []AlertEventView `json:"events" validate:"required"`
 }
 
 func (l ListAlertEventsOutputBody) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(l.Events, "required"); err != nil {
+		errors = errors.Append("Events", err)
+	}
 	for i, item := range l.Events {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5929,11 +6504,14 @@ func (l ListAlertEventsOutputBody) Validate() error {
 type ListAlertRulesOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string         `json:"$schema,omitempty"`
-	Rules  []AlertRuleView `json:"rules,omitempty" validate:"required"`
+	Rules  []AlertRuleView `json:"rules" validate:"required"`
 }
 
 func (l ListAlertRulesOutputBody) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(l.Rules, "required"); err != nil {
+		errors = errors.Append("Rules", err)
+	}
 	for i, item := range l.Rules {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5948,14 +6526,14 @@ func (l ListAlertRulesOutputBody) Validate() error {
 }
 
 type ListCommit struct {
-	AuthorAvatar    *string    `json:"author_avatar,omitempty" validate:"required"`
-	AuthorLogin     *string    `json:"author_login,omitempty" validate:"required"`
+	AuthorAvatar    *string    `json:"author_avatar" validate:"required"`
+	AuthorLogin     *string    `json:"author_login" validate:"required"`
 	AuthorName      string     `json:"author_name" validate:"required"`
 	Hash            string     `json:"hash" validate:"required"`
 	IsDefaultBranch bool       `json:"is_default_branch"`
 	Message         string     `json:"message" validate:"required"`
 	Repository      string     `json:"repository" validate:"required"`
-	Timestamp       *time.Time `json:"timestamp,omitempty" validate:"required"`
+	Timestamp       *time.Time `json:"timestamp" validate:"required"`
 }
 
 func (l ListCommit) Validate() error {
@@ -5965,11 +6543,14 @@ func (l ListCommit) Validate() error {
 type ListTokensOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string     `json:"$schema,omitempty"`
-	Tokens []TokenView `json:"tokens,omitempty" validate:"required"`
+	Tokens []TokenView `json:"tokens" validate:"required"`
 }
 
 func (l ListTokensOutputBody) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(l.Tokens, "required"); err != nil {
+		errors = errors.Append("Tokens", err)
+	}
 	for i, item := range l.Tokens {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -5984,7 +6565,7 @@ func (l ListTokensOutputBody) Validate() error {
 }
 
 type LookbackAnalysis struct {
-	BaselineZScore       *float64         `json:"baseline_z_score,omitempty"`
+	BaselineZScore       *float64         `json:"baseline_z_score"`
 	BaselineZThreshold   float64          `json:"baseline_z_threshold"`
 	ImprovementIndicated bool             `json:"improvement_indicated"`
 	RegressionIndicated  bool             `json:"regression_indicated"`
@@ -6036,7 +6617,7 @@ type MachineList struct {
 	Schema *string `json:"$schema,omitempty"`
 
 	// Machines Machine names with benchmark history, sorted by name.
-	Machines []string `json:"machines,omitempty" validate:"required"`
+	Machines []string `json:"machines" validate:"required"`
 }
 
 func (m MachineList) Validate() error {
@@ -6159,18 +6740,18 @@ type RecentRunListItem struct {
 	Attention        *RecentRunAttention `json:"attention,omitempty"`
 	AttentionChecked bool                `json:"attention_checked"`
 	BatchCount       int64               `json:"batch_count"`
-	Commit           *ListCommit         `json:"commit,omitempty"`
-	CommitSha        *string             `json:"commit_sha,omitempty" validate:"required"`
+	Commit           *ListCommit         `json:"commit"`
+	CommitSha        *string             `json:"commit_sha" validate:"required"`
 	ErrorCount       int64               `json:"error_count"`
 	FirstResultAt    time.Time           `json:"first_result_at" validate:"required"`
 	LastResultAt     time.Time           `json:"last_result_at" validate:"required"`
-	LatestBatchID    *string             `json:"latest_batch_id,omitempty" validate:"required"`
+	LatestBatchID    *string             `json:"latest_batch_id" validate:"required"`
 	LatestResultID   string              `json:"latest_result_id" validate:"required"`
-	MachineNames     []string            `json:"machine_names,omitempty" validate:"required"`
+	MachineNames     []string            `json:"machine_names" validate:"required"`
 	Repository       string              `json:"repository" validate:"required"`
 	ResultCount      int64               `json:"result_count"`
 	RunID            string              `json:"run_id" validate:"required"`
-	RunReason        *string             `json:"run_reason,omitempty" validate:"required"`
+	RunReason        *string             `json:"run_reason" validate:"required"`
 	RunTags          map[string]any      `json:"run_tags"`
 	SeriesCount      int64               `json:"series_count"`
 }
@@ -6235,12 +6816,15 @@ type RecentRunsPage struct {
 	Schema          *string             `json:"$schema,omitempty"`
 	AttentionRuns   int64               `json:"attention_runs"`
 	HasMore         bool                `json:"has_more"`
-	Runs            []RecentRunListItem `json:"runs,omitempty" validate:"required"`
+	Runs            []RecentRunListItem `json:"runs" validate:"required"`
 	VerdictsPending bool                `json:"verdicts_pending"`
 }
 
 func (r RecentRunsPage) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(r.Runs, "required"); err != nil {
+		errors = errors.Append("Runs", err)
+	}
 	for i, item := range r.Runs {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -6266,11 +6850,14 @@ func (r RepositoryItem) Validate() error {
 type RepositoryList struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema       *string          `json:"$schema,omitempty"`
-	Repositories []RepositoryItem `json:"repositories,omitempty" validate:"required"`
+	Repositories []RepositoryItem `json:"repositories" validate:"required"`
 }
 
 func (r RepositoryList) Validate() error {
 	var errors runtime.ValidationErrors
+	if err := typesValidator.Var(r.Repositories, "required"); err != nil {
+		errors = errors.Append("Repositories", err)
+	}
 	for i, item := range r.Repositories {
 		if v, ok := any(item).(runtime.Validator); ok {
 			if err := v.Validate(); err != nil {
@@ -6288,33 +6875,33 @@ type ResultDetail struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema                 *string            `json:"$schema,omitempty"`
 	Artifacts              []ArtifactMetadata `json:"artifacts,omitempty"`
-	BatchID                *string            `json:"batch_id,omitempty" validate:"required"`
+	BatchID                *string            `json:"batch_id" validate:"required"`
 	BenchmarkID            string             `json:"benchmark_id" validate:"required"`
 	ChangeAnnotations      map[string]any     `json:"change_annotations"`
-	Commit                 *Commit            `json:"commit,omitempty"`
+	Commit                 *Commit            `json:"commit"`
 	CommitRepoURL          string             `json:"commit_repo_url" validate:"required"`
 	Context                map[string]any     `json:"context"`
-	Data                   []*float64         `json:"data,omitempty" validate:"required"`
-	ErrorData              map[string]any     `json:"error,omitempty"`
+	Data                   []*float64         `json:"data" validate:"required"`
+	ErrorData              map[string]any     `json:"error"`
 	Hardware               Hardware           `json:"hardware"`
 	HistoryFingerprint     string             `json:"history_fingerprint" validate:"required"`
 	ID                     string             `json:"id" validate:"required"`
 	Info                   map[string]any     `json:"info"`
-	Iterations             *int32             `json:"iterations,omitempty"`
-	LessIsBetter           *bool              `json:"less_is_better,omitempty"`
-	OptionalBenchmarkInfo  map[string]any     `json:"optional_benchmark_info,omitempty"`
+	Iterations             *int32             `json:"iterations"`
+	LessIsBetter           *bool              `json:"less_is_better"`
+	OptionalBenchmarkInfo  map[string]any     `json:"optional_benchmark_info"`
 	RunID                  string             `json:"run_id" validate:"required"`
-	RunReason              *string            `json:"run_reason,omitempty" validate:"required"`
+	RunReason              *string            `json:"run_reason" validate:"required"`
 	RunTags                map[string]any     `json:"run_tags"`
-	SingleValueSummary     *float64           `json:"single_value_summary,omitempty"`
+	SingleValueSummary     *float64           `json:"single_value_summary"`
 	SingleValueSummaryType string             `json:"single_value_summary_type" validate:"required"`
 	Stats                  Aggregates         `json:"stats"`
 	Tags                   map[string]any     `json:"tags"`
-	TimeUnit               *string            `json:"time_unit,omitempty" validate:"required"`
-	Times                  []*float64         `json:"times,omitempty" validate:"required"`
+	TimeUnit               *string            `json:"time_unit" validate:"required"`
+	Times                  []*float64         `json:"times" validate:"required"`
 	Timestamp              time.Time          `json:"timestamp" validate:"required"`
-	Unit                   *string            `json:"unit,omitempty" validate:"required"`
-	Validation             map[string]any     `json:"validation,omitempty"`
+	Unit                   *string            `json:"unit" validate:"required"`
+	Validation             map[string]any     `json:"validation"`
 }
 
 func (r ResultDetail) Validate() error {
@@ -6397,20 +6984,20 @@ func (r ResultDetail) Validate() error {
 }
 
 type ResultListItem struct {
-	BatchID                *string        `json:"batch_id,omitempty" validate:"required"`
+	BatchID                *string        `json:"batch_id" validate:"required"`
 	CaseName               string         `json:"case_name" validate:"required"`
 	CaseTags               map[string]any `json:"case_tags"`
-	Commit                 *ListCommit    `json:"commit,omitempty"`
+	Commit                 *ListCommit    `json:"commit"`
 	HasError               bool           `json:"has_error"`
 	HistoryFingerprint     string         `json:"history_fingerprint" validate:"required"`
 	ID                     string         `json:"id" validate:"required"`
 	RunID                  string         `json:"run_id" validate:"required"`
-	RunReason              *string        `json:"run_reason,omitempty" validate:"required"`
+	RunReason              *string        `json:"run_reason" validate:"required"`
 	RunTags                map[string]any `json:"run_tags"`
-	SingleValueSummary     *float64       `json:"single_value_summary,omitempty"`
+	SingleValueSummary     *float64       `json:"single_value_summary"`
 	SingleValueSummaryType string         `json:"single_value_summary_type" validate:"required"`
 	Timestamp              time.Time      `json:"timestamp" validate:"required"`
-	Unit                   *string        `json:"unit,omitempty" validate:"required"`
+	Unit                   *string        `json:"unit" validate:"required"`
 }
 
 func (r ResultListItem) Validate() error {
@@ -6464,8 +7051,8 @@ func (r ResultListItem) Validate() error {
 type ResultPage struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema         *string          `json:"$schema,omitempty"`
-	NextPageCursor *string          `json:"next_page_cursor,omitempty" validate:"required"`
-	Results        []ResultListItem `json:"results,omitempty" validate:"required"`
+	NextPageCursor *string          `json:"next_page_cursor" validate:"required"`
+	Results        []ResultListItem `json:"results" validate:"required"`
 }
 
 func (r ResultPage) Validate() error {
@@ -6474,6 +7061,9 @@ func (r ResultPage) Validate() error {
 		if err := typesValidator.Var(r.NextPageCursor, "required"); err != nil {
 			errors = errors.Append("NextPageCursor", err)
 		}
+	}
+	if err := typesValidator.Var(r.Results, "required"); err != nil {
+		errors = errors.Append("Results", err)
 	}
 	for i, item := range r.Results {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -6563,7 +7153,7 @@ func (r RunReportSummary) Validate() error {
 
 type SeriesListItem struct {
 	// ChangePercent How far the latest result moved from its history window's mean, in percent of that mean; positive means a higher value. Null without a nonzero window mean.
-	ChangePercent                *float64             `json:"change_percent,omitempty"`
+	ChangePercent                *float64             `json:"change_percent"`
 	Context                      map[string]any       `json:"context"`
 	Hardware                     Hardware             `json:"hardware"`
 	HistoryFingerprint           string               `json:"history_fingerprint" validate:"required"`
@@ -6571,19 +7161,19 @@ type SeriesListItem struct {
 	LatestCommitTimestamp        time.Time            `json:"latest_commit_timestamp" validate:"required"`
 	LatestResultID               string               `json:"latest_result_id" validate:"required"`
 	LatestResultTimestamp        time.Time            `json:"latest_result_timestamp" validate:"required"`
-	LatestSingleValueSummary     *float64             `json:"latest_single_value_summary,omitempty"`
-	LatestSingleValueSummaryType *string              `json:"latest_single_value_summary_type,omitempty" validate:"required"`
-	LessIsBetter                 *bool                `json:"less_is_better,omitempty"`
+	LatestSingleValueSummary     *float64             `json:"latest_single_value_summary"`
+	LatestSingleValueSummaryType *string              `json:"latest_single_value_summary_type" validate:"required"`
+	LessIsBetter                 *bool                `json:"less_is_better"`
 	Name                         string               `json:"name" validate:"required"`
 	PointCount                   int64                `json:"point_count"`
 	Repository                   string               `json:"repository" validate:"required"`
-	Sparkline                    []float64            `json:"sparkline,omitempty" validate:"required"`
+	Sparkline                    []float64            `json:"sparkline" validate:"required"`
 	Status                       SeriesListItemStatus `json:"status" validate:"required"`
 	Tags                         map[string]any       `json:"tags"`
-	Unit                         *string              `json:"unit,omitempty" validate:"required"`
+	Unit                         *string              `json:"unit" validate:"required"`
 
 	// WindowMean Mean of the history window the latest result is scored against. Null when there are no earlier results to score against.
-	WindowMean *float64 `json:"window_mean,omitempty"`
+	WindowMean *float64 `json:"window_mean"`
 }
 
 func (s SeriesListItem) Validate() error {
@@ -6641,7 +7231,7 @@ func (s SeriesListItem) Validate() error {
 type SeriesPage struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema         *string          `json:"$schema,omitempty"`
-	NextPageCursor *string          `json:"next_page_cursor,omitempty" validate:"required"`
+	NextPageCursor *string          `json:"next_page_cursor" validate:"required"`
 	Series         []SeriesListItem `json:"series" validate:"required"`
 }
 
@@ -6651,6 +7241,9 @@ func (s SeriesPage) Validate() error {
 		if err := typesValidator.Var(s.NextPageCursor, "required"); err != nil {
 			errors = errors.Append("NextPageCursor", err)
 		}
+	}
+	if err := typesValidator.Var(s.Series, "required"); err != nil {
+		errors = errors.Append("Series", err)
 	}
 	for i, item := range s.Series {
 		if v, ok := any(item).(runtime.Validator); ok {
@@ -6666,7 +7259,7 @@ func (s SeriesPage) Validate() error {
 }
 
 type StatsInput struct {
-	Data       []*float64 `json:"data,omitempty" validate:"required"`
+	Data       []*float64 `json:"data" validate:"required"`
 	Iqr        *float64   `json:"iqr,omitempty"`
 	Iterations *int32     `json:"iterations,omitempty"`
 	Max        *float64   `json:"max,omitempty"`
@@ -6844,10 +7437,10 @@ type ZScoreStats struct {
 	BeginsDistributionChange       bool     `json:"begins_distribution_change"`
 	IsOutlier                      bool     `json:"is_outlier"`
 	IsStep                         bool     `json:"is_step"`
-	Residual                       *float64 `json:"residual,omitempty"`
-	RollingMean                    *float64 `json:"rolling_mean,omitempty"`
-	RollingMeanExcludingThisCommit *float64 `json:"rolling_mean_excluding_this_commit,omitempty"`
-	RollingStddev                  *float64 `json:"rolling_stddev,omitempty"`
+	Residual                       *float64 `json:"residual"`
+	RollingMean                    *float64 `json:"rolling_mean"`
+	RollingMeanExcludingThisCommit *float64 `json:"rolling_mean_excluding_this_commit"`
+	RollingStddev                  *float64 `json:"rolling_stddev"`
 	SegmentID                      int64    `json:"segment_id"`
 }
 

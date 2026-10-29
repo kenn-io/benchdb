@@ -233,7 +233,7 @@ go-test-short: duckdb-extensions
 # `make codegen-check` regenerates everything and fails on any diff, proving the
 # artifacts match the server and the clients match the artifacts.
 CODEGEN_PATHS := api/openapi.yaml api/openapi-3.0.yaml web/src/lib/api sdk/go/benchdb/client.gen.go
-OAPI_CODEGEN_VERSION := v3.75.15
+OAPI_CODEGEN_VERSION := v3.76.5
 
 .PHONY: openapi
 openapi:
