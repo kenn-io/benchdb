@@ -9,3 +9,4 @@ generate:
   client-with-response: true
 user-templates:
   imports: sdk/go/benchdb/templates/imports.tmpl
+  envelope-response: sdk/go/benchdb/templates/envelope-response.tmpl

@@ -9,7 +9,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/danielgtaylor/huma/v2 v2.40.0
-	github.com/doordash-oss/oapi-codegen-dd/v3 v3.75.15
+	github.com/doordash-oss/oapi-codegen-dd/v3 v3.76.5
 	github.com/duckdb/duckdb-go/v2 v2.10505.0
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-playground/validator/v10 v10.30.5
