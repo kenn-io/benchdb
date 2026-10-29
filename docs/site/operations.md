@@ -684,7 +684,8 @@ fields. The runtime ConfigMap holds `BENCHDB_ADDR`,
 `BENCHDB_INTENDED_BASE_URL`, and the DuckDB resource settings. Kubernetes
 defaults are `BENCHDB_DUCKDB_THREADS=2`, `BENCHDB_DUCKDB_MEMORY_MB=1024`, and
 `BENCHDB_DUCKDB_READERS=1`; set these deployment inputs to change the budgets.
-`BENCHDB_MAINTENANCE_INTERVAL` is forwarded when supplied. The memory setting
+`BENCHDB_MAINTENANCE_INTERVAL` and `BENCHDB_ARCHIVE_RETENTION` are forwarded
+when supplied. The memory setting
 bounds DuckDB buffers; leave additional pod memory for the server and other
 allocations.
 
