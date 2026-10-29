@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -222,34 +223,37 @@
     </section>
   </main>
 {:else}
+  <!-- @const pins the narrowed view-model for the PageHeader snippets, which are closures. -->
+  {@const result = vm}
   {@const seriesHref = `/benchmarks/${vm.benchmarkId}`}
   <main class="page result-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Benchmark result</p>
-        <h1>{vm.name}</h1>
-        <p class="page-subtitle result-ident">
-          <span>{vm.hardwareName}</span>
-          {#if vm.commitSha !== null}<span class="mono" title={vm.commitSha}>{vm.shortCommit}</span>{/if}
-          <span>{vm.resultDateText}</span>
-        </p>
-        {#if vm.paramsText}
-          <p class="page-subtitle">{vm.paramsText}</p>
-        {/if}
-      </div>
-      <div class="action-row">
-        {#if historyAvailable}
-          <a
-            class="button-pill"
-            href={appURL(seriesHref)}
-            onclick={(e) => go(e, seriesHref)}
-          >Explore full series</a>
-        {/if}
-        <a class="button-pill" href={appURL(vm.historyExportHref)} download={`benchdb-history-${vm.id}.json`}>
-          Export history JSON
-        </a>
-      </div>
-    </header>
+    <div class="page-intro">
+      <PageHeader title={result.name}>
+        {#snippet before()}<p class="eyebrow">Benchmark result</p>{/snippet}
+        {#snippet actions()}
+          <div class="action-row">
+            {#if historyAvailable}
+              <a
+                class="button-pill"
+                href={appURL(seriesHref)}
+                onclick={(e) => go(e, seriesHref)}
+              >Explore full series</a>
+            {/if}
+            <a class="button-pill" href={appURL(result.historyExportHref)} download={`benchdb-history-${result.id}.json`}>
+              Export history JSON
+            </a>
+          </div>
+        {/snippet}
+      </PageHeader>
+      <p class="page-subtitle result-ident">
+        <span>{vm.hardwareName}</span>
+        {#if vm.commitSha !== null}<span class="mono" title={vm.commitSha}>{vm.shortCommit}</span>{/if}
+        <span>{vm.resultDateText}</span>
+      </p>
+      {#if vm.paramsText}
+        <p class="page-subtitle">{vm.paramsText}</p>
+      {/if}
+    </div>
 
     <section class="panel result-section measurement-section" aria-label="Result measurement">
       <div class="measurement-primary">

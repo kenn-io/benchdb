@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PageHeader } from "@kenn-io/kit-ui";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import { onMount } from "svelte";
 
@@ -68,13 +69,14 @@
 {/snippet}
 
 <main class="page storage-page">
-  <header class="page-header">
-    <h1>Storage</h1>
-    <button type="button" class="button-pill refresh" onclick={load} disabled={loading}>
-      <RefreshCwIcon size={13} strokeWidth={1.75} aria-hidden="true" />
-      Refresh
-    </button>
-  </header>
+  <PageHeader title="Storage">
+    {#snippet actions()}
+      <button type="button" class="button-pill refresh" onclick={load} disabled={loading}>
+        <RefreshCwIcon size={13} strokeWidth={1.75} aria-hidden="true" />
+        Refresh
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if loading && status === null}
     <p class="panel state-panel loading" role="status">Loading storage…</p>
@@ -196,7 +198,6 @@
     max-width: 1100px;
   }
 
-  .page-header,
   .section-header {
     align-items: center;
   }

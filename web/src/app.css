@@ -70,6 +70,9 @@
   --accent-blue-foreground: var(--c-on-accent);
   --focus-ring: 2px solid var(--c-accent);
   --shadow-lg: var(--shadow-panel);
+  /* PageHeader titles keep the app's compact h1 size and body font. */
+  --kit-page-header-title-size: 1.18rem;
+  --kit-page-header-title-font: inherit;
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--c-text);
@@ -276,11 +279,11 @@ p {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
+/* A PageHeader followed by metadata lines that need markup (monospace commits,
+   avatars, tooltips), which its plain-text description cannot hold. */
+.page-intro {
+  display: grid;
+  min-width: 0;
 }
 
 .eyebrow {
@@ -290,6 +293,11 @@ p {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* PageHeader's own gap separates the eyebrow from the title. */
+.kit-page-header .eyebrow {
+  margin-bottom: 0;
 }
 
 .page-subtitle {
@@ -746,10 +754,6 @@ p {
 @media (max-width: 760px) {
   .app-content {
     padding: 10px;
-  }
-  .page-header {
-    flex-direction: column;
-    gap: 8px;
   }
   .page-meta {
     justify-content: flex-start;

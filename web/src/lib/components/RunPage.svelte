@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -139,12 +140,9 @@
   <main class="page run-page"><p>Loading…</p></main>
 {:else if vm.rows.length === 0}
   <main class="page run-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Run Detail</p>
-        <h1>Run <span class="id-heading mono">{runId}</span></h1>
-      </div>
-    </header>
+    <PageHeader title={`Run ${runId}`}>
+      {#snippet before()}<p class="eyebrow">Run Detail</p>{/snippet}
+    </PageHeader>
     <section class="panel empty-panel">
       <h2>No results found for this run</h2>
       <p>Check the run_id or open the recent-runs dashboard.</p>
@@ -152,46 +150,49 @@
     </section>
   </main>
 {:else}
+  <!-- @const pins the narrowed view-model for the PageHeader snippets, which are closures. -->
+  {@const run = vm}
   {@const showBatch = vm.rows.some((row) => row.batchId !== null)}
   {@const showErrors = vm.loadedErrors > 0}
   <main class="page run-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">{vm.repositoryLabel}</p>
-        <h1>{vm.primaryLabel}</h1>
-        <p class="page-subtitle run-subtitle">
-          {#if vm.authorAvatar}
-            <img class="author-avatar" src={vm.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
-          {/if}
-          {#if vm.authorLabel !== "unknown author"}
-            <span>{vm.authorLabel}{vm.authorLogin ? ` @${vm.authorLogin}` : ""}</span>
-          {/if}
-          <span class="mono" title={vm.runId}>{vm.secondaryLabel}</span>
-          <span>{formatTime(vm.firstLoadedAt)}</span>
-        </p>
-      </div>
-      <div class="page-meta">
-        {#if vm.runReason}<span class="wrap-anywhere">{vm.runReason}</span>{/if}
-        {#if vm.commitHref && vm.shortCommit}
-          <a
-            class="mono wrap-anywhere"
-            href={vm.commitHref}
-            aria-label={`Open commit ${vm.shortCommit} on GitHub`}
-            target="_blank"
-            rel="noreferrer"
-          >{vm.shortCommit}</a>
-        {:else if vm.shortCommit}
-          <span class="mono wrap-anywhere">{vm.shortCommit}</span>
+    <div class="page-intro">
+      <PageHeader title={run.primaryLabel}>
+        {#snippet before()}<p class="eyebrow">{run.repositoryLabel}</p>{/snippet}
+        {#snippet actions()}
+          <div class="page-meta">
+            {#if run.runReason}<span class="wrap-anywhere">{run.runReason}</span>{/if}
+            {#if run.commitHref && run.shortCommit}
+              <a
+                class="mono wrap-anywhere"
+                href={run.commitHref}
+                aria-label={`Open commit ${run.shortCommit} on GitHub`}
+                target="_blank"
+                rel="noreferrer"
+              >{run.shortCommit}</a>
+            {:else if run.shortCommit}
+              <span class="mono wrap-anywhere">{run.shortCommit}</span>
+            {/if}
+            {#if run.ciReportHref}
+              <a
+                href={appURL(run.ciReportHref)}
+                aria-label={`Open CI report for run ${run.runId}`}
+                onclick={goCIReport}
+              >CI report</a>
+            {/if}
+          </div>
+        {/snippet}
+      </PageHeader>
+      <p class="page-subtitle run-subtitle">
+        {#if vm.authorAvatar}
+          <img class="author-avatar" src={vm.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
         {/if}
-        {#if vm.ciReportHref}
-          <a
-            href={appURL(vm.ciReportHref)}
-            aria-label={`Open CI report for run ${vm.runId}`}
-            onclick={goCIReport}
-          >CI report</a>
+        {#if vm.authorLabel !== "unknown author"}
+          <span>{vm.authorLabel}{vm.authorLogin ? ` @${vm.authorLogin}` : ""}</span>
         {/if}
-      </div>
-    </header>
+        <span class="mono" title={vm.runId}>{vm.secondaryLabel}</span>
+        <span>{formatTime(vm.firstLoadedAt)}</span>
+      </p>
+    </div>
 
     {#if comparisonQuery}
       <CIReportView query={comparisonQuery} {baseUrl} />
@@ -286,9 +287,6 @@
 <style>
   .run-page {
     gap: 12px;
-  }
-  .id-heading {
-    overflow-wrap: anywhere;
   }
   .run-subtitle {
     display: flex;

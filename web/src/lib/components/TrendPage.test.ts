@@ -160,7 +160,7 @@ describe("TrendPage", () => {
       "title",
       "https://github.com/benchdb/demo",
     );
-    expect(screen.getByRole("heading", { name: "demo-benchmark" })).toHaveAttribute("title", "b1");
+    expect(screen.getByText("Benchmark trend")).toHaveAttribute("title", "b1");
     expect(screen.getByText("1 machine")).toBeInTheDocument();
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute(
       "open",
@@ -212,7 +212,7 @@ describe("TrendPage", () => {
 
     await waitFor(() => screen.getByRole("heading", { name: "demo-benchmark" }));
     const context = screen.getByRole("region", { name: /trend context/i });
-    expect(context.querySelector(".page-header")).not.toBeNull();
+    expect(within(context).getByRole("heading", { level: 1, name: "demo-benchmark" })).toBeInTheDocument();
     expect(context.querySelector(".summary-line")).not.toBeNull();
     const summary = context.querySelector(".summary-line") as HTMLElement;
     expect(
