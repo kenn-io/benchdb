@@ -672,15 +672,18 @@ The Storage page, `/api/storage`, and `/metrics` distinguish:
 - configured retention, retained bytes, oldest pending retirement, next deletion
   deadline, and whether reclamation is paused or blocked.
 
-This changes the public storage API. `volume_total_bytes` and
-`volume_available_bytes`, currently required integers, become nullable: local
-archives return numbers, cloud archives return JSON `null`. Add separate local
-working-volume capacity, scratch usage, cache usage/budget, upload progress,
-verification method, and retention fields. Update the Huma response model,
-OpenAPI schema, generated Go SDK, generated web API types, and Storage page
-together. Document the nullable-field change for external clients. The page
-omits a cloud-capacity meter and shows local working space separately. Metrics
-omit inapplicable archive-capacity gauges and expose local capacity separately.
+Implemented: `volume_total_bytes` and `volume_available_bytes` are nullable,
+numbers for a local archive and JSON `null` for S3 and GCS. The status adds the
+backend kind, the working directory's capacity, the catalog cache's use and
+budget, the retention setting, whether reclamation is paused and why, retained
+bytes, retired objects, and the oldest retirement and next deletion times. The
+page omits a cloud-capacity meter and shows working space separately. Metrics
+omit the archive-capacity gauges for S3 and GCS, expose local capacity
+separately, and export `benchdb_storage_reclamation_paused`.
+
+Not built yet: scratch usage beyond the catalog cache, upload and verification
+progress, the verification method, and backend connectivity with the age of
+the last successful check.
 
 Published-byte totals exclude retired objects; retained bytes have their own
 total. Neither total includes unknown objects, retained provider versions, or

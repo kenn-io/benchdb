@@ -279,16 +279,40 @@ read-only process cannot claim an unclaimed binding; otherwise a concurrent
 remote startup could move the archive away from its readers.
 
 The **Storage** page shows PostgreSQL size, published Parquet and catalog sizes,
-file counts, available archive volume space, pending edits and stale catalogs,
-and the last and next maintenance runs. Pending result counts are PostgreSQL
-estimates and can lag recent writes. Usage samples are cached for up to one
-minute; maintenance progress is current. `GET /api/storage` exposes the same
-information, and `/metrics` exposes numeric storage and maintenance gauges.
-`benchdb_storage_maintenance_failed` is `1` when the last cycle failed;
-`benchdb_storage_maintenance_interrupted` reports interruptions separately. A
-shutdown interruption does not count as a failed cycle.
-Neither endpoint scans archived measurements. Volume space includes files used
-by other applications; published file sizes exclude temporary and retired files.
+file counts, pending edits and stale catalogs, and the last and next
+maintenance runs. It also shows:
+
+- **Archive volume** for a local archive: the space on its filesystem. An S3
+  or GCS archive has no capacity BenchDB can measure, so the page names the
+  provider instead. Check the provider's billing for total usage, which also
+  counts retained files, old object versions, and incomplete uploads.
+- **Working space**: the filesystem of `BENCHDB_DATA_DIR`, which holds exports
+  in progress, spill files, and, for a remote archive, the catalog cache and
+  its `BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES` limit.
+- **Retention**: the configured `BENCHDB_ARCHIVE_RETENTION`, or the reason
+  cleanup is paused; the bytes and count of retired files and orphaned uploads
+  awaiting deletion; and the oldest retirement and next deletion time.
+
+Pending result counts are PostgreSQL estimates and can lag recent writes.
+Usage samples are cached for up to one minute; maintenance progress is current.
+`GET /api/storage` exposes the same information, and `/metrics` exposes numeric
+storage and maintenance gauges. `benchdb_storage_maintenance_failed` is `1` when
+the last cycle failed; `benchdb_storage_maintenance_interrupted` reports
+interruptions separately. A shutdown interruption does not count as a failed
+cycle. Neither endpoint scans archived measurements or lists the bucket. Volume
+space includes files used by other applications; published file sizes exclude
+temporary and retired files.
+
+`volume_total_bytes` and `volume_available_bytes` in `GET /api/storage` are
+`null` for S3 and GCS archives. API clients that read them must handle `null`;
+`local_volume_total_bytes` and `local_volume_available_bytes` always hold the
+working directory's space.
+
+Alert when `benchdb_storage_reclamation_paused` stays `1` for 15 minutes:
+BenchDB keeps every retired and orphaned file until `BENCHDB_ARCHIVE_RETENTION`
+is set, so disk or bucket usage grows. Alert on low
+`benchdb_storage_local_volume_available_bytes` too, and on low
+`benchdb_storage_volume_available_bytes` for a local archive.
 
 Each fact file has small Parquet catalogs for run discovery and series browsing.
 The worker publishes and retires them with their fact file. Edits and commit
@@ -781,8 +805,12 @@ fields. The runtime ConfigMap holds `BENCHDB_ADDR`,
 `BENCHDB_INTENDED_BASE_URL`, and the DuckDB resource settings. Kubernetes
 defaults are `BENCHDB_DUCKDB_THREADS=2`, `BENCHDB_DUCKDB_MEMORY_MB=1024`, and
 `BENCHDB_DUCKDB_READERS=1`; set these deployment inputs to change the budgets.
-`BENCHDB_MAINTENANCE_INTERVAL` and `BENCHDB_ARCHIVE_RETENTION` are forwarded
-when supplied. The memory setting
+`BENCHDB_MAINTENANCE_INTERVAL`, `BENCHDB_ARCHIVE_RETENTION`,
+`BENCHDB_ANALYTICAL_READ_TIMEOUT`, `BENCHDB_ARCHIVE_URL`, the three
+`BENCHDB_ARCHIVE_S3_*` settings, and `BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES` are
+forwarded to the ConfigMap when supplied. Give an S3 archive's pod AWS
+credentials through its service account, and a GCS archive's pod Google
+credentials through workload identity; the script mounts no credentials file. The memory setting
 bounds DuckDB buffers; leave additional pod memory for the server and other
 allocations.
 
@@ -792,7 +820,9 @@ The `benchdb-secret` Secret holds exactly these settings, and no others:
 - either the three `BENCHDB_COMMIT_GITHUB_APP_*` settings, when the GitHub App
   is configured, or `GITHUB_API_TOKEN`;
 - `BENCHDB_SESSION_SECRET` and the three `BENCHDB_OIDC_*` settings, when OIDC
-  is configured.
+  is configured;
+- `BENCHDB_ARCHIVE_COORDINATION_DB_URL`, when supplied, because its URL can hold
+  a password.
 
 When the GitHub App settings are present, the script stores the private key in
 a separate `benchdb-github-app-key` Secret and mounts it into the pod.
@@ -884,6 +914,10 @@ the internet-facing load balancer.
 | `benchdb_storage_*` | gauges | Storage usage and archive maintenance progress; see [Persistent result storage](#persistent-result-storage). |
 | `benchdb_storage_maintenance_failed` | gauge | `1` when the last maintenance cycle failed, excluding interruptions. |
 | `benchdb_storage_maintenance_interrupted` | gauge | `1` when the last maintenance cycle was interrupted. |
+| `benchdb_storage_reclamation_paused` | gauge | `1` while `BENCHDB_ARCHIVE_RETENTION` is unset and deletion of retired and orphaned files is paused. |
+| `benchdb_storage_retained_bytes`, `benchdb_storage_retired_objects` | gauges | Retired files' bytes, and retired files plus orphaned uploads, awaiting deletion. |
+| `benchdb_storage_volume_total_bytes`, `benchdb_storage_volume_available_bytes` | gauges | A local archive's filesystem. Omitted for S3 and GCS archives. |
+| `benchdb_storage_local_volume_total_bytes`, `benchdb_storage_local_volume_available_bytes` | gauges | The working directory's filesystem. |
 
 `benchdb_github_unknown_commits_total` is not the size of a database backlog.
 It resets when the process restarts and counts only what that process saw. Use

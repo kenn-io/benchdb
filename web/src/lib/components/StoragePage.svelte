@@ -20,6 +20,9 @@
     idle: "Idle", export: "Exporting results", compact: "Compacting files", catalogs: "Refreshing catalogs",
     cleanup: "Removing old files", schedule: "Saving schedule",
   };
+  const backendLabels: Record<string, string> = {
+    file: "Local directory", s3: "Amazon S3 or an S3-compatible service", gs: "Google Cloud Storage",
+  };
   const dateFormat = new Intl.DateTimeFormat(undefined, {
     timeZone: "UTC", dateStyle: "medium", timeStyle: "short",
   });
@@ -56,6 +59,14 @@
 
   function intervalText(seconds: number): string {
     return `${formatNumber(seconds / 3600)} ${seconds === 3600 ? "hour" : "hours"}`;
+  }
+
+  function retentionText(seconds: number): string {
+    if (seconds >= 86_400 && seconds % 86_400 === 0) {
+      const days = seconds / 86_400;
+      return `${formatNumber(days)} ${days === 1 ? "day" : "days"}`;
+    }
+    return intervalText(seconds);
   }
 </script>
 
@@ -115,21 +126,82 @@
       Storage sampled {@render timestamp(status.sampled_at)}. Totals may be up to a minute old.
     </p>
 
-    <section class="panel section-panel" aria-labelledby="volume-heading">
-      <h2 id="volume-heading">Archive volume</h2>
+    {#if status.volume_total_bytes !== null && status.volume_available_bytes !== null}
+      <section class="panel section-panel" aria-labelledby="volume-heading">
+        <h2 id="volume-heading">Archive volume</h2>
+        <dl class="volume-values">
+          <div><dt>Available</dt><dd>{formatBytes(status.volume_available_bytes)}</dd></div>
+          <div><dt>Total capacity</dt><dd>{formatBytes(status.volume_total_bytes)}</dd></div>
+        </dl>
+        {#if status.volume_total_bytes > 0}
+          <meter
+            aria-label="Archive volume used"
+            min="0"
+            max={status.volume_total_bytes}
+            value={status.volume_total_bytes - status.volume_available_bytes}
+          ></meter>
+        {/if}
+        <p class="note">Includes other files on the same volume.</p>
+      </section>
+    {:else}
+      <section class="panel section-panel" aria-labelledby="volume-heading">
+        <h2 id="volume-heading">Archive storage</h2>
+        <dl class="volume-values">
+          <div><dt>Stored in</dt><dd>{backendLabels[status.backend] ?? status.backend}</dd></div>
+        </dl>
+        <p class="note">
+          The provider has no capacity limit that BenchDB can measure. Sizes above count published files only;
+          check the provider's billing for total usage.
+        </p>
+      </section>
+    {/if}
+
+    <section class="panel section-panel" aria-labelledby="working-heading">
+      <h2 id="working-heading">Working space</h2>
       <dl class="volume-values">
-        <div><dt>Available</dt><dd>{formatBytes(status.volume_available_bytes)}</dd></div>
-        <div><dt>Total capacity</dt><dd>{formatBytes(status.volume_total_bytes)}</dd></div>
+        <div><dt>Available</dt><dd>{formatBytes(status.local_volume_available_bytes)}</dd></div>
+        <div><dt>Total capacity</dt><dd>{formatBytes(status.local_volume_total_bytes)}</dd></div>
+        {#if status.cache_budget_bytes > 0}
+          <div><dt>Catalog cache</dt><dd>{formatBytes(status.cache_bytes)} of {formatBytes(status.cache_budget_bytes)}</dd></div>
+        {/if}
       </dl>
-      {#if status.volume_total_bytes > 0}
+      {#if status.local_volume_total_bytes > 0}
         <meter
-          aria-label="Archive volume used"
+          aria-label="Working space used"
           min="0"
-          max={status.volume_total_bytes}
-          value={status.volume_total_bytes - status.volume_available_bytes}
+          max={status.local_volume_total_bytes}
+          value={status.local_volume_total_bytes - status.local_volume_available_bytes}
         ></meter>
       {/if}
-      <p class="note">Includes other files on the same volume.</p>
+      <p class="note">BENCHDB_DATA_DIR holds exports in progress, spill files, and the catalog cache.</p>
+    </section>
+
+    <section class="panel section-panel" aria-labelledby="retention-heading">
+      <header class="section-header">
+        <h2 id="retention-heading">Retention</h2>
+        <span class="status-badge" class:warning={status.reclamation_paused}>
+          {status.reclamation_paused ? "Cleanup paused" : `Kept ${retentionText(status.retention_seconds)}`}
+        </span>
+      </header>
+      {#if status.reclamation_paused && status.reclamation_reason}
+        <p class="warning-text">{status.reclamation_reason}</p>
+      {/if}
+      <dl class="maintenance-details">
+        <div><dt>Retained size</dt><dd>{formatBytes(status.retained_bytes)}</dd></div>
+        <div><dt>Files awaiting deletion</dt><dd>{formatNumber(status.retired_objects)}</dd></div>
+        <div><dt>Oldest retirement</dt><dd>{@render timestamp(status.oldest_retirement_at, "None")}</dd></div>
+        <div>
+          <dt>Next deletion</dt>
+          <dd>
+            {#if status.reclamation_paused}
+              Paused
+            {:else}
+              {@render timestamp(status.next_deletion_at, "None due")}
+            {/if}
+          </dd>
+        </div>
+      </dl>
+      <p class="note">Retired files stay until the retention period ends, so database backups in that window can still read them.</p>
     </section>
 
     <section class="panel section-panel" aria-labelledby="maintenance-heading">
@@ -260,6 +332,12 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
+    font-size: 0.82rem;
+  }
+
+  .warning-text {
+    margin: 0 0 12px;
+    color: var(--c-warning);
     font-size: 0.82rem;
   }
 

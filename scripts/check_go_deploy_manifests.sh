@@ -16,7 +16,9 @@ export BENCHDB_ADDR=":8080"
 export BENCHDB_DUCKDB_THREADS="2"
 export BENCHDB_DUCKDB_MEMORY_MB="1024"
 export BENCHDB_DUCKDB_READERS="1"
-unset BENCHDB_MAINTENANCE_INTERVAL BENCHDB_ARCHIVE_RETENTION
+unset BENCHDB_MAINTENANCE_INTERVAL BENCHDB_ARCHIVE_RETENTION BENCHDB_ANALYTICAL_READ_TIMEOUT BENCHDB_ARCHIVE_URL \
+	BENCHDB_ARCHIVE_S3_ENDPOINT BENCHDB_ARCHIVE_S3_REGION BENCHDB_ARCHIVE_S3_URL_STYLE BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES \
+	BENCHDB_ARCHIVE_COORDINATION_DB_URL
 export BENCHDB_INTENDED_BASE_URL="https://benchdb.example.com"
 export CERTIFICATE_ARN="arn:aws:acm:us-east-1:000000000000:certificate/example"
 export DB_NAME="benchdb"
@@ -337,8 +339,12 @@ render_secret_case() {
 		unset BENCHDB_SESSION_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
 		unset BENCHDB_COMMIT_GITHUB_APP_ID BENCHDB_COMMIT_GITHUB_APP_INSTALLATION_ID
 		unset BENCHDB_COMMIT_GITHUB_APP_PRIVATE_KEY_FILE
+		unset BENCHDB_ARCHIVE_COORDINATION_DB_URL
 		case "$profile" in
 			no_oidc) ;;
+			coordination)
+				export BENCHDB_ARCHIVE_COORDINATION_DB_URL='postgres://coord:secret@postgres-direct.example:5432/benchdb'
+				;;
 			no_github)
 				unset GITHUB_API_TOKEN
 				;;
@@ -664,6 +670,18 @@ if BENCHDB_ARCHIVE_RETENTION=864h render_config_manifest > "$render_retention_co
 else
 	record_failure "failed to render ConfigMap with archive retention"
 fi
+render_archive_config="$tmp/archive-config.yml"
+if BENCHDB_ARCHIVE_URL=s3://example-bucket/benchdb BENCHDB_ARCHIVE_S3_REGION=us-west-2 \
+	BENCHDB_ANALYTICAL_READ_TIMEOUT=90s BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES=1073741824 \
+	render_config_manifest > "$render_archive_config"; then
+	require_config_value "$render_archive_config" "BENCHDB_ARCHIVE_URL" "s3://example-bucket/benchdb"
+	require_config_value "$render_archive_config" "BENCHDB_ARCHIVE_S3_REGION" "us-west-2"
+	require_config_value "$render_archive_config" "BENCHDB_ANALYTICAL_READ_TIMEOUT" "90s"
+	require_config_value "$render_archive_config" "BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES" "1073741824"
+	require_absent "$render_archive_config" "BENCHDB_ARCHIVE_S3_ENDPOINT"
+else
+	record_failure "failed to render ConfigMap with remote archive settings"
+fi
 
 require_missing "$root/ci/minikube"
 require_missing "$root/benchdb-config.yml"
@@ -700,6 +718,20 @@ else
 	record_failure "runtime deployment exercise failed"
 fi
 
+secret_coordination="$tmp/secret-coordination.json"
+if render_secret_case "$secret_coordination" coordination; then
+	require_secret_value "$secret_coordination" "BENCHDB_ARCHIVE_COORDINATION_DB_URL" "postgres://coord:secret@postgres-direct.example:5432/benchdb"
+else
+	record_failure "failed to render the secret with an archive coordination URL"
+fi
+render_coordination_config="$tmp/coordination-config.yml"
+if BENCHDB_ARCHIVE_COORDINATION_DB_URL='postgres://coord:secret@postgres-direct.example:5432/benchdb' \
+	render_config_manifest > "$render_coordination_config"; then
+	require_absent "$render_coordination_config" "BENCHDB_ARCHIVE_COORDINATION_DB_URL"
+else
+	record_failure "failed to render ConfigMap with an archive coordination URL set"
+fi
+
 secret_no_oidc="$tmp/secret-no-oidc.json"
 if render_secret_case "$secret_no_oidc" no_oidc; then
 	require_secret_key "$secret_no_oidc" "BENCHDB_DB_URL"
@@ -708,6 +740,7 @@ if render_secret_case "$secret_no_oidc" no_oidc; then
 	for stale_secret_key in DB_PASSWORD DB_USERNAME SECRET_KEY REGISTRATION_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
 		require_secret_absent_key "$secret_no_oidc" "$stale_secret_key"
 	done
+	require_secret_absent_key "$secret_no_oidc" "BENCHDB_ARCHIVE_COORDINATION_DB_URL"
 	require_secret_absent_key "$secret_no_oidc" "BENCHDB_OIDC_ISSUER_URL"
 	require_secret_absent_key "$secret_no_oidc" "BENCHDB_OIDC_CLIENT_ID"
 	require_secret_absent_key "$secret_no_oidc" "BENCHDB_OIDC_CLIENT_SECRET"

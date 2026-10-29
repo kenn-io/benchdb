@@ -2318,14 +2318,47 @@ components:
           description: Rows in published archive files, before pending deletions are applied.
           format: int64
           type: integer
+        backend:
+          description: "Archive storage backend: file for a local directory, s3, or gs."
+          enum:
+            - file
+            - s3
+            - gs
+          type: string
+        cache_budget_bytes:
+          description: Configured catalog cache limit, BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES; 0 for a local archive.
+          format: int64
+          type: integer
+        cache_bytes:
+          description: Bytes in the local cache of a remote archive's catalogs; 0 for a local archive.
+          format: int64
+          type: integer
         catalog_bytes:
           format: int64
           type: integer
         catalog_files:
           format: int64
           type: integer
+        local_volume_available_bytes:
+          description: Space available to the server on the working directory's filesystem.
+          format: int64
+          minimum: 0
+          type: integer
+        local_volume_total_bytes:
+          description: Capacity of the filesystem containing the working directory, BENCHDB_DATA_DIR.
+          format: int64
+          minimum: 0
+          type: integer
         maintenance:
           $ref: "#/components/schemas/MaintenanceStatus"
+        next_deletion_at:
+          description: UTC time when the next retired or orphaned file may be deleted, if reclamation is not paused.
+          format: date-time
+          type: string
+        oldest_retirement_at:
+          description: UTC time when maintenance first observed the oldest pending retirement.
+          format: date-time
+          type: string
         parquet_bytes:
           format: int64
           type: integer
@@ -2343,6 +2376,24 @@ components:
           description: Total PostgreSQL database size, including indexes and metadata.
           format: int64
           type: integer
+        reclamation_paused:
+          description: Whether deletion of retired and orphaned archive files is paused.
+          type: boolean
+        reclamation_reason:
+          description: Why reclamation is paused.
+          type: string
+        retained_bytes:
+          description: Bytes in retired archive files awaiting deletion; excluded from the published sizes. Orphaned uploads have no recorded size and are not counted.
+          format: int64
+          type: integer
+        retention_seconds:
+          description: Configured BENCHDB_ARCHIVE_RETENTION; 0 while unset.
+          format: double
+          type: number
+        retired_objects:
+          description: Retired archive files and orphaned uploads awaiting deletion.
+          format: int64
+          type: integer
         sampled_at:
           description: UTC time when storage usage was measured. Usage is cached for up to one minute.
           format: date-time
@@ -2352,15 +2403,19 @@ components:
           format: int64
           type: integer
         volume_available_bytes:
-          description: Space available to the server on the archive filesystem.
+          description: Space available to the server on a local archive's filesystem; null for S3 and GCS archives.
           format: int64
           minimum: 0
-          type: integer
+          type:
+            - integer
+            - "null"
         volume_total_bytes:
-          description: Capacity of the filesystem containing the archive.
+          description: Capacity of the filesystem containing a local archive; null for S3 and GCS archives.
           format: int64
           minimum: 0
-          type: integer
+          type:
+            - integer
+            - "null"
       required:
         - sampled_at
         - postgres_bytes
@@ -2372,8 +2427,17 @@ components:
         - catalog_files
         - pending_mutations
         - stale_catalogs
+        - backend
         - volume_total_bytes
         - volume_available_bytes
+        - local_volume_total_bytes
+        - local_volume_available_bytes
+        - cache_bytes
+        - cache_budget_bytes
+        - retention_seconds
+        - reclamation_paused
+        - retained_bytes
+        - retired_objects
         - maintenance
       type: object
     SubmitOutputBody:

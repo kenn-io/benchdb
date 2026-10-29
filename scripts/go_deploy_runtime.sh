@@ -231,6 +231,11 @@ data = {
     "BENCHDB_API_TOKEN": os.environ.get("BENCHDB_API_TOKEN", ""),
 }
 
+# A direct or session-pooled route for archive coordination; its URL can hold
+# a password.
+if os.environ.get("BENCHDB_ARCHIVE_COORDINATION_DB_URL"):
+    data["BENCHDB_ARCHIVE_COORDINATION_DB_URL"] = os.environ["BENCHDB_ARCHIVE_COORDINATION_DB_URL"]
+
 if os.environ["GITHUB_APP_ENABLED"] == "1":
     data.update(
         {
@@ -324,7 +329,16 @@ keys = [
 missing = [key for key in keys if os.environ.get(key, "") == ""]
 if missing:
     raise SystemExit(f"missing or empty ConfigMap values: {', '.join(missing)}")
-for optional in ("BENCHDB_MAINTENANCE_INTERVAL", "BENCHDB_ARCHIVE_RETENTION"):
+for optional in (
+    "BENCHDB_MAINTENANCE_INTERVAL",
+    "BENCHDB_ARCHIVE_RETENTION",
+    "BENCHDB_ANALYTICAL_READ_TIMEOUT",
+    "BENCHDB_ARCHIVE_URL",
+    "BENCHDB_ARCHIVE_S3_ENDPOINT",
+    "BENCHDB_ARCHIVE_S3_REGION",
+    "BENCHDB_ARCHIVE_S3_URL_STYLE",
+    "BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES",
+):
     if os.environ.get(optional):
         keys.append(optional)
 

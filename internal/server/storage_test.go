@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +141,52 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_sample_success 0\n")
 	assert.NotContains(t, rec.Body.String(), "benchdb_storage_archived_rows")
+}
+
+// TestStorageMetricsPaused exports the reclamation pause as a gauge an alert
+// can watch: 1 while BENCHDB_ARCHIVE_RETENTION is unset and 0 after a restart
+// with it configured. The API reports the reason.
+func TestStorageMetricsPaused(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	pg := db.NewStore(pool)
+	cfg := columnar.Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Threads: 2}
+	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
+	scrape := func(path string) string {
+		t.Helper()
+		engine, err := columnar.Open(ctx, pool, cfg)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, engine.Close()) }()
+		store := columnar.NewStore(pg, engine)
+		handler := newHandler(store, auth.New("", true, store, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return rec.Body.String()
+	}
+	gauge := func(metrics string) float64 {
+		t.Helper()
+		for line := range strings.Lines(metrics) {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "benchdb_storage_reclamation_paused "); ok {
+				parsed, err := strconv.ParseFloat(value, 64)
+				require.NoError(t, err)
+				return parsed
+			}
+		}
+		require.FailNow(t, "benchdb_storage_reclamation_paused is missing")
+		return 0
+	}
+
+	pausedGauge := gauge(scrape("/metrics"))
+	assert.InDelta(t, float64(1), pausedGauge, 0)
+	var body struct {
+		ReclamationPaused bool   `json:"reclamation_paused"`
+		ReclamationReason string `json:"reclamation_reason"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(scrape("/api/storage")), &body))
+	assert.True(t, body.ReclamationPaused)
+	assert.Contains(t, body.ReclamationReason, "BENCHDB_ARCHIVE_RETENTION")
+
+	cfg.Retention = 864 * time.Hour
+	gaugeAfterConfiguredRestart := gauge(scrape("/metrics"))
+	assert.InDelta(t, float64(0), gaugeAfterConfiguredRestart, 0)
 }

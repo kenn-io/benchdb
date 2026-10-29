@@ -128,8 +128,23 @@ func (m *metricsRecorder) writeStorageMetrics(w http.ResponseWriter, r *http.Req
 	gauge("catalog_files", "Published catalog files.", status.CatalogFiles)
 	gauge("pending_mutations", "Mutations awaiting archive maintenance.", status.PendingMutations)
 	gauge("stale_catalogs", "Archive files whose catalogs need rebuilding.", status.StaleCatalogs)
-	gauge("volume_total_bytes", "Capacity of the archive filesystem.", status.VolumeTotalBytes)
-	gauge("volume_available_bytes", "Available space on the archive filesystem.", status.VolumeAvailableBytes)
+	// S3 and GCS archives have no measurable capacity, so these are omitted.
+	if status.VolumeTotalBytes != nil && status.VolumeAvailableBytes != nil {
+		gauge("volume_total_bytes", "Capacity of a local archive's filesystem.", *status.VolumeTotalBytes)
+		gauge("volume_available_bytes", "Available space on a local archive's filesystem.", *status.VolumeAvailableBytes)
+	}
+	gauge("local_volume_total_bytes", "Capacity of the working directory's filesystem.", status.LocalVolumeTotalBytes)
+	gauge("local_volume_available_bytes", "Available space on the working directory's filesystem.", status.LocalVolumeAvailableBytes)
+	gauge("cache_bytes", "Bytes in the local catalog cache of a remote archive.", status.CacheBytes)
+	gauge("cache_budget_bytes", "Configured catalog cache limit for a remote archive.", status.CacheBudgetBytes)
+	paused := 0
+	if status.ReclamationPaused {
+		paused = 1
+	}
+	gauge("reclamation_paused", "Whether deletion of retired and orphaned archive files is paused.", paused)
+	gauge("retention_seconds", "Configured archive retention; 0 while unset.", status.RetentionSeconds)
+	gauge("retained_bytes", "Bytes in retired archive files awaiting deletion.", status.RetainedBytes)
+	gauge("retired_objects", "Retired archive files and orphaned uploads awaiting deletion.", status.RetiredObjects)
 	for _, state := range []struct {
 		name, help string
 		active     bool

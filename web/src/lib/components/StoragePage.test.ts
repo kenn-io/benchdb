@@ -21,8 +21,19 @@ const sample: StorageStatus = {
   catalog_files: 3,
   pending_mutations: 4,
   stale_catalogs: 2,
+  backend: "file",
   volume_total_bytes: 10_000_000_000,
   volume_available_bytes: 2_000_000_000,
+  local_volume_total_bytes: 10_000_000_000,
+  local_volume_available_bytes: 2_000_000_000,
+  cache_bytes: 0,
+  cache_budget_bytes: 0,
+  retention_seconds: 0,
+  reclamation_paused: true,
+  reclamation_reason: "BENCHDB_ARCHIVE_RETENTION is not set, so BenchDB keeps every retired and orphaned file.",
+  retained_bytes: 40_000_000,
+  retired_objects: 6,
+  oldest_retirement_at: "2026-10-01T08:00:00Z",
   maintenance: {
     enabled: true,
     state: "scheduled",
@@ -58,6 +69,58 @@ afterEach(() => {
 });
 
 describe("StoragePage", () => {
+  it("shows why cleanup is paused and what it keeps", async () => {
+    render(StoragePage);
+
+    const retention = await screen.findByRole("region", { name: "Retention" });
+    expect(within(retention).getByText("Cleanup paused")).toBeInTheDocument();
+    expect(within(retention).getByText(/BENCHDB_ARCHIVE_RETENTION is not set/)).toBeInTheDocument();
+    expect(within(retention).getByText("40 MB")).toBeInTheDocument();
+    expect(within(retention).getByText("6")).toBeInTheDocument();
+    const next = within(retention).getByText("Next deletion").parentElement!;
+    expect(next).toHaveTextContent("Paused");
+  });
+
+  it("shows the retention period and the next deletion when cleanup runs", async () => {
+    const configured: StorageStatus = {
+      ...sample,
+      retention_seconds: 36 * 86_400,
+      reclamation_paused: false,
+      next_deletion_at: "2026-11-06T08:00:00Z",
+    };
+    delete configured.reclamation_reason;
+    respond(configured);
+    render(StoragePage);
+
+    const retention = await screen.findByRole("region", { name: "Retention" });
+    expect(within(retention).getByText("Kept 36 days")).toBeInTheDocument();
+    expect(within(retention).queryByText(/BENCHDB_ARCHIVE_RETENTION/)).not.toBeInTheDocument();
+    const next = within(retention).getByText("Next deletion").parentElement!;
+    expect(next.querySelector("time")).toHaveAttribute("datetime", "2026-11-06T08:00:00Z");
+  });
+
+  it("shows a cloud archive without a capacity meter, and its local working space", async () => {
+    respond({
+      ...sample,
+      backend: "gs",
+      volume_total_bytes: null,
+      volume_available_bytes: null,
+      local_volume_total_bytes: 100_000_000_000,
+      local_volume_available_bytes: 75_000_000_000,
+      cache_bytes: 120_000_000,
+      cache_budget_bytes: 512_000_000,
+    });
+    render(StoragePage);
+
+    const archive = await screen.findByRole("region", { name: "Archive storage" });
+    expect(within(archive).getByText("Google Cloud Storage")).toBeInTheDocument();
+    expect(within(archive).queryByRole("meter")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Archive volume" })).not.toBeInTheDocument();
+    const working = screen.getByRole("region", { name: "Working space" });
+    expect(within(working).getByText("120 MB of 512 MB")).toBeInTheDocument();
+    expect(within(working).getByRole("meter", { name: "Working space used" })).toHaveAttribute("value", "25000000000");
+  });
+
   it("shows storage amounts, estimated pending results, and volume capacity", async () => {
     render(StoragePage);
     expect(screen.getByRole("status")).toHaveTextContent("Loading storage");
@@ -78,6 +141,8 @@ describe("StoragePage", () => {
     expect(within(volume).getByText("10 GB")).toBeInTheDocument();
     expect(within(volume).getByRole("meter")).toHaveAttribute("value", "8000000000");
     expect(within(volume).getByRole("meter")).toHaveAttribute("max", "10000000000");
+    const working = screen.getByRole("region", { name: "Working space" });
+    expect(within(working).queryByText("Catalog cache")).not.toBeInTheDocument();
   });
 
   it("shows the schedule, last success, pending work, and latest cycle counts", async () => {

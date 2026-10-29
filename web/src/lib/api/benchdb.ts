@@ -1103,14 +1103,46 @@ export interface StatsInput {
   unit?: string;
 }
 
+/**
+ * Archive storage backend: file for a local directory, s3, or gs.
+ */
+export type StorageStatusBackend = typeof StorageStatusBackend[keyof typeof StorageStatusBackend];
+
+
+export const StorageStatusBackend = {
+  file: 'file',
+  s3: 's3',
+  gs: 'gs',
+} as const;
+
 export interface StorageStatus {
   /** A URL to the JSON Schema for this object. */
   readonly $schema?: string;
   /** Rows in published archive files, before pending deletions are applied. */
   archived_rows: number;
+  /** Archive storage backend: file for a local directory, s3, or gs. */
+  backend: StorageStatusBackend;
+  /** Configured catalog cache limit, BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES; 0 for a local archive. */
+  cache_budget_bytes: number;
+  /** Bytes in the local cache of a remote archive's catalogs; 0 for a local archive. */
+  cache_bytes: number;
   catalog_bytes: number;
   catalog_files: number;
+  /**
+     * Space available to the server on the working directory's filesystem.
+     * @minimum 0
+     */
+  local_volume_available_bytes: number;
+  /**
+     * Capacity of the filesystem containing the working directory, BENCHDB_DATA_DIR.
+     * @minimum 0
+     */
+  local_volume_total_bytes: number;
   maintenance: MaintenanceStatus;
+  /** UTC time when the next retired or orphaned file may be deleted, if reclamation is not paused. */
+  next_deletion_at?: string;
+  /** UTC time when maintenance first observed the oldest pending retirement. */
+  oldest_retirement_at?: string;
   parquet_bytes: number;
   parquet_files: number;
   pending_mutations: number;
@@ -1118,20 +1150,32 @@ export interface StorageStatus {
   pending_rows_estimate: number;
   /** Total PostgreSQL database size, including indexes and metadata. */
   postgres_bytes: number;
+  /** Whether deletion of retired and orphaned archive files is paused. */
+  reclamation_paused: boolean;
+  /** Why reclamation is paused. */
+  reclamation_reason?: string;
+  /** Bytes in retired archive files awaiting deletion; excluded from the published sizes. Orphaned uploads have no recorded size and are not counted. */
+  retained_bytes: number;
+  /** Configured BENCHDB_ARCHIVE_RETENTION; 0 while unset. */
+  retention_seconds: number;
+  /** Retired archive files and orphaned uploads awaiting deletion. */
+  retired_objects: number;
   /** UTC time when storage usage was measured. Usage is cached for up to one minute. */
   sampled_at: string;
   /** Fact files whose catalog pair needs refreshing. */
   stale_catalogs: number;
   /**
-     * Space available to the server on the archive filesystem.
+     * Space available to the server on a local archive's filesystem; null for S3 and GCS archives.
      * @minimum 0
+     * @nullable
      */
-  volume_available_bytes: number;
+  volume_available_bytes: number | null;
   /**
-     * Capacity of the filesystem containing the archive.
+     * Capacity of the filesystem containing a local archive; null for S3 and GCS archives.
      * @minimum 0
+     * @nullable
      */
-  volume_total_bytes: number;
+  volume_total_bytes: number | null;
 }
 
 export interface SubmitOutputBody {

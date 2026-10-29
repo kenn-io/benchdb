@@ -46,6 +46,14 @@ type catalogCache struct {
 	clock   uint64
 }
 
+// usage returns the cache's bytes, including downloads in flight, and its
+// budget.
+func (c *catalogCache) usage() (bytes, budget int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bytes, c.budget
+}
+
 // cacheEntry is one cached object. ready is closed when its download ends;
 // a failed download removes the entry before closing it. A detached entry
 // left the index, by eviction or because its file changed; its bytes stay
