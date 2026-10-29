@@ -99,7 +99,14 @@ func TestReaperNameConflictMatchesDocker(t *testing.T) {
 			request.Name = name
 			// Other test binaries can race this one for the shared reaper.
 			first, err := retryReaperRace(ctx, t, "start the first container", func() (testcontainers.Container, error) {
-				return testcontainers.GenericContainer(ctx, request)
+				started, err := testcontainers.GenericContainer(ctx, request)
+				if err != nil {
+					// testcontainers creates the named container before the
+					// reaper, so an attempt that lost the reaper race returns
+					// a container holding the name the next attempt needs.
+					_ = testcontainers.TerminateContainer(started)
+				}
+				return started, err
 			})
 			testcontainers.CleanupContainer(t, first)
 			require.NoError(t, err)
