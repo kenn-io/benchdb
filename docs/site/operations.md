@@ -459,8 +459,9 @@ run verified is still at the destination, and copies only the rest. If the
 command failed without saying whether the switch happened, run it again with
 the same settings: it reads the outcome from the database. While a transfer is
 unfinished, a transfer to another destination is refused once the first has
-copied anything; one that copied nothing is replaced. The command fails while
-any process owns archive maintenance. It refuses a destination that holds other
+copied anything; one that copied nothing is replaced. Like a maintenance
+cycle, the command first closes upload cycles that a crashed process left
+open. It fails while any process owns archive maintenance. It refuses a destination that holds other
 objects, including another copy of this archive, such as the prefix that a
 restored database came from.
 

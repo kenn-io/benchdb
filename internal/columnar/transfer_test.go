@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
@@ -129,7 +130,9 @@ func TestTransferLostCutoverResponse(t *testing.T) {
 	bindingAfterResolvedCommit := activeBackend(t, f.ctx, f.remote.pool)
 	assert.Equal(t, expectedBinding, bindingAfterResolvedCommit)
 	assert.Equal(t, TransferResult{ID: first.ID, CutOver: true}, rerun)
-	assert.Empty(t, f.gateway.gets(mark, "", false), "resolution reads nothing from the destination")
+	for _, key := range f.gateway.gets(mark, "", false) {
+		assert.Equal(t, transferMarker, key, "resolution reads only the transfer marker")
+	}
 
 	// The source engine's storage moved, so it no longer publishes.
 	_, err = f.source.Maintain(f.ctx)
@@ -241,4 +244,57 @@ func TestRestoredManifestReadsRetainedKeys(t *testing.T) {
 	assert.Equal(t, sourceIDs, allIDs(t, f.ctx, restored))
 	_, err = restored.AuditArchive(f.ctx)
 	require.NoError(t, err)
+}
+
+// TestTransferDistinguishesLocalDestinations moves an archive to S3 and then
+// to a local directory. Local bindings record no path, so only the transfer
+// marker tells that directory from another: a second local directory neither
+// reports the earlier transfer's success nor receives a local-to-local move.
+func TestTransferDistinguishesLocalDestinations(t *testing.T) {
+	f := newTransferFixture(t)
+	_, err := f.source.TransferArchive(f.ctx, f.destination(t))
+	require.NoError(t, err)
+	remote := f.remote.open(t, f.ctx, f.destination(t))
+	first, second := t.TempDir(), t.TempDir()
+	back, err := remote.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + first})
+	require.NoError(t, err)
+	require.True(t, back.CutOver)
+
+	resolved, completed, err := CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + first})
+	require.NoError(t, err)
+	assert.True(t, completed)
+	assert.Equal(t, back.ID, resolved.ID)
+	_, completed, err = CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + second})
+	require.NoError(t, err)
+	assert.False(t, completed, "another directory did not receive the transfer")
+
+	local := openLookupArchiveIn(t, f.ctx, f.remote.pool, first)
+	_, err = local.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + second})
+	require.ErrorContains(t, err, "cannot move a local archive to another local directory")
+	entries, err := os.ReadDir(second)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	// A directory claimed by a different transfer does not match either.
+	require.NoError(t, os.WriteFile(filepath.Join(second, transferMarker), []byte(uuid.New().String()+"\n"), 0o600))
+	_, completed, err = CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + second})
+	require.NoError(t, err)
+	assert.False(t, completed)
+}
+
+// TestTransferAbandonsEndedCycles transfers an archive whose last
+// maintenance unit rolled back and left its cycle running, as a crashed
+// process does. Ownership and the publication lock prove that the cycle has
+// ended, so the transfer closes it instead of refusing.
+func TestTransferAbandonsEndedCycles(t *testing.T) {
+	f := newTransferFixture(t)
+	_, err := f.remote.pool.Exec(f.ctx, `INSERT INTO archive_cycle(id,owner,state) VALUES (gen_random_uuid(),'a crashed process','running')`)
+	require.NoError(t, err)
+
+	result, err := f.source.TransferArchive(f.ctx, f.destination(t))
+	require.NoError(t, err)
+	assert.True(t, result.CutOver)
+	var states []string
+	require.NoError(t, f.remote.pool.QueryRow(f.ctx, `SELECT array_agg(state) FROM archive_cycle WHERE owner='a crashed process'`).Scan(&states))
+	assert.Equal(t, []string{"abandoned"}, states)
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 	"uuid"
 
 	"cloud.google.com/go/auth"
@@ -36,7 +37,7 @@ var (
 	// errTransferCatalogsUnready refuses a transfer before the lookup backfill
 	// has completed the directory: remote reads need it.
 	errTransferCatalogsUnready = errors.New("the archive lookup directory is incomplete; let maintenance finish the lookup backfill before transferring the archive")
-	errTransferCycleOpen       = errors.New("an archive maintenance cycle is still open; stop every BenchDB process, let the open cycle end, and retry")
+	errTransferCycleOpen       = errors.New("an archive upload cycle is still open in this process; open the archive in a new process and retry")
 )
 
 // TransferArchive copies the active archive to destination and switches the
@@ -86,12 +87,21 @@ func CompletedTransfer(ctx context.Context, pg *pgxpool.Pool, destination Config
 	if err != nil {
 		return TransferResult{}, false, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, metadataTimeout)
-	defer cancel()
-	return completedTransfer(ctx, pg, target)
+	objects, closeObjects, err := openTransferObjects(ctx, target, destination.GCSCredentialsFile, time.Minute)
+	if err != nil {
+		return TransferResult{}, false, err
+	}
+	defer closeObjects()
+	return completedTransfer(ctx, pg, target, objects)
 }
 
-func completedTransfer(ctx context.Context, q rowQueryer, target archiveLocation) (TransferResult, bool, error) {
+// completedTransfer finds the committed transfer that made target the active
+// storage. Local bindings record no path, so any local directory matches the
+// active local binding; the transfer marker in the destination itself must
+// name the transfer, or another directory would report its success.
+func completedTransfer(ctx context.Context, q rowQueryer, target archiveLocation, objects archiveObjects) (TransferResult, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
+	defer cancel()
 	active, err := activeStorage(ctx, q, "")
 	if err != nil {
 		return TransferResult{}, false, err
@@ -108,7 +118,38 @@ ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&id)
 	if err != nil {
 		return TransferResult{}, false, fmt.Errorf("read completed archive transfers: %w", err)
 	}
+	claimed, err := readSmallObject(ctx, objects, transferMarker)
+	if errors.Is(err, objectstore.ErrNotFound) {
+		return TransferResult{}, false, nil
+	}
+	if err != nil {
+		return TransferResult{}, false, fmt.Errorf("read the transfer destination's marker: %w", err)
+	}
+	if strings.TrimSpace(claimed) != id.String() {
+		return TransferResult{}, false, nil
+	}
 	return TransferResult{ID: id, CutOver: true}, true, nil
+}
+
+// openTransferObjects opens the destination's object store. Opening makes no
+// requests.
+func openTransferObjects(ctx context.Context, target archiveLocation, gcsCredentials string, margin time.Duration) (archiveObjects, func(), error) {
+	var google *auth.Credentials
+	if target.backend == backendGCS {
+		var err error
+		if google, err = googleCredentials(gcsCredentials, margin); err != nil {
+			return nil, nil, err
+		}
+	}
+	objects, err := openArchiveObjects(ctx, target, google)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeObjects := func() {}
+	if closer, ok := objects.(io.Closer); ok {
+		closeObjects = func() { _ = closer.Close() }
+	}
+	return objects, closeObjects, nil
 }
 
 // transferRun is one transfer's durable identity. saved is false for a new
@@ -122,28 +163,25 @@ type transferRun struct {
 }
 
 func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target archiveLocation, gcsCredentials string) (TransferResult, error) {
-	done, completed, err := completedTransfer(ctx, owner.conn, target)
+	objects, closeObjects, err := openTransferObjects(ctx, target, gcsCredentials, e.tokenMargin)
+	if err != nil {
+		return TransferResult{}, err
+	}
+	defer closeObjects()
+	done, completed, err := completedTransfer(ctx, owner.conn, target, objects)
 	if err != nil || completed {
 		return done, err
+	}
+	// A unit that rolled back leaves its cycle running. Ownership and the
+	// publication lock prove that it ended, as at the start of maintenance.
+	if err := e.abandonEndedCycles(ctx, owner); err != nil {
+		return TransferResult{}, err
 	}
 	run, err := e.planTransfer(ctx, owner, target)
 	if err != nil {
 		return TransferResult{}, err
 	}
 	result := TransferResult{ID: run.id}
-	var google *auth.Credentials
-	if target.backend == backendGCS {
-		if google, err = googleCredentials(gcsCredentials, e.tokenMargin); err != nil {
-			return result, err
-		}
-	}
-	objects, err := openArchiveObjects(ctx, target, google)
-	if err != nil {
-		return result, err
-	}
-	if closer, ok := objects.(io.Closer); ok {
-		defer func() { _ = closer.Close() }()
-	}
 	if err := checkDestination(ctx, objects, run.id); err != nil {
 		return result, err
 	}
