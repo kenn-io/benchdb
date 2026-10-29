@@ -615,6 +615,11 @@ p {
     border-bottom: 1px solid var(--c-border-muted);
   }
 
+  /* Inside a bordered panel, the panel's bottom edge closes the table. */
+  .panel .stacked-table tr:last-child {
+    border-bottom: 0;
+  }
+
   .stacked-table td {
     display: grid;
     grid-template-columns: var(--stacked-label-width, 84px) minmax(0, 1fr);
