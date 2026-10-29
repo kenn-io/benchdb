@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/db"
@@ -56,6 +57,7 @@ func TestRunArchivesDueResultsAndServesThem(t *testing.T) {
 		case err := <-done:
 			require.NoError(t, err)
 		case <-time.After(15 * time.Second):
+			stacktest.Dump(t)
 			require.Fail(t, "server did not stop after cancellation")
 		}
 		paths, err := filepath.Glob(filepath.Join(dataDir, ".runtime-*"))

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -82,6 +83,7 @@ func TestArchiveOpenDoesNotPinFilesWhileWaitingForDatabase(t *testing.T) {
 	select {
 	case <-tracer.cleanupStarted:
 	case <-opening.Done():
+		stacktest.Dump(t)
 		require.FailNow(t, "startup did not request its database connection")
 	}
 	assert.True(t, reclamationAvailable(t, ctx, original), "startup must not hold files while waiting for the only database connection")

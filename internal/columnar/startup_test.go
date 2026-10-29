@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/kit/objectstore"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/dbtest"
 )
@@ -150,6 +151,7 @@ func TestRemoteStartupWaitsForLocalClaim(t *testing.T) {
 	select {
 	case <-tracer.started:
 	case <-ctx.Done():
+		stacktest.Dump(t)
 		require.NoError(t, ctx.Err(), "local startup must reach its storage claim")
 	}
 	remoteCfg := r.config("archive", t.TempDir())

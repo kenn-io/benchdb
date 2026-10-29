@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -137,6 +138,7 @@ WHERE application_name='benchdb-archive-maintenance' AND query='commit' AND wait
 	select {
 	case result = <-done:
 	case <-ctx.Done():
+		stacktest.Dump(t)
 		require.FailNow(t, "maintenance did not return after the transport failed")
 	}
 	require.Error(t, result.err)

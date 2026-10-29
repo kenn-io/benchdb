@@ -29,6 +29,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/signer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.kenn.io/kit/stacktest"
 
 	"go.kenn.io/benchdb/internal/dbtest"
 )
@@ -1311,6 +1312,7 @@ func TestGCSTokenFetchStallKeepsReadsBounded(t *testing.T) {
 	case err := <-built:
 		require.NoError(t, err, "the builder statement uses its cached token")
 	case <-time.After(20 * time.Second):
+		stacktest.Dump(t)
 		require.Fail(t, "the builder statement waited for the stalled token request")
 	}
 
