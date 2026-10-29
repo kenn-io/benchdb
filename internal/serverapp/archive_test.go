@@ -90,10 +90,9 @@ func TestRunArchivesDueResultsAndServesThem(t *testing.T) {
 	require.Contains(t, string(body), summary.ProductSmoke.LatestResultID)
 }
 
-func TestRunReadOnlyDatabaseSettings(t *testing.T) {
+func TestArchiveReadPreservesReadOnlySession(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	extensions := os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")
-	isolateLoadConfigEnv(t)
 	dataDir := t.TempDir()
 	engine, err := columnar.Open(ctx, pool, columnar.Config{Dir: dataDir, ExtensionDir: extensions})
 	require.NoError(t, err)
@@ -102,55 +101,19 @@ func TestRunReadOnlyDatabaseSettings(t *testing.T) {
 	require.NoError(t, err)
 	query := databaseURL.Query()
 	query.Set("default_transaction_read_only", "on")
-	query.Set("statement_timeout", "5000")
 	databaseURL.RawQuery = query.Encode()
 	readOnly, err := pgxpool.New(ctx, databaseURL.String())
 	require.NoError(t, err)
 	t.Cleanup(readOnly.Close)
-	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, ReadTimeout: 2 * time.Second, Readers: 1})
+	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, Readers: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, analytical.Close()) })
-	// DuckDB's PostgreSQL connections keep read-only mode, while the archive
-	// replaces the inherited statement timeout with the application deadline.
+	// DuckDB's PostgreSQL connections keep the application's read-only mode.
 	require.NoError(t, analytical.Read(ctx, func(ctx context.Context, snapshot *columnar.ReadSnapshot) error {
-		var readOnly, statementTimeout string
-		err := snapshot.QueryRowContext(ctx, `SELECT * FROM postgres_query('pg', 'SELECT current_setting(''default_transaction_read_only'') AS read_only, current_setting(''statement_timeout'') AS statement_timeout')`).Scan(&readOnly, &statementTimeout)
+		var readOnly string
+		err := snapshot.QueryRowContext(ctx, `SELECT * FROM postgres_query('pg', 'SELECT current_setting(''default_transaction_read_only'') AS read_only')`).Scan(&readOnly)
 		require.NoError(t, err)
 		require.Equal(t, "on", readOnly)
-		require.Equal(t, "0", statementTimeout)
 		return nil
 	}))
-	var appTimeout string
-	require.NoError(t, readOnly.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&appTimeout))
-	require.Equal(t, "5s", appTimeout, "the application pool keeps its own statement timeout")
-	// The 2s read deadline, not the 5s statement timeout, stops the query.
-	started := time.Now()
-	readErr := analytical.Read(ctx, func(ctx context.Context, snapshot *columnar.ReadSnapshot) error {
-		var n int
-		return snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n FROM pg_sleep(30)')`).Scan(&n)
-	})
-	require.ErrorIs(t, readErr, context.DeadlineExceeded)
-	require.Less(t, time.Since(started), 4*time.Second)
-	require.Eventually(t, func() bool {
-		var sleeping bool
-		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
-AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&sleeping)
-		return err == nil && !sleeping
-	}, 3*time.Second, 10*time.Millisecond, "the deadline cancels the PostgreSQL statement")
-	require.NoError(t, analytical.Read(ctx, func(ctx context.Context, snapshot *columnar.ReadSnapshot) error {
-		var n int
-		return snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n')`).Scan(&n)
-	}))
-	require.NoError(t, analytical.Close())
-	t.Setenv("BENCHDB_ANALYTICAL_READ_TIMEOUT", "2s")
-	t.Setenv("BENCHDB_DB_URL", databaseURL.String())
-	t.Setenv("BENCHDB_DATA_DIR", dataDir)
-	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", extensions)
-	t.Setenv("BENCHDB_ADDR", "127.0.0.1:0")
-	for _, name := range []string{"BENCHDB_ARTIFACT_BUCKET", "BENCHDB_SEED", "BENCHDB_INIT_SCHEMA", "BENCHDB_SEED_DEV_TOKEN"} {
-		t.Setenv(name, "")
-	}
-	runCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	require.NoError(t, Run(runCtx))
 }

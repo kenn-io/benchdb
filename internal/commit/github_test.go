@@ -214,7 +214,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 		}
 		_, _ = w.Write(githubtest.Fixture(t, "github_child.json"))
 	})
-	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), 50*time.Millisecond, nil) //nolint:kennlint // deadlinetest: budget expiry must degrade to unknown metadata while the response is delayed
+	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), 50*time.Millisecond, nil) //nolint:kennlint // deadlinetest: budget expiry is the expected result while the response is delayed
 
 	start := time.Now()
 	info, err := p.Resolve(context.Background(), commit.Request{
