@@ -206,19 +206,44 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 
 func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	srv := githubtest.NewServer(t)
-	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(300 * time.Millisecond)
-		_, _ = w.Write(githubtest.Fixture(t, "github_child.json"))
+	started, handlerDone := make(chan struct{}), make(chan struct{})
+	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		defer close(handlerDone)
+		<-r.Context().Done()
 	})
-	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), 50*time.Millisecond, nil) //nolint:kennlint // deadlinetest: budget expiry is the expected result while the response is delayed
+	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), time.Second, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	var info *commit.Info
+	var err error
+	resolved := make(chan struct{})
+	go func() {
+		info, err = p.Resolve(ctx, commit.Request{Commit: childSha, Repository: "https://github.com/org/repo"})
+		close(resolved)
+	}()
+	defer func() {
+		cancel()
+		<-resolved
+		select {
+		case <-started:
+			<-handlerDone
+		default:
+		}
+	}()
 
-	start := time.Now()
-	info, err := p.Resolve(context.Background(), commit.Request{
-		Commit: childSha, Repository: "https://github.com/org/repo",
-	})
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "Resolve did not reach the GitHub handler")
+	}
+	select {
+	case <-resolved:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "Resolve did not respect the provider budget")
+	}
 	require.NoError(t, err)
+	require.NotNil(t, info)
 	assert.Nil(t, info.Timestamp, "budget blown -> unknown commit")
-	assert.Less(t, time.Since(start), 250*time.Millisecond, "Resolve must respect the budget, not the handler sleep")
 }
 
 func TestGitHubProviderNoCommitYieldsNil(t *testing.T) {
