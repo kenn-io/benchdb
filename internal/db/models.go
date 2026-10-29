@@ -198,6 +198,7 @@ type ArchiveTransfer struct {
 	DestinationStorageID uuid.UUID
 	StartedAt            pgtype.Timestamptz
 	CutoverAt            pgtype.Timestamptz
+	ActivationToken      *uuid.UUID
 }
 
 type ArchiveTransferObject struct {

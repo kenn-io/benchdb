@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
@@ -296,4 +297,47 @@ func TestRestoredTransferCannotResumeIntoActivatedDestination(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, elsewhere.CutOver)
 	assert.NotEqual(t, finished.ID, elsewhere.ID)
+}
+
+// TestTransferFencesDestinationBeforeCutover stops a transfer after it
+// fenced the destination and before its cutover committed, as a crash at
+// that boundary does. A database restored from a backup taken before the
+// fence cannot resume into the destination, while the original, whose row
+// holds the activation token, resumes and finishes.
+func TestTransferFencesDestinationBeforeCutover(t *testing.T) {
+	f := newTransferFixture(t)
+	destination := f.destination(t)
+	f.gateway.failRequests(func(method, key string) bool {
+		return method == http.MethodPut && strings.HasPrefix(key, "data/")
+	})
+	_, err := f.source.TransferArchive(f.ctx, destination)
+	require.Error(t, err)
+	f.gateway.failRequests(nil)
+	require.NoError(t, f.source.Close())
+	snapshot := snapshotDatabase(t, f.ctx, f.remote.pool, "before_fence")
+
+	original := openLookupArchiveIn(t, f.ctx, f.remote.pool, f.dir)
+	target, err := transferTarget(destination)
+	require.NoError(t, err)
+	require.NoError(t, original.withOwner(f.ctx, original.coord.tryOwner, func(owner *maintenanceOwner) error {
+		objects, closeObjects, err := openTransferObjects(f.ctx, target, "", time.Minute)
+		if err != nil {
+			return err
+		}
+		defer closeObjects()
+		run, err := original.planTransfer(f.ctx, owner, target)
+		if err != nil {
+			return err
+		}
+		return original.fenceDestination(f.ctx, owner, run, objects)
+	}))
+	assert.Equal(t, "a local archive directory", activeBackend(t, f.ctx, f.remote.pool), "the fence alone does not switch the database")
+
+	restored := openLookupArchiveIn(t, f.ctx, snapshot, f.dir)
+	_, err = restored.TransferArchive(f.ctx, destination)
+	require.ErrorContains(t, err, "may be a restored copy")
+
+	finished, err := original.TransferArchive(f.ctx, destination)
+	require.NoError(t, err)
+	assert.True(t, finished.CutOver)
 }

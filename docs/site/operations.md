@@ -448,9 +448,9 @@ directory instead.
     The destination must be empty. The command first writes a `transfer`
     marker that names this transfer, then copies every fact file and catalog
     that the database references, keeps their keys, and verifies each copy's
-    SHA-256. When every copy is verified, one database transaction switches
-    the archive binding to the destination, and the command then writes an
-    `activated` marker there.
+    SHA-256. When every copy is verified, it writes an `activated` marker to
+    the destination, and then one database transaction switches the archive
+    binding to it.
 5. Set `BENCHDB_ARCHIVE_URL` and its provider settings to the destination,
    start the server, and run `benchdb admin archive audit`. Open the results
    and history pages, and check that the next maintenance cycle succeeds.

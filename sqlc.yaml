@@ -80,6 +80,11 @@ sql:
             go_type:
               import: "uuid"
               type: "UUID"
+          - column: "archive_transfer.activation_token"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+              pointer: true
           # The aggregate columns and per-iteration data/times are floats in the
           # stats core; map numeric -> float64 (and numeric[] -> []float64).
           - db_type: "pg_catalog.numeric"
