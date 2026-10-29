@@ -191,6 +191,10 @@ func checkInheritedTimeouts(t *testing.T, ctx context.Context, direct *pgxpool.P
 	cfg, err := pgxpool.ParseConfig(inherited)
 	require.NoError(t, err)
 	cfg.MaxConns = 4
+	// pgxpool checks only connections idle for over a second, so it could
+	// hand out one that this test's sub-second idle_session_timeout already
+	// ended. Check every one, as the pool does for real, longer timeouts.
+	cfg.ShouldPing = func(context.Context, pgxpool.ShouldPingParams) bool { return true }
 	app, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(app.Close)
