@@ -4327,6 +4327,25 @@ func (s SeriesListItemStatus) Validate() error {
 	}
 }
 
+// StorageStatusBackend Archive storage backend: file for a local directory, s3, or gs.
+type StorageStatusBackend string
+
+const (
+	File StorageStatusBackend = "file"
+	Gs   StorageStatusBackend = "gs"
+	S3   StorageStatusBackend = "s3"
+)
+
+// Validate checks if the StorageStatusBackend value is valid
+func (s StorageStatusBackend) Validate() error {
+	switch s {
+	case File, Gs, S3:
+		return nil
+	default:
+		return runtime.NewValidationErrorsFromString("Enum", fmt.Sprintf("must be a valid StorageStatusBackend value, got: %v", s))
+	}
+}
+
 // ListBenchmarksQueryStatus Only benchmarks with this status.
 type ListBenchmarksQueryStatus string
 
@@ -7283,13 +7302,34 @@ type StorageStatus struct {
 	Schema *string `json:"$schema,omitempty"`
 
 	// ArchivedRows Rows in published archive files, before pending deletions are applied.
-	ArchivedRows     int64             `json:"archived_rows"`
-	CatalogBytes     int64             `json:"catalog_bytes"`
-	CatalogFiles     int64             `json:"catalog_files"`
-	Maintenance      MaintenanceStatus `json:"maintenance"`
-	ParquetBytes     int64             `json:"parquet_bytes"`
-	ParquetFiles     int64             `json:"parquet_files"`
-	PendingMutations int64             `json:"pending_mutations"`
+	ArchivedRows int64 `json:"archived_rows"`
+
+	// Backend Archive storage backend: file for a local directory, s3, or gs.
+	Backend StorageStatusBackend `json:"backend" validate:"required"`
+
+	// CacheBudgetBytes Configured catalog cache limit, BENCHDB_ARCHIVE_CATALOG_CACHE_BYTES; 0 for a local archive.
+	CacheBudgetBytes int64 `json:"cache_budget_bytes"`
+
+	// CacheBytes Bytes in the local cache of a remote archive's catalogs; 0 for a local archive.
+	CacheBytes   int64 `json:"cache_bytes"`
+	CatalogBytes int64 `json:"catalog_bytes"`
+	CatalogFiles int64 `json:"catalog_files"`
+
+	// LocalVolumeAvailableBytes Space available to the server on the working directory's filesystem.
+	LocalVolumeAvailableBytes int64 `json:"local_volume_available_bytes" validate:"gte=0"`
+
+	// LocalVolumeTotalBytes Capacity of the filesystem containing the working directory, BENCHDB_DATA_DIR.
+	LocalVolumeTotalBytes int64             `json:"local_volume_total_bytes" validate:"gte=0"`
+	Maintenance           MaintenanceStatus `json:"maintenance"`
+
+	// NextDeletionAt UTC time when the next retired or orphaned file may be deleted, if reclamation is not paused.
+	NextDeletionAt *time.Time `json:"next_deletion_at,omitempty"`
+
+	// OldestRetirementAt UTC time when maintenance first observed the oldest pending retirement.
+	OldestRetirementAt *time.Time `json:"oldest_retirement_at,omitempty"`
+	ParquetBytes       int64      `json:"parquet_bytes"`
+	ParquetFiles       int64      `json:"parquet_files"`
+	PendingMutations   int64      `json:"pending_mutations"`
 
 	// PendingRowsEstimate PostgreSQL estimate of rows awaiting archival; statistics may lag ingestion and maintenance.
 	PendingRowsEstimate int64 `json:"pending_rows_estimate"`
@@ -7297,21 +7337,47 @@ type StorageStatus struct {
 	// PostgresBytes Total PostgreSQL database size, including indexes and metadata.
 	PostgresBytes int64 `json:"postgres_bytes"`
 
+	// ReclamationPaused Whether deletion of retired and orphaned archive files is paused.
+	ReclamationPaused bool `json:"reclamation_paused"`
+
+	// ReclamationReason Why reclamation is paused.
+	ReclamationReason *string `json:"reclamation_reason,omitempty"`
+
+	// RetainedBytes Bytes in retired archive files awaiting deletion; excluded from the published sizes. Orphaned uploads have no recorded size and are not counted.
+	RetainedBytes int64 `json:"retained_bytes"`
+
+	// RetentionSeconds Configured BENCHDB_ARCHIVE_RETENTION; 0 while unset.
+	RetentionSeconds float64 `json:"retention_seconds"`
+
+	// RetiredObjects Retired archive files and orphaned uploads awaiting deletion.
+	RetiredObjects int64 `json:"retired_objects"`
+
 	// SampledAt UTC time when storage usage was measured. Usage is cached for up to one minute.
 	SampledAt time.Time `json:"sampled_at" validate:"required"`
 
 	// StaleCatalogs Fact files whose catalog pair needs refreshing.
 	StaleCatalogs int64 `json:"stale_catalogs"`
 
-	// VolumeAvailableBytes Space available to the server on the archive filesystem.
-	VolumeAvailableBytes int64 `json:"volume_available_bytes" validate:"gte=0"`
+	// VolumeAvailableBytes Space available to the server on a local archive's filesystem; null for S3 and GCS archives.
+	VolumeAvailableBytes *int64 `json:"volume_available_bytes" validate:"omitempty,gte=0"`
 
-	// VolumeTotalBytes Capacity of the filesystem containing the archive.
-	VolumeTotalBytes int64 `json:"volume_total_bytes" validate:"gte=0"`
+	// VolumeTotalBytes Capacity of the filesystem containing a local archive; null for S3 and GCS archives.
+	VolumeTotalBytes *int64 `json:"volume_total_bytes" validate:"omitempty,gte=0"`
 }
 
 func (s StorageStatus) Validate() error {
 	var errors runtime.ValidationErrors
+	if v, ok := any(s.Backend).(runtime.Validator); ok {
+		if err := v.Validate(); err != nil {
+			errors = errors.Append("Backend", err)
+		}
+	}
+	if err := typesValidator.Var(s.LocalVolumeAvailableBytes, "gte=0"); err != nil {
+		errors = errors.Append("LocalVolumeAvailableBytes", err)
+	}
+	if err := typesValidator.Var(s.LocalVolumeTotalBytes, "gte=0"); err != nil {
+		errors = errors.Append("LocalVolumeTotalBytes", err)
+	}
 	if v, ok := any(s.Maintenance).(runtime.Validator); ok {
 		if err := v.Validate(); err != nil {
 			errors = errors.Append("Maintenance", err)
@@ -7320,11 +7386,15 @@ func (s StorageStatus) Validate() error {
 	if err := typesValidator.Var(s.SampledAt, "required"); err != nil {
 		errors = errors.Append("SampledAt", err)
 	}
-	if err := typesValidator.Var(s.VolumeAvailableBytes, "gte=0"); err != nil {
-		errors = errors.Append("VolumeAvailableBytes", err)
+	if s.VolumeAvailableBytes != nil {
+		if err := typesValidator.Var(s.VolumeAvailableBytes, "omitempty,gte=0"); err != nil {
+			errors = errors.Append("VolumeAvailableBytes", err)
+		}
 	}
-	if err := typesValidator.Var(s.VolumeTotalBytes, "gte=0"); err != nil {
-		errors = errors.Append("VolumeTotalBytes", err)
+	if s.VolumeTotalBytes != nil {
+		if err := typesValidator.Var(s.VolumeTotalBytes, "omitempty,gte=0"); err != nil {
+			errors = errors.Append("VolumeTotalBytes", err)
+		}
 	}
 	if len(errors) == 0 {
 		return nil

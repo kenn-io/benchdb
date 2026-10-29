@@ -1377,3 +1377,19 @@ func awaitToken(t *testing.T, e *Engine, value string) {
 		return e.token != nil && e.token.Value == value
 	}, 10*time.Second, 10*time.Millisecond)
 }
+
+// TestRemoteStorageStatus reports an S3 archive without a capacity: the
+// archive volume is null, while the working directory and catalog cache are
+// measured locally.
+func TestRemoteStorageStatus(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	e := r.open(t, ctx, r.config("status", t.TempDir()))
+	cloudStatus, err := e.StorageStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "s3", cloudStatus.Backend)
+	assert.Nil(t, cloudStatus.VolumeTotalBytes)
+	assert.Nil(t, cloudStatus.VolumeAvailableBytes)
+	assert.Positive(t, cloudStatus.LocalVolumeTotalBytes)
+	assert.EqualValues(t, defaultCatalogCacheBytes, cloudStatus.CacheBudgetBytes)
+	assert.False(t, cloudStatus.ReclamationPaused)
+}

@@ -43,8 +43,13 @@ INSERT INTO result_mutation(result_id,run_id,history_fingerprint,partition_month
 	assert.EqualValues(t, 1, status.StaleCatalogs)
 	assert.Zero(t, status.PendingRowsEstimate)
 	assert.Positive(t, status.PostgresBytes)
-	assert.Positive(t, status.VolumeTotalBytes)
-	assert.Positive(t, status.VolumeAvailableBytes)
+	assert.Equal(t, "file", status.Backend)
+	localStatus := status
+	require.NotNil(t, localStatus.VolumeTotalBytes)
+	require.NotNil(t, localStatus.VolumeAvailableBytes)
+	assert.Positive(t, *localStatus.VolumeTotalBytes)
+	assert.Positive(t, status.LocalVolumeTotalBytes)
+	assert.Zero(t, status.CacheBudgetBytes, "a local archive has no catalog cache")
 	assert.WithinDuration(t, time.Now(), status.SampledAt, time.Second)
 
 	// A second scrape reuses the sample instead of repeatedly querying metadata.
@@ -105,5 +110,59 @@ func TestStorageStatusMeasuresALocalArchiveWhereItsFilesLive(t *testing.T) {
 	status, err := e.StorageStatus(ctx)
 
 	require.NoError(t, err)
-	assert.Equal(t, archiveVolume.Total, status.VolumeTotalBytes)
+	require.NotNil(t, status.VolumeTotalBytes)
+	assert.Equal(t, archiveVolume.Total, *status.VolumeTotalBytes)
+	assert.Equal(t, workVolume.Total, status.LocalVolumeTotalBytes, "working space is measured separately")
+}
+
+// TestLocalUpgradeRetentionWarning opens an upgraded local archive without
+// BENCHDB_ARCHIVE_RETENTION: status reports reclamation paused, with the
+// reason. A restart with retention configured clears it.
+func TestLocalUpgradeRetentionWarning(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1}
+	e, err := Open(ctx, pool, cfg)
+	require.NoError(t, err)
+	upgradedStatus, err := e.StorageStatus(ctx)
+	require.NoError(t, err)
+	assert.True(t, upgradedStatus.ReclamationPaused)
+	assert.Contains(t, upgradedStatus.ReclamationReason, "BENCHDB_ARCHIVE_RETENTION")
+	assert.Zero(t, upgradedStatus.RetentionSeconds)
+	require.NoError(t, e.Close())
+
+	cfg.Retention = 864 * time.Hour
+	e, err = Open(ctx, pool, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	configured, err := e.StorageStatus(ctx)
+	require.NoError(t, err)
+	assert.False(t, configured.ReclamationPaused)
+	assert.Empty(t, configured.ReclamationReason)
+	assert.InDelta(t, (864 * time.Hour).Seconds(), configured.RetentionSeconds, 0)
+}
+
+// TestStorageStatusReportsRetainedObjects counts retired files and orphaned
+// uploads of the active storage, the retired files' bytes, and their
+// deadlines, from PostgreSQL metadata.
+func TestStorageStatusReportsRetainedObjects(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Retention: time.Hour})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	observed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	_, err = pool.Exec(ctx, `INSERT INTO archive_object(storage_id,key,byte_size) SELECT id,'data/retired.parquet',700 FROM archive_storage WHERE active;
+INSERT INTO archive_retirement(storage_id,key,first_observed_at,delete_after) SELECT id,'data/retired.parquet','2026-01-02T03:04:05Z','2026-01-02T05:04:05Z' FROM archive_storage WHERE active;
+INSERT INTO archive_retirement(storage_id,key) SELECT id,'catalog/unobserved.parquet' FROM archive_storage WHERE active;
+INSERT INTO archive_orphan(storage_id,key,first_observed_at,delete_after) SELECT id,'data/orphan.parquet','2026-01-02T03:04:05Z','2026-01-02T04:04:05Z' FROM archive_storage WHERE active`)
+	require.NoError(t, err)
+
+	status, err := e.StorageStatus(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, status.RetiredObjects)
+	assert.EqualValues(t, 700, status.RetainedBytes, "only retired files with receipts have a known size")
+	require.NotNil(t, status.OldestRetirementAt)
+	assert.Equal(t, observed, *status.OldestRetirementAt)
+	require.NotNil(t, status.NextDeletionAt)
+	assert.Equal(t, observed.Add(time.Hour), *status.NextDeletionAt)
+	assert.Zero(t, status.ParquetBytes, "retained bytes are not published bytes")
 }

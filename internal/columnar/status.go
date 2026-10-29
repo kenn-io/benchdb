@@ -40,18 +40,12 @@ FROM archive_file`).Scan(&sample.PostgresBytes, &sample.PendingRowsEstimate, &sa
 		if err != nil {
 			return storage.StorageStatus{}, fmt.Errorf("measure storage metadata: %w", err)
 		}
-		// A local archive's capacity is where its files live; a remote
-		// archive's is the working directory that caches it.
-		volumeDir := e.cfg.Dir
-		if e.location.backend == backendFile {
-			volumeDir = e.location.root
+		if err := e.sampleRetention(ctx, &sample); err != nil {
+			return storage.StorageStatus{}, err
 		}
-		volume, err := disk.UsageWithContext(ctx, volumeDir)
-		if err != nil {
-			return storage.StorageStatus{}, fmt.Errorf("measure archive volume: %w", err)
+		if err := e.sampleVolumes(ctx, &sample); err != nil {
+			return storage.StorageStatus{}, err
 		}
-		sample.VolumeTotalBytes = volume.Total
-		sample.VolumeAvailableBytes = volume.Free
 		sample.SampledAt = time.Now().UTC()
 		e.storageSnapshot = sample
 	}
@@ -62,4 +56,55 @@ FROM archive_file`).Scan(&sample.PostgresBytes, &sample.PendingRowsEstimate, &sa
 
 func (s *Store) StorageStatus(ctx context.Context) (storage.StorageStatus, error) {
 	return s.engine.StorageStatus(ctx)
+}
+
+// sampleRetention reads the retention policy and the retired and orphaned
+// objects of the active storage awaiting deletion, from PostgreSQL metadata.
+func (e *Engine) sampleRetention(ctx context.Context, sample *storage.StorageStatus) error {
+	if e.cfg.Retention <= 0 {
+		sample.ReclamationPaused = true
+		sample.ReclamationReason = "BENCHDB_ARCHIVE_RETENTION is not set, so BenchDB keeps every retired and orphaned file. Set it to cover the database backup window."
+	} else {
+		sample.RetentionSeconds = e.cfg.Retention.Seconds()
+	}
+	err := e.pg.QueryRow(ctx, `SELECT
+(SELECT count(*) FROM archive_retirement WHERE storage_id=$1) + (SELECT count(*) FROM archive_orphan WHERE storage_id=$1),
+(SELECT coalesce(sum(o.byte_size),0)::bigint FROM archive_retirement r JOIN archive_object o ON o.storage_id=r.storage_id AND o.key=r.key WHERE r.storage_id=$1),
+(SELECT min(first_observed_at) FROM archive_retirement WHERE storage_id=$1),
+(SELECT min(delete_after) FROM (SELECT delete_after FROM archive_retirement WHERE storage_id=$1
+ UNION ALL SELECT delete_after FROM archive_orphan WHERE storage_id=$1) deadlines)`, e.archive.storageID).
+		Scan(&sample.RetiredObjects, &sample.RetainedBytes, &sample.OldestRetirementAt, &sample.NextDeletionAt)
+	if err != nil {
+		return fmt.Errorf("measure archive retention: %w", err)
+	}
+	for _, at := range []*time.Time{sample.OldestRetirementAt, sample.NextDeletionAt} {
+		if at != nil {
+			*at = at.UTC()
+		}
+	}
+	return nil
+}
+
+// sampleVolumes measures the working directory's filesystem and, for a local
+// archive, the archive's. S3 and GCS have no capacity to measure, so their
+// archive volume stays null; the catalog cache's use is reported instead.
+func (e *Engine) sampleVolumes(ctx context.Context, sample *storage.StorageStatus) error {
+	sample.Backend = e.location.backend
+	local, err := disk.UsageWithContext(ctx, e.cfg.Dir)
+	if err != nil {
+		return fmt.Errorf("measure the working directory volume: %w", err)
+	}
+	sample.LocalVolumeTotalBytes, sample.LocalVolumeAvailableBytes = local.Total, local.Free
+	if e.location.remote() {
+		if e.catalogs != nil {
+			sample.CacheBytes, sample.CacheBudgetBytes = e.catalogs.usage()
+		}
+		return nil
+	}
+	archive, err := disk.UsageWithContext(ctx, e.location.root)
+	if err != nil {
+		return fmt.Errorf("measure archive volume: %w", err)
+	}
+	sample.VolumeTotalBytes, sample.VolumeAvailableBytes = &archive.Total, &archive.Free
+	return nil
 }
