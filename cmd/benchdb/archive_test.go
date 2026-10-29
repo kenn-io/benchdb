@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/kit/stacktest"
 
+	"go.kenn.io/benchdb/internal/columnar"
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
@@ -184,4 +185,89 @@ func TestAdminArchiveRecoverStagingGivesUpOnSilentDatabase(t *testing.T) {
 		stacktest.Dump(t)
 		require.FailNow(t, "recovery waited for a silent database past its connection deadline")
 	}
+}
+
+// TestAdminArchiveAuditReportsCheckedObjects audits a new archive, which
+// references no objects yet.
+func TestAdminArchiveAuditReportsCheckedObjects(t *testing.T) {
+	pool, _ := dbtest.NewPool(t)
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "audit"}, &stdout, &stderr)
+
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	assert.Equal(t, "Objects checked: 0\nBytes referenced: 0\nMissing: 0\nChanged: 0\n", stdout.String())
+}
+
+func TestAdminArchiveTransferRequiresDestination(t *testing.T) {
+	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "transfer"}, &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "--destination is required")
+}
+
+// TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance shows
+// that a running server stops the transfer before it writes anything.
+func TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", t.TempDir())
+	owner, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	_, err = owner.Exec(ctx, `SELECT pg_advisory_lock($1)`, archiveOwnerLock)
+	require.NoError(t, err)
+	t.Cleanup(owner.Release)
+	// Nothing listens at the endpoint: the ownership check comes before any
+	// request to the destination.
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"admin", "archive", "transfer", "--destination", "s3://example-bucket/moved",
+		"--destination-s3-endpoint", "http://" + refusingLoopbackAddress(t), "--destination-s3-url-style", "path"}, &stdout, &stderr)
+
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "stop every BenchDB server")
+}
+
+// refusingLoopbackAddress is a loopback address where nothing listens.
+func refusingLoopbackAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	return address
+}
+
+// TestAdminArchiveTransferRerunAfterCutover runs the command again after a
+// transfer committed, as an operator does when the first run's outcome was
+// lost. The source settings no longer open the archive, so the rerun must
+// read the outcome from the database and succeed.
+func TestAdminArchiveTransferRerunAfterCutover(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	s3 := dbtest.NewS3(t)
+	dbtest.IssueAWSCredentials(t, s3.AccessKey, s3.SecretKey, time.Now().Add(time.Hour))
+	dataDir := t.TempDir()
+	t.Setenv("BENCHDB_DB_URL", pool.Config().ConnString())
+	t.Setenv("BENCHDB_DATA_DIR", dataDir)
+	// One maintenance cycle completes the lookup directory of the new archive.
+	engine, err := columnar.Open(ctx, pool, columnar.Config{Dir: dataDir, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR")})
+	require.NoError(t, err)
+	_, err = engine.Maintain(ctx)
+	require.NoError(t, err)
+	require.NoError(t, engine.Close())
+	args := []string{"admin", "archive", "transfer", "--destination", "s3://" + s3.Bucket + "/moved",
+		"--destination-s3-endpoint", s3.Endpoint, "--destination-s3-url-style", "path"}
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, run(args, &stdout, &stderr), "stderr=%s", stderr.String())
+	assert.Contains(t, stdout.String(), "The database now uses s3://"+s3.Bucket+"/moved")
+
+	stdout.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run(args, &stdout, &stderr), "stderr=%s", stderr.String())
+	assert.Contains(t, stdout.String(), "The transfer already completed")
 }

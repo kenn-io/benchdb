@@ -64,6 +64,27 @@ sql:
             go_type:
               import: "uuid"
               type: "UUID"
+          - column: "archive_transfer.id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_transfer.source_storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_transfer.destination_storage_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_transfer_object.transfer_id"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+          - column: "archive_transfer.activation_token"
+            go_type:
+              import: "uuid"
+              type: "UUID"
+              pointer: true
           # The aggregate columns and per-iteration data/times are floats in the
           # stats core; map numeric -> float64 (and numeric[] -> []float64).
           - db_type: "pg_catalog.numeric"

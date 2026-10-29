@@ -562,26 +562,32 @@ func (e *Engine) claimNamespace(ctx context.Context, id string, used bool) error
 }
 
 func (e *Engine) readMarker(ctx context.Context) (string, error) {
-	meta, err := e.objects.Inspect(ctx, datasetMarker)
+	return readSmallObject(ctx, e.objects, datasetMarker)
+}
+
+// readSmallObject reads a marker object of at most 128 bytes at its observed
+// revision. A missing object returns objectstore.ErrNotFound unwrapped.
+func readSmallObject(ctx context.Context, objects archiveObjects, key string) (string, error) {
+	meta, err := objects.Inspect(ctx, key)
 	if err != nil {
 		if errors.Is(err, objectstore.ErrNotFound) {
 			return "", err
 		}
-		return "", fmt.Errorf("inspect the archive dataset marker: %w", err)
+		return "", fmt.Errorf("inspect the archive %s marker: %w", key, err)
 	}
 	if meta.Size <= 0 || meta.Size > 128 {
-		return "", errors.New("archive namespace has an invalid dataset marker")
+		return "", fmt.Errorf("archive namespace has an invalid %s marker", key)
 	}
-	body, err := e.objects.OpenRange(ctx, datasetMarker, meta.Revision, 0, meta.Size)
+	body, err := objects.OpenRange(ctx, key, meta.Revision, 0, meta.Size)
 	if err != nil {
-		return "", fmt.Errorf("read the archive dataset marker: %w", err)
+		return "", fmt.Errorf("read the archive %s marker: %w", key, err)
 	}
 	data, readErr := io.ReadAll(io.LimitReader(body, meta.Size+1))
 	if err := errors.Join(readErr, body.Close()); err != nil {
-		return "", fmt.Errorf("read the archive dataset marker: %w", err)
+		return "", fmt.Errorf("read the archive %s marker: %w", key, err)
 	}
 	if int64(len(data)) != meta.Size {
-		return "", errors.New("archive dataset marker changed while it was read")
+		return "", fmt.Errorf("archive %s marker changed while it was read", key)
 	}
 	return string(data), nil
 }

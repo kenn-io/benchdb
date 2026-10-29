@@ -192,6 +192,21 @@ type ArchiveStorage struct {
 	ClaimedAt pgtype.Timestamptz
 }
 
+type ArchiveTransfer struct {
+	ID                   uuid.UUID
+	SourceStorageID      uuid.UUID
+	DestinationStorageID uuid.UUID
+	StartedAt            pgtype.Timestamptz
+	CutoverAt            pgtype.Timestamptz
+	ActivationToken      *uuid.UUID
+}
+
+type ArchiveTransferObject struct {
+	TransferID uuid.UUID
+	Key        string
+	Receipt    []byte
+}
+
 type ArchiveUpload struct {
 	StorageID      uuid.UUID
 	Key            string

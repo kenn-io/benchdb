@@ -124,7 +124,7 @@ func TestArchiveMigrationRollbackKeepsLogicalAnnotations(t *testing.T) {
 	id := strings.Repeat("r", 50)
 	require.NoError(t, db.NewStore(pool).UpdateBenchmarkResultChangeAnnotations(ctx, id, []byte(`{"exclude_from_history":true}`)))
 	// Undo dependent migrations first, as the migration runner would.
-	for _, name := range []string{"000014_remote_archive", "000013_managed_parquet_storage"} {
+	for _, name := range []string{"000022_archive_transfer", "000014_remote_archive", "000013_managed_parquet_storage"} {
 		down, err := os.ReadFile("migrations/" + name + ".down.sql")
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, string(down))
