@@ -2,9 +2,9 @@
 -- binding. Verified destination receipts survive interruption, so a resumed
 -- transfer copies only the objects it has not verified. Cutover sets
 -- cutover_at in the transaction that switches the active binding, so a lost
--- commit response is resolved from this row. activation_token is committed
--- before the destination's activation marker is published, ahead of cutover;
--- only a transfer holding the marker's token may resume into it.
+-- commit response is resolved from this row. The destination's activation
+-- marker is published before cutover, and the cutover commits its token in
+-- activation_token, so an unfinished transfer never holds one.
 CREATE TABLE archive_transfer (
     id uuid PRIMARY KEY,
     source_storage_id uuid NOT NULL REFERENCES archive_storage(id),

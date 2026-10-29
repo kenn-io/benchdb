@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
@@ -299,45 +298,37 @@ func TestRestoredTransferCannotResumeIntoActivatedDestination(t *testing.T) {
 	assert.NotEqual(t, finished.ID, elsewhere.ID)
 }
 
-// TestTransferFencesDestinationBeforeCutover stops a transfer after it
-// fenced the destination and before its cutover committed, as a crash at
-// that boundary does. A database restored from a backup taken before the
-// fence cannot resume into the destination, while the original, whose row
-// holds the activation token, resumes and finishes.
+// TestTransferFencesDestinationBeforeCutover makes the cutover fail after
+// the transfer fenced the destination, as a crash at that boundary does. The
+// destination then holds the activation marker while the source stays active.
+// A database restored from a backup taken at that point has the same
+// unfinished transfer, and neither it nor the original can prove which one
+// activated the destination: both must transfer to an empty destination.
 func TestTransferFencesDestinationBeforeCutover(t *testing.T) {
 	f := newTransferFixture(t)
 	destination := f.destination(t)
-	f.gateway.failRequests(func(method, key string) bool {
-		return method == http.MethodPut && strings.HasPrefix(key, "data/")
-	})
-	_, err := f.source.TransferArchive(f.ctx, destination)
-	require.Error(t, err)
-	f.gateway.failRequests(nil)
-	require.NoError(t, f.source.Close())
-	snapshot := snapshotDatabase(t, f.ctx, f.remote.pool, "before_fence")
-
-	original := openLookupArchiveIn(t, f.ctx, f.remote.pool, f.dir)
-	target, err := transferTarget(destination)
+	_, err := f.remote.pool.Exec(f.ctx, `CREATE FUNCTION reject_cutover() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'injected cutover failure'; END $$;
+CREATE TRIGGER reject_cutover BEFORE UPDATE OF cutover_at ON archive_transfer FOR EACH ROW EXECUTE FUNCTION reject_cutover()`)
 	require.NoError(t, err)
-	require.NoError(t, original.withOwner(f.ctx, original.coord.tryOwner, func(owner *maintenanceOwner) error {
-		objects, closeObjects, err := openTransferObjects(f.ctx, target, "", time.Minute)
-		if err != nil {
-			return err
-		}
-		defer closeObjects()
-		run, err := original.planTransfer(f.ctx, owner, target)
-		if err != nil {
-			return err
-		}
-		return original.fenceDestination(f.ctx, owner, run, objects)
-	}))
-	assert.Equal(t, "a local archive directory", activeBackend(t, f.ctx, f.remote.pool), "the fence alone does not switch the database")
+	_, err = f.source.TransferArchive(f.ctx, destination)
+	require.ErrorContains(t, err, "injected cutover failure")
+	assert.Contains(t, f.remote.keys(t, f.ctx, "moved"), activationMarker, "the fence precedes the cutover")
+	assert.Equal(t, "a local archive directory", activeBackend(t, f.ctx, f.remote.pool))
+	_, err = f.remote.pool.Exec(f.ctx, `DROP TRIGGER reject_cutover ON archive_transfer; DROP FUNCTION reject_cutover()`)
+	require.NoError(t, err)
+	require.NoError(t, f.source.Close())
+	snapshot := snapshotDatabase(t, f.ctx, f.remote.pool, "after_fence")
 
 	restored := openLookupArchiveIn(t, f.ctx, snapshot, f.dir)
 	_, err = restored.TransferArchive(f.ctx, destination)
 	require.ErrorContains(t, err, "may be a restored copy")
+	require.NoError(t, restored.Close())
 
-	finished, err := original.TransferArchive(f.ctx, destination)
+	original := openLookupArchiveIn(t, f.ctx, f.remote.pool, f.dir)
+	_, err = original.TransferArchive(f.ctx, destination)
+	require.ErrorContains(t, err, "transfer it to an empty destination")
+	finished, err := original.TransferArchive(f.ctx, f.remote.gatewayConfig(f.gateway, "fresh", t))
 	require.NoError(t, err)
 	assert.True(t, finished.CutOver)
 }

@@ -101,7 +101,8 @@ func CompletedTransfer(ctx context.Context, pg *pgxpool.Pool, destination Config
 }
 
 // completedTransfer finds the committed transfer that made target the active
-// storage. The destination's own transfer marker must name it.
+// storage. The destination's own markers must name it: the transfer marker
+// its ID, and the activation marker the token its cutover committed.
 func completedTransfer(ctx context.Context, q rowQueryer, target archiveLocation, objects archiveObjects) (TransferResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
 	defer cancel()
@@ -113,8 +114,9 @@ func completedTransfer(ctx context.Context, q rowQueryer, target archiveLocation
 		return TransferResult{}, false, nil
 	}
 	var id uuid.UUID
-	err = q.QueryRow(ctx, `SELECT id FROM archive_transfer WHERE destination_storage_id=$1 AND cutover_at IS NOT NULL
-ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&id)
+	var token *uuid.UUID
+	err = q.QueryRow(ctx, `SELECT id,activation_token FROM archive_transfer WHERE destination_storage_id=$1 AND cutover_at IS NOT NULL
+ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&id, &token)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TransferResult{}, false, nil
 	}
@@ -128,7 +130,17 @@ ORDER BY cutover_at DESC LIMIT 1`, active.id).Scan(&id)
 	if err != nil {
 		return TransferResult{}, false, fmt.Errorf("read the transfer destination's marker: %w", err)
 	}
-	if strings.TrimSpace(claimed) != id.String() {
+	if strings.TrimSpace(claimed) != id.String() || token == nil {
+		return TransferResult{}, false, nil
+	}
+	activated, err := readSmallObject(ctx, objects, activationMarker)
+	if errors.Is(err, objectstore.ErrNotFound) {
+		return TransferResult{}, false, nil
+	}
+	if err != nil {
+		return TransferResult{}, false, fmt.Errorf("read the transfer destination's activation marker: %w", err)
+	}
+	if strings.TrimSpace(activated) != token.String() {
 		return TransferResult{}, false, nil
 	}
 	return TransferResult{ID: id, CutOver: true}, true, nil
@@ -160,8 +172,6 @@ func openTransferObjects(ctx context.Context, target archiveLocation, gcsCredent
 type transferRun struct {
 	id, source, destination uuid.UUID
 	saved                   bool
-	// token is the activation token this transfer committed, if any.
-	token *uuid.UUID
 	// replaces is an unfinished transfer to another destination; saving this
 	// run removes it.
 	replaces *uuid.UUID
@@ -187,7 +197,7 @@ func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target a
 		return TransferResult{}, err
 	}
 	result := TransferResult{ID: run.id}
-	if err := checkDestination(ctx, objects, run.id, run.token); err != nil {
+	if err := checkDestination(ctx, objects, run.id); err != nil {
 		return result, err
 	}
 	if !run.saved {
@@ -222,10 +232,11 @@ func (e *Engine) transfer(ctx context.Context, owner *maintenanceOwner, target a
 		}
 		result.Copied++
 	}
-	if err := e.fenceDestination(ctx, owner, run, objects); err != nil {
+	token, err := fenceDestination(ctx, objects)
+	if err != nil {
 		return result, err
 	}
-	if err := e.cutOver(ctx, owner, run); err != nil {
+	if err := e.cutOver(ctx, owner, run, token); err != nil {
 		return result, err
 	}
 	result.CutOver = true
@@ -266,9 +277,9 @@ func (e *Engine) planTransfer(ctx context.Context, owner *maintenanceOwner, targ
 	}
 	var run transferRun
 	var unfinished storageBinding
-	err = q.QueryRow(ctx, `SELECT t.id,t.source_storage_id,t.destination_storage_id,t.activation_token,d.backend,d.namespace,d.endpoint
+	err = q.QueryRow(ctx, `SELECT t.id,t.source_storage_id,t.destination_storage_id,d.backend,d.namespace,d.endpoint
 FROM archive_transfer t JOIN archive_storage d ON d.id=t.destination_storage_id WHERE t.cutover_at IS NULL`).
-		Scan(&run.id, &run.source, &run.destination, &run.token, &unfinished.backend, &unfinished.namespace, &unfinished.endpoint)
+		Scan(&run.id, &run.source, &run.destination, &unfinished.backend, &unfinished.namespace, &unfinished.endpoint)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return transferRun{id: uuid.New(), source: active.id}, nil
@@ -319,19 +330,20 @@ ON CONFLICT (dataset_id,backend,namespace,endpoint) DO UPDATE SET backend=exclud
 // transferMarker names the transfer that claimed a destination. The dataset
 // marker alone cannot: a restored copy of this database has the same dataset
 // identity as the deployment it was copied from. activationMarker records
-// the activation token committed before the cutover, so a database restored
-// from before that cannot resume the same transfer into a destination that
-// the original deployment may use.
+// the activation token that the transfer's cutover commits, so a database
+// restored from a backup taken before the cutover cannot resume the same
+// transfer into a destination that the original deployment may use.
 const (
 	transferMarker   = "transfer"
 	activationMarker = "activated"
 )
 
 // checkDestination accepts an empty namespace, or one that holds the transfer
-// marker of transfer id and no activation marker other than token's. It writes
-// nothing, so a refused destination leaves no trace in the database or the
-// namespace.
-func checkDestination(ctx context.Context, objects archiveObjects, id uuid.UUID, token *uuid.UUID) error {
+// marker of transfer id and no activation marker. An unfinished transfer never
+// holds an activation token, so it cannot prove that an activation marker is
+// its own. It writes nothing, so a refused destination leaves no trace in the
+// database or the namespace.
+func checkDestination(ctx context.Context, objects archiveObjects, id uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
 	defer cancel()
 	claimed, err := readSmallObject(ctx, objects, transferMarker)
@@ -339,17 +351,14 @@ func checkDestination(ctx context.Context, objects archiveObjects, id uuid.UUID,
 		if strings.TrimSpace(claimed) != id.String() {
 			return errors.New("the transfer destination belongs to another archive transfer; choose an empty destination")
 		}
-		activated, err := readSmallObject(ctx, objects, activationMarker)
+		_, err := objects.Inspect(ctx, activationMarker)
 		if errors.Is(err, objectstore.ErrNotFound) {
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("read the transfer destination's activation marker: %w", err)
 		}
-		if token == nil || strings.TrimSpace(activated) != token.String() {
-			return errors.New("this transfer was activated in the destination by a database that may now use it; this database may be a restored copy, so transfer it to an empty destination")
-		}
-		return nil
+		return errors.New("this transfer already activated the destination, and a database may now use it; this database may be a restored copy, or its switch failed after activation, so transfer it to an empty destination")
 	}
 	if !errors.Is(err, objectstore.ErrNotFound) {
 		return fmt.Errorf("read the transfer destination's marker: %w", err)
@@ -364,30 +373,24 @@ func checkDestination(ctx context.Context, objects archiveObjects, id uuid.UUID,
 	return nil
 }
 
-// fenceDestination marks the destination as activated before the cutover
-// commits. It first commits the transfer's activation token, then publishes
-// the activation marker holding it. A database restored from a backup taken
-// before the token committed cannot resume this transfer into the
-// destination, even if this process stops before or after the cutover. This
-// process can, because its row holds the token. Publication never replaces a
-// key, so another token in the marker fails the cutover.
-func (e *Engine) fenceDestination(ctx context.Context, owner *maintenanceOwner, run transferRun, objects archiveObjects) error {
+// fenceDestination publishes the destination's activation marker with a
+// fresh token before the cutover, which commits the same token. A database
+// restored from any backup taken before that commit holds no token, so it
+// cannot resume this transfer into the destination. Publication never
+// replaces a key, so a second activation of the destination fails.
+func fenceDestination(ctx context.Context, objects archiveObjects) (uuid.UUID, error) {
 	ctx, cancel := context.WithTimeout(ctx, remoteCheckTimeout)
 	defer cancel()
-	var token uuid.UUID
-	if err := owner.conn.QueryRow(ctx, `UPDATE archive_transfer SET activation_token=coalesce(activation_token,$2)
-WHERE id=$1 AND cutover_at IS NULL RETURNING activation_token`, run.id, uuid.New()).Scan(&token); err != nil {
-		return fmt.Errorf("record the transfer's activation token: %w", err)
-	}
+	token := uuid.New()
 	data := []byte(token.String() + "\n")
 	_, err := objects.Publish(ctx, activationMarker, bytes.NewReader(data), int64(len(data)), sha256.Sum256(data))
 	if errors.Is(err, objectstore.ErrExists) {
-		return errors.New("another database activated this transfer in the destination; transfer this database to an empty destination")
+		return uuid.UUID{}, errors.New("the transfer destination was already activated; transfer this database to an empty destination")
 	}
 	if err != nil {
-		return fmt.Errorf("record the transfer's activation in the destination: %w", err)
+		return uuid.UUID{}, fmt.Errorf("record the transfer's activation in the destination: %w", err)
 	}
-	return nil
+	return token, nil
 }
 
 // claimDestination publishes the transfer marker, then the dataset marker.
@@ -542,7 +545,7 @@ func hashObject(ctx context.Context, store archiveObjects, meta objectstore.Meta
 // cutOver records the destination receipts, moves the lookup directory, and
 // switches the active binding in one transaction. When the commit's outcome is
 // unknown, it reads the transfer row to resolve it.
-func (e *Engine) cutOver(ctx context.Context, owner *maintenanceOwner, run transferRun) error {
+func (e *Engine) cutOver(ctx context.Context, owner *maintenanceOwner, run transferRun, token uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, e.unitTimeout)
 	defer cancel()
 	tx, err := owner.begin(ctx)
@@ -577,7 +580,7 @@ SELECT count(*) FROM referenced r WHERE NOT EXISTS (SELECT 1 FROM archive_transf
 		{`UPDATE archive_lookup_segment SET storage_id=$2 WHERE storage_id=$1`, []any{run.source, run.destination}},
 		{`UPDATE archive_storage SET active=false WHERE id=$1`, []any{run.source}},
 		{`UPDATE archive_storage SET active=true,claimed_at=coalesce(claimed_at,clock_timestamp()) WHERE id=$1`, []any{run.destination}},
-		{`UPDATE archive_transfer SET cutover_at=clock_timestamp() WHERE id=$1`, []any{run.id}},
+		{`UPDATE archive_transfer SET cutover_at=clock_timestamp(),activation_token=$2 WHERE id=$1`, []any{run.id, token}},
 	} {
 		if _, err := tx.Exec(ctx, statement.sql, statement.args...); err != nil {
 			return fmt.Errorf("switch the archive storage binding: %w", err)

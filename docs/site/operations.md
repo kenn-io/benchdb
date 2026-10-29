@@ -461,10 +461,11 @@ run verified is still at the destination, and copies only the rest. If the
 command failed without saying whether the switch happened, run it again with
 the same settings: it reads the outcome from the database. Starting a transfer
 to another destination abandons the unfinished one; its partial copy stays in
-the old destination for you to remove. A database restored from a backup taken
-during a transfer cannot resume it into a destination that holds the
-`activated` marker, because the original deployment uses that destination;
-transfer the restored database to an empty destination instead. Like a
+the old destination for you to remove. Once the destination holds the
+`activated` marker, no unfinished transfer can resume into it, because a
+database restored from a backup taken during the transfer would look the same
+as the original. If the switch fails after that point, or a restored database
+names that destination, transfer to an empty destination instead. Like a
 maintenance cycle, the command first closes upload cycles that a crashed
 process left open. It fails while any process owns archive maintenance. It
 refuses a destination that holds other objects, including another copy of this
