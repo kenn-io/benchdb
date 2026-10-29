@@ -107,7 +107,7 @@ func TestRunReadOnlyDatabaseSettings(t *testing.T) {
 	readOnly, err := pgxpool.New(ctx, databaseURL.String())
 	require.NoError(t, err)
 	t.Cleanup(readOnly.Close)
-	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, ReadTimeout: 250 * time.Millisecond, Readers: 1}) //nolint:kennlint // deadlinetest: expected expiry must beat the 5s statement timeout and leave reads usable
+	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, ReadTimeout: 250 * time.Millisecond, Readers: 1}) //nolint:kennlint // deadlinetest: the slow query must expire before the 5s statement timeout, and a normal read must work after cancellation
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, analytical.Close()) })
 	// DuckDB's PostgreSQL connections keep read-only mode, while the archive
