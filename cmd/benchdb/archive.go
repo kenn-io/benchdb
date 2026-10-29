@@ -223,7 +223,7 @@ func newAdminArchiveTransferCommand(stdout io.Writer) *cobra.Command {
 			})
 		},
 	})
-	cmd.Flags().StringVar(&destination.ArchiveURL, "destination", "", "destination archive URL: file:///path, s3://bucket/prefix, or gs://bucket/prefix")
+	cmd.Flags().StringVar(&destination.ArchiveURL, "destination", "", "destination archive URL: s3://bucket/prefix or gs://bucket/prefix")
 	cmd.Flags().StringVar(&destination.S3Endpoint, "destination-s3-endpoint", "", "S3-compatible endpoint origin for an s3:// destination")
 	cmd.Flags().StringVar(&destination.S3Region, "destination-s3-region", "", "region for an s3:// destination (default us-east-1)")
 	cmd.Flags().StringVar(&destination.S3URLStyle, "destination-s3-url-style", "", "path or vhost addressing for an s3:// destination")

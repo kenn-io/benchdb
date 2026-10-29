@@ -426,8 +426,9 @@ objects while it runs.
 
 `benchdb admin archive transfer` copies a stopped deployment's archive to new
 storage, such as from the local volume to S3, and switches the database to it.
-It is not a live migration. To move a local archive to another directory, stop
-BenchDB and copy the directory instead.
+It is not a live migration. The destination must be an `s3://` or `gs://` URL.
+To move a local archive to another directory, stop BenchDB and copy the
+directory instead.
 
 1. Stop the server, scheduled `admin` jobs, and every result publisher.
 2. Take a recovery backup of PostgreSQL and the current archive from the same
@@ -448,7 +449,8 @@ BenchDB and copy the directory instead.
     marker that names this transfer, then copies every fact file and catalog
     that the database references, keeps their keys, and verifies each copy's
     SHA-256. When every copy is verified, one database transaction switches
-    the archive binding to the destination.
+    the archive binding to the destination, and the command then writes an
+    `activated` marker there.
 5. Set `BENCHDB_ARCHIVE_URL` and its provider settings to the destination,
    start the server, and run `benchdb admin archive audit`. Open the results
    and history pages, and check that the next maintenance cycle succeeds.
@@ -457,13 +459,16 @@ If the transfer stops, for example on a network failure, run the same command
 again. It resumes the unfinished transfer. It checks that each copy an earlier
 run verified is still at the destination, and copies only the rest. If the
 command failed without saying whether the switch happened, run it again with
-the same settings: it reads the outcome from the database. While a transfer is
-unfinished, a transfer to another destination is refused once the first has
-copied anything; one that copied nothing is replaced. Like a maintenance
-cycle, the command first closes upload cycles that a crashed process left
-open. It fails while any process owns archive maintenance. It refuses a destination that holds other
-objects, including another copy of this archive, such as the prefix that a
-restored database came from.
+the same settings: it reads the outcome from the database. Starting a transfer
+to another destination abandons the unfinished one; its partial copy stays in
+the old destination for you to remove. A database restored from a backup taken
+during a transfer cannot resume it into a destination that holds the
+`activated` marker, because the original deployment uses that destination;
+transfer the restored database to an empty destination instead. Like a
+maintenance cycle, the command first closes upload cycles that a crashed
+process left open. It fails while any process owns archive maintenance. It
+refuses a destination that holds other objects, including another copy of this
+archive, such as the prefix that a restored database came from.
 
 The transfer never deletes the source archive. Backups of the database taken
 before the switch name the source and still need it. Keep the source until no

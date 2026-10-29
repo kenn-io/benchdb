@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
@@ -131,7 +130,7 @@ func TestTransferLostCutoverResponse(t *testing.T) {
 	assert.Equal(t, expectedBinding, bindingAfterResolvedCommit)
 	assert.Equal(t, TransferResult{ID: first.ID, CutOver: true}, rerun)
 	for _, key := range f.gateway.gets(mark, "", false) {
-		assert.Equal(t, transferMarker, key, "resolution reads only the transfer marker")
+		assert.Contains(t, []string{transferMarker, activationMarker}, key, "resolution reads only the markers")
 	}
 
 	// The source engine's storage moved, so it no longer publishes.
@@ -211,19 +210,6 @@ func TestTransferRecopiesMissingVerifiedObjects(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestTransferRefusesLocalDestinationForLocalArchive refuses a local-to-local
-// transfer: local bindings record no path, so the two directories would be
-// one binding.
-func TestTransferRefusesLocalDestinationForLocalArchive(t *testing.T) {
-	f := newTransferFixture(t)
-	other := t.TempDir()
-	_, err := f.source.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + other})
-	require.ErrorContains(t, err, "cannot move a local archive to another local directory")
-	entries, err := os.ReadDir(other)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
-}
-
 // TestRestoredManifestReadsRetainedKeys restores a database snapshot taken
 // before the cutover. The snapshot still names the source binding, and the
 // transfer left the source's objects in place, so the restored database
@@ -246,42 +232,6 @@ func TestRestoredManifestReadsRetainedKeys(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestTransferDistinguishesLocalDestinations moves an archive to S3 and then
-// to a local directory. Local bindings record no path, so only the transfer
-// marker tells that directory from another: a second local directory neither
-// reports the earlier transfer's success nor receives a local-to-local move.
-func TestTransferDistinguishesLocalDestinations(t *testing.T) {
-	f := newTransferFixture(t)
-	_, err := f.source.TransferArchive(f.ctx, f.destination(t))
-	require.NoError(t, err)
-	remote := f.remote.open(t, f.ctx, f.destination(t))
-	first, second := t.TempDir(), t.TempDir()
-	back, err := remote.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + first})
-	require.NoError(t, err)
-	require.True(t, back.CutOver)
-
-	resolved, completed, err := CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + first})
-	require.NoError(t, err)
-	assert.True(t, completed)
-	assert.Equal(t, back.ID, resolved.ID)
-	_, completed, err = CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + second})
-	require.NoError(t, err)
-	assert.False(t, completed, "another directory did not receive the transfer")
-
-	local := openLookupArchiveIn(t, f.ctx, f.remote.pool, first)
-	_, err = local.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + second})
-	require.ErrorContains(t, err, "cannot move a local archive to another local directory")
-	entries, err := os.ReadDir(second)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
-
-	// A directory claimed by a different transfer does not match either.
-	require.NoError(t, os.WriteFile(filepath.Join(second, transferMarker), []byte(uuid.New().String()+"\n"), 0o600))
-	_, completed, err = CompletedTransfer(f.ctx, f.remote.pool, Config{ArchiveURL: "file://" + second})
-	require.NoError(t, err)
-	assert.False(t, completed)
-}
-
 // TestTransferAbandonsEndedCycles transfers an archive whose last
 // maintenance unit rolled back and left its cycle running, as a crashed
 // process does. Ownership and the publication lock prove that the cycle has
@@ -297,4 +247,53 @@ func TestTransferAbandonsEndedCycles(t *testing.T) {
 	var states []string
 	require.NoError(t, f.remote.pool.QueryRow(f.ctx, `SELECT array_agg(state) FROM archive_cycle WHERE owner='a crashed process'`).Scan(&states))
 	assert.Equal(t, []string{"abandoned"}, states)
+}
+
+// TestTransferRefusesLocalDestination refuses a local destination directory:
+// local bindings record no path, so the database could not tell one local
+// destination from another.
+func TestTransferRefusesLocalDestination(t *testing.T) {
+	f := newTransferFixture(t)
+	other := t.TempDir()
+	_, err := f.source.TransferArchive(f.ctx, Config{ArchiveURL: "file://" + other})
+	require.ErrorContains(t, err, "transfers to a local directory are not supported")
+	entries, err := os.ReadDir(other)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+// TestRestoredTransferCannotResumeIntoActivatedDestination restores a
+// database snapshot taken during an unfinished transfer. The original
+// deployment then finishes the transfer and uses the destination. The
+// restored copy still holds the unfinished transfer, but it must not resume
+// into that destination, whose newer objects its cleanup would delete. It can
+// still transfer to an empty destination.
+func TestRestoredTransferCannotResumeIntoActivatedDestination(t *testing.T) {
+	f := newTransferFixture(t)
+	destination := f.destination(t)
+	f.gateway.failRequests(func(method, key string) bool {
+		return method == http.MethodPut && strings.HasPrefix(key, "data/")
+	})
+	_, err := f.source.TransferArchive(f.ctx, destination)
+	require.Error(t, err)
+	require.NoError(t, f.source.Close())
+	snapshot := snapshotDatabase(t, f.ctx, f.remote.pool, "mid_transfer")
+
+	f.gateway.failRequests(nil)
+	original := openLookupArchiveIn(t, f.ctx, f.remote.pool, f.dir)
+	finished, err := original.TransferArchive(f.ctx, destination)
+	require.NoError(t, err)
+	require.True(t, finished.CutOver)
+	require.NoError(t, original.Close())
+	before := f.remote.keys(t, f.ctx, "moved")
+
+	restored := openLookupArchiveIn(t, f.ctx, snapshot, f.dir)
+	_, err = restored.TransferArchive(f.ctx, destination)
+	require.ErrorContains(t, err, "may be a restored copy")
+	assert.Equal(t, before, f.remote.keys(t, f.ctx, "moved"), "the original deployment's destination is untouched")
+
+	elsewhere, err := restored.TransferArchive(f.ctx, f.remote.gatewayConfig(f.gateway, "restored", t))
+	require.NoError(t, err)
+	assert.True(t, elsewhere.CutOver)
+	assert.NotEqual(t, finished.ID, elsewhere.ID)
 }

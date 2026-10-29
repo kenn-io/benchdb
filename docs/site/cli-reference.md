@@ -362,7 +362,7 @@ benchdb admin archive transfer --destination s3://example-bucket/benchdb
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--destination` | none | Destination archive URL: `file:///path`, `s3://bucket/prefix`, or `gs://bucket/prefix`. Required. |
+| `--destination` | none | Destination archive URL: `s3://bucket/prefix` or `gs://bucket/prefix`. Required. |
 | `--destination-s3-endpoint` | none | S3-compatible endpoint origin for an `s3://` destination. |
 | `--destination-s3-region` | `us-east-1` | Region for an `s3://` destination. |
 | `--destination-s3-url-style` | `vhost` | `path` or `vhost` addressing for an `s3://` destination. |

@@ -18,7 +18,7 @@ import (
 	"go.kenn.io/benchdb/internal/dbtest"
 )
 
-const latestMigrationVersion = 21
+const latestMigrationVersion = 22
 
 func TestMigrateAddsSavedReportsToExistingDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewEmptyPool(t)

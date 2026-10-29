@@ -219,17 +219,25 @@ func TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance(t *testin
 	_, err = owner.Exec(ctx, `SELECT pg_advisory_lock($1)`, archiveOwnerLock)
 	require.NoError(t, err)
 	t.Cleanup(owner.Release)
-	destination := t.TempDir()
-
+	// Nothing listens at the endpoint: the ownership check comes before any
+	// request to the destination.
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"admin", "archive", "transfer", "--destination", "file://" + destination}, &stdout, &stderr)
+	code := run([]string{"admin", "archive", "transfer", "--destination", "s3://example-bucket/moved",
+		"--destination-s3-endpoint", "http://" + refusingLoopbackAddress(t), "--destination-s3-url-style", "path"}, &stdout, &stderr)
 
 	assert.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
 	assert.Contains(t, stderr.String(), "stop every BenchDB server")
-	entries, err := os.ReadDir(destination)
+}
+
+// refusingLoopbackAddress is a loopback address where nothing listens.
+func refusingLoopbackAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	assert.Empty(t, entries, "the refused transfer writes nothing")
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	return address
 }
 
 // TestAdminArchiveTransferRerunAfterCutover runs the command again after a

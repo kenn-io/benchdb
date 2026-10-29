@@ -44,6 +44,12 @@ func TestArchiveStateUpgrade(t *testing.T) {
 			if legacy {
 				assert.Equal(t, 42, total)
 			}
+			// Undo the later migration that depends on migration 14 first, as
+			// the migration runner would.
+			transferDown, err := os.ReadFile("migrations/000022_archive_transfer.down.sql")
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, string(transferDown))
+			require.NoError(t, err)
 			down, err := os.ReadFile("migrations/000014_remote_archive.down.sql")
 			require.NoError(t, err)
 			_, err = pool.Exec(ctx, string(down))
