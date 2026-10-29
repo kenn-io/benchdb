@@ -222,7 +222,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, info.Timestamp, "budget blown -> unknown commit")
-	assert.Less(t, time.Since(start), 2*time.Second, "Resolve must return before the delayed response")
+	assert.Less(t, time.Since(start), 250*time.Millisecond, "Resolve must return before the delayed response")
 }
 
 func TestGitHubProviderNoCommitYieldsNil(t *testing.T) {
