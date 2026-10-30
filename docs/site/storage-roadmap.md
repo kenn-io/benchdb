@@ -409,3 +409,58 @@ seconds. A commit timestamp change was immediately reflected in history;
 refreshing its catalogs took 0.35 seconds and rewrote no fact files. Restoring
 the commit and refreshing again preserved the original page and all 105,800,521
 results. Temporary edits and queued work were restored after the exercise.
+
+### Measuring archive reads
+
+`go run ./cmd/archive-perf` times archive reads through the same store calls
+the HTTP API uses. Run it against a disposable copy, never production. It
+connects read-only, refuses a database whose `archive_dataset` ID differs from
+`--expect-dataset`, and never migrates, exports, or writes. Archive and DuckDB
+settings come from the server's `BENCHDB_*` environment.
+
+1. Freeze the inputs once, so every variant measures the same keys:
+
+    ```bash
+    go run ./cmd/archive-perf inputs --database-url "$DATABASE_URL" \
+      --expect-dataset "$DATASET_ID" --runs 20 --output inputs.json
+    ```
+
+2. Time one scenario. One process serves every request, so caches fill as it
+   runs. With `--warmup 0`, only the first request starts on cold caches;
+   `first_ms` reports it separately. A warm-up pass measures warm caches:
+
+    ```bash
+    go run ./cmd/archive-perf run --database-url "$DATABASE_URL" \
+      --expect-dataset "$DATASET_ID" --inputs inputs.json --scenario history \
+      --variant catalog --concurrency 4 --samples 30 --warmup 20 --output history.json
+    ```
+
+Scenarios are `result`, `result-miss`, `run-results`, `run-verdict-subjects`,
+`history`, and `recent-runs`. The `catalog` variant requires complete lookup
+catalogs; `postgres` requires that nothing is archived yet. The output records
+p50, p95, and maximum latency of successful requests, counts errors and
+timeouts separately, and reports the peak number of database sessions.
+`answer_sha256` hashes each input's answer: two variants or storage backends
+return the same results only when their hashes match. NaN and infinite values
+hash as fixed strings. A run with any error or timeout, or with an input whose
+repeated reads returned different answers, reports no hash, so missing or
+inconsistent answers never compare as equal. Compare latency only between runs
+whose hashes match.
+
+Not built yet: a `naive` variant that reads every archived file, and request
+and byte counts for DuckDB's and Kit's HTTP traffic. Provider request logs,
+such as S3 server access logs, can supply those counts for a remote archive.
+
+### Remote request scope
+
+`TestRemoteScopedRequests` counts the requests an S3 archive serves in a local
+S3-compatible container. One result, one run, and one history each opened the
+same fact files after unrelated history grew tenfold, and no summary catalog.
+A read of an unknown result ID opened no fact file. Lookup downloads stayed
+within one partition: the result lookup grew from one to three segment
+downloads, and the run and history lookups stayed at one. A run summary query
+downloaded each run catalog once into the cache and did not touch series
+catalogs.
+
+Measurements of remote latency, export and compaction cost, and request counts
+on the large-history copy are still pending.

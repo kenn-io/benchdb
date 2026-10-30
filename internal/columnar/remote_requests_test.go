@@ -177,10 +177,11 @@ func unrelatedFixtures(months int) []lookupFixture {
 }
 
 // TestRemoteScopedRequests counts the archive requests that remote reads
-// send. A point read opens its own fact file and no summary catalog, however
-// much unrelated history exists; an unknown ID opens no fact file. Summary
-// catalogs are downloaded once into the cache and read from it, and a full
-// cache makes DuckDB read them from the bucket instead.
+// send. A read of one result, run, or history opens the same fact files and
+// no summary catalog, however much unrelated history exists, and its lookup
+// downloads stay within one partition's segments; an unknown ID opens no fact
+// file. Summary catalogs are downloaded once into the cache and read from it,
+// and a full cache makes DuckDB read them from the bucket instead.
 func TestRemoteScopedRequests(t *testing.T) {
 	r, gateway, ctx := newGatewayArchive(t, "scoped")
 	fixtures := legacyFixtures(2, 6)
@@ -192,22 +193,46 @@ func TestRemoteScopedRequests(t *testing.T) {
 
 	// Each measurement uses a fresh engine: DuckDB caches remote file data
 	// per handle, which would hide a repeated read's requests.
-	pointRead := func(id string) (ids, factGETs, summaryGETs []string) {
+	type scopedRead struct {
+		ids, factGETs, summaryGETs, lookupGETs []string
+	}
+	read := func(scope queryScope, where string) scopedRead {
 		e := r.open(t, ctx, r.gatewayConfig(gateway, "scoped", t))
 		defer func() { require.NoError(t, e.Close()) }()
 		mark := gateway.mark()
-		ids, err := scopedIDs(ctx, e, queryScope{ResultIDs: []string{id}}, "id="+literal(id))
+		var got scopedRead
+		var err error
+		got.ids, err = scopedIDs(ctx, e, scope, where)
 		require.NoError(t, err)
 		for _, kind := range []string{"catalog/runs-", "catalog/series-"} {
-			summaryGETs = append(summaryGETs, gateway.gets(mark, kind, true)...)
-			summaryGETs = append(summaryGETs, gateway.gets(mark, kind, false)...)
+			got.summaryGETs = append(got.summaryGETs, gateway.gets(mark, kind, true)...)
+			got.summaryGETs = append(got.summaryGETs, gateway.gets(mark, kind, false)...)
 		}
-		return ids, gateway.gets(mark, "data/", true), summaryGETs
+		got.factGETs = gateway.gets(mark, "data/", true)
+		got.lookupGETs = append(gateway.gets(mark, "catalog/lookup-", false), gateway.gets(mark, "catalog/lookup-", true)...)
+		return got
 	}
-	ids, factGETsBefore, summaryGETs := pointRead(fixtures[0].id)
+	pointRead := func(id string) (ids, factGETs, summaryGETs []string) {
+		got := read(queryScope{ResultIDs: []string{id}}, "id="+literal(id))
+		return got.ids, got.factGETs, got.summaryGETs
+	}
+	targeted := map[string]struct {
+		scope queryScope
+		where string
+	}{
+		"result":  {queryScope{ResultIDs: []string{fixtures[0].id}}, "id=" + literal(fixtures[0].id)},
+		"run":     {queryScope{RunIDs: []string{fixtures[1].run}}, "run_id=" + literal(fixtures[1].run)},
+		"history": {queryScope{Fingerprints: []string{fixtures[2].fingerprint}}, "history_fingerprint=" + literal(fixtures[2].fingerprint)},
+	}
+	before := map[string]scopedRead{}
+	for name, query := range targeted {
+		before[name] = read(query.scope, query.where)
+		require.NotEmpty(t, before[name].ids, name)
+		require.NotEmpty(t, before[name].factGETs, name)
+		assert.Empty(t, before[name].summaryGETs, "a %s read opens no summary catalog", name)
+	}
+	ids, factGETsBefore, _ := pointRead(fixtures[0].id)
 	assert.Equal(t, []string{fixtures[0].id}, ids)
-	require.NotEmpty(t, factGETsBefore)
-	assert.Empty(t, summaryGETs, "a point read opens no summary catalog")
 
 	unrelatedMonths := 10 * files
 	insertLookupResults(t, ctx, r.pool, unrelatedFixtures(unrelatedMonths)...)
@@ -220,6 +245,18 @@ func TestRemoteScopedRequests(t *testing.T) {
 	assert.Equal(t, []string{fixtures[0].id}, ids)
 	assert.Equal(t, factGETsBefore, factGETsAfterUnrelatedHistory)
 	assert.Empty(t, summaryGETs)
+	for name, query := range targeted {
+		after := read(query.scope, query.where)
+		assert.Equal(t, before[name].ids, after.ids, name)
+		// DuckDB fetches a run's files concurrently, in any order.
+		assert.ElementsMatch(t, before[name].factGETs, after.factGETs, "a %s read opens the same fact files", name)
+		assert.Empty(t, after.summaryGETs, name)
+		// A key's lookup reads one partition, which has at most
+		// lookupSegmentCap segments however the directory grows.
+		assert.LessOrEqual(t, len(after.lookupGETs), lookupSegmentCap, name)
+		t.Logf("%s read: %d fact GETs; lookup downloads %d before and %d after tenfold unrelated history",
+			name, len(after.factGETs), len(before[name].lookupGETs), len(after.lookupGETs))
+	}
 	ids, factGETsForUnknownID, _ := pointRead("unknown-result")
 	assert.Empty(t, ids)
 	assert.Zero(t, factGETsForUnknownID)

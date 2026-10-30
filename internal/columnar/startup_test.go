@@ -186,7 +186,7 @@ func TestConcurrentFirstClaimsOfOneArchiveRoot(t *testing.T) {
 		errs := make([]error, len(engines))
 		var wg sync.WaitGroup
 		for i, e := range engines {
-			wg.Go(func() { errs[i] = e.claimDirectory("dataset-id", 0) })
+			wg.Go(func() { errs[i] = e.claimDirectory("dataset-id", 0, false) })
 		}
 		wg.Wait()
 		for _, err := range errs {

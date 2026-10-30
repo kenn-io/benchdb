@@ -1393,3 +1393,50 @@ func TestRemoteStorageStatus(t *testing.T) {
 	assert.EqualValues(t, defaultCatalogCacheBytes, cloudStatus.CacheBudgetBytes)
 	assert.False(t, cloudStatus.ReclamationPaused)
 }
+
+// readOnlyPool opens pool's database with read-only sessions, as a read-only
+// process connects.
+func readOnlyPool(t *testing.T, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(pool.Config().ConnString())
+	require.NoError(t, err)
+	query := u.Query()
+	query.Set("options", "-c default_transaction_read_only=on")
+	u.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+	readOnly, err := pgxpool.New(context.Background(), u.String())
+	require.NoError(t, err)
+	t.Cleanup(readOnly.Close)
+	return readOnly
+}
+
+// TestReadOnlyStartupCreatesNothing opens archives from read-only sessions.
+// A binding that no writable process has claimed is refused before startup
+// publishes a marker, writes a dataset file, or moves the binding. A claimed
+// binding opens normally.
+func TestReadOnlyStartupCreatesNothing(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	readOnly := readOnlyPool(t, r.pool)
+
+	remote := r.config("readonly", t.TempDir())
+	_, err := startConfined(t, ctx, readOnly, remote)
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.Empty(t, r.keys(t, ctx, "readonly"), "no dataset marker was published")
+	local := t.TempDir()
+	_, err = startConfined(t, ctx, readOnly, Config{Dir: local, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.NoFileExists(t, filepath.Join(local, datasetMarker))
+	// A writable coordination URL does not make a read-only process writable.
+	writableCoordination := remote
+	writableCoordination.CoordinationDBURL = r.pool.Config().ConnString()
+	_, err = startConfined(t, ctx, readOnly, writableCoordination)
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.Empty(t, r.keys(t, ctx, "readonly"), "no dataset marker was published")
+	backend, _, claimed := activeBinding(t, ctx, r.pool)
+	assert.Equal(t, "file", backend)
+	assert.False(t, claimed)
+
+	writer := r.open(t, ctx, remote)
+	require.NoError(t, writer.Close())
+	_, err = startConfined(t, ctx, readOnly, remote)
+	require.NoError(t, err, "a claimed binding opens read-only")
+}
