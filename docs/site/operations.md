@@ -19,7 +19,7 @@ Boolean settings turn on only for the exact string `true`.
 | --- | --- | --- |
 | `BENCHDB_DB_URL` | required | Postgres connection URL. |
 | `BENCHDB_DATA_DIR` | required | Local working directory for staging, lookup builds, and bounded spill. Without `BENCHDB_ARCHIVE_URL` it also holds the archived results, so it must be persistent. The image uses `/var/lib/benchdb`. |
-| `BENCHDB_ARCHIVE_URL` | unset (`BENCHDB_DATA_DIR`) | Archive root: `file:///path`, `s3://bucket/prefix`, or `gs://bucket/prefix`. A new root must be empty. The database records the root it uses and refuses a different one at startup; see [persistent result storage](#persistent-result-storage). S3 and GCS archives are in development and not yet supported for production: provider contract tests have not run. |
+| `BENCHDB_ARCHIVE_URL` | unset (`BENCHDB_DATA_DIR`) | Archive root: `file:///path`, `s3://bucket/prefix`, or `gs://bucket/prefix`. A new root must be empty. The database records the root it uses and refuses a different one at startup; see [persistent result storage](#persistent-result-storage). S3 and GCS archives are in development and not yet supported for production: live tests against real S3 and GCS buckets run daily, but cloud cost and latency measurements remain. |
 | `BENCHDB_ARCHIVE_S3_ENDPOINT` | unset (AWS) | Origin of an S3-compatible service, such as `https://storage.example:9000`. Only for `s3://` archives. Credentials come from the AWS credential chain: environment, shared files, web identity, container, or instance credentials. |
 | `BENCHDB_ARCHIVE_S3_REGION` | `us-east-1` | S3 region. Only for `s3://` archives. |
 | `BENCHDB_ARCHIVE_S3_URL_STYLE` | `vhost` | `vhost` or `path` addressing. Only for `s3://` archives. |
