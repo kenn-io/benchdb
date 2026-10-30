@@ -140,7 +140,8 @@
   <main class="page run-page"><p>Loading…</p></main>
 {:else if vm.rows.length === 0}
   <main class="page run-page">
-    <PageHeader title={`Run ${runId}`}>
+    <PageHeader>
+      {#snippet title()}Run <span class="mono">{runId}</span>{/snippet}
       {#snippet before()}<p class="eyebrow">Run Detail</p>{/snippet}
     </PageHeader>
     <section class="panel empty-panel">
@@ -155,44 +156,44 @@
   {@const showBatch = vm.rows.some((row) => row.batchId !== null)}
   {@const showErrors = vm.loadedErrors > 0}
   <main class="page run-page">
-    <div class="page-intro">
-      <PageHeader title={run.primaryLabel}>
-        {#snippet before()}<p class="eyebrow">{run.repositoryLabel}</p>{/snippet}
-        {#snippet actions()}
-          <div class="page-meta">
-            {#if run.runReason}<span class="wrap-anywhere">{run.runReason}</span>{/if}
-            {#if run.commitHref && run.shortCommit}
-              <a
-                class="mono wrap-anywhere"
-                href={run.commitHref}
-                aria-label={`Open commit ${run.shortCommit} on GitHub`}
-                target="_blank"
-                rel="noreferrer"
-              >{run.shortCommit}</a>
-            {:else if run.shortCommit}
-              <span class="mono wrap-anywhere">{run.shortCommit}</span>
-            {/if}
-            {#if run.ciReportHref}
-              <a
-                href={appURL(run.ciReportHref)}
-                aria-label={`Open CI report for run ${run.runId}`}
-                onclick={goCIReport}
-              >CI report</a>
-            {/if}
-          </div>
-        {/snippet}
-      </PageHeader>
-      <p class="page-subtitle run-subtitle">
-        {#if vm.authorAvatar}
-          <img class="author-avatar" src={vm.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
-        {/if}
-        {#if vm.authorLabel !== "unknown author"}
-          <span>{vm.authorLabel}{vm.authorLogin ? ` @${vm.authorLogin}` : ""}</span>
-        {/if}
-        <span class="mono" title={vm.runId}>{vm.secondaryLabel}</span>
-        <span>{formatTime(vm.firstLoadedAt)}</span>
-      </p>
-    </div>
+    <PageHeader title={run.primaryLabel}>
+      {#snippet before()}<p class="eyebrow">{run.repositoryLabel}</p>{/snippet}
+      {#snippet description()}
+        <span class="run-subtitle">
+          {#if run.authorAvatar}
+            <img class="author-avatar" src={run.authorAvatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
+          {/if}
+          {#if run.authorLabel !== "unknown author"}
+            <span>{run.authorLabel}{run.authorLogin ? ` @${run.authorLogin}` : ""}</span>
+          {/if}
+          <span class="mono" title={run.runId}>{run.secondaryLabel}</span>
+          <span>{formatTime(run.firstLoadedAt)}</span>
+        </span>
+      {/snippet}
+      {#snippet actions()}
+        <div class="page-meta">
+          {#if run.runReason}<span class="wrap-anywhere">{run.runReason}</span>{/if}
+          {#if run.commitHref && run.shortCommit}
+            <a
+              class="mono wrap-anywhere"
+              href={run.commitHref}
+              aria-label={`Open commit ${run.shortCommit} on GitHub`}
+              target="_blank"
+              rel="noreferrer"
+            >{run.shortCommit}</a>
+          {:else if run.shortCommit}
+            <span class="mono wrap-anywhere">{run.shortCommit}</span>
+          {/if}
+          {#if run.ciReportHref}
+            <a
+              href={appURL(run.ciReportHref)}
+              aria-label={`Open CI report for run ${run.runId}`}
+              onclick={goCIReport}
+            >CI report</a>
+          {/if}
+        </div>
+      {/snippet}
+    </PageHeader>
 
     {#if comparisonQuery}
       <CIReportView query={comparisonQuery} {baseUrl} />

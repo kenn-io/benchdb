@@ -402,34 +402,35 @@
   {@const trend = vm}
   <main class="page trend-page">
     <section class="trend-context panel" aria-label="Trend context">
-      <div class="page-intro">
-        <PageHeader title={trend.identity.benchmarkName}>
-          {#snippet before()}<p class="eyebrow" title={trend.identity.benchmarkId}>Benchmark trend</p>{/snippet}
-          {#snippet actions()}
-            <div class="live-status" class:warning={refreshError} aria-live="polite">
-              <span class="live-dot"></span>
-              <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
-              {#if latestArrival !== null}
-                <span class="arrival-detail">
-                  {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
-                  {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
-                </span>
-              {/if}
-              <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
-            </div>
-          {/snippet}
-        </PageHeader>
-        <div class="ident page-subtitle">
-          {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
-          <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
-          <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
-          {#if orientation(vm.identity.lessIsBetter) !== null}
-            <span>{orientation(vm.identity.lessIsBetter)}</span>
-          {/if}
-        </div>
-      </div>
+      <PageHeader>
+        {#snippet title()}<span title={trend.identity.benchmarkId}>{trend.identity.benchmarkName}</span>{/snippet}
+        {#snippet before()}<p class="eyebrow">Benchmark trend</p>{/snippet}
+        {#snippet description()}
+          <span class="ident">
+            {#if tagsText(trend.identity.caseTags) !== ""}<span>{tagsText(trend.identity.caseTags)}</span>{/if}
+            <span>{trend.tracks.length} {trend.tracks.length === 1 ? "machine" : "machines"}</span>
+            <span title={trend.identity.repository}>{trend.identity.repositoryLabel}</span>
+            {#if orientation(trend.identity.lessIsBetter) !== null}
+              <span>{orientation(trend.identity.lessIsBetter)}</span>
+            {/if}
+          </span>
+        {/snippet}
+        {#snippet actions()}
+          <div class="live-status" class:warning={refreshError} aria-live="polite">
+            <span class="live-dot"></span>
+            <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
+            {#if latestArrival !== null}
+              <span class="arrival-detail">
+                {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
+                {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
+              </span>
+            {/if}
+            <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        {/snippet}
+      </PageHeader>
       {#if !vm.unitConsistent}
         <div class="integrity" role="alert">
           data integrity: this series mixes units ({vm.units.map((unit) => unit ?? "unit not set").join(", ")}) — values are

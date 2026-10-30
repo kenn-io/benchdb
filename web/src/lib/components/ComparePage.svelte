@@ -488,11 +488,14 @@
        selected strip). -->
   {@const m = vm}
   <main class="page compare-page">
-    <PageHeader
-      title="Compare"
-      description={m.baseline.paramsText === "" ? m.baseline.name : `${m.baseline.name} · ${m.baseline.paramsText}`}
-    >
+    <PageHeader title="Compare">
       {#snippet before()}<p class="eyebrow">Compare</p>{/snippet}
+      {#snippet description()}
+        <span class="compare-subtitle">
+          <span>{m.baseline.name}</span>
+          {#if m.baseline.paramsText !== ""}<span>{m.baseline.paramsText}</span>{/if}
+        </span>
+      {/snippet}
       {#snippet actions()}
         <div class="header-actions">
           <div class="page-meta">
@@ -845,6 +848,11 @@
   }
 
   /* loaded comparison view */
+  .compare-subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .header-actions {
     display: flex;
     flex-direction: column;

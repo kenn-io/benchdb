@@ -160,7 +160,9 @@ describe("TrendPage", () => {
       "title",
       "https://github.com/benchdb/demo",
     );
-    expect(screen.getByText("Benchmark trend")).toHaveAttribute("title", "b1");
+    expect(within(screen.getByRole("heading", { name: "demo-benchmark" })).getByTitle("b1")).toHaveTextContent(
+      "demo-benchmark",
+    );
     expect(screen.getByText("1 machine")).toBeInTheDocument();
     expect(screen.getByText("Selected machine environment").closest("details")).not.toHaveAttribute(
       "open",

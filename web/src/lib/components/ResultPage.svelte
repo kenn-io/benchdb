@@ -227,33 +227,33 @@
   {@const result = vm}
   {@const seriesHref = `/benchmarks/${vm.benchmarkId}`}
   <main class="page result-page">
-    <div class="page-intro">
-      <PageHeader title={result.name}>
-        {#snippet before()}<p class="eyebrow">Benchmark result</p>{/snippet}
-        {#snippet actions()}
-          <div class="action-row">
-            {#if historyAvailable}
-              <a
-                class="button-pill"
-                href={appURL(seriesHref)}
-                onclick={(e) => go(e, seriesHref)}
-              >Explore full series</a>
-            {/if}
-            <a class="button-pill" href={appURL(result.historyExportHref)} download={`benchdb-history-${result.id}.json`}>
-              Export history JSON
-            </a>
-          </div>
-        {/snippet}
-      </PageHeader>
-      <p class="page-subtitle result-ident">
-        <span>{vm.hardwareName}</span>
-        {#if vm.commitSha !== null}<span class="mono" title={vm.commitSha}>{vm.shortCommit}</span>{/if}
-        <span>{vm.resultDateText}</span>
-      </p>
-      {#if vm.paramsText}
-        <p class="page-subtitle">{vm.paramsText}</p>
-      {/if}
-    </div>
+    <PageHeader title={result.name}>
+      {#snippet before()}<p class="eyebrow">Benchmark result</p>{/snippet}
+      {#snippet description()}
+        <span class="result-ident">
+          <span>{result.hardwareName}</span>
+          {#if result.commitSha !== null}<span class="mono" title={result.commitSha}>{result.shortCommit}</span>{/if}
+          <span>{result.resultDateText}</span>
+        </span>
+        {#if result.paramsText}
+          <span class="result-params">{result.paramsText}</span>
+        {/if}
+      {/snippet}
+      {#snippet actions()}
+        <div class="action-row">
+          {#if historyAvailable}
+            <a
+              class="button-pill"
+              href={appURL(seriesHref)}
+              onclick={(e) => go(e, seriesHref)}
+            >Explore full series</a>
+          {/if}
+          <a class="button-pill" href={appURL(result.historyExportHref)} download={`benchdb-history-${result.id}.json`}>
+            Export history JSON
+          </a>
+        </div>
+      {/snippet}
+    </PageHeader>
 
     <section class="panel result-section measurement-section" aria-label="Result measurement">
       <div class="measurement-primary">
@@ -472,6 +472,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0 6px;
+  }
+  .result-params {
+    display: block;
+    margin-top: 5px;
   }
   .result-ident span + span::before {
     content: "·";

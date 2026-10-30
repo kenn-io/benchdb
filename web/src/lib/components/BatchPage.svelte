@@ -140,7 +140,8 @@
   <main class="page batch-page"><p>Loading…</p></main>
 {:else if vm.rows.length === 0}
   <main class="page batch-page">
-    <PageHeader title={`Batch ${batchId}`}>
+    <PageHeader>
+      {#snippet title()}Batch <span class="mono">{batchId}</span>{/snippet}
       {#snippet before()}<p class="eyebrow">Batch Detail</p>{/snippet}
     </PageHeader>
     <section class="panel empty-panel">
@@ -154,9 +155,9 @@
   {@const batch = vm}
   <main class="page batch-page">
     <PageHeader
-      title={`Batch ${batch.batchId}`}
       description="Inspect one batch_id across runs, then jump to run detail, CI reports, result detail, or series trends."
     >
+      {#snippet title()}Batch <span class="mono">{batch.batchId}</span>{/snippet}
       {#snippet before()}<p class="eyebrow">Batch Detail</p>{/snippet}
       {#snippet actions()}
         <div class="page-meta">
