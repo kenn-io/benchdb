@@ -248,7 +248,8 @@ func TestRemoteScopedRequests(t *testing.T) {
 	for name, query := range targeted {
 		after := read(query.scope, query.where)
 		assert.Equal(t, before[name].ids, after.ids, name)
-		assert.Equal(t, before[name].factGETs, after.factGETs, "a %s read opens the same fact files", name)
+		// DuckDB fetches a run's files concurrently, in any order.
+		assert.ElementsMatch(t, before[name].factGETs, after.factGETs, "a %s read opens the same fact files", name)
 		assert.Empty(t, after.summaryGETs, name)
 		// A key's lookup reads one partition, which has at most
 		// lookupSegmentCap segments however the directory grows.
