@@ -69,8 +69,9 @@ var scenarios = map[string]scenario{
 
 // measurement is one run's output. Latencies cover successful requests only:
 // an error or timeout is counted, never timed as a fast answer. AnswerSHA256 is
-// empty unless every request returned an answer it could hash, so runs with
-// missing answers never compare as equal. FirstMillis is the first request's
+// empty unless every request returned an answer it could hash and each key
+// returned one answer, so runs with missing or inconsistent answers never
+// compare as equal. FirstMillis is the first request's
 // latency: with no warm-up it starts on cold caches, while later requests
 // reuse what it cached.
 type measurement struct {
@@ -267,7 +268,8 @@ func summarize(outcomes []outcome, result *measurement) {
 	result.P50Millis = percentile(latencies, 0.50)
 	result.P95Millis = percentile(latencies, 0.95)
 	result.MaxMillis = percentile(latencies, 1)
-	if result.Errors > 0 || result.Timeouts > 0 {
+	// Missing or inconsistent answers have no single hash to compare.
+	if result.Errors > 0 || result.Timeouts > 0 || result.Inconsistent > 0 {
 		return
 	}
 	lines := make([]string, 0, len(answers))

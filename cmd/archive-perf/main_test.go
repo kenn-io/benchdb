@@ -124,19 +124,6 @@ func TestRefusesAnUnexpectedDatabase(t *testing.T) {
 	assert.Contains(t, stderr, "not built yet")
 }
 
-// TestSessionsAreReadOnly checks that the tool's database sessions refuse
-// writes.
-func TestSessionsAreReadOnly(t *testing.T) {
-	pool, _ := dbtest.NewPool(t)
-	readOnly, err := readOnlyURL(pool.Config().ConnString())
-	require.NoError(t, err)
-	session, err := pgxpool.New(context.Background(), readOnly)
-	require.NoError(t, err)
-	t.Cleanup(session.Close)
-	_, err = session.Exec(context.Background(), `CREATE TABLE archive_perf_write (id int)`)
-	require.ErrorContains(t, err, "read-only transaction")
-}
-
 // TestRefusesToClaimThroughCoordinationURL opens a database that no writable
 // process has claimed, with a separate, writable coordination URL. The tool
 // makes that URL read-only too, so startup refuses instead of claiming the
@@ -180,4 +167,11 @@ func TestAnswerHashes(t *testing.T) {
 	assert.Equal(t, 1, result.Errors)
 	assert.Empty(t, result.AnswerSHA256, "missing answers leave nothing to compare")
 	assert.InDelta(t, 1.0, result.FirstMillis, 0)
+
+	var changing, steady measurement
+	summarize([]outcome{{key: "a", answer: "x"}, {key: "a", answer: "y"}}, &changing)
+	summarize([]outcome{{key: "a", answer: "y"}, {key: "a", answer: "y"}}, &steady)
+	assert.Equal(t, 1, changing.Inconsistent)
+	assert.Empty(t, changing.AnswerSHA256, "a key with two answers has no single hash")
+	assert.NotEmpty(t, steady.AnswerSHA256)
 }

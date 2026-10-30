@@ -442,8 +442,9 @@ p50, p95, and maximum latency of successful requests, counts errors and
 timeouts separately, and reports the peak number of database sessions.
 `answer_sha256` hashes each input's answer: two variants or storage backends
 return the same results only when their hashes match. NaN and infinite values
-hash as fixed strings. A run with any error or timeout reports no hash, so
-missing answers never compare as equal. Compare latency only between runs
+hash as fixed strings. A run with any error or timeout, or with an input whose
+repeated reads returned different answers, reports no hash, so missing or
+inconsistent answers never compare as equal. Compare latency only between runs
 whose hashes match.
 
 Not built yet: a `naive` variant that reads every archived file, and request
