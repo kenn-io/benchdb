@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +68,11 @@ var scenarios = map[string]scenario{
 }
 
 // measurement is one run's output. Latencies cover successful requests only:
-// an error or timeout is counted, never timed as a fast answer.
+// an error or timeout is counted, never timed as a fast answer. AnswerSHA256 is
+// empty unless every request returned an answer it could hash, so runs with
+// missing answers never compare as equal. FirstMillis is the first request's
+// latency: with no warm-up it starts on cold caches, while later requests
+// reuse what it cached.
 type measurement struct {
 	Scenario       string  `json:"scenario"`
 	Variant        string  `json:"variant"`
@@ -80,6 +87,7 @@ type measurement struct {
 	P50Millis      float64 `json:"p50_ms"`
 	P95Millis      float64 `json:"p95_ms"`
 	MaxMillis      float64 `json:"max_ms"`
+	FirstMillis    float64 `json:"first_ms"`
 	AnswerSHA256   string  `json:"answer_sha256"`
 	Inconsistent   int     `json:"inconsistent_answers"`
 	PeakBackends   int     `json:"peak_backends"`
@@ -98,7 +106,7 @@ func runMeasure(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	variant := flags.String("variant", "", "postgres (nothing archived) or catalog (complete lookup catalogs) (required)")
 	concurrency := flags.Int("concurrency", 1, "concurrent requests")
 	samples := flags.Int("samples", 30, "timed requests")
-	warmup := flags.Int("warmup", 0, "untimed requests first; 0 measures a cold cache")
+	warmup := flags.Int("warmup", 0, "untimed requests first; with 0, the first timed request starts on cold caches and later ones reuse them")
 	output := flags.String("output", "", "file for the result JSON; stdout when empty")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -196,7 +204,11 @@ func collect(ctx context.Context, s *session, frozen inputs, read scenario, conc
 				key, answer, err := read(ctx, s, frozen, i)
 				outcomes[i] = outcome{key: key, elapsed: time.Since(started), err: err}
 				if err == nil {
-					outcomes[i].answer = digest(answer)
+					// An answer that cannot be hashed cannot be compared.
+					outcomes[i].answer, err = digest(answer)
+					if err != nil {
+						outcomes[i].err = fmt.Errorf("encode the answer for %s: %w", key, err)
+					}
 				}
 			}
 		})
@@ -209,13 +221,22 @@ func collect(ctx context.Context, s *session, frozen inputs, read scenario, conc
 	return outcomes
 }
 
-func digest(answer any) string {
-	data, err := json.Marshal(answer)
+// nonFinite encodes NaN and infinities, which JSON cannot represent, as fixed
+// strings. An aggregate that overflows still has a distinct answer.
+var nonFinite = json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return enc.WriteToken(jsontext.String(strconv.FormatFloat(value, 'g', -1, 64)))
+	}
+	return enc.WriteToken(jsontext.Float(value))
+}))
+
+func digest(answer any) (string, error) {
+	data, err := json.Marshal(answer, nonFinite)
 	if err != nil {
-		data = []byte(fmt.Sprintf("unencodable answer: %v", err))
+		return "", err
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func summarize(outcomes []outcome, result *measurement) {
@@ -239,16 +260,23 @@ func summarize(outcomes []outcome, result *measurement) {
 			answers[o.key] = o.answer
 		}
 	}
+	if len(outcomes) > 0 && outcomes[0].err == nil {
+		result.FirstMillis = float64(outcomes[0].elapsed.Microseconds()) / 1000
+	}
 	slices.Sort(latencies)
 	result.P50Millis = percentile(latencies, 0.50)
 	result.P95Millis = percentile(latencies, 0.95)
 	result.MaxMillis = percentile(latencies, 1)
+	if result.Errors > 0 || result.Timeouts > 0 {
+		return
+	}
 	lines := make([]string, 0, len(answers))
 	for key, answer := range answers {
 		lines = append(lines, key+"\t"+answer)
 	}
 	slices.Sort(lines)
-	result.AnswerSHA256 = digest(lines)
+	// Strings always encode.
+	result.AnswerSHA256, _ = digest(lines)
 }
 
 // percentile returns the nearest-rank percentile in milliseconds, or 0

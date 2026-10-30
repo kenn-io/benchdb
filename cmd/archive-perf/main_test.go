@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -153,4 +155,29 @@ func TestRefusesToClaimThroughCoordinationURL(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT claimed_at IS NOT NULL FROM archive_storage WHERE active`).Scan(&claimed))
 	assert.False(t, claimed, "the read-only tool claimed nothing")
 	assert.NoFileExists(t, filepath.Join(dir, "dataset"))
+}
+
+// TestAnswerHashes keeps answers comparable: non-finite aggregates hash
+// distinctly, and an answer that cannot be encoded is an error that leaves no
+// hash to compare.
+func TestAnswerHashes(t *testing.T) {
+	type row struct{ Mean *float64 }
+	hashes := map[string]bool{}
+	for _, value := range []float64{1, math.Inf(1), math.Inf(-1), math.NaN()} {
+		hash, err := digest(row{Mean: &value})
+		require.NoError(t, err)
+		hashes[hash] = true
+	}
+	assert.Len(t, hashes, 4, "each value has its own hash")
+
+	_, err := digest(make(chan int))
+	require.Error(t, err)
+	var result measurement
+	summarize([]outcome{
+		{key: "a", answer: "x", elapsed: time.Millisecond},
+		{key: "b", err: errors.New("encode the answer for b: unsupported"), elapsed: time.Millisecond},
+	}, &result)
+	assert.Equal(t, 1, result.Errors)
+	assert.Empty(t, result.AnswerSHA256, "missing answers leave nothing to compare")
+	assert.InDelta(t, 1.0, result.FirstMillis, 0)
 }

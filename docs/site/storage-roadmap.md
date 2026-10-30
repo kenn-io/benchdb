@@ -425,8 +425,9 @@ settings come from the server's `BENCHDB_*` environment.
       --expect-dataset "$DATASET_ID" --runs 20 --output inputs.json
     ```
 
-2. Time one scenario. `--warmup 0` measures a cold cache; a warm-up pass
-   measures a warm one:
+2. Time one scenario. One process serves every request, so caches fill as it
+   runs. With `--warmup 0`, only the first request starts on cold caches;
+   `first_ms` reports it separately. A warm-up pass measures warm caches:
 
     ```bash
     go run ./cmd/archive-perf run --database-url "$DATABASE_URL" \
@@ -440,8 +441,10 @@ catalogs; `postgres` requires that nothing is archived yet. The output records
 p50, p95, and maximum latency of successful requests, counts errors and
 timeouts separately, and reports the peak number of database sessions.
 `answer_sha256` hashes each input's answer: two variants or storage backends
-return the same results only when their hashes match. Compare latency only
-between runs whose hashes match.
+return the same results only when their hashes match. NaN and infinite values
+hash as fixed strings. A run with any error or timeout reports no hash, so
+missing answers never compare as equal. Compare latency only between runs
+whose hashes match.
 
 Not built yet: a `naive` variant that reads every archived file, and request
 and byte counts for DuckDB's and Kit's HTTP traffic. Provider request logs,
