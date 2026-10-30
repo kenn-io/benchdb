@@ -548,6 +548,15 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	bound := e.location.binds(active)
+	// A read-only process cannot record a claim or move the binding, so it
+	// must not create a marker either: a refused claim would leave one behind.
+	var readOnly bool
+	if err := conn.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&readOnly); err != nil {
+		return fmt.Errorf("read whether the archive session is read-only: %w", err)
+	}
+	if readOnly && (!bound || !active.claimed) {
+		return errReadOnlyUnclaimed
+	}
 	used := false
 	if bound {
 		used, err = storageUsed(metadata, conn, active.id)
@@ -558,7 +567,7 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	if !e.location.remote() {
-		if err := e.claimDirectory(id, files); err != nil {
+		if err := e.claimDirectory(id, files, readOnly); err != nil {
 			return err
 		}
 	}
@@ -566,7 +575,7 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	if e.location.remote() {
-		if err := e.claimNamespace(ctx, id, used); err != nil {
+		if err := e.claimNamespace(ctx, id, used || readOnly); err != nil {
 			return err
 		}
 	}
@@ -613,7 +622,11 @@ FROM archive_dataset WHERE singleton`).Scan(&coordinated, &recovery, &files); er
 // file. The implicit root is the working directory, which holds other files.
 // An explicit file:// root is claimed only while it is empty, so a mistyped
 // URL cannot adopt an unrelated directory.
-func (e *Engine) claimDirectory(id string, files int64) error {
+// errReadOnlyUnclaimed refuses a read-only process before it changes the
+// archive or the database.
+var errReadOnlyUnclaimed = errors.New("the archive storage binding has not been claimed for these archive settings; start a writable BenchDB process with them before opening the archive read-only")
+
+func (e *Engine) claimDirectory(id string, files int64, readOnly bool) error {
 	root := e.location.root
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
@@ -635,6 +648,9 @@ func (e *Engine) claimDirectory(id string, files int64) error {
 	} else if errors.Is(err, os.ErrNotExist) {
 		if files > 0 {
 			return errors.New("archive files are published but the configured archive directory is missing")
+		}
+		if readOnly {
+			return errReadOnlyUnclaimed
 		}
 		if err := e.writeDirectoryMarker(identityPath, id); err != nil {
 			return err

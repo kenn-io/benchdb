@@ -134,3 +134,23 @@ func TestSessionsAreReadOnly(t *testing.T) {
 	_, err = session.Exec(context.Background(), `CREATE TABLE archive_perf_write (id int)`)
 	require.ErrorContains(t, err, "read-only transaction")
 }
+
+// TestRefusesToClaimThroughCoordinationURL opens a database that no writable
+// process has claimed, with a separate, writable coordination URL. The tool
+// makes that URL read-only too, so startup refuses instead of claiming the
+// storage binding through it.
+func TestRefusesToClaimThroughCoordinationURL(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	var dataset string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM archive_dataset WHERE singleton`).Scan(&dataset))
+	t.Setenv("BENCHDB_ARCHIVE_COORDINATION_DB_URL", pool.Config().ConnString())
+	dir := t.TempDir()
+
+	code, _, stderr := perf(t, "inputs", "--database-url", pool.Config().ConnString(), "--expect-dataset", dataset, "--data-dir", dir)
+	assert.Equal(t, 1, code)
+	assert.Contains(t, stderr, "has not been claimed")
+	var claimed bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT claimed_at IS NOT NULL FROM archive_storage WHERE active`).Scan(&claimed))
+	assert.False(t, claimed, "the read-only tool claimed nothing")
+	assert.NoFileExists(t, filepath.Join(dir, "dataset"))
+}

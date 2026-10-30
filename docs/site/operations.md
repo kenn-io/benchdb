@@ -276,7 +276,8 @@ connections serve existing data without running archive, artifact, or verdict
 maintenance. Start a writable BenchDB process once after upgrading so it can
 claim the archive storage binding before starting read-only processes. A
 read-only process cannot claim an unclaimed binding; otherwise a concurrent
-remote startup could move the archive away from its readers.
+remote startup could move the archive away from its readers. It refuses to start
+before it writes anything: no dataset marker, dataset file, or binding change.
 
 The **Storage** page shows PostgreSQL size, published Parquet and catalog sizes,
 file counts, pending edits and stale catalogs, and the last and next

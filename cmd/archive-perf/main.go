@@ -137,6 +137,18 @@ func (t *target) open(ctx context.Context) (*session, error) {
 		pool.Close()
 		return nil, usageError(err.Error())
 	}
+	// Archive coordination can use its own URL; it must be read-only too, or
+	// startup could claim the storage binding through it.
+	if cfg.CoordinationDBURL != "" {
+		if cfg.CoordinationDBURL, err = readOnlyURL(cfg.CoordinationDBURL); err != nil {
+			pool.Close()
+			return nil, err
+		}
+		if err := checkReadOnly(ctx, cfg.CoordinationDBURL); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	engine, err := columnar.Open(ctx, pool, cfg)
 	if err != nil {
 		pool.Close()
@@ -176,6 +188,23 @@ func (t *target) verify(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	if dataset != t.expectDataset {
 		return fmt.Errorf("the database's dataset is %s, not the expected %s", dataset, t.expectDataset)
+	}
+	return nil
+}
+
+// checkReadOnly confirms that sessions opened with url are read-only.
+func checkReadOnly(ctx context.Context, url string) error {
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return fmt.Errorf("connect to the archive coordination database: %w", err)
+	}
+	defer pool.Close()
+	var readOnly string
+	if err := pool.QueryRow(ctx, `SELECT current_setting('default_transaction_read_only')`).Scan(&readOnly); err != nil {
+		return fmt.Errorf("read the archive coordination session's settings: %w", err)
+	}
+	if readOnly != "on" {
+		return errors.New("the archive coordination session is not read-only")
 	}
 	return nil
 }
