@@ -185,7 +185,7 @@ BENCHDB_LIVE_S3_URL=s3://example-bucket/benchdb AWS_REGION=us-east-2 \
   go test -shuffle=on -run '^TestLiveRemoteArchive$' ./internal/columnar
 ```
 
-The `Storage provider tests` workflow runs both providers weekly and on demand
+The `Storage provider tests` workflow runs both providers daily and on demand
 from the `storage-tests` environment, which only `main` can use. It signs in
 with GitHub's OIDC token and fails if either provider is skipped.
 

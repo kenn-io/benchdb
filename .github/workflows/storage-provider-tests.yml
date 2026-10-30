@@ -2,11 +2,11 @@ name: Storage provider tests
 
 # Live S3 and GCS runs of the archive engine. The cloud identities trust only
 # this workflow on main, in the storage-tests environment, so it runs on
-# demand and weekly rather than on pull requests.
+# demand and daily rather than on pull requests.
 on:
   workflow_dispatch:
   schedule:
-    - cron: "41 7 * * 1"
+    - cron: "41 7 * * *"
 
 permissions:
   contents: read
@@ -54,6 +54,7 @@ jobs:
           BENCHDB_LIVE_GCS_URL: gs://${{ vars.STORAGE_TESTS_GCS_BUCKET }}/benchdb
         # A skipped subtest means the provider was never reached, so it fails.
         run: |
+          set -o pipefail
           go test -shuffle=on -timeout 20m -v -run '^TestLiveRemoteArchive$' ./internal/columnar | tee live.log
           for provider in s3 gcs; do
             grep -q -- "--- PASS: TestLiveRemoteArchive/${provider} " live.log ||
