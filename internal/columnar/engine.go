@@ -465,7 +465,11 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	}
 	defer lock.Close()
 	var id string
-	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
+	// Read the application session's settings now: startup takes no
+	// application connection while it holds the reader guard below.
+	var appReadOnly bool
+	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int,current_setting('transaction_read_only')='on'
+FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion, &appReadOnly); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
 	}
 	if err := e.coord.checkSessionAffinity(ctx); err != nil {
@@ -524,7 +528,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	if err := e.prepareStaging(); err != nil {
 		return err
 	}
-	if err := e.claimStorage(ctx, conn, id, files); err != nil {
+	if err := e.claimStorage(ctx, conn, id, files, appReadOnly); err != nil {
 		return err
 	}
 	if e.location.remote() {
@@ -540,7 +544,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 // bound as it was. Remote startup checks the marker, not every object. Every
 // binding query runs on conn, an archive session that startup reserved before
 // its guard.
-func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64) error {
+func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64, appReadOnly bool) error {
 	metadata, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
 	active, err := activeStorage(metadata, conn, "")
@@ -552,13 +556,11 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 	// must not create a marker either: a refused claim would leave one behind.
 	// The process is read-only when its application connection is, even if a
 	// separate coordination URL could write.
-	var readOnly bool
-	for _, q := range []rowQueryer{conn, e.pg} {
-		var sessionReadOnly bool
-		if err := q.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&sessionReadOnly); err != nil {
+	readOnly := appReadOnly
+	if !readOnly {
+		if err := conn.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&readOnly); err != nil {
 			return fmt.Errorf("read whether the archive session is read-only: %w", err)
 		}
-		readOnly = readOnly || sessionReadOnly
 	}
 	if readOnly && (!bound || !active.claimed) {
 		return errReadOnlyUnclaimed
