@@ -550,9 +550,15 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 	bound := e.location.binds(active)
 	// A read-only process cannot record a claim or move the binding, so it
 	// must not create a marker either: a refused claim would leave one behind.
+	// The process is read-only when its application connection is, even if a
+	// separate coordination URL could write.
 	var readOnly bool
-	if err := conn.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&readOnly); err != nil {
-		return fmt.Errorf("read whether the archive session is read-only: %w", err)
+	for _, q := range []rowQueryer{conn, e.pg} {
+		var sessionReadOnly bool
+		if err := q.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&sessionReadOnly); err != nil {
+			return fmt.Errorf("read whether the archive session is read-only: %w", err)
+		}
+		readOnly = readOnly || sessionReadOnly
 	}
 	if readOnly && (!bound || !active.claimed) {
 		return errReadOnlyUnclaimed

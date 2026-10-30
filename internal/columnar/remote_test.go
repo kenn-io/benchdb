@@ -1425,6 +1425,12 @@ func TestReadOnlyStartupCreatesNothing(t *testing.T) {
 	_, err = startConfined(t, ctx, readOnly, Config{Dir: local, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
 	require.ErrorIs(t, err, errReadOnlyUnclaimed)
 	assert.NoFileExists(t, filepath.Join(local, datasetMarker))
+	// A writable coordination URL does not make a read-only process writable.
+	writableCoordination := remote
+	writableCoordination.CoordinationDBURL = r.pool.Config().ConnString()
+	_, err = startConfined(t, ctx, readOnly, writableCoordination)
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.Empty(t, r.keys(t, ctx, "readonly"), "no dataset marker was published")
 	backend, _, claimed := activeBinding(t, ctx, r.pool)
 	assert.Equal(t, "file", backend)
 	assert.False(t, claimed)
