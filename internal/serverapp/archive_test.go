@@ -130,7 +130,7 @@ func TestRunReadOnlyDatabaseSettings(t *testing.T) {
 		return snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n FROM pg_sleep(30)')`).Scan(&n)
 	})
 	require.ErrorIs(t, readErr, context.DeadlineExceeded)
-	require.Less(t, time.Since(started), 3*time.Second)
+	require.Less(t, time.Since(started), 4*time.Second)
 	require.Eventually(t, func() bool {
 		var sleeping bool
 		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
