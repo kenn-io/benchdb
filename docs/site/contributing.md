@@ -179,6 +179,7 @@ bucket a lifecycle rule that deletes objects after a day, so an interrupted run
 leaves nothing behind.
 
 ```bash
+export BENCHDB_DUCKDB_EXTENSION_DIR="$PWD/.cache/duckdb/extensions"
 make duckdb-extensions
 BENCHDB_LIVE_S3_URL=s3://example-bucket/benchdb AWS_REGION=us-east-2 \
   go test -shuffle=on -run '^TestLiveRemoteArchive$' ./internal/columnar
