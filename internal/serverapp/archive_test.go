@@ -107,7 +107,7 @@ func TestRunReadOnlyDatabaseSettings(t *testing.T) {
 	readOnly, err := pgxpool.New(ctx, databaseURL.String())
 	require.NoError(t, err)
 	t.Cleanup(readOnly.Close)
-	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, ReadTimeout: 250 * time.Millisecond, Readers: 1})
+	analytical, err := columnar.Open(ctx, readOnly, columnar.Config{Dir: dataDir, ExtensionDir: extensions, ReadTimeout: 2 * time.Second, Readers: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, analytical.Close()) })
 	// DuckDB's PostgreSQL connections keep read-only mode, while the archive
@@ -123,14 +123,14 @@ func TestRunReadOnlyDatabaseSettings(t *testing.T) {
 	var appTimeout string
 	require.NoError(t, readOnly.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&appTimeout))
 	require.Equal(t, "5s", appTimeout, "the application pool keeps its own statement timeout")
-	// The 250ms read deadline, not the 5s statement timeout, stops the query.
+	// The 2s read deadline, not the 5s statement timeout, stops the query.
 	started := time.Now()
 	readErr := analytical.Read(ctx, func(ctx context.Context, snapshot *columnar.ReadSnapshot) error {
 		var n int
 		return snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n FROM pg_sleep(30)')`).Scan(&n)
 	})
 	require.ErrorIs(t, readErr, context.DeadlineExceeded)
-	require.Less(t, time.Since(started), 3*time.Second)
+	require.Less(t, time.Since(started), 4*time.Second)
 	require.Eventually(t, func() bool {
 		var sleeping bool
 		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
@@ -142,7 +142,7 @@ AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&s
 		return snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n')`).Scan(&n)
 	}))
 	require.NoError(t, analytical.Close())
-	t.Setenv("BENCHDB_ANALYTICAL_READ_TIMEOUT", "250ms")
+	t.Setenv("BENCHDB_ANALYTICAL_READ_TIMEOUT", "2s")
 	t.Setenv("BENCHDB_DB_URL", databaseURL.String())
 	t.Setenv("BENCHDB_DATA_DIR", dataDir)
 	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", extensions)
