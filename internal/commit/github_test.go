@@ -206,9 +206,12 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 
 func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	srv := githubtest.NewServer(t)
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(_ http.ResponseWriter, r *http.Request) {
-		close(started)
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		<-r.Context().Done()
 	})
 	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), time.Second, nil)
