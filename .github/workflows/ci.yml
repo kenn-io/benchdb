@@ -35,11 +35,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
       - name: Install golangci-lint v2.13.1
         run: |
           cd /tmp
-          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-linux-amd64.tar.gz
-          curl -fsSL -O https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-checksums.txt
+          kit-download https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-linux-amd64.tar.gz golangci-lint-2.13.1-linux-amd64.tar.gz
+          kit-download https://github.com/golangci/golangci-lint/releases/download/v2.13.1/golangci-lint-2.13.1-checksums.txt golangci-lint-2.13.1-checksums.txt
           grep -E 'golangci-lint-2.13.1-linux-amd64\.tar\.gz$' golangci-lint-2.13.1-checksums.txt | sha256sum -c -
           tar -xzf golangci-lint-2.13.1-linux-amd64.tar.gz
           sudo install golangci-lint-2.13.1-linux-amd64/golangci-lint /usr/local/bin/golangci-lint
@@ -48,7 +50,7 @@ jobs:
       - run: make huma-check
       - run: make go-lint-ci
       - name: Install Windows C/C++ cross compiler
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64
+        run: kit-retry 3 5 sudo apt-get -o APT::Update::Error-Mode=any update && kit-retry 3 5 sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64
       - name: Run lint for Windows
         env:
           GOOS: windows
@@ -109,7 +111,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
+      - run: kit-retry 3 5 bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check:e2e
       - run: bun run check:docs-screenshots
@@ -171,10 +175,12 @@ jobs:
         with:
           version: "0.13.4"
           enable-cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
       - name: Install sqlc v1.30.0
         run: |
           cd /tmp
-          curl -fsSL -O https://github.com/sqlc-dev/sqlc/releases/download/v1.30.0/sqlc_1.30.0_linux_amd64.tar.gz
+          kit-download https://github.com/sqlc-dev/sqlc/releases/download/v1.30.0/sqlc_1.30.0_linux_amd64.tar.gz sqlc_1.30.0_linux_amd64.tar.gz
           echo "468aecee071bfe55e97fcbcac52ea0208eeca444f67736f3b8f0f3d6a106132e  sqlc_1.30.0_linux_amd64.tar.gz" | sha256sum -c -
           tar -xzf sqlc_1.30.0_linux_amd64.tar.gz sqlc
           sudo install sqlc /usr/local/bin/sqlc
@@ -280,9 +286,11 @@ jobs:
         with:
           node-version: "24.22.1"
           package-manager-cache: false
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
       - name: Install web deps (pinned Playwright CLI)
         working-directory: web
-        run: bun install --frozen-lockfile
+        run: kit-retry 3 5 bun install --frozen-lockfile
       - name: Cache Playwright browsers
         # Keep the version in the key in sync with web/package.json @playwright/test.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

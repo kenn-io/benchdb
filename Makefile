@@ -197,11 +197,11 @@ $(CUSTOM_GCL): .custom-gcl.yml
 	GOOS= GOARCH= golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
 
 .PHONY: go-lint
-go-lint: $(CUSTOM_GCL)
+go-lint: $(CUSTOM_GCL) lint-workflow-retries
 	$(CUSTOM_GCL) run --fix ./...
 
 .PHONY: go-lint-ci
-go-lint-ci: $(CUSTOM_GCL)
+go-lint-ci: $(CUSTOM_GCL) lint-workflow-retries
 	$(CUSTOM_GCL) run ./...
 
 .PHONY: huma-check
@@ -292,3 +292,7 @@ build: web-build duckdb-extensions
 .PHONY: e2e
 e2e:
 	./scripts/e2e.sh
+
+.PHONY: lint-workflow-retries
+lint-workflow-retries:
+	GOOS= GOARCH= go run go.kenn.io/kit/cmd/kennlint@v0.47.3 workflow-retries
