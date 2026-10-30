@@ -206,19 +206,21 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 
 func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	srv := githubtest.NewServer(t)
-	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(300 * time.Millisecond)
-		_, _ = w.Write(githubtest.Fixture(t, "github_child.json"))
+	srv.Mux.HandleFunc("/repos/org/repo/commits/"+childSha, func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
 	})
-	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), 50*time.Millisecond, nil)
+	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), time.Second, nil)
 
 	start := time.Now()
-	info, err := p.Resolve(context.Background(), commit.Request{
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	info, err := p.Resolve(ctx, commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo",
 	})
 	require.NoError(t, err)
+	require.Contains(t, srv.Requests(), "GET /repos/org/repo/commits/"+childSha, "Resolve did not reach the GitHub handler")
 	assert.Nil(t, info.Timestamp, "budget blown -> unknown commit")
-	assert.Less(t, time.Since(start), 250*time.Millisecond, "Resolve must respect the budget, not the handler sleep")
+	assert.Less(t, time.Since(start), 2*time.Second, "Resolve must respect the budget, not the caller deadline")
 }
 
 func TestGitHubProviderNoCommitYieldsNil(t *testing.T) {
