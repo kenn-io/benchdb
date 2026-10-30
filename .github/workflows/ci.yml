@@ -222,7 +222,7 @@ jobs:
           DCOMP_BENCHDB_SERVER_HOST_PORT: 127.0.0.1:18080
         run: make server-container-up
       - name: Check first paint
-        uses: kenn-io/actions/first-paint@b523fb403607f01de5eec5f4556c7668544c70fe # main
+        uses: kenn-io/actions/first-paint@main
         with:
           urls: |
             http://127.0.0.1:18080/

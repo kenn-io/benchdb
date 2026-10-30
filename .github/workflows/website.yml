@@ -60,6 +60,6 @@ jobs:
           BENCHDB_DOCS_SCREENSHOT_SOURCE_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make build-docs
       - name: Check first paint
-        uses: kenn-io/actions/first-paint@b523fb403607f01de5eec5f4556c7668544c70fe # main
+        uses: kenn-io/actions/first-paint@main
         with:
           dist: site
