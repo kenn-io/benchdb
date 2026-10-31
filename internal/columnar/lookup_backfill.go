@@ -56,11 +56,14 @@ const lookupCompleteSQL = `SELECT count(DISTINCT kind)=3 AND coalesce(bool_and(c
 // lookupBackfillCapture is the bulk build's durable work set: one logical
 // file ID per manifest file at the capture, in path order, and every logical
 // ID that existed then. IDs created later belong to exports made during the
-// build. Target fixes the piece size for the whole build.
+// build. Target fixes the piece size for the whole build. CapturedAt is the
+// database clock at the capture; a capture written before it was recorded
+// has none.
 type lookupBackfillCapture struct {
-	Target int64                `json:"target"`
-	Files  []lookupCapturedFile `json:"files"`
-	Known  []string             `json:"known"`
+	Target     int64                `json:"target"`
+	Files      []lookupCapturedFile `json:"files"`
+	Known      []string             `json:"known"`
+	CapturedAt *time.Time           `json:"captured_at,omitempty"`
 }
 
 type lookupCapturedFile struct {
@@ -456,10 +459,15 @@ WHERE NOT EXISTS (SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.p
 		if err != nil {
 			return fmt.Errorf("capture logical files: %w", err)
 		}
+		// Publication is locked, so files published later have later times.
+		var capturedAt time.Time
+		if err := pg.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&capturedAt); err != nil {
+			return fmt.Errorf("read the capture time: %w", err)
+		}
 		if err := pg.Commit(ctx); err != nil {
 			return err
 		}
-		b.capture = lookupBackfillCapture{Target: b.e.lookupTarget, Files: files, Known: known}
+		b.capture = lookupBackfillCapture{Target: b.e.lookupTarget, Files: files, Known: known, CapturedAt: &capturedAt}
 		data, err := json.Marshal(b.capture)
 		if err != nil {
 			return err
@@ -1255,21 +1263,22 @@ func (b *lookupBuild) install(ctx context.Context, cycle uuid.UUID, partitions m
 // that was empty at the capture. The capture is then stale, and the build
 // starts again from a new one.
 //
-// Every ID created after the capture is staged, so a restored file is the
-// location of a logical file the capture knew. A manifest file with no
-// logical file ID at all is not something a restore produces. It is reported
-// as a failure instead: restarting would hide the fault in a silent rebuild
-// that repeats every cycle.
+// The capture gave every file it saw a logical ID, and every export since
+// assigns one, so a file published after the capture always has one. Such a
+// file without one is not something a restore produces. It is reported as a
+// failure instead: restarting would hide the fault in a silent rebuild. An
+// older file without a logical ID can come back with a restore from before
+// the capture, so it makes the capture stale.
 func (b *lookupBuild) checkCoverage(ctx context.Context, pg pgx.Tx, staged []string) error {
 	ids := append(b.capturedIDs(), staged...)
 	var uncovered, unlocated int
-	if err := pg.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path))
+	if err := pg.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE f.created_at>=$2 AND NOT EXISTS (SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path))
 FROM archive_file f WHERE NOT EXISTS
-(SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path AND l.id=ANY($1::uuid[]))`, ids).Scan(&uncovered, &unlocated); err != nil {
+(SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path AND l.id=ANY($1::uuid[]))`, ids, b.capture.CapturedAt).Scan(&uncovered, &unlocated); err != nil {
 		return fmt.Errorf("check lookup backfill coverage: %w", err)
 	}
 	if unlocated > 0 {
-		return fmt.Errorf("lookup backfill coverage: %d manifest files have no logical file ID, which a database restore cannot cause; the lookup directory stays incomplete until this is repaired", unlocated)
+		return fmt.Errorf("lookup backfill coverage: %d manifest files published after the capture have no logical file ID, which a database restore cannot cause; the lookup directory stays incomplete until this is repaired", unlocated)
 	}
 	if uncovered > 0 {
 		return fmt.Errorf("%w: lookup backfill covers neither the capture nor a later export of %d manifest files",
