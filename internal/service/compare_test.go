@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,7 +61,7 @@ func TestLookbackWorseThanHistoryUsesTheUnroundedScoreStrictly(t *testing.T) {
 			thresholdZ: thresholdZ,
 			contender:  storage.CompareResultRow{HistoryFingerprint: "fp"},
 			baseline:   storage.CompareResultRow{CommitID: new("commit"), CommitTimestamp: last.CommitTimestamp},
-			history: func(context.Context, string, time.Time) ([]storage.HistoryRow, error) {
+			history: func(context.Context, string, storage.CompareResultRow) ([]storage.HistoryRow, error) {
 				return history, nil
 			},
 		})

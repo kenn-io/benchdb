@@ -1,9 +1,10 @@
 -- name: GetResultForCompare :one
 -- The fields the compare endpoint needs for one result: SVS inputs (unit, data,
--- error), the history fingerprint, the run id, and the commit timestamp (for the
--- baseline ancestry cutoff). The commit is optional (LEFT JOIN).
+-- error), the history fingerprint, the run id, and both timestamps (for the
+-- baseline execution cutoff). The commit is optional (LEFT JOIN).
 SELECT
   br.id,
+  br."timestamp",
   br.run_id,
   br.history_fingerprint,
   br.unit,

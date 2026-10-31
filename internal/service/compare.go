@@ -1,11 +1,13 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"math"
-	"time"
+	"slices"
+	"strings"
 
 	"go.kenn.io/benchdb/internal/stats"
 	"go.kenn.io/benchdb/internal/storage"
@@ -75,8 +77,8 @@ type CompareResult struct {
 	Analysis     CompareAnalysis `json:"analysis"`
 }
 
-// historyLoader returns a fingerprint's default-branch history up to asOf.
-type historyLoader func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error)
+// historyLoader returns default-branch history through the baseline execution.
+type historyLoader func(ctx context.Context, fingerprint string, baseline storage.CompareResultRow) ([]storage.HistoryRow, error)
 
 // Compare loads two results, validates they are comparable, and returns the
 // pairwise + lookback-z analysis. The API defaults to 5 percent and 2 standard deviations.
@@ -92,8 +94,22 @@ func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, th
 	return r.compareRows(ctx, baseline, contender, threshold, thresholdZ, r.historyAsOf)
 }
 
-func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
-	return r.store.SelectHistoryForFingerprintsAsOf(ctx, []string{fingerprint}, asOf)
+func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, baseline storage.CompareResultRow) ([]storage.HistoryRow, error) {
+	rows, err := r.store.SelectHistoryForFingerprintsAsOf(ctx, []string{fingerprint}, *baseline.CommitTimestamp)
+	return historyThroughBaseline(rows, baseline), err
+}
+
+// A commit-time query can include later executions with the same commit time.
+// Keep their measurements and annotations out of this baseline's distribution.
+// Clone before filtering because CI reports share batched query results.
+func historyThroughBaseline(rows []storage.HistoryRow, baseline storage.CompareResultRow) []storage.HistoryRow {
+	return slices.DeleteFunc(slices.Clone(rows), func(row storage.HistoryRow) bool {
+		if row.CommitTimestamp == nil {
+			return false // Preserve invalid rows for the analysis error path.
+		}
+		return cmp.Or(row.CommitTimestamp.Compare(*baseline.CommitTimestamp),
+			row.Timestamp.Compare(baseline.Timestamp), strings.Compare(row.ID, baseline.ID)) > 0
+	})
 }
 
 // compareRows shares validation and analysis with callers that already loaded
@@ -227,7 +243,7 @@ type lookbackInput struct {
 }
 
 // lookbackAnalysis scores the contender against its default-branch baseline
-// window (commit.timestamp <= baseline commit). Returns (nil, nil) for the
+// window, ending at the selected baseline execution. Returns (nil, nil) for the
 // legitimately-absent cases: no baseline commit, a window shorter than
 // minHistoryPoints, a mixed-unit window, or an uncomputable z-score. A query failure or data-integrity fault
 // propagates as an error so the caller can surface it as a 500, matching
@@ -236,7 +252,7 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 	if in.baseline.CommitID == nil || in.baseline.CommitTimestamp == nil {
 		return nil, nil
 	}
-	rows, err := in.history(ctx, in.contender.HistoryFingerprint, *in.baseline.CommitTimestamp)
+	rows, err := in.history(ctx, in.contender.HistoryFingerprint, in.baseline)
 	if err != nil {
 		return nil, fmt.Errorf("lookback window: %w", err)
 	}

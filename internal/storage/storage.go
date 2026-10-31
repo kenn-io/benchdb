@@ -644,12 +644,13 @@ type HistoryRow struct {
 }
 
 // CompareResultRow is the per-result input to the compare endpoint: SVS inputs,
-// the history fingerprint, the run id, and the optional commit timestamp used as
-// the baseline ancestry cutoff. CommitID/CommitTimestamp are nil for a result
+// the history fingerprint, the run id, and the timestamps used as the baseline
+// execution cutoff. CommitID/CommitTimestamp are nil for a result
 // submitted without a commit.
 type CompareResultRow struct {
 	OptionalBenchmarkInfo []byte
 	ID                    string
+	Timestamp             time.Time
 	RunID                 string
 	HistoryFingerprint    string
 	Unit                  *string
