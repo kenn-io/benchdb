@@ -23,6 +23,8 @@ env:
 
 jobs:
   go:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-8cpu
     # Lint and vet run before make go-test, which allows its tests 30 minutes.
     timeout-minutes: 45
@@ -87,7 +89,11 @@ jobs:
           cache: true
       - name: Require a selected PostgreSQL image
         run: test -n "$BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE"
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
       - run: make duckdb-extensions
+        env:
+          DOWNLOAD_RETRY: kit-retry 3 5
       # No -short: the harness fails, not skips, when Docker or an image is
       # missing. The remote tests start a disposable S3-compatible service
       # (dbtest.S3Image) with fixture credentials. Later archive tasks add
@@ -158,6 +164,8 @@ jobs:
           retention-days: 14
 
   codegen-drift:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 20
     steps:
@@ -189,6 +197,8 @@ jobs:
       - run: make codegen-check
 
   build:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 15
     steps:
@@ -202,6 +212,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+
       - run: make build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -299,7 +311,7 @@ jobs:
           key: playwright-1.64.1-${{ runner.os }}
       - name: Install Chromium
         working-directory: web
-        run: bunx playwright install --with-deps chromium
+        run: kit-retry 3 5 bunx playwright install --with-deps chromium
       - name: Keystone e2e
         env:
           BENCHDB_E2E_SKIP_BROWSER_INSTALL: "1"

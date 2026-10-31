@@ -19,17 +19,24 @@ esac
 directory="$destination/$version/$platform"
 mkdir -p "$directory"
 download=""
-trap 'rm -f "$download"' EXIT
+archive=""
+trap 'rm -f "$download" "$archive"' EXIT
 for name in "${extensions[@]}"; do
   extension="$directory/$name.duckdb_extension"
   if [[ -s "$extension" ]]; then
     continue
   fi
   download="$(mktemp "$directory/.$name.XXXXXX")"
-  curl --fail --silent --show-error --location --retry 3 \
+  archive="$download.gz"
+  # The CI command prefix retries curl; decompression runs once.
+  # shellcheck disable=SC2086
+  ${DOWNLOAD_RETRY:-} curl --fail --silent --show-error --location \
     "https://extensions.duckdb.org/$version/$platform/$name.duckdb_extension.gz" \
-    | gzip -d > "$download"
+    --output "$archive"
+  gzip -dc "$archive" > "$download"
   chmod 0644 "$download"
   mv "$download" "$extension"
+  rm -f "$archive"
+  archive=""
   download=""
 done

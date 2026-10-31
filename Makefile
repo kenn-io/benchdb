@@ -1,3 +1,6 @@
+# CI can retry acquisition commands inside mixed build/test recipes.
+DOWNLOAD_RETRY ?=
+
 # BenchDB: Go backend + Svelte SPA + generated Go and TypeScript clients.
 #
 # The legacy Flask/Python application and old Python client packages are deleted
@@ -243,7 +246,7 @@ openapi:
 # TypeScript client: Orval generates typed operations and models.
 .PHONY: codegen-ts
 codegen-ts:
-	cd web && bun install --frozen-lockfile
+	cd web && $(DOWNLOAD_RETRY) bun install --frozen-lockfile
 	cd web && bun run codegen
 
 # Go client: oapi-codegen-dd generates operations and models from OpenAPI 3.1.
@@ -275,7 +278,7 @@ codegen-check: codegen
 # build's exit status is preserved so a failed web build still fails the target.
 .PHONY: web-build
 web-build:
-	cd web && bun install --frozen-lockfile
+	cd web && $(DOWNLOAD_RETRY) bun install --frozen-lockfile
 	cd web && bun run build; status=$$?; git -C "$(CURDIR)" checkout -- web/dist/.gitkeep; exit $$status
 
 .PHONY: duckdb-extensions
