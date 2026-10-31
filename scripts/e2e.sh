@@ -42,6 +42,7 @@ export BENCHDB_DATA_DIR="$DATA_DIR"
 export BENCHDB_DUCKDB_EXTENSION_DIR="${BENCHDB_DUCKDB_EXTENSION_DIR:-$ROOT/.cache/duckdb/extensions}"
 
 echo "==> start ephemeral Postgres"
+docker image inspect postgres:15.2-alpine >/dev/null 2>&1 || ${DOWNLOAD_RETRY:-} docker pull postgres:15.2-alpine
 docker run -d --name "$PG_CONTAINER" \
   -e POSTGRES_USER=benchdb -e POSTGRES_PASSWORD=benchdb -e POSTGRES_DB=benchdb \
   -P postgres:15.2-alpine >/dev/null

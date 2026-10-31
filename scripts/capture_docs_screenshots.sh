@@ -37,15 +37,17 @@ export BENCHDB_DOCS_SCREENSHOT_UID="${BENCHDB_DOCS_SCREENSHOT_UID:-$(id -u)}"
 export BENCHDB_DOCS_SCREENSHOT_GID="${BENCHDB_DOCS_SCREENSHOT_GID:-$(id -g)}"
 
 "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+${DOWNLOAD_RETRY:-} "${compose[@]}" build server
+${DOWNLOAD_RETRY:-} "${compose[@]}" pull --policy missing db
 DCOMP_BENCHDB_SERVER_HOST_PORT="$host_port" \
 	DCOMP_BENCHDB_AUTH_DISABLED="$auth_disabled" \
-	"${compose[@]}" up --build --wait --detach db server
+	"${compose[@]}" up --no-build --wait --detach db server
 
 curl -fsS "$base_url/api/ping" >/dev/null
 curl -fsS "$base_url/series" >/dev/null
 python3 -B "$root/scripts/docs_screenshot_preflight.py" "$base_url"
 
-"${compose[@]}" build docs-screenshots-runner
+${DOWNLOAD_RETRY:-} "${compose[@]}" build docs-screenshots-runner
 "${compose[@]}" run --rm --no-deps docs-screenshots-runner
 
 python3 -B "$root/scripts/docs_screenshot_evidence.py" write \

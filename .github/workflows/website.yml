@@ -32,6 +32,8 @@ permissions: {}
 
 jobs:
   build:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -46,6 +48,7 @@ jobs:
           ref: docs-assets
           path: .ci-docs-assets
           persist-credentials: false
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - name: Capture dashboard screenshots
         env:
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots

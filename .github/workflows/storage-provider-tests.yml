@@ -25,6 +25,7 @@ jobs:
       contents: read
       id-token: write
     env:
+      DOWNLOAD_RETRY: kit-retry 3 5
       BENCHDB_DUCKDB_EXTENSION_DIR: ${{ github.workspace }}/.cache/duckdb/extensions
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -34,6 +35,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - run: make duckdb-extensions
 
       - name: Sign in to Google Cloud
