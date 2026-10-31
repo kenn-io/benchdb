@@ -6,7 +6,7 @@
 # -107350). The checksum is the official .sha256 published at
 # https://www.pgbouncer.org/downloads/files/1.26.1/ and matches a local
 # sha256sum of the downloaded tarball.
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
 
 ARG PGBOUNCER_VERSION=1.26.1
 ARG PGBOUNCER_SHA256=00886a2994b4844cd37110970df777772cfc42a74c400522c82fba509a3f42d9
@@ -22,7 +22,7 @@ RUN curl -fsSL -o pgbouncer.tar.gz \
     && make -j"$(nproc)" pgbouncer \
     && install -m 0755 pgbouncer /usr/local/bin/pgbouncer
 
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 RUN apk add --no-cache libevent libssl3 \
     && adduser -S -H -h /nonexistent pgbouncer
