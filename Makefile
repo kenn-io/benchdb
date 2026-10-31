@@ -258,7 +258,7 @@ codegen-ts:
 # Run `go mod tidy` after changing the spec.
 .PHONY: codegen-go
 codegen-go:
-	go run github.com/doordash-oss/oapi-codegen-dd/v3/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
+	$(DOWNLOAD_RETRY) go run github.com/doordash-oss/oapi-codegen-dd/v3/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
 		-config sdk/go/benchdb/oapi-codegen.yaml api/openapi.yaml
 
 .PHONY: codegen
