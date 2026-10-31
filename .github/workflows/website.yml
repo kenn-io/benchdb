@@ -37,11 +37,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Check out product screenshot
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@v7.0.1
         with:
           ref: docs-assets
           path: .ci-docs-assets
@@ -50,7 +50,7 @@ jobs:
         env:
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make docs-screenshots
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.13.4"
           enable-cache: true
@@ -60,6 +60,6 @@ jobs:
           BENCHDB_DOCS_SCREENSHOT_SOURCE_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make build-docs
       - name: Check first paint
-        uses: kenn-io/actions/first-paint@ee1ddcce6a620e49ba96f613bb8d113e0193b4f6 # first-paint, kenn-io/actions#6
+        uses: kenn-io/actions/first-paint@main
         with:
           dist: site
