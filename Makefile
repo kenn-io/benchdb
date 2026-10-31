@@ -31,18 +31,14 @@ STEP := ./scripts/run_step.sh
 DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 
 .PHONY: check-zensical-version
-check-zensical-version: docs-tools
+check-zensical-version:
 	@test -n "$(ZENSICAL_VERSION)" || { echo 'requirements-docs.txt must pin zensical with zensical==<version>'; exit 1; }
 	@$(STEP) "zensical $(ZENSICAL_VERSION)" sh -c '\
-		actual="$$($(ZENSICAL) --version)"; \
+		actual="$$($(DOWNLOAD_RETRY) $(ZENSICAL) --version)" || exit $$?; \
 		if [ "$$actual" != "$(ZENSICAL_VERSION)" ]; then \
 			echo "expected zensical $(ZENSICAL_VERSION), got $$actual"; \
 			exit 1; \
 		fi'
-
-.PHONY: docs-tools
-docs-tools: docs-python
-	@$(STEP) "docs Zensical" $(DOWNLOAD_RETRY) $(ZENSICAL) --version
 
 .PHONY: docs-python
 docs-python:
