@@ -38,7 +38,6 @@ jobs:
           go-version-file: go.mod
           cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - name: Install golangci-lint v2.13.1
         run: |
           cd /tmp
@@ -90,7 +89,6 @@ jobs:
       - name: Require a selected PostgreSQL image
         run: test -n "$BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE"
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - run: make duckdb-extensions
         env:
           DOWNLOAD_RETRY: kit-retry 3 5
@@ -118,7 +116,6 @@ jobs:
         with:
           bun-version: 1.4.4
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - run: kit-retry 3 5 bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check:e2e
@@ -148,8 +145,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - name: Capture dashboard screenshots
         env:
+          DOWNLOAD_RETRY: kit-retry 3 5
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make docs-screenshots
       - name: Check dashboard screenshot inventory
@@ -187,7 +186,6 @@ jobs:
           version: "0.13.4"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - name: Install sqlc v1.30.0
         run: |
           cd /tmp
@@ -216,7 +214,6 @@ jobs:
         with:
           bun-version: 1.4.4
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - run: make build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -307,7 +304,6 @@ jobs:
           node-version: "24.22.1"
           package-manager-cache: false
       - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
-
       - name: Install web deps (pinned Playwright CLI)
         working-directory: web
         run: kit-retry 3 5 bun install --frozen-lockfile

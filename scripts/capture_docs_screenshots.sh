@@ -45,7 +45,7 @@ curl -fsS "$base_url/api/ping" >/dev/null
 curl -fsS "$base_url/series" >/dev/null
 python3 -B "$root/scripts/docs_screenshot_preflight.py" "$base_url"
 
-"${compose[@]}" build docs-screenshots-runner
+${DOWNLOAD_RETRY:-} "${compose[@]}" build docs-screenshots-runner
 "${compose[@]}" run --rm --no-deps docs-screenshots-runner
 
 python3 -B "$root/scripts/docs_screenshot_evidence.py" write \

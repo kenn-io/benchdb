@@ -1,6 +1,3 @@
-# CI can retry acquisition commands inside mixed build/test recipes.
-DOWNLOAD_RETRY ?=
-
 # BenchDB: Go backend + Svelte SPA + generated Go and TypeScript clients.
 #
 # The legacy Flask/Python application and old Python client packages are deleted
@@ -33,14 +30,6 @@ VERCEL ?= vercel
 STEP := ./scripts/run_step.sh
 DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 
-.PHONY: docs-tools
-docs-tools: docs-python
-	@$(STEP) "docs Zensical" $(DOWNLOAD_RETRY) $(ZENSICAL) --version
-
-.PHONY: docs-python
-docs-python:
-	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
-
 .PHONY: check-zensical-version
 check-zensical-version: docs-tools
 	@test -n "$(ZENSICAL_VERSION)" || { echo 'requirements-docs.txt must pin zensical with zensical==<version>'; exit 1; }
@@ -50,6 +39,14 @@ check-zensical-version: docs-tools
 			echo "expected zensical $(ZENSICAL_VERSION), got $$actual"; \
 			exit 1; \
 		fi'
+
+.PHONY: docs-tools
+docs-tools: docs-python
+	@$(STEP) "docs Zensical" $(DOWNLOAD_RETRY) $(ZENSICAL) --version
+
+.PHONY: docs-python
+docs-python:
+	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
 
 .PHONY: docs-link-check
 docs-link-check: docs-python
@@ -205,10 +202,10 @@ go-fmt:
 CUSTOM_GCL := .cache/golangci-lint/custom-gcl$(if $(filter Windows_NT,$(OS)),.exe)
 
 $(CUSTOM_GCL): .custom-gcl.yml
-	GOOS= GOARCH= golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
+	GOOS= GOARCH= $(DOWNLOAD_RETRY) golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
 
 .PHONY: go-lint
-go-lint: $(CUSTOM_GCL) lint-workflow-retries
+go-lint: $(CUSTOM_GCL)
 	$(CUSTOM_GCL) run --fix ./...
 
 .PHONY: go-lint-ci
