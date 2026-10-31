@@ -205,11 +205,11 @@ go-lint: $(CUSTOM_GCL)
 	$(CUSTOM_GCL) run --fix ./...
 
 .PHONY: go-lint-ci
-go-lint-ci: $(CUSTOM_GCL) lint-workflow-retries
+go-lint-ci: $(CUSTOM_GCL)
 	$(CUSTOM_GCL) run ./...
 
 .PHONY: huma-check
-huma-check:
+huma-check: lint-workflow-retries
 	go run go.kenn.io/kit/cmd/huma-check@3e1f59e9011e878ec595aa04aebc8a77c5292c4d ./...
 
 .PHONY: go-vet
