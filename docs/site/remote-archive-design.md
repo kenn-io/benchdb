@@ -2,8 +2,10 @@
 
 This is the proposed extension to [managed Parquet storage](storage-roadmap.md).
 It is partly implemented: [Operations](operations.md#configuration) lists the
-archive settings that exist. S3 and GCS are not yet supported for production:
-provider contract tests remain. A stopped deployment can audit its archive and
+archive settings that exist. S3 and GCS are not yet supported for production.
+[Live tests](contributing.md#live-s3-and-gcs-tests) against real S3 and GCS
+buckets run daily; the cloud cost and latency
+[measurements](#alternatives-and-release-evidence) remain. A stopped deployment can audit its archive and
 transfer it to new storage. Remote reads and
 maintenance units stop at their deadlines, including requests DuckDB makes
 itself. Operators will be
