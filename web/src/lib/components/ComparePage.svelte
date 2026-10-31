@@ -3,6 +3,7 @@
   import { onMount, untrack } from "svelte";
   import {
     NumberInput,
+    PageHeader,
     SelectDropdown,
     type SelectDropdownOption,
   } from "@kenn-io/kit-ui";
@@ -259,11 +260,7 @@
 
 {#if !ready}
   <main class="page compare-page">
-    <header class="page-header">
-      <div>
-        <h1>Compare benchmark results</h1>
-      </div>
-    </header>
+    <PageHeader title="Compare benchmark results" />
 
     {#if selectedSeries === null}
       <section class="panel picker-step" aria-label="Choose a benchmark">
@@ -491,29 +488,30 @@
        selected strip). -->
   {@const m = vm}
   <main class="page compare-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Compare</p>
-        <h1>Compare</h1>
-        <p class="page-subtitle compare-subtitle">
+    <PageHeader title="Compare">
+      {#snippet before()}<p class="eyebrow">Compare</p>{/snippet}
+      {#snippet description()}
+        <span class="compare-subtitle">
           <span>{m.baseline.name}</span>
           {#if m.baseline.paramsText !== ""}<span>{m.baseline.paramsText}</span>{/if}
-        </p>
-      </div>
-      <div class="header-actions">
-        <div class="page-meta">
-          <span>{m.unit} ({m.lessIsBetter ? "lower is better" : "higher is better"})</span>
-          <span>{m.baseline.id} vs {m.contender.id}</span>
+        </span>
+      {/snippet}
+      {#snippet actions()}
+        <div class="header-actions">
+          <div class="page-meta">
+            <span>{m.unit} ({m.lessIsBetter ? "lower is better" : "higher is better"})</span>
+            <span>{m.baseline.id} vs {m.contender.id}</span>
+          </div>
+          <div class="action-row">
+            <a
+              class="button-pill primary"
+              href={appURL(`/benchmarks/history/${m.baseline.id}`)}
+              onclick={(e) => go(e, `/benchmarks/history/${m.baseline.id}`)}
+            >View full trend</a>
+          </div>
         </div>
-        <div class="action-row">
-          <a
-            class="button-pill primary"
-            href={appURL(`/benchmarks/history/${m.baseline.id}`)}
-            onclick={(e) => go(e, `/benchmarks/history/${m.baseline.id}`)}
-          >View full trend</a>
-        </div>
-      </div>
-    </header>
+      {/snippet}
+    </PageHeader>
 
     <section class="panel verdict-panel" aria-label="Comparison verdict">
       <div class="verdict">

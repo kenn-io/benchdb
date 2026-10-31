@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { PageHeader } from "@kenn-io/kit-ui";
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import {
@@ -199,12 +200,9 @@
 </script>
 
 <main class="page results-page">
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Result explorer</p>
-      <h1>Benchmark results</h1>
-    </div>
-  </header>
+  <PageHeader title="Benchmark results">
+    {#snippet before()}<p class="eyebrow">Result explorer</p>{/snippet}
+  </PageHeader>
 
   <div class="filter-toolbar">
     <button

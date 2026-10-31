@@ -918,6 +918,10 @@
       padding: 8px 10px;
       border-bottom: 1px solid var(--c-border-muted);
     }
+    /* The run panel's bottom border closes the table, as on wide screens. */
+    .comparisons tbody tr:last-child {
+      border-bottom: 0;
+    }
     .comparisons td {
       display: grid;
       grid-template-columns: 88px minmax(0, 1fr);

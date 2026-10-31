@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { NumberInput } from "@kenn-io/kit-ui";
+  import { NumberInput, PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -335,18 +335,14 @@
 </script>
 
 <main class="page account-page">
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Account</p>
-      <h1>Account</h1>
-      <p class="page-subtitle">Session identity, user-owned tokens, and server-side alert rules.</p>
-    </div>
-    {#if loadState === "signed-in" && user !== null}
-      <div class="page-actions">
+  <PageHeader title="Account" description="Session identity, user-owned tokens, and server-side alert rules.">
+    {#snippet before()}<p class="eyebrow">Account</p>{/snippet}
+    {#snippet actions()}
+      {#if loadState === "signed-in" && user !== null}
         <button type="button" class="secondary-button" onclick={logout}>Log out</button>
-      </div>
-    {/if}
-  </header>
+      {/if}
+    {/snippet}
+  </PageHeader>
 
   {#if loadState === "loading"}
     <section class="panel empty-panel"><p>Loading…</p></section>
@@ -593,9 +589,6 @@
 <style>
   .account-page {
     gap: 14px;
-  }
-  .page-actions {
-    flex-shrink: 0;
   }
   .secondary-button,
   .inline-form button,

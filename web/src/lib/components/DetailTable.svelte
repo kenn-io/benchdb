@@ -74,6 +74,8 @@
   .detail-list { max-width: 100%; }
   .detail { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   .detail th, .detail td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--c-border); overflow-wrap: anywhere; }
+  /* The surrounding panel's bottom border closes the table. */
+  .detail tbody tr:last-child td { border-bottom: 0; }
   .detail th { color: var(--c-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0; }
   .detail tbody tr { cursor: pointer; }
   .detail tbody tr.selected { background: var(--c-row-hover); }
@@ -99,6 +101,9 @@
     .detail tr {
       padding: 0.55rem 0;
       border-bottom: 1px solid var(--c-border);
+    }
+    .detail tbody tr:last-child {
+      border-bottom: 0;
     }
     .detail td {
       display: grid;

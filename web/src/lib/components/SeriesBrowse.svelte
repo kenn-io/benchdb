@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { SearchInput, SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui";
+  import { PageHeader, SearchInput, SelectDropdown, type SelectDropdownOption } from "@kenn-io/kit-ui";
   import { onDestroy } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -316,13 +316,14 @@
 </script>
 
 <main class="page series-page">
-  <header class="page-header">
-    <div>
+  <PageHeader title="Benchmarks">
+    {#snippet before()}
       <p class="eyebrow">{query.repository === "" ? "All projects" : repositoryLabel(query.repository)}</p>
-      <h1>Benchmarks</h1>
-    </div>
-    <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>All results</a>
-  </header>
+    {/snippet}
+    {#snippet actions()}
+      <a class="button-pill secondary" href={appURL("/results")} onclick={(e) => go(e, "/results")}>All results</a>
+    {/snippet}
+  </PageHeader>
 
   {#if statusCounts !== null && (totalBenchmarks > 0 || query.status !== "")}
     <nav class="status-filters" aria-label="Filter benchmarks by status">
