@@ -34,9 +34,12 @@ STEP := ./scripts/run_step.sh
 DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 
 .PHONY: docs-tools
-docs-tools:
-	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
+docs-tools: docs-python
 	@$(STEP) "docs Zensical" $(DOWNLOAD_RETRY) $(ZENSICAL) --version
+
+.PHONY: docs-python
+docs-python:
+	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
 
 .PHONY: check-zensical-version
 check-zensical-version: docs-tools
@@ -49,7 +52,7 @@ check-zensical-version: docs-tools
 		fi'
 
 .PHONY: docs-link-check
-docs-link-check: docs-tools
+docs-link-check: docs-python
 	@$(STEP) "docs checker tests" $(DOCS_PY) -m unittest \
 		scripts.test_docs_links scripts.test_docs_rendered_assets scripts.test_build_docs_site
 	@$(STEP) --summary "docs links" $(DOCS_PY) scripts/docs_links.py
@@ -303,4 +306,4 @@ e2e:
 
 .PHONY: lint-workflow-retries
 lint-workflow-retries:
-	GOOS= GOARCH= go run go.kenn.io/kit/cmd/kennlint@v0.47.3 workflow-retries
+	CGO_ENABLED=0 GOOS= GOARCH= go run go.kenn.io/kit/cmd/kennlint@v0.47.3 workflow-retries
