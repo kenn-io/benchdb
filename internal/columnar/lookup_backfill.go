@@ -1254,12 +1254,22 @@ func (b *lookupBuild) install(ctx context.Context, cycle uuid.UUID, partitions m
 // restore can do that, for example by giving rows back to a logical file
 // that was empty at the capture. The capture is then stale, and the build
 // starts again from a new one.
+//
+// Every ID created after the capture is staged, so a restored file is the
+// location of a logical file the capture knew. A manifest file with no
+// logical file ID at all is not something a restore produces. It is reported
+// as a failure instead: restarting would hide the fault in a silent rebuild
+// that repeats every cycle.
 func (b *lookupBuild) checkCoverage(ctx context.Context, pg pgx.Tx, staged []string) error {
 	ids := append(b.capturedIDs(), staged...)
-	var uncovered int
-	if err := pg.QueryRow(ctx, `SELECT count(*) FROM archive_file f WHERE NOT EXISTS
-(SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path AND l.id=ANY($1::uuid[]))`, ids).Scan(&uncovered); err != nil {
+	var uncovered, unlocated int
+	if err := pg.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path))
+FROM archive_file f WHERE NOT EXISTS
+(SELECT 1 FROM archive_file_location l WHERE l.archive_path=f.path AND l.id=ANY($1::uuid[]))`, ids).Scan(&uncovered, &unlocated); err != nil {
 		return fmt.Errorf("check lookup backfill coverage: %w", err)
+	}
+	if unlocated > 0 {
+		return fmt.Errorf("lookup backfill coverage: %d manifest files have no logical file ID, which a database restore cannot cause; the lookup directory stays incomplete until this is repaired", unlocated)
 	}
 	if uncovered > 0 {
 		return fmt.Errorf("%w: lookup backfill covers neither the capture nor a later export of %d manifest files",

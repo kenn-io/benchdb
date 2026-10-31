@@ -1032,3 +1032,38 @@ VALUES ($1,$2,$3,date_trunc('month',$4::timestamptz),true)`, deleted.id, deleted
 	}
 	assertLookupsResolve(t, ctx, e, restored)
 }
+
+// TestLookupBackfillReportsFileWithoutLogicalID publishes a manifest file
+// with no logical file ID after the capture, as only a bug could. The build
+// reports the fault instead of treating it as a stale capture, which would
+// discard the work and rebuild silently.
+func TestLookupBackfillReportsFileWithoutLogicalID(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	dir := t.TempDir()
+	e := openLookupArchiveIn(t, ctx, pool, dir)
+	e.lookupBackfillBudget = 0
+	insertLookupResults(t, ctx, pool, legacyFixtures(2, 3)...)
+	paths := exportSettled(t, ctx, e, pool)
+	require.Len(t, paths, 2)
+	complete, err := runBackfill(ctx, e) // The capture.
+	require.NoError(t, err)
+	require.False(t, complete)
+	orphan := "data/2023-01-without-logical-id.parquet"
+	data, err := os.ReadFile(filepath.Join(dir, paths[0]))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, orphan), data, 0o600))
+	_, err = pool.Exec(ctx, `INSERT INTO archive_file(path,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,series_bytes)
+SELECT $2,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,series_bytes FROM archive_file WHERE path=$1`, paths[0], orphan)
+	require.NoError(t, err)
+
+	for calls := 0; err == nil; calls++ {
+		require.Less(t, calls, 200, "the build reaches the coverage check")
+		complete, err = runBackfill(ctx, e)
+		require.False(t, complete, "the build cannot complete without the file's logical ID")
+	}
+	require.ErrorContains(t, err, "have no logical file ID")
+	assert.NotErrorIs(t, err, errStaleBackfill, "the fault is reported, not rebuilt away")
+	_, again := runBackfill(ctx, e)
+	require.ErrorContains(t, again, "have no logical file ID", "the next cycle reports it again")
+	assert.False(t, directoryComplete(t, ctx, pool))
+}
