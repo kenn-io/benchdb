@@ -283,7 +283,7 @@ web-build:
 
 .PHONY: duckdb-extensions
 duckdb-extensions:
-	scripts/install_duckdb_extensions.sh "$(BENCHDB_DUCKDB_EXTENSION_DIR)"
+	$(DOWNLOAD_RETRY) scripts/install_duckdb_extensions.sh "$(BENCHDB_DUCKDB_EXTENSION_DIR)"
 
 .PHONY: build
 build: web-build duckdb-extensions

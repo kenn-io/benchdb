@@ -277,6 +277,8 @@ jobs:
       - run: make docs-screenshots-check
 
   e2e:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 25
     steps:
