@@ -227,12 +227,16 @@ jobs:
           retention-days: 14
 
   server-container:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+      - run: kit-retry 3 5 docker compose -f docker-compose.server.yml pull --policy missing db
       - run: make server-image-extension-check
       - run: make server-container-smoke
       # Check the dashboard and the API reference at /docs as the binary serves them.

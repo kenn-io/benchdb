@@ -38,7 +38,7 @@ export BENCHDB_DOCS_SCREENSHOT_GID="${BENCHDB_DOCS_SCREENSHOT_GID:-$(id -g)}"
 
 "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 ${DOWNLOAD_RETRY:-} "${compose[@]}" build server
-${DOWNLOAD_RETRY:-} "${compose[@]}" pull db
+${DOWNLOAD_RETRY:-} "${compose[@]}" pull --policy missing db
 DCOMP_BENCHDB_SERVER_HOST_PORT="$host_port" \
 	DCOMP_BENCHDB_AUTH_DISABLED="$auth_disabled" \
 	"${compose[@]}" up --no-build --wait --detach db server

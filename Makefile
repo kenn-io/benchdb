@@ -135,11 +135,11 @@ SERVER_CONTAINER_SMOKE_URL ?= http://127.0.0.1:18080
 
 .PHONY: server-container-build
 server-container-build:
-	$(SERVER_COMPOSE) build server
+	$(DOWNLOAD_RETRY) $(SERVER_COMPOSE) build server
 
 .PHONY: server-container-up
-server-container-up:
-	$(SERVER_COMPOSE) up --build --wait --detach
+server-container-up: server-container-build
+	$(SERVER_COMPOSE) up --no-build --wait --detach
 
 .PHONY: server-container-down
 server-container-down:
@@ -147,15 +147,15 @@ server-container-down:
 
 # Load the image's packaged DuckDB extensions with networking disabled.
 .PHONY: server-image-extension-check
-server-image-extension-check:
+server-image-extension-check: server-container-build
 	docker build --file Dockerfile.server --target extension-check .
 
 .PHONY: server-container-smoke
-server-container-smoke:
+server-container-smoke: server-container-build
 	@set -e; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(SERVER_COMPOSE) logs --since 30m; fi; $(SERVER_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; exit $$status' EXIT; \
 	$(SERVER_COMPOSE) down -v --remove-orphans; \
-	DCOMP_BENCHDB_SERVER_HOST_PORT="$(SERVER_CONTAINER_SMOKE_HOST_PORT)" $(SERVER_COMPOSE) up --build --wait --detach; \
+	DCOMP_BENCHDB_SERVER_HOST_PORT="$(SERVER_CONTAINER_SMOKE_HOST_PORT)" $(SERVER_COMPOSE) up --no-build --wait --detach; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/api/ping" >/dev/null; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/metrics" | grep -F "benchdb_up 1" >/dev/null; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/docs" >/dev/null; \
