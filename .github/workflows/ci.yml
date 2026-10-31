@@ -48,6 +48,7 @@ jobs:
           sudo install golangci-lint-2.13.1-linux-amd64/golangci-lint /usr/local/bin/golangci-lint
           golangci-lint version
       - run: make migration-history-check
+      - run: GOFLAGS="${GOFLAGS:+$GOFLAGS }-n" kit-retry 3 5 make huma-check lint-workflow-retries
       - run: make huma-check
       - run: make go-lint-ci
       - name: Install Windows C/C++ cross compiler
