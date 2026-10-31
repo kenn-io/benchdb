@@ -1062,7 +1062,7 @@ SELECT $2,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,s
 		require.False(t, complete, "the build cannot complete without the file's logical ID")
 	}
 	require.ErrorContains(t, err, "have no logical file ID")
-	assert.NotErrorIs(t, err, errStaleBackfill, "the fault is reported, not rebuilt away")
+	require.NotErrorIs(t, err, errStaleBackfill, "the fault is reported, not rebuilt away")
 	_, again := runBackfill(ctx, e)
 	require.ErrorContains(t, again, "have no logical file ID", "the next cycle reports it again")
 	assert.False(t, directoryComplete(t, ctx, pool))
