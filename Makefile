@@ -33,8 +33,13 @@ VERCEL ?= vercel
 STEP := ./scripts/run_step.sh
 DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 
+.PHONY: docs-tools
+docs-tools:
+	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
+	@$(STEP) "docs Zensical" $(DOWNLOAD_RETRY) $(ZENSICAL) --version
+
 .PHONY: check-zensical-version
-check-zensical-version:
+check-zensical-version: docs-tools
 	@test -n "$(ZENSICAL_VERSION)" || { echo 'requirements-docs.txt must pin zensical with zensical==<version>'; exit 1; }
 	@$(STEP) "zensical $(ZENSICAL_VERSION)" sh -c '\
 		actual="$$($(ZENSICAL) --version)"; \
@@ -44,7 +49,7 @@ check-zensical-version:
 		fi'
 
 .PHONY: docs-link-check
-docs-link-check:
+docs-link-check: docs-tools
 	@$(STEP) "docs checker tests" $(DOCS_PY) -m unittest \
 		scripts.test_docs_links scripts.test_docs_rendered_assets scripts.test_build_docs_site
 	@$(STEP) --summary "docs links" $(DOCS_PY) scripts/docs_links.py

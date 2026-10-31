@@ -32,6 +32,8 @@ permissions: {}
 
 jobs:
   build:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -54,6 +56,7 @@ jobs:
         with:
           version: "0.13.4"
           enable-cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - name: Build the complete website
         env:
           BENCHDB_DOCS_ASSET_SOURCE: ${{ github.workspace }}/.ci-docs-assets/benchmark-series.png

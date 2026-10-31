@@ -126,6 +126,8 @@ jobs:
       - run: bun run test
 
   docs:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 10
     steps:
@@ -136,6 +138,7 @@ jobs:
         with:
           version: "0.13.4"
           enable-cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - run: make build-docs-ci
 
   docs-screenshots:
@@ -263,6 +266,8 @@ jobs:
       - run: make go-deploy-manifest-check
 
   workflows:
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
     runs-on: namespace-profile-linux-4cpu
     timeout-minutes: 10
     steps:
@@ -273,6 +278,7 @@ jobs:
         with:
           version: "0.13.4"
           enable-cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
       - run: make docs-link-check
       - run: make docs-screenshots-check
 
