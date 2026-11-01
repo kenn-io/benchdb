@@ -31,7 +31,7 @@ if [[ -n "$source_dir" ]]; then
 elif screenshots_are_valid "$destination"; then
 	echo "using verified dashboard screenshots in ${destination#"$root"/}"
 	exit 0
-elif git fetch --quiet --depth=1 "$remote" docs-screenshots; then
+elif ${DOWNLOAD_RETRY:-} git fetch --quiet --depth=1 "$remote" docs-screenshots; then
 	git archive FETCH_HEAD latest | tar -x -C "$stage"
 else
 	echo "error: could not fetch docs-screenshots and no verified local screenshots exist" >&2

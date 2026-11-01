@@ -25,7 +25,7 @@ if [[ -n "$source_file" ]]; then
   fi
   cp "$source_file" "$stage/$asset"
   echo "staged $asset from BENCHDB_DOCS_ASSET_SOURCE"
-elif git fetch --quiet --depth=1 "$remote" docs-assets; then
+elif ${DOWNLOAD_RETRY:-} git fetch --quiet --depth=1 "$remote" docs-assets; then
   git show "FETCH_HEAD:$asset" > "$stage/$asset"
 elif cached_asset_is_valid; then
   echo "using verified cached $destination"

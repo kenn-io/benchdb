@@ -34,14 +34,18 @@ DOCS_PY := env PYTHONDONTWRITEBYTECODE=1 uv run --quiet --with tomli python -B
 check-zensical-version:
 	@test -n "$(ZENSICAL_VERSION)" || { echo 'requirements-docs.txt must pin zensical with zensical==<version>'; exit 1; }
 	@$(STEP) "zensical $(ZENSICAL_VERSION)" sh -c '\
-		actual="$$($(ZENSICAL) --version)"; \
+		actual="$$($(DOWNLOAD_RETRY) $(ZENSICAL) --version)" || exit $$?; \
 		if [ "$$actual" != "$(ZENSICAL_VERSION)" ]; then \
 			echo "expected zensical $(ZENSICAL_VERSION), got $$actual"; \
 			exit 1; \
 		fi'
 
+.PHONY: docs-python
+docs-python:
+	@$(STEP) "docs Python" $(DOWNLOAD_RETRY) $(DOCS_PY) -c 'pass'
+
 .PHONY: docs-link-check
-docs-link-check:
+docs-link-check: docs-python
 	@$(STEP) "docs checker tests" $(DOCS_PY) -m unittest \
 		scripts.test_docs_links scripts.test_docs_rendered_assets scripts.test_build_docs_site
 	@$(STEP) --summary "docs links" $(DOCS_PY) scripts/docs_links.py
@@ -131,11 +135,11 @@ SERVER_CONTAINER_SMOKE_URL ?= http://127.0.0.1:18080
 
 .PHONY: server-container-build
 server-container-build:
-	$(SERVER_COMPOSE) build server
+	$(DOWNLOAD_RETRY) $(SERVER_COMPOSE) build server
 
 .PHONY: server-container-up
-server-container-up:
-	$(SERVER_COMPOSE) up --build --wait --detach
+server-container-up: server-container-build
+	$(SERVER_COMPOSE) up --no-build --wait --detach
 
 .PHONY: server-container-down
 server-container-down:
@@ -143,15 +147,15 @@ server-container-down:
 
 # Load the image's packaged DuckDB extensions with networking disabled.
 .PHONY: server-image-extension-check
-server-image-extension-check:
+server-image-extension-check: server-container-build
 	docker build --file Dockerfile.server --target extension-check .
 
 .PHONY: server-container-smoke
-server-container-smoke:
+server-container-smoke: server-container-build
 	@set -e; \
 	trap 'status=$$?; if [ $$status -ne 0 ]; then $(SERVER_COMPOSE) logs --since 30m; fi; $(SERVER_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; exit $$status' EXIT; \
 	$(SERVER_COMPOSE) down -v --remove-orphans; \
-	DCOMP_BENCHDB_SERVER_HOST_PORT="$(SERVER_CONTAINER_SMOKE_HOST_PORT)" $(SERVER_COMPOSE) up --build --wait --detach; \
+	DCOMP_BENCHDB_SERVER_HOST_PORT="$(SERVER_CONTAINER_SMOKE_HOST_PORT)" $(SERVER_COMPOSE) up --no-build --wait --detach; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/api/ping" >/dev/null; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/metrics" | grep -F "benchdb_up 1" >/dev/null; \
 	curl -fsS "$(SERVER_CONTAINER_SMOKE_URL)/docs" >/dev/null; \
@@ -194,7 +198,7 @@ go-fmt:
 CUSTOM_GCL := .cache/golangci-lint/custom-gcl$(if $(filter Windows_NT,$(OS)),.exe)
 
 $(CUSTOM_GCL): .custom-gcl.yml
-	GOOS= GOARCH= golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
+	GOOS= GOARCH= $(DOWNLOAD_RETRY) golangci-lint custom --destination .cache/golangci-lint --name custom-gcl
 
 .PHONY: go-lint
 go-lint: $(CUSTOM_GCL)
@@ -205,7 +209,7 @@ go-lint-ci: $(CUSTOM_GCL)
 	$(CUSTOM_GCL) run ./...
 
 .PHONY: huma-check
-huma-check:
+huma-check: lint-workflow-retries
 	go run go.kenn.io/kit/cmd/huma-check@3e1f59e9011e878ec595aa04aebc8a77c5292c4d ./...
 
 .PHONY: go-vet
@@ -243,14 +247,14 @@ openapi:
 # TypeScript client: Orval generates typed operations and models.
 .PHONY: codegen-ts
 codegen-ts:
-	cd web && bun install --frozen-lockfile
+	cd web && $(DOWNLOAD_RETRY) bun install --frozen-lockfile
 	cd web && bun run codegen
 
 # Go client: oapi-codegen-dd generates operations and models from OpenAPI 3.1.
 # Run `go mod tidy` after changing the spec.
 .PHONY: codegen-go
 codegen-go:
-	go run github.com/doordash-oss/oapi-codegen-dd/v3/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
+	$(DOWNLOAD_RETRY) go run github.com/doordash-oss/oapi-codegen-dd/v3/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) \
 		-config sdk/go/benchdb/oapi-codegen.yaml api/openapi.yaml
 
 .PHONY: codegen
@@ -275,12 +279,12 @@ codegen-check: codegen
 # build's exit status is preserved so a failed web build still fails the target.
 .PHONY: web-build
 web-build:
-	cd web && bun install --frozen-lockfile
+	cd web && $(DOWNLOAD_RETRY) bun install --frozen-lockfile
 	cd web && bun run build; status=$$?; git -C "$(CURDIR)" checkout -- web/dist/.gitkeep; exit $$status
 
 .PHONY: duckdb-extensions
 duckdb-extensions:
-	scripts/install_duckdb_extensions.sh "$(BENCHDB_DUCKDB_EXTENSION_DIR)"
+	$(DOWNLOAD_RETRY) scripts/install_duckdb_extensions.sh "$(BENCHDB_DUCKDB_EXTENSION_DIR)"
 
 .PHONY: build
 build: web-build duckdb-extensions
@@ -292,3 +296,7 @@ build: web-build duckdb-extensions
 .PHONY: e2e
 e2e:
 	./scripts/e2e.sh
+
+.PHONY: lint-workflow-retries
+lint-workflow-retries:
+	CGO_ENABLED=0 GOOS= GOARCH= go run go.kenn.io/kit/cmd/kennlint@v0.47.3 workflow-retries
