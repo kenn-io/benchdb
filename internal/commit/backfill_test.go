@@ -59,7 +59,7 @@ func commitListJSON(t *testing.T, items [][2]string) []byte {
 func TestBackfillerShutdownReportsNoTimeoutWhenDrained(t *testing.T) {
 	b := commit.NewBackfiller(commit.NewGitHubClient("", ""), blockingBackfillStore{})
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	timedOut := b.Shutdown(shutdownCtx)
 
@@ -75,7 +75,7 @@ func TestBackfillerShutdownReportsTimeoutBranch(t *testing.T) {
 		Until:         time.Date(2021, 1, 4, 0, 0, 0, 0, time.UTC),
 	})
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond) //nolint:kennlint // deadlinetest: the deadline is the expected result; blockingBackfillStore holds the job until its context ends
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), time.Millisecond) //nolint:kennlint // deadlinetest: the deadline is the expected result; blockingBackfillStore holds the job until its context ends
 	defer cancel()
 	timedOut := b.Shutdown(shutdownCtx)
 
@@ -112,7 +112,7 @@ func TestBackfillerInsertsWindowExclusiveBounds(t *testing.T) {
 		RepoURL: repoURL, Spec: "org/repo", DefaultBranch: branch,
 		Until: time.Date(2021, 1, 4, 0, 0, 0, 0, time.UTC),
 	})
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 
@@ -146,7 +146,7 @@ func TestBackfillerNoTrackedCommitUsesEpoch(t *testing.T) {
 		RepoURL: repoURL, Spec: "org/repo", DefaultBranch: "org:main",
 		Until: time.Date(2021, 1, 4, 0, 0, 0, 0, time.UTC),
 	})
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 
@@ -193,7 +193,7 @@ func TestBackfillerQueuesEveryInFlightJob(t *testing.T) {
 	b.Enqueue(job)
 	close(release)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 
@@ -236,7 +236,7 @@ func TestBackfillerPreservesOutOfOrderPendingWindows(t *testing.T) {
 	b.Enqueue(job(2))
 	close(release)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 
@@ -261,7 +261,7 @@ func TestBackfillerAPIFailureIsSwallowed(t *testing.T) {
 		RepoURL: repoURL, Spec: "org/repo", DefaultBranch: "org:main",
 		Until: time.Date(2021, 1, 4, 0, 0, 0, 0, time.UTC),
 	})
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx) // must return; the failure is logged, not propagated
 }
@@ -272,7 +272,7 @@ func TestBackfillerEnqueueAfterShutdownDropped(t *testing.T) {
 	srv := githubtest.NewServer(t)
 
 	b := commit.NewBackfiller(commit.NewGitHubClient("", srv.URL), store)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 	b.Enqueue(commit.BackfillJob{RepoURL: repoURL, Spec: "org/repo", DefaultBranch: "org:main", Until: time.Now().UTC()})

@@ -394,7 +394,7 @@ func prodCloneForwardCommand(name, short string, stdout, stderr io.Writer, specs
 			forwarded := make([]string, 0, len(args)+1)
 			forwarded = append(forwarded, name)
 			forwarded = appendProdCloneChangedFlags(forwarded, cmd.Flags(), specs, stringValues, boolValues)
-			code := prodclone.Run("benchdb admin prod-clone", forwarded, stdout, stderr)
+			code := prodclone.Run(cmd.Context(), "benchdb admin prod-clone", forwarded, stdout, stderr)
 			if code != 0 {
 				return suppressedExitError{code: code}
 			}

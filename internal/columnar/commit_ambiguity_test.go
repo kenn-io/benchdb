@@ -44,7 +44,7 @@ func TestCleanupPreservesUncertainPublication(t *testing.T) {
 
 	// A real TCP relay lets the publisher lose its connection without closing
 	// the backend socket or the other established pool connections.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	var relayMu sync.Mutex
 	var relays []net.Conn

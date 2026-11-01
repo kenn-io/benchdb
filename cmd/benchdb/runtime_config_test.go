@@ -47,14 +47,14 @@ func TestMaintenanceRejectsBrokenPrimarySource(t *testing.T) {
 }
 
 func TestMigrateRedactsInvalidDatabaseURL(t *testing.T) {
-	err := runMigrateReal(context.Background(), "host=localhost port=private-marker password=private-password")
+	err := runMigrateReal(t.Context(), "host=localhost port=private-marker password=private-password")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "private-password")
 	assert.NotContains(t, err.Error(), "private-marker")
 }
 
 func TestMigratePreservesDatabaseConnectionCause(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	err := runMigrateReal(ctx, "postgres://localhost/unused")
 	require.ErrorIs(t, err, context.Canceled)

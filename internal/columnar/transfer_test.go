@@ -20,7 +20,7 @@ import (
 type transferFixture struct {
 	remote   remoteArchive
 	gateway  *s3Gateway
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // the fixture belongs to one test and holds that test's context
 	dir      string
 	source   *Engine
 	fixtures []lookupFixture

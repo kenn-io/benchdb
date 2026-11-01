@@ -176,7 +176,7 @@ func TestRetentionFromEnv(t *testing.T) {
 		_, err := ConfigFromEnv()
 		require.ErrorContains(t, err, "BENCHDB_ARCHIVE_RETENTION", invalid)
 	}
-	_, err = Open(context.Background(), nil, Config{Dir: t.TempDir(), Retention: -time.Hour})
+	_, err = Open(t.Context(), nil, Config{Dir: t.TempDir(), Retention: -time.Hour})
 	require.ErrorContains(t, err, "BENCHDB_ARCHIVE_RETENTION")
 }
 

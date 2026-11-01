@@ -1,7 +1,6 @@
 package commit_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -16,7 +15,7 @@ var _ commit.Provider = commit.LocalProvider{}
 
 func TestLocalProviderSynthesizesDefaultBranchCommit(t *testing.T) {
 	ts := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	info, err := commit.LocalProvider{}.Resolve(context.Background(), commit.Request{
+	info, err := commit.LocalProvider{}.Resolve(t.Context(), commit.Request{
 		Commit:          "abc123",
 		Repository:      "https://github.com/org/repo",
 		ResultTimestamp: ts,
@@ -38,7 +37,7 @@ func TestLocalProviderSynthesizesDefaultBranchCommit(t *testing.T) {
 }
 
 func TestLocalProviderStripsTrailingSlash(t *testing.T) {
-	info, err := commit.LocalProvider{}.Resolve(context.Background(), commit.Request{
+	info, err := commit.LocalProvider{}.Resolve(t.Context(), commit.Request{
 		Commit:          "x",
 		Repository:      "https://github.com/org/repo///",
 		ResultTimestamp: time.Unix(0, 0).UTC(),
@@ -48,7 +47,7 @@ func TestLocalProviderStripsTrailingSlash(t *testing.T) {
 }
 
 func TestLocalProviderNoCommitHashYieldsNil(t *testing.T) {
-	info, err := commit.LocalProvider{}.Resolve(context.Background(), commit.Request{
+	info, err := commit.LocalProvider{}.Resolve(t.Context(), commit.Request{
 		Commit:          "",
 		Repository:      "https://github.com/org/repo",
 		ResultTimestamp: time.Unix(0, 0).UTC(),

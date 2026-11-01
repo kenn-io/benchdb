@@ -20,11 +20,11 @@ func TestMetricsEndpointReportsRequests(t *testing.T) {
 	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "text/plain; version=0.0.4; charset=utf-8", rec.Header().Get("Content-Type"))
 	body := rec.Body.String()
@@ -39,7 +39,7 @@ func TestMetricsEndpointReportsUnknownCommitCountForLocalProvider(t *testing.T) 
 	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "# HELP benchdb_github_unknown_commits_total")
@@ -52,7 +52,7 @@ func TestMetricsEndpointReportsUnknownCommitCountFromProvider(t *testing.T) {
 	handler := newHandler(nil, auth.New("", true, nil, nil), fakeUnknownCommitProvider{count: 42}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "benchdb_github_unknown_commits_total 42\n")
 }
@@ -68,7 +68,7 @@ func TestMetricsDistinguishesFailedAndInterruptedMaintenance(t *testing.T) {
 			recorder := newMetricsRecorder(nil)
 			recorder.storage = maintenanceMetricStatus{state: tc.state}
 			response := httptest.NewRecorder()
-			recorder.serveMetrics(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			recorder.serveMetrics(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 
 			require.Equal(t, http.StatusOK, response.Code)
 			assert.Contains(t, response.Body.String(), tc.failed)
@@ -88,11 +88,11 @@ func TestMetricsRouteLabelsAvoidRawIDs(t *testing.T) {
 	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/unknown/abc123", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/unknown/abc123", nil))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, `route="/api/*"`)
@@ -111,11 +111,11 @@ func TestMetricsMethodLabelsAvoidRawInput(t *testing.T) {
 	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest("BREW", "/api/ping", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "BREW", "/api/ping", nil))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, `benchdb_http_requests_total{method="OTHER",route="/api/ping",status="404"} 1`)

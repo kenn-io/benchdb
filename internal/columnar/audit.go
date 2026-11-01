@@ -38,7 +38,7 @@ func (e *Engine) AuditArchive(ctx context.Context) (result AuditResult, err erro
 		return AuditResult{}, err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, guard.Close(closeCtx))
 	}()

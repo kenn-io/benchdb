@@ -847,7 +847,8 @@ func runAdminRepairReal(ctx context.Context, cfg adminRepairConfig, _ io.Writer,
 		Backfill:   cfg.Backfill,
 	})
 	if backfiller != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.BackfillTimeout)
+		// The drain gets its own budget even after ctx has ended.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.BackfillTimeout)
 		if backfiller.Shutdown(shutdownCtx) {
 			summary.BackfillTimedOut = true
 			if err == nil {

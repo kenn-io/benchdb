@@ -43,7 +43,7 @@ func TestRunArchivesDueResultsAndServesThem(t *testing.T) {
 	summary, err := seed.Run(ctx, db.NewStore(pool))
 	require.NoError(t, err)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -67,7 +67,7 @@ func TestRunArchivesDueResultsAndServesThem(t *testing.T) {
 
 	client := &http.Client{Timeout: time.Second}
 	require.Eventually(t, func() bool {
-		response, err := client.Get("http://" + address + "/api/ping")
+		response, err := get(t, client, "http://"+address+"/api/ping")
 		if err != nil {
 			return false
 		}
@@ -81,7 +81,7 @@ func TestRunArchivesDueResultsAndServesThem(t *testing.T) {
 		}
 		return hot == 0 && archived == int64(summary.Inserted)
 	}, 20*time.Second, 50*time.Millisecond, "server did not automatically archive settled results")
-	response, err := client.Get("http://" + address + "/api/benchmark-results/" + summary.ProductSmoke.LatestResultID)
+	response, err := get(t, client, "http://"+address+"/api/benchmark-results/"+summary.ProductSmoke.LatestResultID)
 	require.NoError(t, err)
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)

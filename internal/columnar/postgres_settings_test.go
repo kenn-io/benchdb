@@ -130,7 +130,7 @@ func holdSessionLock(t *testing.T, ctx context.Context, pool *pgxpool.Pool, key 
 	// Release may run on a timer goroutine; the test checks its result.
 	var releaseErr error
 	release = sync.OnceFunc(func() {
-		_, releaseErr = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, key)
+		_, releaseErr = conn.Exec(t.Context(), `SELECT pg_advisory_unlock($1)`, key)
 		conn.Release()
 	})
 	t.Cleanup(func() {
@@ -265,7 +265,7 @@ func outlastInheritedTimeouts(t *testing.T, ctx context.Context, e *Engine, dire
 		if _, err := blocker.Exec(ctx, `LOCK TABLE inherited_probe IN ACCESS EXCLUSIVE MODE`); err != nil {
 			return errors.Join(err, blocker.Rollback(ctx))
 		}
-		time.AfterFunc(hold, func() { _ = blocker.Rollback(context.Background()) })
+		time.AfterFunc(hold, func() { _ = blocker.Rollback(context.WithoutCancel(t.Context())) })
 		if err := snapshot.QueryRowContext(ctx, `SELECT count(*) FROM pg.public.inherited_probe`).Scan(&n); err != nil {
 			return fmt.Errorf("DuckDB lock wait: %w", err)
 		}

@@ -91,6 +91,23 @@ approvals, token permissions, and secrets are separate controls.
   `make go-lint-ci` for Go changes. Run `prek run` before committing; the
   pre-push hook runs huma-check, golangci-lint, and short tests.
 
+## Context cancellation
+
+- A function that queries PostgreSQL, calls HTTP or object storage, runs a
+  process, or waits takes `ctx context.Context` first and passes it on. CLI
+  commands pass `cmd.Context()`. Only `main` and long-lived owners such as the
+  archive engine and the backfill worker start from `context.Background()`,
+  with a comment saying why.
+- Cleanup that must finish after cancellation, such as a rollback, unlock,
+  guard release, or server shutdown, runs under a fresh timeout that the
+  caller's cancellation cannot end. Derive it with `context.WithoutCancel(ctx)`
+  when the caller's context is in scope; the columnar `rollback` and `discard`
+  helpers start their own.
+- Tests use `t.Context()`. `t.Cleanup` callbacks run after it is canceled, so
+  they use `context.WithoutCancel(t.Context())`.
+- `.golangci.yml` enables `noctx`, `containedctx`, `fatcontext`, and
+  `usetesting` with its context checks; govet's `lostcancel` stays on.
+
 <!-- BEGIN KATA (managed by `kata init --with-agents`) -->
 ## kata issue tracker
 

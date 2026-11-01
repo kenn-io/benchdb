@@ -60,7 +60,7 @@ func TestCursorRepositoryMismatchWithFilterReturnsError(t *testing.T) {
 	cursor := Cursor{Repository: "https://github.com/org/repo", Sha: "abc123"}
 	r := NewRepairer(&fakeStore{}, &fakeEnricher{}, &fakeBackfiller{})
 
-	_, err := r.Run(context.Background(), Options{Repository: &repo, Limit: 1, Cursor: &cursor})
+	_, err := r.Run(t.Context(), Options{Repository: &repo, Limit: 1, Cursor: &cursor})
 
 	require.Error(t, err)
 }
@@ -68,7 +68,7 @@ func TestCursorRepositoryMismatchWithFilterReturnsError(t *testing.T) {
 func TestRunInvalidLimitReturnsError(t *testing.T) {
 	r := NewRepairer(&fakeStore{}, &fakeEnricher{}, nil)
 
-	_, err := r.Run(context.Background(), Options{Limit: 0})
+	_, err := r.Run(t.Context(), Options{Limit: 0})
 
 	require.Error(t, err)
 }
@@ -76,7 +76,7 @@ func TestRunInvalidLimitReturnsError(t *testing.T) {
 func TestRunNilStoreReturnsConfigurationError(t *testing.T) {
 	r := NewRepairer(nil, &fakeEnricher{}, nil)
 
-	_, err := r.Run(context.Background(), Options{Limit: 1})
+	_, err := r.Run(t.Context(), Options{Limit: 1})
 
 	require.Error(t, err)
 }
@@ -84,7 +84,7 @@ func TestRunNilStoreReturnsConfigurationError(t *testing.T) {
 func TestRunNilEnricherReturnsConfigurationError(t *testing.T) {
 	r := NewRepairer(&fakeStore{}, nil, nil)
 
-	_, err := r.Run(context.Background(), Options{Limit: 1})
+	_, err := r.Run(t.Context(), Options{Limit: 1})
 
 	require.Error(t, err)
 }
@@ -94,7 +94,7 @@ func TestRunStoreSelectErrorReturnsError(t *testing.T) {
 	store := &fakeStore{selectErr: wantErr}
 	r := NewRepairer(store, &fakeEnricher{}, nil)
 
-	_, err := r.Run(context.Background(), Options{Limit: 1})
+	_, err := r.Run(t.Context(), Options{Limit: 1})
 
 	require.ErrorIs(t, err, wantErr)
 }
@@ -110,7 +110,7 @@ func TestRunDryRunEnrichesWithoutUpdatingOrBackfilling(t *testing.T) {
 	backfiller := &fakeBackfiller{}
 	r := NewRepairer(store, enricher, backfiller)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10, DryRun: true, Backfill: true})
+	summary, err := r.Run(t.Context(), Options{Limit: 10, DryRun: true, Backfill: true})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Scanned)
@@ -129,7 +129,7 @@ func TestRunUnsupportedRepositoryIncrementsUnsupportedRepository(t *testing.T) {
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.UnsupportedRepository)
@@ -138,7 +138,7 @@ func TestRunUnsupportedRepositoryIncrementsUnsupportedRepository(t *testing.T) {
 }
 
 func TestRunContextCanceledBeforeSelectReturnsError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	store := &fakeStore{candidates: []storage.UnknownCommitCandidate{
 		candidate("id-1", "https://github.com/org/repo", "abc123"),
@@ -152,7 +152,7 @@ func TestRunContextCanceledBeforeSelectReturnsError(t *testing.T) {
 }
 
 func TestRunEnrichContextCancellationReturnsTopLevelError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	store := &fakeStore{candidates: []storage.UnknownCommitCandidate{
 		candidate("id-1", "https://github.com/org/repo", "abc123"),
 	}}
@@ -171,7 +171,7 @@ func TestRunEnrichContextCancellationReturnsTopLevelError(t *testing.T) {
 }
 
 func TestRunEnrichContextDeadlineReturnsTopLevelError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	store := &fakeStore{candidates: []storage.UnknownCommitCandidate{
 		candidate("id-1", "https://github.com/org/repo", "abc123"),
 	}}
@@ -195,7 +195,7 @@ func TestRunPerRequestDeadlineRecordsFailureWhenParentContextIsLive(t *testing.T
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Failed)
@@ -216,7 +216,7 @@ func TestRunEnrichmentFailureIncrementsFailedAndBoundsFailureSamples(t *testing.
 	enricher := &fakeEnricher{errs: errs}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 11})
+	summary, err := r.Run(t.Context(), Options{Limit: 11})
 
 	require.NoError(t, err)
 	assert.Equal(t, 11, summary.Failed)
@@ -237,7 +237,7 @@ func TestRunTracksAuthOrQuotaFailuresBeyondFailureSamples(t *testing.T) {
 	enricher := &fakeEnricher{errs: errs}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 11})
+	summary, err := r.Run(t.Context(), Options{Limit: 11})
 
 	require.NoError(t, err)
 	assert.Equal(t, 11, summary.Failed)
@@ -258,7 +258,7 @@ func TestRunClassifiesRealGitHubClientUnauthorizedFailure(t *testing.T) {
 	provider := commit.NewGitHubProvider(client, time.Second, nil)
 	repairer := NewRepairer(store, provider, nil)
 
-	summary, err := repairer.Run(context.Background(), Options{Limit: 1})
+	summary, err := repairer.Run(t.Context(), Options{Limit: 1})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Failed)
@@ -285,7 +285,7 @@ func TestRunClassifiesGitHubAppTokenExchangeUnauthorizedFailure(t *testing.T) {
 	provider := commit.NewGitHubProvider(client, time.Second, nil)
 	repairer := NewRepairer(store, provider, nil)
 
-	summary, err := repairer.Run(context.Background(), Options{Limit: 1})
+	summary, err := repairer.Run(t.Context(), Options{Limit: 1})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Failed)
@@ -302,7 +302,7 @@ func TestRunMissingForkPointFailsWithoutUpdating(t *testing.T) {
 	enricher := &fakeEnricher{infos: map[string]*commit.Info{"abc123": info}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Failed)
@@ -322,7 +322,7 @@ func TestRunSuccessfulUpdateIncrementsRepaired(t *testing.T) {
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Repaired)
@@ -342,7 +342,7 @@ func TestRunUpdateRowsAffectedZeroIncrementsAlreadyRepaired(t *testing.T) {
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.AlreadyRepaired)
@@ -361,7 +361,7 @@ func TestRunStoreUpdateErrorReturnsError(t *testing.T) {
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	_, err := r.Run(context.Background(), Options{Limit: 10})
+	_, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.ErrorIs(t, err, wantErr)
 }
@@ -383,7 +383,7 @@ func TestRunDefaultBranchRepairWithoutBackfillIncrementsWouldBackfill(t *testing
 	backfiller := &fakeBackfiller{}
 	r := NewRepairer(store, enricher, backfiller)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10})
+	summary, err := r.Run(t.Context(), Options{Limit: 10})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Repaired)
@@ -407,7 +407,7 @@ func TestRunDefaultBranchRepairWithBackfillEnqueues(t *testing.T) {
 	backfiller := &fakeBackfiller{}
 	r := NewRepairer(store, enricher, backfiller)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 10, Backfill: true})
+	summary, err := r.Run(t.Context(), Options{Limit: 10, Backfill: true})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.BackfillEnqueued)
@@ -431,7 +431,7 @@ func TestRunLimitPlusOneSetsNextCursorAndDoesNotInspectExtraRow(t *testing.T) {
 	}}
 	r := NewRepairer(store, enricher, nil)
 
-	summary, err := r.Run(context.Background(), Options{Limit: 2})
+	summary, err := r.Run(t.Context(), Options{Limit: 2})
 
 	require.NoError(t, err)
 	require.NotNil(t, summary.NextCursor)

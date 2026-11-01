@@ -65,9 +65,13 @@ func TestAuthLoginLoopback(t *testing.T) {
 	require.NoError(t, err)
 	browser := &http.Client{Jar: jar}
 	prevOpener := browserOpener
-	browserOpener = func(target string) error {
+	browserOpener = func(ctx context.Context, target string) error {
 		go func() {
-			resp, err := browser.Get(target)
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+			if err != nil {
+				return
+			}
+			resp, err := browser.Do(request)
 			if err == nil {
 				resp.Body.Close()
 			}
@@ -85,7 +89,7 @@ func TestAuthLoginLoopback(t *testing.T) {
 	t.Cleanup(func() { credentialsPathFn = prevPathFn })
 
 	var stdout, stderr strings.Builder
-	code := runAuthLogin(srv.URL, &stdout, &stderr)
+	code := runAuthLogin(t.Context(), srv.URL, &stdout, &stderr)
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())
 	assert.Positive(t, iss.TokenCalls(),
 		"login took the real OIDC round-trip (a code exchange happened)")
@@ -189,7 +193,7 @@ func TestLoopbackCallbackRejectsStateMismatch(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/callback?code=stolen&state=attacker-state", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?code=stolen&state=attacker-state", nil)
 	loop.handleCallback(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -216,7 +220,7 @@ func TestLoopbackCallbackAcceptsMatchingState(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/callback?code=good-code&state=the-real-state", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?code=good-code&state=the-real-state", nil)
 	loop.handleCallback(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -226,4 +230,24 @@ func TestLoopbackCallbackAcceptsMatchingState(t *testing.T) {
 	default:
 		assert.Fail(t, "expected the code to be published")
 	}
+}
+
+// TestAuthLoginStopsWhenItsContextEnds covers an interrupted login: once the
+// command's context ends, the login stops waiting for the browser instead of
+// holding the terminal until the loopback timeout.
+func TestAuthLoginStopsWhenItsContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	prevOpener := browserOpener
+	browserOpener = func(context.Context, string) error {
+		cancel()
+		return nil
+	}
+	t.Cleanup(func() { browserOpener = prevOpener })
+
+	var stdout, stderr strings.Builder
+	code := runAuthLogin(ctx, "http://127.0.0.1:1", &stdout, &stderr)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, stderr.String(), "benchdb: login: context canceled")
+	assert.Empty(t, stdout.String())
 }

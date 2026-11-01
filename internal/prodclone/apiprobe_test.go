@@ -1,7 +1,6 @@
 package prodclone
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -93,7 +92,7 @@ func TestRunAPIProbesUsesGeneratedClientAndRecordsTimings(t *testing.T) {
 		},
 	}
 
-	artifact, timings, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, timings, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples:   manifest,
 	})
@@ -138,7 +137,7 @@ func TestRunAPIProbesFailsOnUndecodableJSON200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, timings, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, timings, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -163,7 +162,7 @@ func TestRunAPIProbesFailsOnStructurallyInvalidJSON200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, timings, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, timings, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -217,7 +216,7 @@ func TestRunAPIProbesRejectsThinResultAndCompareBodies(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, _, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, _, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -256,7 +255,7 @@ func TestRunAPIProbesRejectsStructurallyInvalidPageItems(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, _, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, _, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -295,7 +294,7 @@ func TestRunAPIProbesRejectsStructurallyInvalidCIReport(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, _, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, _, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -339,7 +338,7 @@ func TestRunAPIProbesAllowsNullableSeriesSparkline(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, _, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, _, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{
@@ -374,7 +373,7 @@ func TestRunAPIProbesSkipsCompareWithoutCompareSample(t *testing.T) {
 	}))
 	defer server.Close()
 
-	artifact, _, err := RunAPIProbes(context.Background(), APIProbeConfig{
+	artifact, _, err := RunAPIProbes(t.Context(), APIProbeConfig{
 		ServerURL: server.URL,
 		Samples: SampleManifest{
 			Categories: map[string]SampleCategory{

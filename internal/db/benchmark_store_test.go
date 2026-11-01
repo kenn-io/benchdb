@@ -451,7 +451,7 @@ func TestCommitRepairAndResultInsertQueueEveryBenchmark(t *testing.T) {
 
 			first, err := pool.Begin(ctx)
 			require.NoError(t, err)
-			t.Cleanup(func() { _ = first.Rollback(ctx) })
+			t.Cleanup(func() { _ = first.Rollback(context.WithoutCancel(ctx)) })
 			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			second := make(chan error, 1)

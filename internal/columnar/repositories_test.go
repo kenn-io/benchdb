@@ -76,7 +76,8 @@ COMMIT;`)
 	ready, release := make(chan struct{}), make(chan struct{})
 	occupied := make(chan error, 1)
 	go func() {
-		occupied <- e.Read(ctx, func(context.Context, *ReadSnapshot) error {
+		// The reader stays open until cleanup, after the test context ends.
+		occupied <- e.Read(context.WithoutCancel(ctx), func(context.Context, *ReadSnapshot) error {
 			close(ready)
 			<-release
 			return nil

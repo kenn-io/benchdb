@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"math"
@@ -65,7 +64,7 @@ func archivedDatabase(t *testing.T) (*pgxpool.Pool, string, string) {
 func perf(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), args, &stdout, &stderr)
+	code := run(t.Context(), args, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 

@@ -167,7 +167,7 @@ LIMIT $1`},
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		require.NoError(t, tx.Rollback(ctx))
+		require.NoError(t, tx.Rollback(context.WithoutCancel(ctx)))
 	})
 	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout = '500ms'`)
 	require.NoError(t, err)
@@ -187,7 +187,7 @@ func TestSelectSampleManifestFallsBackWhenMetadataTimeoutsInReadOnlyTransaction(
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		require.NoError(t, tx.Rollback(ctx))
+		require.NoError(t, tx.Rollback(context.WithoutCancel(ctx)))
 	})
 	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout = '500ms'`)
 	require.NoError(t, err)
@@ -579,7 +579,7 @@ func seedSampleFixture(
 
 type sampleSeeder struct {
 	t          *testing.T
-	ctx        context.Context
+	ctx        context.Context //nolint:containedctx // the seeder belongs to one test and holds that test's context
 	pool       *pgxpool.Pool
 	store      *db.Store
 	caseID     string
