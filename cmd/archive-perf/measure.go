@@ -75,26 +75,35 @@ var scenarios = map[string]scenario{
 // latency: with no warm-up it starts on cold caches, while later requests
 // reuse what it cached.
 type measurement struct {
-	Scenario       string  `json:"scenario"`
-	Variant        string  `json:"variant"`
-	Dataset        string  `json:"dataset"`
-	Backend        string  `json:"backend"`
-	Concurrency    int     `json:"concurrency"`
-	Warmup         int     `json:"warmup"`
-	Samples        int     `json:"samples"`
-	Succeeded      int     `json:"succeeded"`
-	Errors         int     `json:"errors"`
-	Timeouts       int     `json:"timeouts"`
-	P50Millis      float64 `json:"p50_ms"`
-	P95Millis      float64 `json:"p95_ms"`
-	MaxMillis      float64 `json:"max_ms"`
-	FirstMillis    float64 `json:"first_ms"`
-	AnswerSHA256   string  `json:"answer_sha256"`
-	Inconsistent   int     `json:"inconsistent_answers"`
-	PeakBackends   int     `json:"peak_backends"`
-	FirstError     string  `json:"first_error,omitempty"`
-	StartedAt      string  `json:"started_at"`
-	ElapsedSeconds float64 `json:"elapsed_seconds"`
+	Scenario     string  `json:"scenario"`
+	Variant      string  `json:"variant"`
+	Dataset      string  `json:"dataset"`
+	Backend      string  `json:"backend"`
+	Concurrency  int     `json:"concurrency"`
+	Warmup       int     `json:"warmup"`
+	Samples      int     `json:"samples"`
+	Succeeded    int     `json:"succeeded"`
+	Errors       int     `json:"errors"`
+	Timeouts     int     `json:"timeouts"`
+	P50Millis    float64 `json:"p50_ms"`
+	P95Millis    float64 `json:"p95_ms"`
+	MaxMillis    float64 `json:"max_ms"`
+	FirstMillis  float64 `json:"first_ms"`
+	AnswerSHA256 string  `json:"answer_sha256"`
+	Inconsistent int     `json:"inconsistent_answers"`
+	PeakBackends int     `json:"peak_backends"`
+	// Remote archive traffic during the timed requests. DuckDB's fact reads
+	// cross the archive proxy, counted as connections and bytes including
+	// TLS; catalog downloads are the summary and lookup catalogs fetched on
+	// cache misses. A local archive reports zeros.
+	RemoteConnections    int64   `json:"remote_connections"`
+	RemoteBytesSent      int64   `json:"remote_bytes_sent"`
+	RemoteBytesReceived  int64   `json:"remote_bytes_received"`
+	CatalogDownloads     int64   `json:"catalog_downloads"`
+	CatalogDownloadBytes int64   `json:"catalog_download_bytes"`
+	FirstError           string  `json:"first_error,omitempty"`
+	StartedAt            string  `json:"started_at"`
+	ElapsedSeconds       float64 `json:"elapsed_seconds"`
 }
 
 func runMeasure(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -150,10 +159,17 @@ func measure(ctx context.Context, s *session, frozen inputs, read scenario, resu
 		}
 	}
 	peak, stopPeak := watchBackends(ctx, s)
+	traffic := s.engine.ArchiveTraffic()
 	started := time.Now()
 	result.StartedAt = started.UTC().Format(time.RFC3339)
 	outcomes := collect(ctx, s, frozen, read, result.Concurrency, result.Samples)
 	result.ElapsedSeconds = time.Since(started).Seconds()
+	traffic = s.engine.ArchiveTraffic().Since(traffic)
+	result.RemoteConnections = traffic.Connections
+	result.RemoteBytesSent = traffic.BytesSent
+	result.RemoteBytesReceived = traffic.BytesReceived
+	result.CatalogDownloads = traffic.CatalogDownloads
+	result.CatalogDownloadBytes = traffic.CatalogBytes
 	result.PeakBackends = stopPeak()
 	if err := <-peak; err != nil {
 		return err

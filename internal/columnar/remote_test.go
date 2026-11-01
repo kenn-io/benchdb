@@ -1440,3 +1440,44 @@ func TestReadOnlyStartupCreatesNothing(t *testing.T) {
 	_, err = startConfined(t, ctx, readOnly, remote)
 	require.NoError(t, err, "a claimed binding opens read-only")
 }
+
+// TestArchiveTrafficCountsRemoteReads reads one remote archive cold and then
+// warm. The cold read moves fact bytes through the proxy and downloads its
+// summary catalog; the warm read finds the catalog cached.
+func TestArchiveTrafficCountsRemoteReads(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	e := r.open(t, ctx, r.config("traffic", t.TempDir()))
+	insertHotResults(t, ctx, r.pool, 3)
+	require.NotEmpty(t, exportSettled(t, ctx, e, r.pool))
+	read := func() ArchiveTraffic {
+		t.Helper()
+		before := e.ArchiveTraffic()
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
+			if err := snapshot.runSummaries(ctx); err != nil {
+				return err
+			}
+			runs, err := collectRows(ctx, snapshot, `SELECT run_id FROM archive_run_catalog`, nil, scanString)
+			assert.NotEmpty(t, runs)
+			return err
+		}))
+		assert.Len(t, visibleIDs(t, ctx, e), 3)
+		return e.ArchiveTraffic().Since(before)
+	}
+	cold := read()
+	assert.Positive(t, cold.BytesReceived, "fact reads cross the proxy")
+	assert.Positive(t, cold.BytesSent)
+	assert.Positive(t, cold.CatalogDownloads)
+	assert.Positive(t, cold.CatalogBytes)
+	warm := read()
+	assert.Zero(t, warm.CatalogDownloads, "the cached catalog is reused")
+	assert.Zero(t, warm.CatalogBytes)
+}
+
+func TestLocalArchiveReportsNoTraffic(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e := openLookupArchive(t, ctx, pool)
+	insertHotResults(t, ctx, pool, 3)
+	require.NotEmpty(t, exportSettled(t, ctx, e, pool))
+	assert.Len(t, visibleIDs(t, ctx, e), 3)
+	assert.Equal(t, ArchiveTraffic{}, e.ArchiveTraffic())
+}
