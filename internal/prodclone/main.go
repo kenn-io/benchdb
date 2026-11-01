@@ -258,7 +258,9 @@ func runSamples(ctx context.Context, commandName string, args []string, stdout i
 	}
 	if rollbackSampleDB != nil {
 		defer func() {
-			_ = rollbackSampleDB(context.WithoutCancel(ctx))
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = rollbackSampleDB(rollbackCtx)
 		}()
 	}
 
