@@ -447,9 +447,16 @@ repeated reads returned different answers, reports no hash, so missing or
 inconsistent answers never compare as equal. Compare latency only between runs
 whose hashes match.
 
-Not built yet: a `naive` variant that reads every archived file, and request
-and byte counts for DuckDB's and Kit's HTTP traffic. Provider request logs,
-such as S3 server access logs, can supply those counts for a remote archive.
+For a remote archive, the output also records the traffic of the timed
+requests. `remote_connections`, `remote_bytes_sent`, and
+`remote_bytes_received` count DuckDB's connections to the provider through the
+archive proxy and their bytes, TLS included. DuckDB reuses connections, so
+these count new connections, not requests. `catalog_downloads` and
+`catalog_download_bytes` count the summary and lookup catalogs fetched on cache
+misses. A local archive reports zeros. Provider request logs, such as S3 server
+access logs, give per-request counts.
+
+Not built yet: a `naive` variant that reads every archived file.
 
 ### Remote request scope
 

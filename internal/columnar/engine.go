@@ -126,6 +126,8 @@ type Engine struct {
 	closeOnce       sync.Once
 	closeErr        error
 	cleanupSkips    atomic.Uint64
+	// traffic counts the remote archive's network use; see ArchiveTraffic.
+	traffic trafficCounters
 	// inventoryMu guards inventoryAt, where the next inventory pass resumes.
 	inventoryMu sync.Mutex
 	inventoryAt inventoryCursor
@@ -225,10 +227,11 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 		if err != nil {
 			return nil, err
 		}
-		if e.proxy, err = httpproxy.Listen(httpproxy.Config{Allow: upstreams, Dial: cfg.dialArchive}); err != nil {
+		if e.proxy, err = httpproxy.Listen(httpproxy.Config{Allow: upstreams, Dial: e.traffic.dialer(cfg.dialArchive)}); err != nil {
 			return nil, fmt.Errorf("start the archive request proxy: %w", err)
 		}
 		e.catalogs = newCatalogCache(filepath.Join(e.scratch, "catalog-cache"), cfg.CatalogCacheBytes, e.archive.storageID.String(), e.objects)
+		e.catalogs.downloaded = e.traffic.catalogDownloaded
 	}
 	for i := range cfg.Readers + 1 {
 		handle, openErr := e.openHandle(ctx, i)
