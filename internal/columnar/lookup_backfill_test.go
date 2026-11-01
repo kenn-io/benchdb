@@ -1084,3 +1084,43 @@ SELECT $2,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,s
 		})
 	}
 }
+
+// TestLookupBackfillCompletesAfterCompactingRestoredLegacyFile restores a
+// legacy file with no logical ID after the capture, then lets maintenance
+// rewrite it before the build checks coverage. The rewrite is newly published,
+// so it must carry a logical ID for the build to index it and complete.
+func TestLookupBackfillCompletesAfterCompactingRestoredLegacyFile(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e := openLookupArchive(t, ctx, pool)
+	e.lookupBackfillBudget = 0
+	insertLookupResults(t, ctx, pool, legacyFixtures(1, 3)...)
+	require.Len(t, exportSettled(t, ctx, e, pool), 1)
+	complete, err := runBackfill(ctx, e) // The capture.
+	require.NoError(t, err)
+	require.False(t, complete)
+
+	// A legacy file published long before the capture, as a restore from
+	// before it would bring back: no logical ID.
+	restored := []lookupFixture{
+		{id: "restored-legacy-0", run: "restored-run", fingerprint: "restored-history", at: time.Date(2022, 6, 2, 0, 0, 0, 0, time.UTC)},
+		{id: "restored-legacy-1", run: "restored-run", fingerprint: "restored-history", at: time.Date(2022, 6, 3, 0, 0, 0, 0, time.UTC)},
+	}
+	insertLookupResults(t, ctx, pool, restored...)
+	legacy := exportSettled(t, ctx, e, pool)
+	require.Len(t, legacy, 1)
+	_, err = pool.Exec(ctx, `DELETE FROM archive_file_location WHERE archive_path=$1`, legacy[0])
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE archive_file SET created_at='2000-01-01T00:00:00Z' WHERE path=$1`, legacy[0])
+	require.NoError(t, err)
+	// Deleting one of its rows makes maintenance rewrite the file alone.
+	_, err = pool.Exec(ctx, `INSERT INTO result_mutation(result_id,run_id,history_fingerprint,partition_month,deleted)
+VALUES ($1,$2,$3,'2022-06-01',true)`, restored[0].id, restored[0].run, restored[0].fingerprint)
+	require.NoError(t, err)
+	require.Equal(t, 1, compactOnce(t, ctx, e))
+
+	backfillUntilComplete(t, ctx, e)
+	paths := lookupPaths(t, ctx, e, lookupResult, restored[1].id)
+	require.Len(t, paths, 1, "the rewritten file's surviving row resolves")
+	assert.NotEqual(t, legacy[0], paths[0])
+	assertLookupsResolve(t, ctx, e, pool)
+}
