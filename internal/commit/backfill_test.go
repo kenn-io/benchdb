@@ -35,6 +35,20 @@ func (blockingBackfillStore) GetOrCreateCommit(context.Context, storage.InsertCo
 	return "", nil
 }
 
+type recordingBackfillStore struct {
+	calls []string
+}
+
+func (s *recordingBackfillStore) LatestCommitTimestampOnBranch(ctx context.Context, _, _ string, _ time.Time) (*time.Time, error) {
+	s.calls = append(s.calls, "LatestCommitTimestampOnBranch")
+	return nil, ctx.Err()
+}
+
+func (s *recordingBackfillStore) GetOrCreateCommit(ctx context.Context, _ storage.InsertCommitParams) (string, error) {
+	s.calls = append(s.calls, "GetOrCreateCommit")
+	return "", ctx.Err()
+}
+
 // commitListJSON builds a GitHub commits-list response, newest first, from
 // (sha, RFC3339 timestamp) pairs.
 func commitListJSON(t *testing.T, items [][2]string) []byte {
@@ -267,8 +281,7 @@ func TestBackfillerAPIFailureIsSwallowed(t *testing.T) {
 }
 
 func TestBackfillerEnqueueAfterShutdownDropped(t *testing.T) {
-	pool, _ := dbtest.NewPool(t)
-	store := db.NewStore(pool)
+	store := &recordingBackfillStore{}
 	srv := githubtest.NewServer(t)
 
 	b := commit.NewBackfiller(commit.NewGitHubClient("", srv.URL), store)
@@ -276,5 +289,6 @@ func TestBackfillerEnqueueAfterShutdownDropped(t *testing.T) {
 	defer cancel()
 	b.Shutdown(shutdownCtx)
 	b.Enqueue(commit.BackfillJob{RepoURL: repoURL, Spec: "org/repo", DefaultBranch: "org:main", Until: time.Now().UTC()})
-	assert.Empty(t, srv.Requests(), "post-shutdown enqueues are dropped")
+	b.Shutdown(shutdownCtx)
+	assert.Empty(t, store.calls, "post-shutdown enqueues are dropped before accessing the store")
 }
