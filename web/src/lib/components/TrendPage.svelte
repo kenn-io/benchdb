@@ -4,6 +4,7 @@
   import {
     DateRangePicker,
     localDateStr,
+    PageHeader,
     SelectDropdown,
     type RangeSelection,
     type SelectDropdownOption,
@@ -397,35 +398,39 @@
     </section>
   </main>
 {:else}
+  <!-- @const pins the narrowed view-model for the PageHeader snippets, which are closures. -->
+  {@const trend = vm}
   <main class="page trend-page">
     <section class="trend-context panel" aria-label="Trend context">
-      <header class="page-header">
-        <div>
-          <p class="eyebrow">Benchmark trend</p>
-          <h1 title={vm.identity.benchmarkId}>{vm.identity.benchmarkName}</h1>
-          <div class="ident page-subtitle">
-            {#if tagsText(vm.identity.caseTags) !== ""}<span>{tagsText(vm.identity.caseTags)}</span>{/if}
-            <span>{vm.tracks.length} {vm.tracks.length === 1 ? "machine" : "machines"}</span>
-            <span title={vm.identity.repository}>{vm.identity.repositoryLabel}</span>
-            {#if orientation(vm.identity.lessIsBetter) !== null}
-              <span>{orientation(vm.identity.lessIsBetter)}</span>
+      <PageHeader>
+        {#snippet title()}<span title={trend.identity.benchmarkId}>{trend.identity.benchmarkName}</span>{/snippet}
+        {#snippet before()}<p class="eyebrow">Benchmark trend</p>{/snippet}
+        {#snippet description()}
+          <span class="ident">
+            {#if tagsText(trend.identity.caseTags) !== ""}<span>{tagsText(trend.identity.caseTags)}</span>{/if}
+            <span>{trend.tracks.length} {trend.tracks.length === 1 ? "machine" : "machines"}</span>
+            <span title={trend.identity.repository}>{trend.identity.repositoryLabel}</span>
+            {#if orientation(trend.identity.lessIsBetter) !== null}
+              <span>{orientation(trend.identity.lessIsBetter)}</span>
             {/if}
+          </span>
+        {/snippet}
+        {#snippet actions()}
+          <div class="live-status" class:warning={refreshError} aria-live="polite">
+            <span class="live-dot"></span>
+            <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
+            {#if latestArrival !== null}
+              <span class="arrival-detail">
+                {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
+                {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
+              </span>
+            {/if}
+            <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
-        </div>
-        <div class="live-status" class:warning={refreshError} aria-live="polite">
-          <span class="live-dot"></span>
-          <span>{refreshError ? "refresh failed" : newPointCount > 0 ? `${newPointCount} new ${newPointCount === 1 ? "result" : "results"}` : checkedAtText()}</span>
-          {#if latestArrival !== null}
-            <span class="arrival-detail">
-              {latestArrival.machineName} · {latestArrival.point.commitHash.slice(0, 8)} ·
-              {formatDate(new Date(latestArrival.point.chartMs).toISOString())}
-            </span>
-          {/if}
-          <button type="button" class="refresh-button" disabled={refreshing} onclick={() => refreshTrend()}>
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-      </header>
+        {/snippet}
+      </PageHeader>
       {#if !vm.unitConsistent}
         <div class="integrity" role="alert">
           data integrity: this series mixes units ({vm.units.map((unit) => unit ?? "unit not set").join(", ")}) — values are
@@ -804,9 +809,6 @@
   .link { background: none; border: none; padding: 0; font: inherit;
           color: var(--c-accent); cursor: pointer; text-decoration: underline; }
   @media (max-width: 760px) {
-    .page-header {
-      display: grid;
-    }
     .live-status { flex-wrap: wrap; white-space: normal; }
     .history-heading { align-items: flex-start; flex-direction: column; }
     .context-summary { justify-content: flex-start; padding-bottom: 0; }

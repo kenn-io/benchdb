@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { PageHeader } from "@kenn-io/kit-ui";
   import { onMount, untrack } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -142,25 +143,24 @@
 </script>
 
 <main class="page home-page">
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">{selectedRepositoryLabel}</p>
-      <h1>Runs</h1>
-    </div>
-    <form class="run-search" onsubmit={submitSearch} role="search" aria-label="Find a commit">
-      <label class="sr-only" for="commit-search">Commit SHA or URL</label>
-      <SearchIcon class="run-search-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
-      <input id="commit-search" type="search" bind:value={search} maxlength="2048"
-        placeholder="Find a commit SHA or URL" />
-      <button type="submit" class="sr-only">Search runs</button>
-      {#if query.q}
-        <a class="clear-search"
-          href={appURL(`/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
-          onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
-        >Clear</a>
-      {/if}
-    </form>
-  </header>
+  <PageHeader title="Runs">
+    {#snippet before()}<p class="eyebrow">{selectedRepositoryLabel}</p>{/snippet}
+    {#snippet actions()}
+      <form class="run-search" onsubmit={submitSearch} role="search" aria-label="Find a commit">
+        <label class="sr-only" for="commit-search">Commit SHA or URL</label>
+        <SearchIcon class="run-search-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
+        <input id="commit-search" type="search" bind:value={search} maxlength="2048"
+          placeholder="Find a commit SHA or URL" />
+        <button type="submit" class="sr-only">Search runs</button>
+        {#if query.q}
+          <a class="clear-search"
+            href={appURL(`/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
+            onclick={(e) => go(e, `/${formatHomeQuery({ repository: query.repository, attention: query.attention })}`)}
+          >Clear</a>
+        {/if}
+      </form>
+    {/snippet}
+  </PageHeader>
 
   {#if attentionRuns > 0 || query.attention}
     <nav class="run-filters" aria-label="Filter runs">
@@ -344,7 +344,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: min(340px, 100%);
+    width: 340px;
+    max-width: 100%;
   }
   .run-search :global(.run-search-icon) {
     position: absolute;

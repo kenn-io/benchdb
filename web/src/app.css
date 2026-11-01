@@ -70,6 +70,8 @@
   --accent-blue-foreground: var(--c-on-accent);
   --focus-ring: 2px solid var(--c-accent);
   --shadow-lg: var(--shadow-panel);
+  /* PageHeader titles keep the app's compact h1 size. */
+  --kit-page-header-title-size: 1.18rem;
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--c-text);
@@ -276,13 +278,6 @@ p {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
 .eyebrow {
   margin: 0 0 3px;
   color: var(--c-accent);
@@ -292,11 +287,9 @@ p {
   text-transform: uppercase;
 }
 
-.page-subtitle {
-  max-width: 780px;
-  margin: 5px 0 0;
-  color: var(--c-text-muted);
-  font-size: 0.86rem;
+/* PageHeader's own gap separates the eyebrow from the title. */
+.kit-page-header .eyebrow {
+  margin-bottom: 0;
 }
 
 .page-meta {
@@ -607,6 +600,11 @@ p {
     border-bottom: 1px solid var(--c-border-muted);
   }
 
+  /* Inside a bordered panel, the panel's bottom edge closes the table. */
+  .panel .stacked-table tr:last-child {
+    border-bottom: 0;
+  }
+
   .stacked-table td {
     display: grid;
     grid-template-columns: var(--stacked-label-width, 84px) minmax(0, 1fr);
@@ -746,10 +744,6 @@ p {
 @media (max-width: 760px) {
   .app-content {
     padding: 10px;
-  }
-  .page-header {
-    flex-direction: column;
-    gap: 8px;
   }
   .page-meta {
     justify-content: flex-start;

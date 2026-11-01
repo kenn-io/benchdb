@@ -1,5 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
+  import { PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -139,12 +140,10 @@
   <main class="page batch-page"><p>Loading…</p></main>
 {:else if vm.rows.length === 0}
   <main class="page batch-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Batch Detail</p>
-        <h1>Batch <span class="id-heading mono">{batchId}</span></h1>
-      </div>
-    </header>
+    <PageHeader>
+      {#snippet title()}Batch <span class="mono">{batchId}</span>{/snippet}
+      {#snippet before()}<p class="eyebrow">Batch Detail</p>{/snippet}
+    </PageHeader>
     <section class="panel empty-panel">
       <h2>No results found for this batch</h2>
       <p>Check the batch_id or open the recent-runs dashboard.</p>
@@ -152,20 +151,21 @@
     </section>
   </main>
 {:else}
+  <!-- @const pins the narrowed view-model for the PageHeader snippets, which are closures. -->
+  {@const batch = vm}
   <main class="page batch-page">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Batch Detail</p>
-        <h1>Batch <span class="id-heading mono">{vm.batchId}</span></h1>
-        <p class="page-subtitle">
-          Inspect one batch_id across runs, then jump to run detail, CI reports, result detail, or series trends.
-        </p>
-      </div>
-      <div class="page-meta">
-        <span class="mono wrap-anywhere">{vm.shortCommit ?? "commit not set"}</span>
-        <span>{vm.nextCursor === null ? "all loaded" : "more available"}</span>
-      </div>
-    </header>
+    <PageHeader
+      description="Inspect one batch_id across runs, then jump to run detail, CI reports, result detail, or series trends."
+    >
+      {#snippet title()}Batch <span class="mono">{batch.batchId}</span>{/snippet}
+      {#snippet before()}<p class="eyebrow">Batch Detail</p>{/snippet}
+      {#snippet actions()}
+        <div class="page-meta">
+          <span class="mono wrap-anywhere">{batch.shortCommit ?? "commit not set"}</span>
+          <span>{batch.nextCursor === null ? "all loaded" : "more available"}</span>
+        </div>
+      {/snippet}
+    </PageHeader>
 
     <p class="summary-line" aria-label="Batch summary">
       <span class="summary-item">{plural(vm.loadedResults, "result")}</span>
@@ -348,9 +348,6 @@
 <style>
   .batch-page {
     gap: 12px;
-  }
-  .id-heading {
-    overflow-wrap: anywhere;
   }
   .batch-runs-table .run-col {
     width: 24%;
