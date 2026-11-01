@@ -1263,8 +1263,9 @@ func (b *lookupBuild) install(ctx context.Context, cycle uuid.UUID, partitions m
 // that was empty at the capture. The capture is then stale, and the build
 // starts again from a new one.
 //
-// The capture gave every file it saw a logical ID, and every export since
-// assigns one, so a file published after the capture always has one. Such a
+// The capture gave every file it saw a logical ID, and every export and
+// compaction since assigns or keeps one, so a file published after the
+// capture always has one. Such a
 // file without one is not something a restore produces. It is reported as a
 // failure instead: restarting would hide the fault in a silent rebuild. An
 // older file without a logical ID can come back with a restore from before

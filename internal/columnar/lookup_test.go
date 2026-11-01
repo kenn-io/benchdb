@@ -503,3 +503,34 @@ func TestLookupOpenRangeGroupsSmallExports(t *testing.T) {
 	assert.Equal(t, sealed, after[0].Segments, "sealing does not rewrite the full range")
 	assert.Equal(t, []string{fmt.Sprintf("∞..%s 2x12", uuid7(13, 0)), fmt.Sprintf("%s..∞ 1x29", uuid7(13, 0))}, state())
 }
+
+// TestCompactionGivesEveryOutputALogicalID compacts files with and without
+// logical IDs. Mapped inputs move their IDs to the output; inputs without one,
+// such as legacy files a restore brought back, give the output a new ID, so
+// the lookup build never meets a newly published file without one.
+func TestCompactionGivesEveryOutputALogicalID(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	_, err := pool.Exec(ctx, `INSERT INTO archive_file(path,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,series_bytes)
+SELECT 'data/'||name||'.parquet','2024-01-01',1,1,'catalog/runs-'||name||'.parquet',1,'catalog/series-'||name||'.parquet',1
+FROM unnest(ARRAY['legacy','unmapped-output','mapped','mapped-output']) AS name;
+INSERT INTO archive_file_location(id,archive_path) VALUES ('00000000-0000-4000-8000-000000000001','data/mapped.parquet')`)
+	require.NoError(t, err)
+	locations := func(path string) []string {
+		t.Helper()
+		var ids []string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT coalesce(array_agg(id::text ORDER BY id),'{}') FROM archive_file_location WHERE archive_path=$1`, path).Scan(&ids))
+		return ids
+	}
+	compact := func(input, output string) {
+		t.Helper()
+		require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			return retargetFileLocations(ctx, tx, []archiveFile{{Path: input}}, []archiveFile{{Path: output}})
+		}))
+	}
+
+	compact("data/legacy.parquet", "data/unmapped-output.parquet")
+	assert.Len(t, locations("data/unmapped-output.parquet"), 1, "an output of unmapped inputs gets its own logical ID")
+	compact("data/mapped.parquet", "data/mapped-output.parquet")
+	assert.Equal(t, []string{"00000000-0000-4000-8000-000000000001"}, locations("data/mapped-output.parquet"),
+		"mapped inputs keep their IDs, and the output gets no other")
+}
