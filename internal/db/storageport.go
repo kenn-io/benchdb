@@ -413,6 +413,7 @@ func compareResultFromRow(r GetResultForCompareRow) storage.CompareResultRow {
 	return storage.CompareResultRow{
 		OptionalBenchmarkInfo: r.OptionalBenchmarkInfo,
 		ID:                    r.ID,
+		Timestamp:             r.Timestamp,
 		RunID:                 r.RunID,
 		HistoryFingerprint:    r.HistoryFingerprint,
 		Unit:                  r.Unit,
