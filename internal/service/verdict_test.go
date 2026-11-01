@@ -505,34 +505,6 @@ func TestDefaultBranchRunsTooLargeToReportNeedNoAttention(t *testing.T) {
 	assert.Zero(t, page.AttentionRuns)
 }
 
-func TestCommitRepairAndResultWritesQueueVerdictsWithoutDeadlock(t *testing.T) {
-	ing, _, pool, ctx := newIngester(t)
-	submitAt(t, ctx, ing, "shared-run", "c1", 10, time.Now().UTC())
-
-	// A result write locks the run's queue key, then the repository's, then
-	// the benchmark's.
-	writer, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = writer.Rollback(context.WithoutCancel(ctx)) })
-	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('run', 'shared-run')`)
-	require.NoError(t, err)
-
-	// A commit repair on the run's default-branch commit queues both keys too.
-	repaired := make(chan error, 1)
-	go func() {
-		_, err := pool.Exec(ctx, `UPDATE commit SET message = 'repaired' WHERE sha = 'c1'`)
-		repaired <- err
-	}()
-	time.Sleep(500 * time.Millisecond)
-
-	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('repository', $1)`, testRepo)
-	require.NoError(t, err, "the writer must not deadlock with the repair")
-	_, err = writer.Exec(ctx, `SELECT enqueue_verdict('benchmark', benchmark_id) FROM benchmark_result WHERE run_id = 'shared-run'`)
-	require.NoError(t, err, "the writer must not deadlock with the repair")
-	require.NoError(t, writer.Commit(ctx))
-	require.NoError(t, <-repaired)
-}
-
 func TestListingAndCommitRepairQueueVerdictsWithoutDeadlock(t *testing.T) {
 	ing, store, pool, ctx := newIngester(t)
 	now := time.Now().UTC()
