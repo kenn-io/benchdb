@@ -63,23 +63,3 @@
   border-radius: 0.5rem;
   overflow: hidden;
 }
-
-/* The first-paint script hides the page by setting visibility on the root
-   while fonts load. The theme shows these navigation lists with
-   visibility: visible, which would paint them early; inherit shows them the
-   same way once the page is visible. Desktop sections never collapse, so they
-   drop the theme's delayed visibility transition, which would otherwise keep
-   them blank for 250 ms after the page appears. */
-.md-nav__toggle.md-toggle--indeterminate ~ .md-nav,
-.md-nav__toggle:checked ~ .md-nav,
-.md-nav--integrated > .md-nav__list > .md-nav__item--active .md-nav--secondary {
-  visibility: inherit;
-}
-
-@media screen and (min-width: 76.25em) {
-  .md-nav__item--section > .md-nav,
-  .md-nav--lifted .md-nav[data-md-level="1"] {
-    visibility: inherit;
-    transition: none;
-  }
-}

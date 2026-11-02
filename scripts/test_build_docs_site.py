@@ -6,7 +6,7 @@ from pathlib import Path
 
 from scripts.build_docs_site import (
     DocsSiteError,
-    finish_rendered_docs,
+    finish_site,
     markdown_twin_path,
     markdown_twin_url,
     published_markdown_pages,
@@ -126,7 +126,7 @@ class BuildDocsSiteTest(unittest.TestCase):
         with self.assertRaisesRegex(DocsSiteError, r"image is missing from the site: /assets/gone\.png"):
             stage_site_root(self.docs, self.website, self.llms, self.site, self.config)
 
-    def test_embeds_fonts_and_holds_first_paint_in_rendered_docs(self) -> None:
+    def test_embeds_fonts_and_holds_first_paint_in_every_page(self) -> None:
         rendered = self.site / "docs"
         rendered.joinpath("assets/fonts").mkdir(parents=True)
         rendered.joinpath("assets/fonts/text.woff2").write_bytes(b"wOF2-test")
@@ -140,8 +140,13 @@ class BuildDocsSiteTest(unittest.TestCase):
             '<head><meta charset="utf-8"><link rel="stylesheet" href="../stylesheets/extra.css"></head>\n',
             encoding="utf-8",
         )
+        self.site.joinpath("guide").mkdir(parents=True)
+        self.site.joinpath("guide/index.html").write_text(
+            '<head><meta charset="utf-8"><link rel="stylesheet" href="/styles/site.css"></head>\n',
+            encoding="utf-8",
+        )
 
-        finish_rendered_docs(rendered, ["stylesheets/extra.css"], "hold();")
+        finish_site(self.site, ["stylesheets/extra.css"], "hold();")
 
         self.assertEqual(
             rendered.joinpath("stylesheets/extra.css").read_text(encoding="utf-8"),
@@ -153,6 +158,11 @@ class BuildDocsSiteTest(unittest.TestCase):
             '<head><meta charset="utf-8"><script>hold();</script>'
             '<link rel="stylesheet" href="../stylesheets/extra.css"></head>\n',
         )
+        self.assertEqual(
+            self.site.joinpath("guide/index.html").read_text(encoding="utf-8"),
+            '<head><meta charset="utf-8"><script>hold();</script>'
+            '<link rel="stylesheet" href="/styles/site.css"></head>\n',
+        )
 
     def test_rejects_font_missing_from_the_rendered_docs(self) -> None:
         rendered = self.site / "docs"
@@ -162,14 +172,14 @@ class BuildDocsSiteTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(DocsSiteError, r"font is missing from the site: \.\./assets/fonts/gone\.woff2"):
-            finish_rendered_docs(rendered, ["stylesheets/extra.css"], "hold();")
+            finish_site(self.site, ["stylesheets/extra.css"], "hold();")
 
-    def test_rejects_rendered_page_without_charset(self) -> None:
+    def test_rejects_page_without_charset(self) -> None:
         rendered = self.site / "docs"
         rendered.joinpath("agents/index.html").write_text("<head><title>Agents</title></head>\n", encoding="utf-8")
 
-        with self.assertRaisesRegex(DocsSiteError, r"rendered page has no <meta charset=\"utf-8\">.*agents/index\.html"):
-            finish_rendered_docs(rendered, [], "hold();")
+        with self.assertRaisesRegex(DocsSiteError, r"page has no <meta charset=\"utf-8\">.*agents/index\.html"):
+            finish_site(self.site, [], "hold();")
 
 
 if __name__ == "__main__":

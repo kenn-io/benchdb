@@ -244,6 +244,8 @@ jobs:
         env:
           DCOMP_BENCHDB_SERVER_HOST_PORT: 127.0.0.1:18080
         run: make server-container-up
+      # /docs is left out: Huma's API reference page loads its stylesheet from a CDN
+      # and cannot inline the hold script until BenchDB serves that page itself.
       - name: Check first paint
         uses: kenn-io/actions/first-paint@main
         with:
@@ -253,7 +255,6 @@ jobs:
             http://127.0.0.1:18080/results
             http://127.0.0.1:18080/compare
             http://127.0.0.1:18080/storage
-            http://127.0.0.1:18080/docs
       - name: Stop the server
         if: always()
         run: make server-container-down
