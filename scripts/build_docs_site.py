@@ -135,18 +135,20 @@ def embed_fonts(stylesheet: Path) -> None:
     stylesheet.write_text(FONT_URL_RE.sub(embed, stylesheet.read_text(encoding="utf-8")), encoding="utf-8")
 
 
-def finish_rendered_docs(rendered_docs: Path, extra_css: list[str], script: str) -> None:
-    """Embed fonts in the extra stylesheets and inline the first-paint script in every page.
+def finish_site(site_root: Path, extra_css: list[str], script: str) -> None:
+    """Embed fonts in the docs' extra stylesheets and inline the first-paint script in every page.
 
-    The script goes directly after the charset declaration, which must stay
+    Every page gets the script, the website pages as well as the rendered
+    docs, because the first-paint check covers the whole published site. The
+    script goes directly after the charset declaration, which must stay
     within the first 1024 bytes, so it runs before any stylesheet link.
     """
     for stylesheet in extra_css:
-        embed_fonts(rendered_docs / stylesheet)
-    for page in sorted(rendered_docs.rglob("*.html")):
+        embed_fonts(site_root / "docs" / stylesheet)
+    for page in sorted(site_root.rglob("*.html")):
         html = page.read_text(encoding="utf-8")
         if CHARSET_META not in html:
-            raise DocsSiteError(f"rendered page has no {CHARSET_META} to place the first-paint script after: {page}")
+            raise DocsSiteError(f"page has no {CHARSET_META} to place the first-paint script after: {page}")
         page.write_text(html.replace(CHARSET_META, f"{CHARSET_META}<script>{script}</script>", 1), encoding="utf-8")
 
 
@@ -213,8 +215,8 @@ def build(repo_root: Path) -> None:
         site_root,
         config,
     )
-    finish_rendered_docs(
-        site_root / "docs",
+    finish_site(
+        site_root,
         config["project"].get("extra_css", []),
         (repo_root / "docs" / "hold-first-paint.js").read_text(encoding="utf-8"),
     )

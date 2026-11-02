@@ -32,24 +32,24 @@ jobs:
     runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Test release metadata validation
         run: python3 -B -m unittest scripts.test_release_image
-      - uses: step-security/setup-qemu-action@d21542abd2ae44772cf2276e75ee4ec531d598b6 # v4.4.0
+      - uses: step-security/setup-qemu-action@v4.4.0
         with:
           platforms: arm64
-      - uses: step-security/setup-buildx-action@e50058a0fcd8d1a7d626c905502d010a468bf238 # v4.4.1
+      - uses: step-security/setup-buildx-action@v4.4.1
       - name: Build both supported platforms without publishing
-        uses: step-security/docker-build-push-action@b736dc8a921e02a288f956d3dd9111e276a4cfec # v7.4.0
+        uses: step-security/docker-build-push-action@v7.4.0
         with:
           context: .
           file: Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: false
       - name: Load packaged DuckDB extensions offline on both platforms
-        uses: step-security/docker-build-push-action@b736dc8a921e02a288f956d3dd9111e276a4cfec # v7.4.0
+        uses: step-security/docker-build-push-action@v7.4.0
         with:
           context: .
           file: Dockerfile.server
@@ -65,7 +65,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -81,18 +81,18 @@ jobs:
         run: |
           git checkout --detach "$RELEASE_REVISION"
           test "$(git rev-parse HEAD)" = "$RELEASE_REVISION"
-      - uses: step-security/setup-qemu-action@d21542abd2ae44772cf2276e75ee4ec531d598b6 # v4.4.0
+      - uses: step-security/setup-qemu-action@v4.4.0
         with:
           platforms: arm64
-      - uses: step-security/setup-buildx-action@e50058a0fcd8d1a7d626c905502d010a468bf238 # v4.4.1
-      - uses: step-security/docker-login-action@8c7b695d8738c5699a679ff5254baf0f19f20a94 # v4.6.0
+      - uses: step-security/setup-buildx-action@v4.4.1
+      - uses: step-security/docker-login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish the release image
         id: image
-        uses: step-security/docker-build-push-action@b736dc8a921e02a288f956d3dd9111e276a4cfec # v7.4.0
+        uses: step-security/docker-build-push-action@v7.4.0
         with:
           context: .
           file: Dockerfile.server

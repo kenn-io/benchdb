@@ -28,24 +28,24 @@ jobs:
       DOWNLOAD_RETRY: kit-retry 3 5
       BENCHDB_DUCKDB_EXTENSION_DIR: ${{ github.workspace }}/.cache/duckdb/extensions
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
       - run: make duckdb-extensions
 
       - name: Sign in to Google Cloud
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        uses: google-github-actions/auth@v3.0.0
         with:
           workload_identity_provider: ${{ vars.STORAGE_TESTS_GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.STORAGE_TESTS_GCP_SERVICE_ACCOUNT }}
 
       - name: Sign in to AWS
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ vars.STORAGE_TESTS_AWS_ROLE_ARN }}
           aws-region: ${{ vars.STORAGE_TESTS_AWS_REGION }}

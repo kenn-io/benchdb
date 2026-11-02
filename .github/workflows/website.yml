@@ -39,21 +39,21 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Check out product screenshot
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: docs-assets
           path: .ci-docs-assets
           persist-credentials: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@19ca4ee42e3452f57ba6d72cf07ce5963b26219b # v0.47.3
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
       - name: Capture dashboard screenshots
         env:
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make docs-screenshots
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.13.5"
           enable-cache: true
@@ -63,6 +63,6 @@ jobs:
           BENCHDB_DOCS_SCREENSHOT_SOURCE_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make build-docs
       - name: Check first paint
-        uses: kenn-io/actions/first-paint@ee1ddcce6a620e49ba96f613bb8d113e0193b4f6 # first-paint, kenn-io/actions#6
+        uses: kenn-io/actions/first-paint@main
         with:
           dist: site
