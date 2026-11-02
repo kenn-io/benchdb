@@ -1,7 +1,6 @@
 package oidcauth_test
 
 import (
-	"context"
 	"net/url"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestExchangeVerifiesIDTokenAndReturnsIdentity(t *testing.T) {
 	c := iss.Client(t)
 
 	iss.SetNextIDToken(map[string]any{"nonce": "n1", "email": "x@example.com", "name": "Ex"})
-	id, err := c.Exchange(context.Background(), "any-code", "the-verifier")
+	id, err := c.Exchange(t.Context(), "any-code", "the-verifier")
 	require.NoError(t, err)
 	assert.Equal(t, "x@example.com", id.Email)
 	assert.True(t, id.EmailVerified)
@@ -48,7 +47,7 @@ func TestExchangeRejectsWrongAudience(t *testing.T) {
 	c := iss.Client(t)
 
 	iss.SetNextIDToken(map[string]any{"aud": "someone-else"})
-	_, err := c.Exchange(context.Background(), "any-code", "the-verifier")
+	_, err := c.Exchange(t.Context(), "any-code", "the-verifier")
 	assert.Error(t, err, "audience mismatch must fail ID-token verification")
 }
 
@@ -57,6 +56,6 @@ func TestExchangeRejectsExpiredToken(t *testing.T) {
 	c := iss.Client(t)
 
 	iss.SetNextIDToken(map[string]any{"exp": int64(1000000000)}) // 2001
-	_, err := c.Exchange(context.Background(), "any-code", "the-verifier")
+	_, err := c.Exchange(t.Context(), "any-code", "the-verifier")
 	assert.Error(t, err, "expired token must fail verification")
 }

@@ -83,7 +83,7 @@ type Engine struct {
 	catalogs *catalogCache
 	// lifetime ends when Close starts, which cancels background work such
 	// as a GCS token request.
-	lifetime    context.Context
+	lifetime    context.Context //nolint:containedctx // background token fetches outlive their callers and end with the engine
 	endLifetime context.CancelFunc
 	// google is the GCS archive's OAuth credential, shared by Kit and DuckDB;
 	// tokens is its token source, and nil for other backends.
@@ -126,6 +126,8 @@ type Engine struct {
 	closeOnce       sync.Once
 	closeErr        error
 	cleanupSkips    atomic.Uint64
+	// traffic counts the remote archive's network use; see ArchiveTraffic.
+	traffic trafficCounters
 	// inventoryMu guards inventoryAt, where the next inventory pass resumes.
 	inventoryMu sync.Mutex
 	inventoryAt inventoryCursor
@@ -225,10 +227,11 @@ func Open(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ *Engine, err err
 		if err != nil {
 			return nil, err
 		}
-		if e.proxy, err = httpproxy.Listen(httpproxy.Config{Allow: upstreams, Dial: cfg.dialArchive}); err != nil {
+		if e.proxy, err = httpproxy.Listen(httpproxy.Config{Allow: upstreams, Dial: e.traffic.dialer(cfg.dialArchive)}); err != nil {
 			return nil, fmt.Errorf("start the archive request proxy: %w", err)
 		}
 		e.catalogs = newCatalogCache(filepath.Join(e.scratch, "catalog-cache"), cfg.CatalogCacheBytes, e.archive.storageID.String(), e.objects)
+		e.catalogs.downloaded = e.traffic.catalogDownloaded
 	}
 	for i := range cfg.Readers + 1 {
 		handle, openErr := e.openHandle(ctx, i)
@@ -465,7 +468,11 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	}
 	defer lock.Close()
 	var id string
-	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion); err != nil {
+	// Read the application session's settings now: startup takes no
+	// application connection while it holds the reader guard below.
+	var appReadOnly bool
+	if err := e.pg.QueryRow(ctx, `SELECT id::text,current_setting('server_version_num')::int,current_setting('transaction_read_only')='on'
+FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion, &appReadOnly); err != nil {
 		return fmt.Errorf("read archive identity: %w", err)
 	}
 	if err := e.coord.checkSessionAffinity(ctx); err != nil {
@@ -490,7 +497,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	}
 	defer func() {
 		// Closing a client does not end a pooled backend, so unlock first.
-		unlock, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		unlock, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		if _, unlockErr := conn.Exec(unlock, `SELECT pg_advisory_unlock($1)`, bindingLock); unlockErr != nil {
 			err = errors.Join(err, unlockErr, discard(conn))
@@ -513,7 +520,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, guard.Close(closeCtx))
 	}()
@@ -524,7 +531,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 	if err := e.prepareStaging(); err != nil {
 		return err
 	}
-	if err := e.claimStorage(ctx, conn, id, files); err != nil {
+	if err := e.claimStorage(ctx, conn, id, files, appReadOnly); err != nil {
 		return err
 	}
 	if e.location.remote() {
@@ -540,7 +547,7 @@ func (e *Engine) identity(ctx context.Context) (err error) {
 // bound as it was. Remote startup checks the marker, not every object. Every
 // binding query runs on conn, an archive session that startup reserved before
 // its guard.
-func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64) error {
+func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string, files int64, appReadOnly bool) error {
 	metadata, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
 	active, err := activeStorage(metadata, conn, "")
@@ -548,6 +555,19 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	bound := e.location.binds(active)
+	// A read-only process cannot record a claim or move the binding, so it
+	// must not create a marker either: a refused claim would leave one behind.
+	// The process is read-only when its application connection is, even if a
+	// separate coordination URL could write.
+	readOnly := appReadOnly
+	if !readOnly {
+		if err := conn.QueryRow(metadata, `SELECT current_setting('transaction_read_only')='on'`).Scan(&readOnly); err != nil {
+			return fmt.Errorf("read whether the archive session is read-only: %w", err)
+		}
+	}
+	if readOnly && (!bound || !active.claimed) {
+		return errReadOnlyUnclaimed
+	}
 	used := false
 	if bound {
 		used, err = storageUsed(metadata, conn, active.id)
@@ -558,7 +578,7 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	if !e.location.remote() {
-		if err := e.claimDirectory(id, files); err != nil {
+		if err := e.claimDirectory(id, files, readOnly); err != nil {
 			return err
 		}
 	}
@@ -566,7 +586,7 @@ func (e *Engine) claimStorage(ctx context.Context, conn *pgxpool.Conn, id string
 		return err
 	}
 	if e.location.remote() {
-		if err := e.claimNamespace(ctx, id, used); err != nil {
+		if err := e.claimNamespace(ctx, id, used || readOnly); err != nil {
 			return err
 		}
 	}
@@ -613,7 +633,11 @@ FROM archive_dataset WHERE singleton`).Scan(&coordinated, &recovery, &files); er
 // file. The implicit root is the working directory, which holds other files.
 // An explicit file:// root is claimed only while it is empty, so a mistyped
 // URL cannot adopt an unrelated directory.
-func (e *Engine) claimDirectory(id string, files int64) error {
+// errReadOnlyUnclaimed refuses a read-only process before it changes the
+// archive or the database.
+var errReadOnlyUnclaimed = errors.New("the archive storage binding has not been claimed for these archive settings; start a writable BenchDB process with them before opening the archive read-only")
+
+func (e *Engine) claimDirectory(id string, files int64, readOnly bool) error {
 	root := e.location.root
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
@@ -635,6 +659,9 @@ func (e *Engine) claimDirectory(id string, files int64) error {
 	} else if errors.Is(err, os.ErrNotExist) {
 		if files > 0 {
 			return errors.New("archive files are published but the configured archive directory is missing")
+		}
+		if readOnly {
+			return errReadOnlyUnclaimed
 		}
 		if err := e.writeDirectoryMarker(identityPath, id); err != nil {
 			return err
@@ -806,7 +833,7 @@ func (e *Engine) readSnapshot(ctx context.Context, handle *sql.DB, loseGuard con
 	defer func() {
 		// DuckDB work has joined. Release with a fresh budget: the read
 		// context may already have expired.
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, guard.Close(closeCtx))
 	}()

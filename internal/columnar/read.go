@@ -176,10 +176,10 @@ WHERE br.id=$1`, []any{id}, func(row rowScanner) (out storage.ResultDetailRow, e
 
 func (s *Store) GetResultForCompare(ctx context.Context, id string) (storage.CompareResultRow, error) {
 	return readOne(ctx, s, queryScope{ResultIDs: []string{id}}, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
-br.error,br.optional_benchmark_info,br.commit_id,c."timestamp"
+br.error,br.optional_benchmark_info,br.commit_id,c."timestamp",br."timestamp"
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id WHERE br.id=$1`, []any{id}, func(row rowScanner) (out storage.CompareResultRow, err error) {
 		err = row.Scan(&out.ID, &out.RunID, &out.HistoryFingerprint, &out.Unit, nullableFloats{&out.Data},
-			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp)
+			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp, &out.Timestamp)
 		return
 	})
 }
@@ -190,11 +190,11 @@ func (s *Store) SelectRunResultIDs(ctx context.Context, runID string) ([]string,
 
 func (s *Store) SelectResultsForCompare(ctx context.Context, ids []string) ([]storage.CompareResultRow, error) {
 	return readRows(ctx, s, queryScope{ResultIDs: ids}, `SELECT br.id,br.run_id,br.history_fingerprint,br.unit,br.data,
-br.error,br.optional_benchmark_info,br.commit_id,c."timestamp"
+br.error,br.optional_benchmark_info,br.commit_id,c."timestamp",br."timestamp"
 FROM benchmark_result br LEFT JOIN "commit" c ON c.id=br.commit_id
 WHERE br.id IN (SELECT unnest($1::VARCHAR[]))`, []any{ids}, func(row rowScanner) (out storage.CompareResultRow, err error) {
 		err = row.Scan(&out.ID, &out.RunID, &out.HistoryFingerprint, &out.Unit, nullableFloats{&out.Data},
-			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp)
+			&out.Error, &out.OptionalBenchmarkInfo, &out.CommitID, &out.CommitTimestamp, &out.Timestamp)
 		return
 	})
 }

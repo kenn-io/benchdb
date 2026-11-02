@@ -40,10 +40,13 @@ type catalogCache struct {
 	budget  int64
 	storage string
 	objects archiveObjects
-	mu      sync.Mutex
-	entries map[string]*cacheEntry
-	bytes   int64
-	clock   uint64
+	// downloaded, when set, is told the bytes each download transferred,
+	// including downloads that then fail verification.
+	downloaded func(size int64)
+	mu         sync.Mutex
+	entries    map[string]*cacheEntry
+	bytes      int64
+	clock      uint64
 }
 
 // usage returns the cache's bytes, including downloads in flight, and its
@@ -206,6 +209,9 @@ func (c *catalogCache) download(ctx context.Context, receipt objectstore.Receipt
 	}
 	digest := sha256.New()
 	n, copyErr := io.Copy(io.MultiWriter(stage, digest), io.LimitReader(body, receipt.Object.Size+1))
+	if c.downloaded != nil {
+		c.downloaded(n)
+	}
 	if err := errors.Join(copyErr, body.Close(), stage.Close()); err != nil {
 		return nil, fmt.Errorf("download archive catalog %s: %w", key, err)
 	}

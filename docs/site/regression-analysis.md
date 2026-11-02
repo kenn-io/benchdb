@@ -109,9 +109,13 @@ Comparisons score a contender result against a baseline result. They drive
 CI reports, the compare page, saved run reports, Runs page verdicts, and
 alerts.
 
-The history for a comparison is the series' default-branch history up to and
-including the baseline result's commit. A comparison counts as a regression or
-improvement only when all of these hold:
+The comparison's default-branch history ends at the selected baseline result. Commit time,
+then measurement time, then result ID determine that boundary. Later results
+with a tied commit time do not enter the window, including reruns of the
+baseline commit. Earlier results with tied timestamps still count. CI reports
+use the same window for their verdict and history count.
+
+A comparison counts as a regression or improvement only when all of these hold:
 
 - That history has at least 10 results, the same minimum as benchmark status.
 - The contender's lookback z-score against that history crosses the threshold.
@@ -133,11 +137,11 @@ fields show why a change did or did not count.
 
 A comparison row's status follows from its lookback analysis:
 
-| Status | Meaning |
-| --- | --- |
-| `regressed` | The lookback z-score is below the negative threshold and every other condition above holds. |
-| `improved` | The lookback z-score is above the threshold and every other condition above holds. |
-| `stable` | A lookback z-score exists, but the conditions for a regression or improvement do not all hold. |
+| Status         | Meaning                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `regressed`    | The lookback z-score is below the negative threshold and every other condition above holds.                                        |
+| `improved`     | The lookback z-score is above the threshold and every other condition above holds.                                                 |
+| `stable`       | A lookback z-score exists, but the conditions for a regression or improvement do not all hold.                                     |
 | `insufficient` | No lookback z-score exists. The baseline has no commit, the history has fewer than 10 results or mixes units, or it has no spread. |
 
 CI reports also use `errored`, `missing_baseline`, and `not_comparable` rows.
@@ -148,10 +152,10 @@ status.
 
 You can change the comparison thresholds in these places:
 
-| Setting | Default | Where to change it |
-| --- | --- | --- |
-| Lookback z-score | `2` | `threshold_z` on `GET /api/compare/benchmark-results` and `GET /api/ci/report`, `benchdb ci report --threshold-z`, `threshold_z` on alert rules, and **threshold σ** on the compare page |
-| Pairwise percent change | `5` | `threshold` on the same endpoints, `benchdb ci report --threshold`, `threshold` on alert rules, and **threshold %** on the compare page |
+| Setting                 | Default | Where to change it                                                                                                                                                                       |
+| ----------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lookback z-score        | `2`     | `threshold_z` on `GET /api/compare/benchmark-results` and `GET /api/ci/report`, `benchdb ci report --threshold-z`, `threshold_z` on alert rules, and **threshold σ** on the compare page |
+| Pairwise percent change | `5`     | `threshold` on the same endpoints, `benchdb ci report --threshold`, `threshold` on alert rules, and **threshold %** on the compare page                                                  |
 
 Saved run reports and Runs page verdicts use the defaults.
 
@@ -201,14 +205,14 @@ Publishers set the policy in the contender result's `optional_benchmark_info`:
 }
 ```
 
-| Metric kind | Required unit | Default absolute floor | Default relative floor |
-| --- | --- | --- | --- |
-| `duration` | `s` or `ns` | 30 ms, converted to the result unit | 0% |
-| `microbenchmark` | `s` or `ns` | 0 | 0% |
-| `memory_peak` | `B` | 8 MiB | 5% |
-| `heap_live` | `B` | 8 MiB | 5% |
-| `allocation` | `B` | 0 | 0% |
-| `unspecified` | Any supported unit | 0 | 0% |
+| Metric kind      | Required unit      | Default absolute floor              | Default relative floor |
+| ---------------- | ------------------ | ----------------------------------- | ---------------------- |
+| `duration`       | `s` or `ns`        | 30 ms, converted to the result unit | 0%                     |
+| `microbenchmark` | `s` or `ns`        | 0                                   | 0%                     |
+| `memory_peak`    | `B`                | 8 MiB                               | 5%                     |
+| `heap_live`      | `B`                | 8 MiB                               | 5%                     |
+| `allocation`     | `B`                | 0                                   | 0%                     |
+| `unspecified`    | Any supported unit | 0                                   | 0%                     |
 
 Without a metric kind, `s` and `ns` results use `duration` and other units use
 `unspecified`. BenchDB does not guess a metric kind from benchmark names, and it

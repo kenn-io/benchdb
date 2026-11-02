@@ -1,7 +1,6 @@
 package benchdb_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,7 +27,7 @@ func TestAuthRedirectOperationsAcceptFollowedHTMLPage(t *testing.T) {
 
 	client, err := benchdb.NewHTTPClient(srv.URL, srv.Client())
 	require.NoError(t, err)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	login, err := client.AuthLoginWithResponse(ctx)
 	require.NoError(t, err)
@@ -54,7 +53,7 @@ func TestAuthRedirectOperationsDecodeProblemOnError(t *testing.T) {
 	client, err := benchdb.NewHTTPClient(srv.URL, srv.Client())
 	require.NoError(t, err)
 
-	resp, err := client.AuthCallbackWithResponse(context.Background(), &benchdb.AuthCallbackRequestOptions{})
+	resp, err := client.AuthCallbackWithResponse(t.Context(), &benchdb.AuthCallbackRequestOptions{})
 	require.Error(t, err)
 	require.NotNil(t, resp.ApplicationProblemPlusJSONDefault)
 	require.NotNil(t, resp.ApplicationProblemPlusJSONDefault.Detail)

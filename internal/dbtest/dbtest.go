@@ -37,7 +37,7 @@ func NewEmptyPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if testing.Short() {
 		t.Skip("skipping Postgres-backed test in -short mode")
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	container, err := postgres.Run(ctx, "postgres:15.2-alpine",
 		postgres.WithDatabase("benchdb"),

@@ -209,7 +209,7 @@ func isLoopback(host string) bool {
 // refusingAddress is a loopback address where nothing listens.
 func refusingAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -1345,7 +1345,7 @@ func TestCloseCancelsTokenFetch(t *testing.T) {
 	tokens := &stallingTokens{}
 	tokens.stall()
 	e := &Engine{tokens: tokens, tokenMargin: time.Hour, tokenFetchTimeout: time.Minute, handleTokens: map[*sql.DB]*handleToken{}}
-	e.lifetime, e.endLifetime = context.WithCancel(context.Background())
+	e.lifetime, e.endLifetime = context.WithCancel(t.Context())
 	ctx, cancel := context.WithCancel(t.Context())
 	waited := make(chan error, 1)
 	go func() {
@@ -1392,4 +1392,92 @@ func TestRemoteStorageStatus(t *testing.T) {
 	assert.Positive(t, cloudStatus.LocalVolumeTotalBytes)
 	assert.EqualValues(t, defaultCatalogCacheBytes, cloudStatus.CacheBudgetBytes)
 	assert.False(t, cloudStatus.ReclamationPaused)
+}
+
+// readOnlyPool opens pool's database with read-only sessions, as a read-only
+// process connects.
+func readOnlyPool(t *testing.T, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(pool.Config().ConnString())
+	require.NoError(t, err)
+	query := u.Query()
+	query.Set("options", "-c default_transaction_read_only=on")
+	u.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+	readOnly, err := pgxpool.New(t.Context(), u.String())
+	require.NoError(t, err)
+	t.Cleanup(readOnly.Close)
+	return readOnly
+}
+
+// TestReadOnlyStartupCreatesNothing opens archives from read-only sessions.
+// A binding that no writable process has claimed is refused before startup
+// publishes a marker, writes a dataset file, or moves the binding. A claimed
+// binding opens normally.
+func TestReadOnlyStartupCreatesNothing(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	readOnly := readOnlyPool(t, r.pool)
+
+	remote := r.config("readonly", t.TempDir())
+	_, err := startConfined(t, ctx, readOnly, remote)
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.Empty(t, r.keys(t, ctx, "readonly"), "no dataset marker was published")
+	local := t.TempDir()
+	_, err = startConfined(t, ctx, readOnly, Config{Dir: local, ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.NoFileExists(t, filepath.Join(local, datasetMarker))
+	// A writable coordination URL does not make a read-only process writable.
+	writableCoordination := remote
+	writableCoordination.CoordinationDBURL = r.pool.Config().ConnString()
+	_, err = startConfined(t, ctx, readOnly, writableCoordination)
+	require.ErrorIs(t, err, errReadOnlyUnclaimed)
+	assert.Empty(t, r.keys(t, ctx, "readonly"), "no dataset marker was published")
+	backend, _, claimed := activeBinding(t, ctx, r.pool)
+	assert.Equal(t, "file", backend)
+	assert.False(t, claimed)
+
+	writer := r.open(t, ctx, remote)
+	require.NoError(t, writer.Close())
+	_, err = startConfined(t, ctx, readOnly, remote)
+	require.NoError(t, err, "a claimed binding opens read-only")
+}
+
+// TestArchiveTrafficCountsRemoteReads reads one remote archive cold and then
+// warm. The cold read moves fact bytes through the proxy and downloads its
+// summary catalog; the warm read finds the catalog cached.
+func TestArchiveTrafficCountsRemoteReads(t *testing.T) {
+	r, ctx := newRemoteArchive(t)
+	e := r.open(t, ctx, r.config("traffic", t.TempDir()))
+	insertHotResults(t, ctx, r.pool, 3)
+	require.NotEmpty(t, exportSettled(t, ctx, e, r.pool))
+	read := func() ArchiveTraffic {
+		t.Helper()
+		before := e.ArchiveTraffic()
+		require.NoError(t, e.Read(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
+			if err := snapshot.runSummaries(ctx); err != nil {
+				return err
+			}
+			runs, err := collectRows(ctx, snapshot, `SELECT run_id FROM archive_run_catalog`, nil, scanString)
+			assert.NotEmpty(t, runs)
+			return err
+		}))
+		assert.Len(t, visibleIDs(t, ctx, e), 3)
+		return e.ArchiveTraffic().Since(before)
+	}
+	cold := read()
+	assert.Positive(t, cold.BytesReceived, "fact reads cross the proxy")
+	assert.Positive(t, cold.BytesSent)
+	assert.Positive(t, cold.CatalogDownloads)
+	assert.Positive(t, cold.CatalogBytes)
+	warm := read()
+	assert.Zero(t, warm.CatalogDownloads, "the cached catalog is reused")
+	assert.Zero(t, warm.CatalogBytes)
+}
+
+func TestLocalArchiveReportsNoTraffic(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e := openLookupArchive(t, ctx, pool)
+	insertHotResults(t, ctx, pool, 3)
+	require.NotEmpty(t, exportSettled(t, ctx, e, pool))
+	assert.Len(t, visibleIDs(t, ctx, e), 3)
+	assert.Equal(t, ArchiveTraffic{}, e.ArchiveTraffic())
 }

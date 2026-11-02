@@ -13,6 +13,7 @@ import (
 const getResultForCompare = `-- name: GetResultForCompare :one
 SELECT
   br.id,
+  br."timestamp",
   br.run_id,
   br.history_fingerprint,
   br.unit,
@@ -28,6 +29,7 @@ WHERE br.id = $1
 
 type GetResultForCompareRow struct {
 	ID                    string
+	Timestamp             time.Time
 	RunID                 string
 	HistoryFingerprint    string
 	Unit                  *string
@@ -39,13 +41,14 @@ type GetResultForCompareRow struct {
 }
 
 // The fields the compare endpoint needs for one result: SVS inputs (unit, data,
-// error), the history fingerprint, the run id, and the commit timestamp (for the
-// baseline ancestry cutoff). The commit is optional (LEFT JOIN).
+// error), the history fingerprint, the run id, and both timestamps (for the
+// baseline execution cutoff). The commit is optional (LEFT JOIN).
 func (q *Queries) GetResultForCompare(ctx context.Context, id string) (GetResultForCompareRow, error) {
 	row := q.db.QueryRow(ctx, getResultForCompare, id)
 	var i GetResultForCompareRow
 	err := row.Scan(
 		&i.ID,
+		&i.Timestamp,
 		&i.RunID,
 		&i.HistoryFingerprint,
 		&i.Unit,

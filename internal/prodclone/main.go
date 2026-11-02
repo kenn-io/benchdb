@@ -50,18 +50,18 @@ type preflightArtifact struct {
 // Run executes the production-clone compatibility harness using commandName in
 // usage output. It returns a process-style exit code and writes all diagnostics
 // itself.
-func Run(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func Run(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	if strings.TrimSpace(commandName) == "" {
 		commandName = defaultCommandName
 	}
-	return runWithName(commandName, args, stdout, stderr)
+	return runWithName(ctx, commandName, args, stdout, stderr)
 }
 
-func run(args []string, stdout io.Writer, stderr io.Writer) int {
-	return Run(defaultCommandName, args, stdout, stderr)
+func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
+	return Run(ctx, defaultCommandName, args, stdout, stderr)
 }
 
-func runWithName(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func runWithName(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
 		printTopLevelUsage(commandName, stderr)
 		return 2
@@ -71,15 +71,15 @@ func runWithName(commandName string, args []string, stdout io.Writer, stderr io.
 	case "safe-db-url":
 		return runSafeDBURL(commandName, args[1:], stdout, stderr)
 	case "preflight":
-		return runPreflight(commandName, args[1:], stdout, stderr)
+		return runPreflight(ctx, commandName, args[1:], stdout, stderr)
 	case "compare-counts":
 		return runCompareCounts(commandName, args[1:], stdout, stderr)
 	case "samples":
-		return runSamples(commandName, args[1:], stdout, stderr)
+		return runSamples(ctx, commandName, args[1:], stdout, stderr)
 	case "api-probe":
-		return runAPIProbe(commandName, args[1:], stdout, stderr)
+		return runAPIProbe(ctx, commandName, args[1:], stdout, stderr)
 	case "profile":
-		return runProfile(commandName, args[1:], stdout, stderr)
+		return runProfile(ctx, commandName, args[1:], stdout, stderr)
 	case "log-scan":
 		return runLogScan(commandName, args[1:], stdout, stderr)
 	case "report":
@@ -118,7 +118,7 @@ func runSafeDBURL(commandName string, args []string, stdout io.Writer, stderr io
 	return 0
 }
 
-func runPreflight(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func runPreflight(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	_ = stdout
 	cfg, err := parsePreflightArgs(commandName, args, stdout, stderr)
 	if err != nil {
@@ -141,7 +141,7 @@ func runPreflight(commandName string, args []string, stdout io.Writer, stderr io
 		return 1
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, safeDBURL)
 	if err != nil {
@@ -204,7 +204,7 @@ func runCompareCounts(commandName string, args []string, stdout io.Writer, stder
 	return 0
 }
 
-func runSamples(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func runSamples(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	_ = stdout
 	cfg, err := parseSamplesArgs(commandName, args, stdout, stderr)
 	if err != nil {
@@ -227,7 +227,7 @@ func runSamples(commandName string, args []string, stdout io.Writer, stderr io.W
 		return 1
 	}
 
-	probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	pool, err := openPGPool(probeCtx, safeDBURL)
 	if err != nil {
@@ -249,7 +249,7 @@ func runSamples(commandName string, args []string, stdout io.Writer, stderr io.W
 	}
 	cancel()
 
-	sampleCtx, sampleCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	sampleCtx, sampleCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer sampleCancel()
 	sampleDB, rollbackSampleDB, err := beginSampleReadOnlyQueryer(sampleCtx, pool)
 	if err != nil {
@@ -258,7 +258,9 @@ func runSamples(commandName string, args []string, stdout io.Writer, stderr io.W
 	}
 	if rollbackSampleDB != nil {
 		defer func() {
-			_ = rollbackSampleDB(context.Background())
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = rollbackSampleDB(rollbackCtx)
 		}()
 	}
 
@@ -277,7 +279,7 @@ func runSamples(commandName string, args []string, stdout io.Writer, stderr io.W
 	return 0
 }
 
-func runAPIProbe(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func runAPIProbe(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	_ = stdout
 	cfg, err := parseAPIProbeArgs(commandName, args, stdout, stderr)
 	if err != nil {
@@ -297,7 +299,7 @@ func runAPIProbe(commandName string, args []string, stdout io.Writer, stderr io.
 		fmt.Fprintf(stderr, "read samples artifact: %v\n", err)
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	artifact, timings, probeErr := RunAPIProbes(ctx, APIProbeConfig{
 		ServerURL: cfg.server,
@@ -360,7 +362,7 @@ func runLogScan(commandName string, args []string, stdout io.Writer, stderr io.W
 	return 0
 }
 
-func runProfile(commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
+func runProfile(ctx context.Context, commandName string, args []string, stdout io.Writer, stderr io.Writer) int {
 	_ = stdout
 	cfg, err := parseProfileArgs(commandName, args, stdout, stderr)
 	if err != nil {
@@ -383,7 +385,7 @@ func runProfile(commandName string, args []string, stdout io.Writer, stderr io.W
 		return 1
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	pool, err := openPGPool(ctx, safeDBURL)
 	if err != nil {

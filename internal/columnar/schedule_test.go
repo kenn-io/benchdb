@@ -478,7 +478,7 @@ func TestLockedScheduleDoesNotHoldMaintenance(t *testing.T) {
 	before := shared()
 	locker, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = locker.Rollback(context.Background()) })
+	t.Cleanup(func() { _ = locker.Rollback(context.WithoutCancel(t.Context())) })
 	_, err = locker.Exec(ctx, `SELECT 1 FROM archive_maintenance WHERE singleton FOR UPDATE`)
 	require.NoError(t, err)
 

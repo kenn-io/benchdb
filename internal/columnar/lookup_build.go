@@ -61,7 +61,10 @@ func publishFileLocation(ctx context.Context, pg pgx.Tx, file archiveFile) error
 
 // retargetFileLocations moves every logical ID of a compaction's inputs to its
 // one output, or to no file when nothing survived. IDs never chain: each maps
-// directly to a physical file, and lookup segments stay unchanged.
+// directly to a physical file, and lookup segments stay unchanged. An output
+// whose inputs had no logical ID, such as legacy files that a restore brought
+// back, gets a new one, so every published file has one; the lookup build
+// indexes it like an export's.
 func retargetFileLocations(ctx context.Context, pg pgx.Tx, inputs []archiveFile, outputs []archiveFile) error {
 	if len(outputs) > 1 {
 		return errors.New("compaction must not split its inputs across outputs")
@@ -74,7 +77,11 @@ func retargetFileLocations(ctx context.Context, pg pgx.Tx, inputs []archiveFile,
 	for _, input := range inputs {
 		paths = append(paths, input.Path)
 	}
-	_, err := pg.Exec(ctx, `UPDATE archive_file_location SET archive_path=$1 WHERE archive_path=ANY($2)`, output, paths)
+	if _, err := pg.Exec(ctx, `UPDATE archive_file_location SET archive_path=$1 WHERE archive_path=ANY($2)`, output, paths); err != nil || output == nil {
+		return err
+	}
+	_, err := pg.Exec(ctx, `INSERT INTO archive_file_location(id,archive_path) SELECT $1,$2
+WHERE NOT EXISTS (SELECT 1 FROM archive_file_location WHERE archive_path=$2)`, uuid.New(), *output)
 	return err
 }
 

@@ -1032,3 +1032,95 @@ VALUES ($1,$2,$3,date_trunc('month',$4::timestamptz),true)`, deleted.id, deleted
 	}
 	assertLookupsResolve(t, ctx, e, restored)
 }
+
+// TestLookupBackfillUnmappedFiles adds a manifest file with no logical file
+// ID after the capture, while every captured logical ID survives. A file
+// published after the capture can only be a bug: the build reports it rather
+// than discarding its work for a silent rebuild. A file published before the
+// capture is what a restore from before the capture brings back: the build
+// captures the manifest again and completes.
+func TestLookupBackfillUnmappedFiles(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		published string
+		restored  bool
+	}{
+		{"published after the capture", "clock_timestamp()", false},
+		{"restored from before the capture", "'2000-01-01T00:00:00Z'", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, ctx := dbtest.NewPool(t)
+			dir := t.TempDir()
+			e := openLookupArchiveIn(t, ctx, pool, dir)
+			e.lookupBackfillBudget = 0
+			insertLookupResults(t, ctx, pool, legacyFixtures(2, 3)...)
+			paths := exportSettled(t, ctx, e, pool)
+			require.Len(t, paths, 2)
+			complete, err := runBackfill(ctx, e) // The capture.
+			require.NoError(t, err)
+			require.False(t, complete)
+			unmapped := "data/2023-01-without-logical-id.parquet"
+			data, err := os.ReadFile(filepath.Join(dir, paths[0]))
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, unmapped), data, 0o600))
+			_, err = pool.Exec(ctx, `INSERT INTO archive_file(path,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,series_bytes,created_at)
+SELECT $2,partition_month,row_count,byte_size,runs_path,runs_bytes,series_path,series_bytes,`+tc.published+` FROM archive_file WHERE path=$1`, paths[0], unmapped)
+			require.NoError(t, err)
+
+			for calls := 0; err == nil && !complete; calls++ {
+				require.Less(t, calls, 200, "the build reaches the coverage check")
+				complete, err = runBackfill(ctx, e)
+			}
+			if tc.restored {
+				require.NoError(t, err)
+				assert.True(t, directoryComplete(t, ctx, pool), "a restored file makes the capture stale")
+				return
+			}
+			require.ErrorContains(t, err, "have no logical file ID")
+			require.NotErrorIs(t, err, errStaleBackfill, "the fault is reported, not rebuilt away")
+			_, again := runBackfill(ctx, e)
+			require.ErrorContains(t, again, "have no logical file ID", "the next cycle reports it again")
+			assert.False(t, directoryComplete(t, ctx, pool))
+		})
+	}
+}
+
+// TestLookupBackfillCompletesAfterCompactingRestoredLegacyFile restores a
+// legacy file with no logical ID after the capture, then lets maintenance
+// rewrite it before the build checks coverage. The rewrite is newly published,
+// so it must carry a logical ID for the build to index it and complete.
+func TestLookupBackfillCompletesAfterCompactingRestoredLegacyFile(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	e := openLookupArchive(t, ctx, pool)
+	e.lookupBackfillBudget = 0
+	insertLookupResults(t, ctx, pool, legacyFixtures(1, 3)...)
+	require.Len(t, exportSettled(t, ctx, e, pool), 1)
+	complete, err := runBackfill(ctx, e) // The capture.
+	require.NoError(t, err)
+	require.False(t, complete)
+
+	// A legacy file published long before the capture, as a restore from
+	// before it would bring back: no logical ID.
+	restored := []lookupFixture{
+		{id: "restored-legacy-0", run: "restored-run", fingerprint: "restored-history", at: time.Date(2022, 6, 2, 0, 0, 0, 0, time.UTC)},
+		{id: "restored-legacy-1", run: "restored-run", fingerprint: "restored-history", at: time.Date(2022, 6, 3, 0, 0, 0, 0, time.UTC)},
+	}
+	insertLookupResults(t, ctx, pool, restored...)
+	legacy := exportSettled(t, ctx, e, pool)
+	require.Len(t, legacy, 1)
+	_, err = pool.Exec(ctx, `DELETE FROM archive_file_location WHERE archive_path=$1`, legacy[0])
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE archive_file SET created_at='2000-01-01T00:00:00Z' WHERE path=$1`, legacy[0])
+	require.NoError(t, err)
+	// Deleting one of its rows makes maintenance rewrite the file alone.
+	_, err = pool.Exec(ctx, `INSERT INTO result_mutation(result_id,run_id,history_fingerprint,partition_month,deleted)
+VALUES ($1,$2,$3,'2022-06-01',true)`, restored[0].id, restored[0].run, restored[0].fingerprint)
+	require.NoError(t, err)
+	require.Equal(t, 1, compactOnce(t, ctx, e))
+
+	backfillUntilComplete(t, ctx, e)
+	paths := lookupPaths(t, ctx, e, lookupResult, restored[1].id)
+	require.Len(t, paths, 1, "the rewritten file's surviving row resolves")
+	assert.NotEqual(t, legacy[0], paths[0])
+	assertLookupsResolve(t, ctx, e, pool)
+}

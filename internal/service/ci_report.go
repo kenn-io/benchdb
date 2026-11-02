@@ -971,7 +971,8 @@ func (r *CIReporter) batchedHistory(pending []ciReportPendingComparison) history
 		}
 	}
 	loaded := map[int64]map[string][]storage.HistoryRow{}
-	return func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
+	return func(ctx context.Context, fingerprint string, baseline storage.CompareResultRow) ([]storage.HistoryRow, error) {
+		asOf := *baseline.CommitTimestamp
 		key := asOf.UnixNano()
 		byFingerprint, ok := loaded[key]
 		if !ok {
@@ -989,7 +990,7 @@ func (r *CIReporter) batchedHistory(pending []ciReportPendingComparison) history
 			}
 			loaded[key] = byFingerprint
 		}
-		return byFingerprint[fingerprint], nil
+		return historyThroughBaseline(byFingerprint[fingerprint], baseline), nil
 	}
 }
 
@@ -1086,8 +1087,8 @@ func (r *CIReporter) analyzeComparison(
 	threshold, thresholdZ float64,
 	history historyLoader,
 ) error {
-	countedHistory := func(ctx context.Context, fingerprint string, asOf time.Time) ([]storage.HistoryRow, error) {
-		rows, err := history(ctx, fingerprint, asOf)
+	countedHistory := func(ctx context.Context, fingerprint string, baseline storage.CompareResultRow) ([]storage.HistoryRow, error) {
+		rows, err := history(ctx, fingerprint, baseline)
 		if err == nil {
 			comp.HistoryPoints = new(len(rows))
 			comp.HistoryRequired = minHistoryPoints
@@ -1124,7 +1125,8 @@ func (r *CIReporter) analyzeComparison(
 func ciReportCompareInput(row storage.CIReportResultRow) storage.CompareResultRow {
 	return storage.CompareResultRow{
 		ID: row.ResultID, RunID: row.RunID, HistoryFingerprint: row.HistoryFingerprint,
-		Unit: row.Unit, Data: row.Data, Error: row.Error,
+		Timestamp: row.ResultTimestamp,
+		Unit:      row.Unit, Data: row.Data, Error: row.Error,
 		OptionalBenchmarkInfo: row.OptionalBenchmarkInfo,
 		CommitID:              row.CommitID, CommitTimestamp: row.CommitTimestamp,
 	}

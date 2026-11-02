@@ -21,7 +21,7 @@ import (
 )
 
 func TestAlertDeliveryDispatcherDeliversWebhookOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertDeliveryStore(storage.AlertEvent{
 		ID: "event-1", RuleID: "rule-1", Kind: storage.AlertEventKindOpened,
 		Status: string(service.CIReportStatusFailure), StatusReason: "regressions detected",
@@ -52,7 +52,7 @@ func TestAlertDeliveryDispatcherDeliversWebhookOnce(t *testing.T) {
 }
 
 func TestAlertDeliveryDispatcherRecordsFailuresForRetry(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertDeliveryStore(storage.AlertEvent{
 		ID: "event-1", RuleID: "rule-1", Kind: storage.AlertEventKindOpened,
 		Status: string(service.CIReportStatusFailure), StatusReason: "regressions detected",
@@ -82,7 +82,7 @@ func TestAlertDeliveryDispatcherRecordsFailuresForRetry(t *testing.T) {
 }
 
 func TestAlertDeliveryDispatcherClaimsImmediatelyBeforeEachSend(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertDeliveryStore(
 		storage.AlertEvent{
 			ID: "event-1", RuleID: "rule-1", Kind: storage.AlertEventKindOpened,
@@ -113,7 +113,7 @@ func TestAlertDeliveryDispatcherClaimsImmediatelyBeforeEachSend(t *testing.T) {
 }
 
 func TestWebhookAlertDeliverySenderPostsEventSummaryAsJSON(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -148,7 +148,7 @@ func TestWebhookAlertDeliverySenderPostsEventSummaryAsJSON(t *testing.T) {
 }
 
 func TestSlackAlertDeliverySenderPostsSlackMessage(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -186,7 +186,7 @@ func TestSlackAlertDeliverySenderPostsSlackMessage(t *testing.T) {
 }
 
 func TestSlackAlertDeliverySenderDoesNotLinkRelativeReportURL(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -227,7 +227,7 @@ func TestSlackAlertDeliverySenderDoesNotLinkRelativeReportURL(t *testing.T) {
 }
 
 func TestGitHubCheckAlertDeliverySenderCreatesCheckRun(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got map[string]any
 	var gotAuth string
 	var gotAccept string
@@ -278,7 +278,7 @@ func TestGitHubCheckAlertDeliverySenderCreatesCheckRun(t *testing.T) {
 }
 
 func TestGitHubCommentAlertDeliverySenderCreatesCommitComment(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got map[string]any
 	var gotAuth string
 	var gotAccept string
@@ -321,7 +321,7 @@ func TestGitHubCommentAlertDeliverySenderCreatesCommitComment(t *testing.T) {
 }
 
 func TestEmailAlertDeliverySenderSendsPlainTextMessage(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	addr, messages := newFakeSMTPServer(t)
 	sender := service.NewEmailAlertDeliverySender(addr, "alerts@example.com", "", "")
 
@@ -359,7 +359,7 @@ type smtpTestMessage struct {
 
 func newFakeSMTPServer(t *testing.T) (string, <-chan smtpTestMessage) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	messages := make(chan smtpTestMessage, 1)
 	done := make(chan struct{})
@@ -569,7 +569,7 @@ func postSlackAlert(t *testing.T, event service.AlertDeliveryEvent) (string, []s
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
-	err := service.NewSlackAlertDeliverySender(server.Client()).SendAlertDelivery(context.Background(),
+	err := service.NewSlackAlertDeliverySender(server.Client()).SendAlertDelivery(t.Context(),
 		service.AlertDeliveryPayload{Channel: service.AlertDeliveryChannelSlack, Target: server.URL, Event: event})
 	require.NoError(t, err)
 	blocks := make([]string, 0, len(got.Blocks))
@@ -685,7 +685,7 @@ func TestGitHubCheckConclusionFollowsTheAlertNotItsReport(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			err := service.NewGitHubCheckAlertDeliverySender(server.Client(), "ghs_secret", server.URL).SendAlertDelivery(
-				context.Background(), service.AlertDeliveryPayload{
+				t.Context(), service.AlertDeliveryPayload{
 					Channel: service.AlertDeliveryChannelGitHubCheck, Target: "https://github.com/org/repo",
 					Event: service.AlertDeliveryEvent{
 						ID: "event-1", Kind: tt.kind, Status: tt.status, CommitSHA: new("sha-1"),

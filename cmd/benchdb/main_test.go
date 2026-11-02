@@ -1731,7 +1731,7 @@ func TestCIReportParseArgs(t *testing.T) {
 }
 
 func TestPublishCIReportGitHubCreatesCheckAndPRComment(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	sha := "abc123def456"
 	runReason := "commit"
 	compareLink := "/compare?baseline=base-result&contender=result-1"
@@ -1887,7 +1887,7 @@ func TestCIReportGitHubClientPrefersAppCredentialsOverFallbackToken(t *testing.T
 	t.Setenv("BENCHDB_CI_GITHUB_APP_ID", "12345")
 	t.Setenv("BENCHDB_CI_GITHUB_APP_PRIVATE_KEY", "not a pem")
 
-	_, err := newCIReportGitHubClient(context.Background(), ciReportConfig{})
+	_, err := newCIReportGitHubClient(t.Context(), ciReportConfig{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse github app private key")
@@ -1897,7 +1897,7 @@ func TestCIReportGitHubClientPartialAppConfigDoesNotFallbackToToken(t *testing.T
 	t.Setenv("GITHUB_API_TOKEN", "ghs_fallback")
 	t.Setenv("BENCHDB_CI_GITHUB_APP_ID", "12345")
 
-	_, err := newCIReportGitHubClient(context.Background(), ciReportConfig{})
+	_, err := newCIReportGitHubClient(t.Context(), ciReportConfig{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "github app private key is required")
@@ -2489,7 +2489,7 @@ func TestSubmitMultipleResultsUsesWorkerConcurrency(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var stdout bytes.Buffer
-	err := runSubmitConfig(context.Background(), submitConfig{
+	err := runSubmitConfig(t.Context(), submitConfig{
 		fixtures: []string{filepath.Join(tempDir, "a.json"), filepath.Join(tempDir, "b.json")},
 		server:   srv.URL,
 		jobs:     2,
@@ -2535,7 +2535,7 @@ func TestSubmitStreamsDecodedWorkBeforeReadingAllFixtures(t *testing.T) {
 	}
 
 	got, err := streamSubmitWork(
-		context.Background(),
+		t.Context(),
 		[]string{firstPath, secondPath},
 		1,
 		decode,
@@ -2566,7 +2566,7 @@ func TestSubmitArrayFileSubmitsEachResult(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var stdout bytes.Buffer
-	err = runSubmitConfig(context.Background(), submitConfig{
+	err = runSubmitConfig(t.Context(), submitConfig{
 		fixtures: []string{path},
 		server:   srv.URL,
 		jobs:     2,

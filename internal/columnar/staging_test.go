@@ -51,7 +51,7 @@ func TestStagingPublisherHelper(t *testing.T) {
 	}
 	store, err := local.New(root)
 	require.NoError(t, err)
-	_, err = store.Publish(context.Background(), generatedFactKey(), &stalledSource{}, 1<<20, [32]byte{})
+	_, err = store.Publish(t.Context(), generatedFactKey(), &stalledSource{}, 1<<20, [32]byte{})
 	require.NoError(t, err, "the publisher is killed before it can finish")
 }
 
@@ -179,7 +179,7 @@ func TestStagingRecoveryRequiresOwnershipDuringWalk(t *testing.T) {
 				var err error
 				successorOwner, err = successor.coord.tryOwner(ctx)
 				require.NoError(t, err, "the successor takes the ended session's ownership")
-				t.Cleanup(func() { require.NoError(t, successorOwner.Close(ctx)) })
+				t.Cleanup(func() { require.NoError(t, successorOwner.Close(context.WithoutCancel(ctx))) })
 				writeStagingFile(t, active, 10)
 			}
 			return confirmOwnerLock(ctx, owner.conn)

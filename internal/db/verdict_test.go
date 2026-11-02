@@ -84,7 +84,7 @@ func TestEnqueueMissingRunVerdictsWritesNothingWhenReadOnly(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+	t.Cleanup(func() { _ = tx.Rollback(context.WithoutCancel(ctx)) })
 
 	require.NoError(t, db.NewStore(tx).EnqueueMissingRunVerdicts(ctx, []string{"run-a"}))
 	require.NoError(t, tx.Rollback(ctx))
@@ -156,7 +156,7 @@ func TestRunVerdictsWaitForAndYieldToADefaultBranchChange(t *testing.T) {
 	// the write is still uncommitted when the verdict is stored.
 	writer, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = writer.Rollback(ctx) })
+	t.Cleanup(func() { _ = writer.Rollback(context.WithoutCancel(ctx)) })
 	_, err = writer.Exec(ctx, `SELECT bump_repository_generation('repo')`)
 	require.NoError(t, err)
 	require.NoError(t, store.EnqueueVerdict(ctx, storage.VerdictKindRun, "pr-run"))
@@ -192,7 +192,7 @@ func TestRunVerdictEvaluationWaitsForAnUncommittedDefaultBranchChange(t *testing
 	require.NoError(t, err)
 	writer, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = writer.Rollback(ctx) })
+	t.Cleanup(func() { _ = writer.Rollback(context.WithoutCancel(ctx)) })
 	_, err = writer.Exec(ctx, `SELECT bump_repository_generation('repo')`)
 	require.NoError(t, err)
 

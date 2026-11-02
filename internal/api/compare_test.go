@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"testing"
@@ -10,9 +11,80 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 )
+
+func TestCompareBaselineEndsAtSelectedResult(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		sameCommit  bool
+		sameMeasure bool
+	}{
+		{name: "later measurement of baseline commit", sameCommit: true},
+		{name: "later measurement of tied commit"},
+		{name: "tied measurements ordered by result ID", sameMeasure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tapi, pool, ctx := seedAPI(t)
+			seedEarlierHistory(t, tapi, seedOpts{}, 10, 20, 30, 10, 20, 30, 20, 10)
+			earlier := seedResult(t, tapi, seedOpts{sha: "earlier-tied", ts: day(1), data: []float64{20}})
+			earlierID, earlierAt := "ffffffffffffffffffffffffffffffff", day(0)
+			if tc.sameMeasure {
+				earlierID, earlierAt = "00000000000000000000000000000000", day(1)
+			}
+			dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET id = $1, "timestamp" = $2 WHERE id = $3`, earlierID, earlierAt, earlier)
+			baseline := seedResult(t, tapi, seedOpts{sha: "base", ts: day(1), runID: "baseline-run", data: []float64{30}})
+			contender := seedResult(t, tapi, seedOpts{sha: "head", ts: day(2), runID: "contender-run", data: []float64{100}})
+			compare := func() *service.LookbackAnalysis {
+				t.Helper()
+				resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
+				require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+				var out service.CompareResult
+				require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+				require.NotNil(t, out.Analysis.LookbackZScore)
+				return out.Analysis.LookbackZScore
+			}
+			before := compare()
+			require.True(t, before.RegressionIndicated)
+			require.InDelta(t, 20.0, before.Tolerance.Reference, 1e-9)
+			for i := range 12 {
+				sha, measured := "base", day(2)
+				if !tc.sameCommit {
+					sha = fmt.Sprintf("later-%d", i)
+				}
+				if tc.sameMeasure {
+					measured = day(1)
+				}
+				id := seedResult(t, tapi, seedOpts{sha: sha, ts: measured, runID: fmt.Sprintf("later-run-%d", i), data: []float64{100}})
+				_, err := pool.Exec(ctx, `UPDATE commit SET "timestamp" = $1 WHERE sha = $2`, day(1), sha)
+				require.NoError(t, err)
+				// Later measurements have smaller IDs, so measurement time must
+				// win. With both timestamps tied, only the larger ID excludes it.
+				orderedID := fmt.Sprintf("00000000%024d", i)
+				if tc.sameMeasure {
+					orderedID = fmt.Sprintf("ffffffff%024d", i)
+				}
+				dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET id = $1 WHERE id = $2`, orderedID, id)
+			}
+			assert.Equal(t, before, compare(), "later results must not change a selected baseline's verdict")
+			report, err := service.NewCIReporter(db.NewStore(pool), "").Report(ctx, service.CIReportQuery{
+				RunIDs: []string{"contender-run"}, BaselineRunIDs: []string{"baseline-run"},
+			})
+			require.NoError(t, err)
+			require.Len(t, report.Runs, 1)
+			require.Len(t, report.Runs[0].Comparisons, 1)
+			comparison := report.Runs[0].Comparisons[0]
+			assert.Equal(t, service.CIReportRowStatusRegressed, comparison.Status)
+			require.NotNil(t, comparison.HistoryPoints)
+			assert.Equal(t, 10, *comparison.HistoryPoints, "CI reports count only the selected baseline window")
+			require.NotNil(t, comparison.Analysis)
+			require.NotNil(t, comparison.Analysis.LookbackZScore)
+			assert.InDelta(t, before.ZScore, comparison.Analysis.LookbackZScore.ZScore, 1e-9)
+		})
+	}
+}
 
 func TestCompareHappyPath(t *testing.T) {
 	tapi, _, _ := seedAPI(t)

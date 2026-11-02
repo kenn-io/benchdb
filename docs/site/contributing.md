@@ -161,6 +161,34 @@ BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE='postgres:17.10-alpine@sha256:742f40ea20b9ff
   go test -shuffle=on ./internal/dbtest/...
 ```
 
+### Live S3 and GCS tests
+
+Loopback services cannot show that DuckDB's reads, the archive proxy, provider
+credentials, and object publication work with AWS and Google.
+`TestLiveRemoteArchive` opens an archive in a real bucket, publishes results,
+reads them back through DuckDB, restarts, and reads again. Setting a variable
+is the consent to use that provider with its default credentials:
+
+| Variable               | Value                | Credentials                                  |
+| ---------------------- | -------------------- | -------------------------------------------- |
+| `BENCHDB_LIVE_S3_URL`  | `s3://bucket/prefix` | AWS SDK default chain, with `AWS_REGION` set |
+| `BENCHDB_LIVE_GCS_URL` | `gs://bucket/prefix` | Google Application Default Credentials       |
+
+Each run writes under its own random prefix and removes what it wrote. Give the
+bucket a lifecycle rule that deletes objects after a day, so an interrupted run
+leaves nothing behind.
+
+```bash
+export BENCHDB_DUCKDB_EXTENSION_DIR="$PWD/.cache/duckdb/extensions"
+make duckdb-extensions
+BENCHDB_LIVE_S3_URL=s3://example-bucket/benchdb AWS_REGION=us-east-2 \
+  go test -shuffle=on -run '^TestLiveRemoteArchive$' ./internal/columnar
+```
+
+The `Storage provider tests` workflow runs both providers daily and on demand
+from the `storage-tests` environment, which only `main` can use. It signs in
+with GitHub's OIDC token and fails if either provider is skipped.
+
 ### Shared Go build cache
 
 The Makefile builds and tests Go with `-trimpath`, so compiled code records

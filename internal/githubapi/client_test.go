@@ -1,7 +1,6 @@
 package githubapi
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -45,9 +44,9 @@ func TestAppTokenSourceUsesConfiguredInstallationAndCachesToken(t *testing.T) {
 	assert.Equal(t, int32(0), exchanges.Load(), "construction must not contact GitHub")
 	source.now = func() time.Time { return now }
 
-	first, err := source.Token(context.Background())
+	first, err := source.Token(t.Context())
 	require.NoError(t, err)
-	second, err := source.Token(context.Background())
+	second, err := source.Token(t.Context())
 	require.NoError(t, err)
 
 	assert.Equal(t, "ghs_installation", first)
@@ -83,7 +82,7 @@ func TestAppTokenSourceRefreshesOnceUnderConcurrentDemand(t *testing.T) {
 	require.NoError(t, err)
 	source.now = func() time.Time { return now }
 
-	initial, err := source.Token(context.Background())
+	initial, err := source.Token(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "ghs_initial", initial)
 
@@ -93,7 +92,7 @@ func TestAppTokenSourceRefreshesOnceUnderConcurrentDemand(t *testing.T) {
 	var wg sync.WaitGroup
 	for range callers {
 		wg.Go(func() {
-			token, tokenErr := source.Token(context.Background())
+			token, tokenErr := source.Token(t.Context())
 			tokens <- token
 			errs <- tokenErr
 		})
@@ -133,7 +132,7 @@ func TestAppTokenSourceRejectsInvalidConfig(t *testing.T) {
 }
 
 func TestGitHubAppAuthenticationExchangesInstallationToken(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := testPrivateKeyPEM(t)
 	var appAuth string
 	var installationAuth string
@@ -168,7 +167,7 @@ func TestGitHubAppAuthenticationExchangesInstallationToken(t *testing.T) {
 }
 
 func TestGitHubRepoClientCreatesCheckAndPullRequestComment(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var checkBody map[string]any
 	var commentBody map[string]any
 	var requests []string

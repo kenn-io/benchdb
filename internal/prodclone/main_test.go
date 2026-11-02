@@ -22,7 +22,7 @@ func TestSafeDBURLCommandRemovesPasswordFromStdout(t *testing.T) {
 	t.Setenv("BENCHDB_PROD_CLONE_CONFIRM", "read-only")
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"safe-db-url"}, &stdout, &stderr)
+	code := run(t.Context(), []string{"safe-db-url"}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.NotContains(t, stdout.String(), "supersecret")
@@ -37,7 +37,7 @@ func TestPreflightOpenErrorDoesNotLeakPassword(t *testing.T) {
 	t.Setenv("BENCHDB_PROD_CLONE_CONFIRM", "read-only")
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"preflight", "--out", t.TempDir()}, &stdout, &stderr)
+	code := run(t.Context(), []string{"preflight", "--out", t.TempDir()}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -66,7 +66,7 @@ func TestSamplesSelectionErrorDoesNotLeakPassword(t *testing.T) {
 	)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -111,7 +111,7 @@ func TestSamplesCommandRequiresReadOnlyRoleUnlessDevRoleAllowed(t *testing.T) {
 	)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -137,7 +137,7 @@ func TestSamplesCommandAllowsDevRoleFlag(t *testing.T) {
 	)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--allow-dev-role", "--out", t.TempDir()}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--allow-dev-role", "--out", t.TempDir()}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -207,7 +207,7 @@ func TestCompareCountsCommandExitsZeroForEqualCounts(t *testing.T) {
 	writeJSON(t, after, snapshot)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"compare-counts", "--before", before, "--after", after, "--out", out}, &stdout, &stderr)
+	code := run(t.Context(), []string{"compare-counts", "--before", before, "--after", after, "--out", out}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -228,7 +228,7 @@ func TestCompareCountsCommandExitsNonZeroForChangedCounts(t *testing.T) {
 	writeJSON(t, after, afterSnapshot)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"compare-counts", "--before", before, "--after", after, "--out", out}, &stdout, &stderr)
+	code := run(t.Context(), []string{"compare-counts", "--before", before, "--after", after, "--out", out}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -242,7 +242,7 @@ func TestCompareCountsCommandExitsNonZeroForChangedCounts(t *testing.T) {
 func TestSamplesCommandHelpMentionsOutput(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--help"}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--help"}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Contains(t, stdout.String(), "usage: benchdb admin prod-clone samples")
@@ -318,7 +318,7 @@ func TestSamplesCommandPrintsWarningsAfterWritingManifest(t *testing.T) {
 	outDir := t.TempDir()
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--out", outDir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--out", outDir}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -354,7 +354,7 @@ func TestSamplesCommandUsesReadOnlySampleQueryer(t *testing.T) {
 	)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
+	code := run(t.Context(), []string{"samples", "--out", t.TempDir()}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.True(t, beginCalled)
@@ -390,7 +390,7 @@ func TestAPIProbeCommandWritesArtifactAndTimings(t *testing.T) {
 	})
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"api-probe", "--server", server.URL, "--samples", samplesPath, "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"api-probe", "--server", server.URL, "--samples", samplesPath, "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -440,7 +440,7 @@ func TestAPIProbeCommandReplacesTimingsAndTightensExistingModes(t *testing.T) {
 	require.NoError(t, os.WriteFile(timingsPath, []byte("old timing\n"), 0o644))
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"api-probe", "--server", server.URL, "--samples", samplesPath, "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"api-probe", "--server", server.URL, "--samples", samplesPath, "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -464,7 +464,7 @@ func TestAPIProbeCommandReplacesStaleArtifactWhenSamplesUnreadable(t *testing.T)
 	})
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"api-probe", "--server", "http://127.0.0.1:1", "--samples", filepath.Join(dir, "missing.json"), "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"api-probe", "--server", "http://127.0.0.1:1", "--samples", filepath.Join(dir, "missing.json"), "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -484,7 +484,7 @@ func TestLogScanCommandWritesArtifactAndFailsOnFindings(t *testing.T) {
 	require.NoError(t, os.WriteFile(logPath, []byte("ERROR: permission denied for table benchmark_result\n"), 0o600))
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"log-scan", "--log", logPath, "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"log-scan", "--log", logPath, "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -503,7 +503,7 @@ func TestLogScanCommandReplacesStaleArtifactWhenLogUnreadable(t *testing.T) {
 	writeJSON(t, logScanPath, LogScanArtifact{Passed: true})
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"log-scan", "--log", filepath.Join(dir, "missing.log"), "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"log-scan", "--log", filepath.Join(dir, "missing.log"), "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -522,7 +522,7 @@ func TestReportCommandWritesCompatReport(t *testing.T) {
 	require.NoError(t, os.WriteFile(reportPath, []byte("old report"), 0o644))
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"report", "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"report", "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Empty(t, stdout.String())
@@ -538,7 +538,7 @@ func TestReportCommandFailsAfterWritingReportWhenMandatoryArtifactsAreMissing(t 
 	reportPath := filepath.Join(dir, "compat-report.md")
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"report", "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"report", "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -559,7 +559,7 @@ func TestReportCommandFailsAfterWritingReportWhenArtifactsAreSemanticallyInvalid
 	reportPath := filepath.Join(dir, "compat-report.md")
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"report", "--out", dir}, &stdout, &stderr)
+	code := run(t.Context(), []string{"report", "--out", dir}, &stdout, &stderr)
 
 	require.Equal(t, 1, code)
 	assert.Empty(t, stdout.String())
@@ -587,7 +587,7 @@ func TestWriteFile0600TightensModeBeforeWriting(t *testing.T) {
 func TestTopLevelHelpMentionsReadCompatibilityCommands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"--help"}, &stdout, &stderr)
+	code := run(t.Context(), []string{"--help"}, &stdout, &stderr)
 
 	require.Equal(t, 0, code)
 	assert.Contains(t, stdout.String(), "api-probe")
@@ -600,7 +600,7 @@ func TestTopLevelHelpMentionsReadCompatibilityCommands(t *testing.T) {
 func TestUsageErrorsExitTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"compare-counts", "--before", "before.json"}, &stdout, &stderr)
+	code := run(t.Context(), []string{"compare-counts", "--before", "before.json"}, &stdout, &stderr)
 
 	require.Equal(t, 2, code)
 	assert.Empty(t, stdout.String())

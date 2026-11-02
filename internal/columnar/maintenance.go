@@ -86,7 +86,7 @@ func (e *Engine) withOwner(ctx context.Context, acquire func(context.Context) (*
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, owner.Close(closeCtx))
 	}()

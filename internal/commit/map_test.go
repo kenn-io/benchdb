@@ -1,7 +1,6 @@
 package commit_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -19,7 +18,7 @@ func TestMapProviderResolvesKnownCommit(t *testing.T) {
 		"sha-1": {Message: "Optimize pivot", Timestamp: &ts},
 	}}
 
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit:     "sha-1",
 		Repository: "https://github.com/org/repo/",
 	})
@@ -44,7 +43,7 @@ func TestMapProviderPreservesOffBranchForkPoint(t *testing.T) {
 		"sha-feature": {Message: "WIP", ForkPointSha: &forkPoint},
 	}}
 
-	info, err := p.Resolve(context.Background(), commit.Request{Commit: "sha-feature", Repository: "https://github.com/org/repo"})
+	info, err := p.Resolve(t.Context(), commit.Request{Commit: "sha-feature", Repository: "https://github.com/org/repo"})
 	require.NoError(t, err)
 	if assert.NotNil(t, info.ForkPointSha) {
 		assert.Equal(t, "sha-base", *info.ForkPointSha, "off branch")
@@ -55,7 +54,7 @@ func TestMapProviderEmptyAndUnknown(t *testing.T) {
 	p := commit.MapProvider{Commits: map[string]commit.Info{"known": {}}}
 
 	for _, sha := range []string{"", "unknown"} {
-		info, err := p.Resolve(context.Background(), commit.Request{Commit: sha, Repository: "https://github.com/org/repo"})
+		info, err := p.Resolve(t.Context(), commit.Request{Commit: sha, Repository: "https://github.com/org/repo"})
 		require.NoError(t, err, "Resolve(%q)", sha)
 		assert.Nil(t, info, "Resolve(%q) want nil (no commit)", sha)
 	}

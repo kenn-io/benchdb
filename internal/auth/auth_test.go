@@ -19,15 +19,15 @@ import (
 func TestAuthenticateDisabledAllowsEverything(t *testing.T) {
 	a := auth.New("", true, nil, nil) // disabled, no token
 	for _, h := range []string{"", "Bearer anything", "garbage"} {
-		assert.NoError(t, a.Authenticate(context.Background(), h, ""), "disabled Authenticate(%q) want nil", h)
+		assert.NoError(t, a.Authenticate(t.Context(), h, ""), "disabled Authenticate(%q) want nil", h)
 	}
 }
 
 func TestAuthenticateEnabledChecksBearerToken(t *testing.T) {
 	a := auth.New("s3cret", false, nil, nil)
-	require.NoError(t, a.Authenticate(context.Background(), "Bearer s3cret", ""), "correct token rejected")
+	require.NoError(t, a.Authenticate(t.Context(), "Bearer s3cret", ""), "correct token rejected")
 	for _, h := range []string{"", "s3cret", "Bearer wrong", "Bearer ", "bearer s3cret"} {
-		assert.ErrorIs(t, a.Authenticate(context.Background(), h, ""), auth.ErrUnauthorized, "Authenticate(%q) want ErrUnauthorized", h)
+		assert.ErrorIs(t, a.Authenticate(t.Context(), h, ""), auth.ErrUnauthorized, "Authenticate(%q) want ErrUnauthorized", h)
 	}
 }
 
@@ -35,13 +35,13 @@ func TestAuthenticateEnabledChecksBearerToken(t *testing.T) {
 // disabled but no token is configured, every request is rejected.
 func TestAuthenticateFailsClosedWithoutToken(t *testing.T) {
 	a := auth.New("", false, nil, nil)
-	assert.ErrorIs(t, a.Authenticate(context.Background(), "Bearer anything", ""), auth.ErrUnauthorized, "fail-closed Authenticate want ErrUnauthorized")
+	assert.ErrorIs(t, a.Authenticate(t.Context(), "Bearer anything", ""), auth.ErrUnauthorized, "fail-closed Authenticate want ErrUnauthorized")
 }
 
 func TestAuthenticateSessionCookie(t *testing.T) {
 	sessions := auth.NewSessionSigner("sek")
 	a := auth.New("", false, nil, sessions)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	valid := sessions.Sign("user-1", time.Now().UTC().Add(time.Hour))
 	require.NoError(t, a.Authenticate(ctx, "", valid), "valid session authorizes")
@@ -55,7 +55,7 @@ func TestAuthenticateSessionCookie(t *testing.T) {
 
 func TestAuthenticateNilSessionSigner(t *testing.T) {
 	a := auth.New("static", false, nil, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 	// With no session signer, a cookie value can never authorize; the static
 	// token still does.
 	require.ErrorIs(t, a.Authenticate(ctx, "", "anything"), auth.ErrUnauthorized)
@@ -103,7 +103,7 @@ func (erroringTokenStore) TouchAPITokenLastUsed(context.Context, string, time.Ti
 // token lookup denies the request (fail closed) rather than authenticating.
 func TestResolvePrincipalFailsClosedOnStoreError(t *testing.T) {
 	a := auth.New("", false, erroringTokenStore{}, nil)
-	_, err := a.ResolvePrincipal(context.Background(), "Bearer cb_anything", "")
+	_, err := a.ResolvePrincipal(t.Context(), "Bearer cb_anything", "")
 	assert.ErrorIs(t, err, auth.ErrUnauthorized, "store error must fail closed, not authenticate")
 }
 

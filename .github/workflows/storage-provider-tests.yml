@@ -1,0 +1,64 @@
+name: Storage provider tests
+
+# Live S3 and GCS runs of the archive engine. The cloud identities trust only
+# this workflow on main, in the storage-tests environment, so it runs on
+# demand and daily rather than on pull requests.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 7 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-provider-tests
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Live S3 and GCS archive
+    runs-on: namespace-profile-linux-8cpu
+    environment: storage-tests
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DOWNLOAD_RETRY: kit-retry 3 5
+      BENCHDB_DUCKDB_EXTENSION_DIR: ${{ github.workspace }}/.cache/duckdb/extensions
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
+      - run: make duckdb-extensions
+
+      - name: Sign in to Google Cloud
+        uses: google-github-actions/auth@v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.STORAGE_TESTS_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.STORAGE_TESTS_GCP_SERVICE_ACCOUNT }}
+
+      - name: Sign in to AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.STORAGE_TESTS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.STORAGE_TESTS_AWS_REGION }}
+
+      - name: Run the archive against S3 and GCS
+        env:
+          BENCHDB_LIVE_S3_URL: s3://${{ vars.STORAGE_TESTS_S3_BUCKET }}/benchdb
+          BENCHDB_LIVE_GCS_URL: gs://${{ vars.STORAGE_TESTS_GCS_BUCKET }}/benchdb
+        # A skipped subtest means the provider was never reached, so it fails.
+        run: |
+          set -o pipefail
+          go test -shuffle=on -timeout 20m -v -run '^TestLiveRemoteArchive$' ./internal/columnar | tee live.log
+          for provider in s3 gcs; do
+            grep -q -- "--- PASS: TestLiveRemoteArchive/${provider} " live.log ||
+              { echo "TestLiveRemoteArchive/${provider} did not run and pass" >&2; exit 1; }
+          done

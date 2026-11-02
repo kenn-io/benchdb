@@ -27,7 +27,7 @@ func TestStorageEndpointUnavailableWithoutArchive(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
 	handler := newHandler(nil, auth.New("", true, nil, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/storage", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/storage", nil))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Storage status is unavailable")
 }
@@ -71,7 +71,7 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	authHandler := api.NewAuthHandler(nil, nil, auth.NewSessionSigner(""), auth.NewSigner(""), false, "", api.NewCodeStore(), false)
 	handler := newHandler(store, auth.New("", true, store, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/storage", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/storage", nil))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body struct {
 		SampledAt            time.Time `json:"sampled_at"`
@@ -111,14 +111,14 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	}, 3*time.Second, time.Millisecond)
 	sampledAt := body.SampledAt
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/storage", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/storage", nil))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "scheduled", body.Maintenance.State)
 	assert.Equal(t, sampledAt, body.SampledAt, "maintenance state updates while usage remains cached")
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_sample_success 1\n")
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_archived_rows 1\n")
@@ -132,12 +132,12 @@ func TestStorageEndpointAndMetricsReportArchive(t *testing.T) {
 	<-workerDone
 	require.NoError(t, engine.Close())
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/storage", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/storage", nil))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Storage status is unavailable")
 	assert.NotContains(t, rec.Body.String(), "archive engine is closed")
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "benchdb_storage_sample_success 0\n")
 	assert.NotContains(t, rec.Body.String(), "benchdb_storage_archived_rows")
@@ -159,7 +159,7 @@ func TestStorageMetricsPaused(t *testing.T) {
 		store := columnar.NewStore(pg, engine)
 		handler := newHandler(store, auth.New("", true, store, nil), commit.LocalProvider{}, authHandler, testAssets(), nil)
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		return rec.Body.String()
 	}

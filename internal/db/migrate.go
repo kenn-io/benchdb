@@ -23,6 +23,8 @@ import (
 const (
 	migrationTableName     = "schema_migrations"
 	migrationHandoffLockID = int64(0x636f6e62656e6368)
+	// A canceled unlock closes the session, which also releases the lock.
+	migrationUnlockTimeout = 10 * time.Second
 )
 
 var errCurrentSchemaIncomplete = errors.New("BenchDB schema is incomplete")
@@ -40,7 +42,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) (returnErr error) {
 		return err
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, releaseMigrationLock(lockConn))
+		returnErr = errors.Join(returnErr, releaseMigrationLock(ctx, lockConn))
 	}()
 
 	if err := verifyMigrationTarget(ctx, lockConn.Conn()); err != nil {
@@ -160,9 +162,13 @@ func acquireMigrationLock(ctx context.Context, pool *pgxpool.Pool) (*pgxpool.Con
 	}
 }
 
-func releaseMigrationLock(conn *pgxpool.Conn) error {
+// releaseMigrationLock unlocks even when ctx has ended, so a canceled
+// migration does not leave the lock held.
+func releaseMigrationLock(ctx context.Context, conn *pgxpool.Conn) error {
 	defer conn.Release()
-	if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationHandoffLockID); err != nil {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), migrationUnlockTimeout)
+	defer cancel()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, migrationHandoffLockID); err != nil {
 		return fmt.Errorf("release migration lock: %w", err)
 	}
 	return nil

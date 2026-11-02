@@ -35,7 +35,7 @@ func deadlineEngine(t *testing.T) (*Engine, *Store, *pgxpool.Pool) {
 
 func deadlineCaller(t *testing.T) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -68,7 +68,7 @@ func TestReadDeadlineQueued(t *testing.T) {
 	assert.False(t, queuedCallbackRan)
 	assert.Less(t, time.Since(started), 3*time.Second)
 	// Metadata and ingestion use PostgreSQL while the analytical slot is held.
-	metadataCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	metadataCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	id, err := store.GetOrCreateCase(metadataCtx, "deadline-case", []byte(`{}`))
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestReadDeadlineQueued(t *testing.T) {
 	assert.NotEmpty(t, resultID)
 	releaseReader()
 	require.ErrorIs(t, <-occupied, context.DeadlineExceeded, "an expired callback cannot return success")
-	count, nextReadErr := store.CountBenchmarkResults(context.Background())
+	count, nextReadErr := store.CountBenchmarkResults(t.Context())
 	require.NoError(t, nextReadErr)
 	assert.Equal(t, int64(1), count)
 }
@@ -104,7 +104,7 @@ func TestReadDeadlineDuckDB(t *testing.T) {
 	})
 	require.ErrorIs(t, readErr, context.DeadlineExceeded)
 	assert.Less(t, time.Since(started), 3*time.Second)
-	require.NoError(t, e.Read(context.Background(), func(ctx context.Context, tx *ReadSnapshot) error {
+	require.NoError(t, e.Read(t.Context(), func(ctx context.Context, tx *ReadSnapshot) error {
 		var n int
 		return tx.QueryRowContext(ctx, `SELECT 1`).Scan(&n)
 	}))
@@ -123,11 +123,11 @@ func TestReadDeadlinePostgres(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool {
 		var running bool
-		return pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&running) == nil && running
+		return pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&running) == nil && running
 	}, 3*time.Second, 10*time.Millisecond, "PostgreSQL scanner must execute the slow SQL")
 	require.ErrorIs(t, <-done, context.DeadlineExceeded)
 	assert.Less(t, time.Since(started), 3*time.Second)
-	require.NoError(t, e.Read(context.Background(), func(ctx context.Context, tx *ReadSnapshot) error {
+	require.NoError(t, e.Read(t.Context(), func(ctx context.Context, tx *ReadSnapshot) error {
 		var n int
 		return tx.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg','SELECT 1 AS n')`).Scan(&n)
 	}))
@@ -137,9 +137,9 @@ func TestFinalizeDeadlineShared(t *testing.T) {
 	_, store, pool := deadlineEngine(t)
 	t.Run("run-lock", func(t *testing.T) {
 		ctx := deadlineCaller(t)
-		lock, err := store.LockRun(context.Background(), "locked-run")
+		lock, err := store.LockRun(t.Context(), "locked-run")
 		require.NoError(t, err)
-		defer func() { _ = lock.Rollback(context.Background()) }()
+		defer func() { _ = lock.Rollback(t.Context()) }()
 		done := make(chan error, 1)
 		callbackRan := false
 		started := time.Now()
@@ -152,7 +152,7 @@ func TestFinalizeDeadlineShared(t *testing.T) {
 		}()
 		require.Eventually(t, func() bool {
 			var waiting bool
-			return pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory')`).Scan(&waiting) == nil && waiting
+			return pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory')`).Scan(&waiting) == nil && waiting
 		}, 3*time.Second, 10*time.Millisecond)
 		require.ErrorIs(t, <-done, context.DeadlineExceeded)
 		assert.False(t, callbackRan)
@@ -178,11 +178,11 @@ func TestFinalizeDeadlineShared(t *testing.T) {
 		assert.Less(t, time.Since(started), 3*time.Second)
 	})
 	t.Run("commit", func(t *testing.T) {
-		_, err := pool.Exec(context.Background(), `CREATE FUNCTION slow_report_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(30); RETURN NEW; END $$;
+		_, err := pool.Exec(t.Context(), `CREATE FUNCTION slow_report_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(30); RETURN NEW; END $$;
 CREATE CONSTRAINT TRIGGER slow_report_commit AFTER INSERT ON ci_run_report DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slow_report_commit()`)
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			_, err := pool.Exec(context.Background(), `DROP TRIGGER slow_report_commit ON ci_run_report; DROP FUNCTION slow_report_commit()`)
+			_, err := pool.Exec(context.WithoutCancel(t.Context()), `DROP TRIGGER slow_report_commit ON ci_run_report; DROP FUNCTION slow_report_commit()`)
 			require.NoError(t, err)
 		})
 		ctx := deadlineCaller(t)
@@ -196,15 +196,15 @@ CREATE CONSTRAINT TRIGGER slow_report_commit AFTER INSERT ON ci_run_report DEFER
 		}()
 		require.Eventually(t, func() bool {
 			var committing bool
-			return pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND lower(query)='commit' AND wait_event='PgSleep')`).Scan(&committing) == nil && committing
+			return pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND lower(query)='commit' AND wait_event='PgSleep')`).Scan(&committing) == nil && committing
 		}, 3*time.Second, 10*time.Millisecond, "the final PostgreSQL commit must start")
 		require.ErrorIs(t, <-done, context.DeadlineExceeded)
 		assert.Less(t, time.Since(started), 3*time.Second)
 	})
 	var savedReportRows int64
-	require.NoError(t, pool.QueryRow(context.Background(), `SELECT count(*) FROM ci_run_report`).Scan(&savedReportRows))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM ci_run_report`).Scan(&savedReportRows))
 	assert.Equal(t, int64(0), savedReportRows)
-	_, err := store.FinalizeRunReport(context.Background(), "next-run", []string{}, func(context.Context, storage.Store) (storage.RunReport, error) {
+	_, err := store.FinalizeRunReport(t.Context(), "next-run", []string{}, func(context.Context, storage.Store) (storage.RunReport, error) {
 		return storage.RunReport{EvaluatedAt: time.Now().UTC(), Report: []byte(`{}`), Summary: []byte(`{}`)}, nil
 	})
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestReadDeadlineConfiguration(t *testing.T) {
 
 func TestReadDeadlineDuringClose(t *testing.T) {
 	e, _, pool := deadlineEngine(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	readDone := make(chan error, 1)
 	go func() {
@@ -235,7 +235,7 @@ func TestReadDeadlineDuringClose(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-readDone; require.NoError(t, e.Close()) })
 	require.Eventually(t, func() bool {
 		var running bool
-		return pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&running) == nil && running
+		return pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&running) == nil && running
 	}, 3*time.Second, 10*time.Millisecond)
 	go func() { _ = e.Close() }()
 	// The real Close must have requested exclusive ownership before admission.
@@ -246,7 +246,7 @@ func TestReadDeadlineDuringClose(t *testing.T) {
 		}
 		return true
 	}, time.Second, time.Millisecond)
-	bounded, stop := context.WithTimeout(context.Background(), time.Second)
+	bounded, stop := context.WithTimeout(t.Context(), time.Second)
 	defer stop()
 	started := time.Now()
 	readErr := e.Read(bounded, func(context.Context, *ReadSnapshot) error {
@@ -259,7 +259,7 @@ func TestReadDeadlineDuringClose(t *testing.T) {
 
 func TestReadDeadlineCoordination(t *testing.T) {
 	e, _, pool := deadlineEngine(t)
-	release := holdReclamation(t, context.Background(), pool)
+	release := holdReclamation(t, t.Context(), pool)
 	ctx := deadlineCaller(t)
 	callbackRan := false
 	started := time.Now()
@@ -268,7 +268,7 @@ func TestReadDeadlineCoordination(t *testing.T) {
 	assert.False(t, callbackRan)
 	assert.Less(t, time.Since(started), 3*time.Second)
 	release()
-	nextReadErr := e.Read(context.Background(), func(ctx context.Context, snapshot *ReadSnapshot) error {
+	nextReadErr := e.Read(t.Context(), func(ctx context.Context, snapshot *ReadSnapshot) error {
 		var n int
 		return snapshot.QueryRowContext(ctx, `SELECT 1`).Scan(&n)
 	})
@@ -345,7 +345,7 @@ func TestReadDeadlineBudgets(t *testing.T) {
 func TestReadDeadlineRollbackCompletion(t *testing.T) {
 	e, _, pool := deadlineEngine(t)
 	for range 100 {
-		parent, cancel := context.WithCancel(context.Background())
+		parent, cancel := context.WithCancel(t.Context())
 		readErr := e.Read(parent, func(ctx context.Context, snapshot *ReadSnapshot) error {
 			var n int
 			if err := snapshot.QueryRowContext(ctx, `SELECT n FROM postgres_query('pg', 'SELECT 1 AS n FROM pg_advisory_xact_lock(74, 1)')`).Scan(&n); err != nil {
@@ -368,7 +368,7 @@ func TestReadDeadlineRollbackCompletion(t *testing.T) {
 		require.NoError(t, pool.QueryRow(t.Context(), `SELECT pg_try_advisory_xact_lock(74, 1)`).Scan(&available))
 		require.True(t, available, "Read returned before its PostgreSQL transaction released the lock")
 		require.True(t, reclamationAvailable(t, t.Context(), pool), "Read must release its guard after transaction completion")
-		nextReadErr := e.Read(context.Background(), func(ctx context.Context, snapshot *ReadSnapshot) error {
+		nextReadErr := e.Read(t.Context(), func(ctx context.Context, snapshot *ReadSnapshot) error {
 			var n int
 			err := snapshot.QueryRowContext(ctx, `SELECT 1`).Scan(&n)
 			assert.Equal(t, 1, n)

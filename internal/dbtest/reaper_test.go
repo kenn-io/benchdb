@@ -53,7 +53,7 @@ func TestRetryReaperRace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attempts := 0
-			got, err := retryReaperRace(context.Background(), t, "test call", func() (string, error) {
+			got, err := retryReaperRace(t.Context(), t, "test call", func() (string, error) {
 				attempts++
 				if attempts <= len(tt.failures) {
 					return "", tt.failures[attempts-1]
@@ -72,7 +72,7 @@ func TestRetryReaperRace(t *testing.T) {
 }
 
 func TestRetryReaperRaceStopsWhenContextEnds(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	attempts := 0
 	_, err := retryReaperRace(ctx, t, "test call", func() (string, error) {
 		attempts++
@@ -90,7 +90,7 @@ func TestReaperNameConflictMatchesDocker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping Docker-backed test in -short mode")
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, prefix := range []string{"reaper_", "other_"} {
 		t.Run(prefix, func(t *testing.T) {
 			name := prefix + "decoy-" + uuid.NewString()

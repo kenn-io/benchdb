@@ -90,7 +90,7 @@ func NewArchivePool(
 	if testing.Short() {
 		t.Skip("skipping archive coordination test in -short mode")
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	archiveNet, err := retryReaperRace(ctx, t, "create archive network",
 		func() (*testcontainers.DockerNetwork, error) { return network.New(ctx) })

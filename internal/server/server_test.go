@@ -31,7 +31,7 @@ func noAuthHandler() *api.AuthHandler {
 func TestSignedOutAccountReturnsProblemJSON(t *testing.T) {
 	handler := server.New(nil, auth.New("", false, nil, nil), commit.LocalProvider{}, noAuthHandler(), nil)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/users/me", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/users/me", nil)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	handler.ServeHTTP(rec, req)
 
@@ -56,11 +56,11 @@ func TestServerServesSeededHistory(t *testing.T) {
 	handler := server.New(store, auth.New("", true, store, nil), commit.LocalProvider{}, noAuthHandler(), nil)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil))
 	require.Equal(t, http.StatusOK, rec.Code, "GET /api/ping; body %s", rec.Body.String())
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/history?fingerprint="+s.Fingerprint, nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/history?fingerprint="+s.Fingerprint, nil))
 	require.Equal(t, http.StatusOK, rec.Code, "GET /api/history; body %s", rec.Body.String())
 	var series service.HistorySeries
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &series))
@@ -267,7 +267,7 @@ func TestServerEmitsNullForAbsentResultObjects(t *testing.T) {
 func getAPI[T any](t *testing.T, handler http.Handler, target string) T {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil))
 	require.Equal(t, http.StatusOK, rec.Code, "GET %s; body %s", target, rec.Body.String())
 	var out T
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), "decode GET %s", target)
@@ -277,7 +277,7 @@ func getAPI[T any](t *testing.T, handler http.Handler, target string) T {
 func getAPIWithCookie[T any](t *testing.T, handler http.Handler, target, session string) T {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session})
 	handler.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, "GET %s; body %s", target, rec.Body.String())

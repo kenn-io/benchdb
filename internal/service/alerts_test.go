@@ -23,7 +23,7 @@ import (
 )
 
 func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
@@ -90,7 +90,7 @@ func TestAlertEvaluatorOpensOnceAndResolvesOnSuccess(t *testing.T) {
 }
 
 func TestAlertEvaluatorReportsRuleFailuresAndContinues(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(
 		storage.AlertRule{ID: "no-run", Repository: "https://github.com/no/run", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1},
 		storage.AlertRule{ID: "bad-report", Repository: "https://github.com/org/repo", Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5, Enabled: true, State: storage.AlertRuleStateInactive, ConfirmRuns: 1},
@@ -109,7 +109,7 @@ func TestAlertEvaluatorReportsRuleFailuresAndContinues(t *testing.T) {
 }
 
 func TestAlertEvaluatorIgnoresBoundaryRegressionAndEvaluatesStableRows(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
@@ -133,7 +133,7 @@ func TestAlertEvaluatorIgnoresBoundaryRegressionAndEvaluatesStableRows(t *testin
 }
 
 func TestAlertEvaluatorSkipsAllBoundaryRowsWithoutResolving(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 5,
@@ -383,7 +383,7 @@ func lookbackRegression(name, unit string, before, after float64) service.CIRepo
 }
 
 func TestAlertEvaluatorRecordsWhatRegressedForDelivery(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
@@ -426,7 +426,7 @@ func TestAlertEvaluatorRecordsWhatRegressedForDelivery(t *testing.T) {
 }
 
 func TestAlertEvaluatorKeepsOnlyTheWorstRegressedRows(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,
@@ -720,7 +720,7 @@ func TestAlertEvaluatorRunsOnASingleConnectionPool(t *testing.T) {
 }
 
 func TestAlertEvaluatorReleasesItsLeaseWhenStartingARuleFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store := newFakeAlertStore(storage.AlertRule{
 		ID: "rule-1", UserID: "user-1", Name: "repo health", Repository: "https://github.com/org/repo",
 		Baseline: string(service.CIReportBaselineParent), Threshold: 5, ThresholdZ: 2,

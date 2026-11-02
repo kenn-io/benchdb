@@ -36,7 +36,7 @@ func TestSavedRunReportPublicationAndReads(t *testing.T) {
 	}
 	handler := newHandler()
 	request := func(method, path, body string, authenticated bool) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, "/benchdb/api/ci/reports"+path, strings.NewReader(body))
+		req := httptest.NewRequestWithContext(t.Context(), method, "/benchdb/api/ci/reports"+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if authenticated {
 			req.Header.Set("Authorization", "Bearer "+testToken)

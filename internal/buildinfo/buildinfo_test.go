@@ -15,7 +15,7 @@ func TestImageLinkFlagSetsRevision(t *testing.T) {
 		t.Skip("builds a binary")
 	}
 	const commit = "0123456789abcdef0123456789abcdef01234567"
-	out, err := exec.Command("go", "run",
+	out, err := exec.CommandContext(t.Context(), "go", "run",
 		"-ldflags", "-X go.kenn.io/benchdb/internal/buildinfo.revision="+commit,
 		"./testdata/printrevision").CombinedOutput()
 	require.NoError(t, err, string(out))

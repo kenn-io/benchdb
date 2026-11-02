@@ -590,7 +590,7 @@ SELECT count(*) FROM referenced r WHERE NOT EXISTS (SELECT 1 FROM archive_transf
 	if commitErr == nil {
 		return nil
 	}
-	resolveCtx, cancelResolve := context.WithTimeout(context.Background(), metadataTimeout)
+	resolveCtx, cancelResolve := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 	defer cancelResolve()
 	var committed bool
 	if err := e.pg.QueryRow(resolveCtx, `SELECT cutover_at IS NOT NULL FROM archive_transfer WHERE id=$1`, run.id).Scan(&committed); err != nil {

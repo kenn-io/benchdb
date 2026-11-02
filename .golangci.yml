@@ -7,8 +7,10 @@ run:
 linters:
   default: none
   enable:
+    - containedctx
     - depguard
     - errcheck
+    - fatcontext
     - forbidigo
     - govet
     - ineffassign
@@ -16,10 +18,12 @@ linters:
     - kennnolint
     - misspell
     - modernize
+    - noctx
     - nolintlint
     - staticcheck
     - testifylint
     - unused
+    - usetesting
   settings:
     nolintlint:
       require-specific: true
@@ -49,6 +53,11 @@ linters:
               desc: internal/service must use internal/storage, not the concrete DB adapter.
             - pkg: github.com/jackc/pgx/v5
               desc: pgx must stay behind the storage boundary (map errors to storage.ErrNotFound in internal/db).
+    # The context checks are off by default. Tests use t.Context(), which
+    # ends with the test; cleanups use context.WithoutCancel(t.Context()).
+    usetesting:
+      context-background: true
+      context-todo: true
     govet:
       disable:
         - shadow

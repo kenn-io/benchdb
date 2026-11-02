@@ -574,7 +574,7 @@ func TestSubmitAnnotationFieldsAbsent(t *testing.T) {
 func TestSubmitValidationErrors(t *testing.T) {
 	// These all fail before any DB access, so a nil-pool store is never queried.
 	ing := service.NewIngester(db.NewStore(nil), commit.LocalProvider{})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	cases := []struct {
 		name   string
@@ -657,7 +657,7 @@ func TestSubmitWithGitHubProviderEndToEnd(t *testing.T) {
 	// gap commit landed, exclusive of the window bounds. Later steps never
 	// enqueue (resubmits short-circuit, unknown commits do not backfill), so
 	// the drained backfiller stays out of the picture.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	backfiller.Shutdown(shutdownCtx)
 	_, err = store.GetCommitID(ctx, "gapcommit", testRepo)
