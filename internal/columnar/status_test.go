@@ -77,7 +77,7 @@ func TestStorageStatusFailureDoesNotReportEmptyStorage(t *testing.T) {
 // archive on another filesystem than the working directory: its capacity is
 // the archive's.
 func TestStorageStatusMeasuresALocalArchiveWhereItsFilesLive(t *testing.T) {
-	work, err := os.MkdirTemp(".", "status-work-")
+	work, err := os.MkdirTemp(".", "status-work-") //nolint:usetesting // must be on the working directory's filesystem
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(work)) })
 	work, err = filepath.Abs(work)
@@ -86,7 +86,7 @@ func TestStorageStatusMeasuresALocalArchiveWhereItsFilesLive(t *testing.T) {
 	require.NoError(t, err)
 	var root string
 	for _, parent := range []string{"", "/dev/shm"} {
-		candidate, err := os.MkdirTemp(parent, "status-archive-")
+		candidate, err := os.MkdirTemp(parent, "status-archive-") //nolint:usetesting // must be on a filesystem other than the working directory's
 		if err != nil {
 			continue
 		}

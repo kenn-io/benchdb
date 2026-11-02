@@ -13,7 +13,7 @@ func TestEmailAlertDeliveryDeadlineUsesSingleBudget(t *testing.T) {
 	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 
 	t.Run("timeout without parent deadline", func(t *testing.T) {
-		deadline, ok := emailAlertDeliveryDeadline(context.Background(), 3*time.Second, now)
+		deadline, ok := emailAlertDeliveryDeadline(t.Context(), 3*time.Second, now)
 
 		require.True(t, ok)
 		assert.Equal(t, now.Add(3*time.Second), deadline)
@@ -21,7 +21,7 @@ func TestEmailAlertDeliveryDeadlineUsesSingleBudget(t *testing.T) {
 
 	t.Run("parent deadline earlier than timeout", func(t *testing.T) {
 		parentDeadline := now.Add(2 * time.Second)
-		ctx, cancel := context.WithDeadline(context.Background(), parentDeadline)
+		ctx, cancel := context.WithDeadline(t.Context(), parentDeadline)
 		defer cancel()
 
 		deadline, ok := emailAlertDeliveryDeadline(ctx, 5*time.Second, now)
@@ -31,7 +31,7 @@ func TestEmailAlertDeliveryDeadlineUsesSingleBudget(t *testing.T) {
 	})
 
 	t.Run("timeout earlier than parent deadline", func(t *testing.T) {
-		ctx, cancel := context.WithDeadline(context.Background(), now.Add(10*time.Second))
+		ctx, cancel := context.WithDeadline(t.Context(), now.Add(10*time.Second))
 		defer cancel()
 
 		deadline, ok := emailAlertDeliveryDeadline(ctx, 5*time.Second, now)
@@ -41,7 +41,7 @@ func TestEmailAlertDeliveryDeadlineUsesSingleBudget(t *testing.T) {
 	})
 
 	t.Run("no deadline when timeout disabled and parent lacks deadline", func(t *testing.T) {
-		deadline, ok := emailAlertDeliveryDeadline(context.Background(), 0, now)
+		deadline, ok := emailAlertDeliveryDeadline(t.Context(), 0, now)
 
 		require.False(t, ok)
 		assert.True(t, deadline.IsZero())
@@ -49,7 +49,7 @@ func TestEmailAlertDeliveryDeadlineUsesSingleBudget(t *testing.T) {
 
 	t.Run("parent deadline when timeout disabled", func(t *testing.T) {
 		parentDeadline := now.Add(2 * time.Second)
-		ctx, cancel := context.WithDeadline(context.Background(), parentDeadline)
+		ctx, cancel := context.WithDeadline(t.Context(), parentDeadline)
 		defer cancel()
 
 		deadline, ok := emailAlertDeliveryDeadline(ctx, 0, now)

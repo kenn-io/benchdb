@@ -52,7 +52,7 @@ func TestRemoteReadDeadline(t *testing.T) {
 		gateway.holdKeys(func(key string) bool { return strings.HasPrefix(key, prefix) })
 		done := make(chan error, 1)
 		started := time.Now()
-		go func() { done <- read(context.Background()) }()
+		go func() { done <- read(t.Context()) }()
 		var held string
 		select {
 		case held = <-gateway.held:

@@ -29,15 +29,15 @@ const loopbackTimeout = 3 * time.Minute
 var browserOpener = openBrowser
 
 // openBrowser opens target in the platform default browser.
-func openBrowser(target string) error {
+func openBrowser(ctx context.Context, target string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", target)
+		cmd = exec.CommandContext(ctx, "open", target)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+		cmd = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", target)
 	default:
-		cmd = exec.Command("xdg-open", target)
+		cmd = exec.CommandContext(ctx, "xdg-open", target)
 	}
 	return cmd.Start()
 }
@@ -48,8 +48,8 @@ func openBrowser(target string) error {
 // server. On success it prints exactly one line to stdout — the server and the
 // token prefix, never the plaintext token. All diagnostics go to stderr. It
 // returns the process exit code.
-func runAuthLogin(serverURL string, stdout, stderr io.Writer) int {
-	loop, err := startLoopback()
+func runAuthLogin(ctx context.Context, serverURL string, stdout, stderr io.Writer) int {
+	loop, err := startLoopback(ctx)
 	if err != nil {
 		fmt.Fprintln(stderr, "benchdb: start loopback listener:", err)
 		return 1
@@ -58,7 +58,7 @@ func runAuthLogin(serverURL string, stdout, stderr io.Writer) int {
 
 	startURL := serverURL + "/api/auth/cli-start?redirect_uri=" +
 		url.QueryEscape(loop.redirectURI) + "&state=" + url.QueryEscape(loop.state)
-	if err := browserOpener(startURL); err != nil {
+	if err := browserOpener(ctx, startURL); err != nil {
 		fmt.Fprintln(stderr, "benchdb: open browser:", err)
 	}
 	fmt.Fprintln(stderr, "If your browser did not open, visit:", startURL)
@@ -72,9 +72,12 @@ func runAuthLogin(serverURL string, stdout, stderr io.Writer) int {
 	case <-time.After(loopbackTimeout):
 		fmt.Fprintln(stderr, "benchdb: login timed out waiting for the browser")
 		return 1
+	case <-ctx.Done():
+		fmt.Fprintln(stderr, "benchdb: login:", ctx.Err())
+		return 1
 	}
 
-	token, prefix, err := exchangeCode(serverURL, code)
+	token, prefix, err := exchangeCode(ctx, serverURL, code)
 	if err != nil {
 		fmt.Fprintln(stderr, "benchdb:", err)
 		return 1
@@ -106,8 +109,8 @@ type loopback struct {
 
 // startLoopback binds 127.0.0.1 on a free port and serves a /callback handler
 // that validates the state and reports the code (or an error) over channels.
-func startLoopback() (*loopback, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+func startLoopback(ctx context.Context) (*loopback, error) {
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +126,8 @@ func startLoopback() (*loopback, error) {
 	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = httpSrv.Serve(listener) }()
 	loop.shutdown = func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Shutdown runs after the login ends, even when its context did.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(ctx)
 	}
@@ -162,12 +166,12 @@ func (l *loopback) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 // exchangeCode posts the one-time code to cli-exchange and returns the minted
 // token plaintext and its prefix.
-func exchangeCode(serverURL, code string) (token, prefix string, err error) {
+func exchangeCode(ctx context.Context, serverURL, code string) (token, prefix string, err error) {
 	client, err := newClient(serverURL)
 	if err != nil {
 		return "", "", fmt.Errorf("create client: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	resp, err := client.AuthCliExchangeWithResponse(ctx, &benchdb.AuthCliExchangeRequestOptions{Body: &benchdb.AuthCliExchangeBody{
 		Code: code,
@@ -223,8 +227,8 @@ func authLoginCommand(stdout, stderr io.Writer) *cobra.Command {
 			}
 			return nil
 		},
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if rc := runAuthLogin(server, stdout, stderr); rc != 0 {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if rc := runAuthLogin(cmd.Context(), server, stdout, stderr); rc != 0 {
 				return errLoginFailed
 			}
 			return nil

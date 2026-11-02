@@ -74,7 +74,7 @@ func RecoverStaging(ctx context.Context, pg *pgxpool.Pool, cfg Config) (_ Stagin
 		return StagingRecovery{}, err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, owner.Close(closeCtx))
 	}()

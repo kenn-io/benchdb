@@ -58,7 +58,7 @@ func connect(t *testing.T, ctx context.Context, url string) *pgx.Conn {
 	config.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	conn, err := pgx.ConnectConfig(ctx, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close(ctx) })
+	t.Cleanup(func() { _ = conn.Close(context.WithoutCancel(ctx)) })
 	return conn
 }
 

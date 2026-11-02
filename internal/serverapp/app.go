@@ -237,7 +237,8 @@ func Run(ctx context.Context) error {
 	case <-ctx.Done():
 		log.Printf("shutting down")
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Shutdown drains after ctx has ended, so it gets its own budget.
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)
 	cancelRequests()

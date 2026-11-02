@@ -44,7 +44,7 @@ func TestGitHubProviderEnrichesDefaultBranchCommit(t *testing.T) {
 	rec := &enqueueRecorder{}
 	p := newProvider(t, srv, rec)
 
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo/",
 	})
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestGitHubProviderEnrichReturnsBackfillJobWithoutCountingUnknown(t *testing
 	fakeRepo(t, srv)
 	p := newProvider(t, srv, nil)
 
-	info, job, err := p.Enrich(context.Background(), commit.Request{
+	info, job, err := p.Enrich(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo/",
 	})
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestGitHubProviderEnrichUnsupportedRepositoryIsTyped(t *testing.T) {
 	srv := githubtest.NewServer(t)
 	p := newProvider(t, srv, nil)
 
-	info, job, err := p.Enrich(context.Background(), commit.Request{
+	info, job, err := p.Enrich(t.Context(), commit.Request{
 		Commit: "abc", Repository: "https://gitlab.com/org/repo",
 	})
 	require.ErrorIs(t, err, commit.ErrUnsupportedRepository)
@@ -105,7 +105,7 @@ func TestGitHubProviderExplicitBranchSkipsPRLookup(t *testing.T) {
 	p := newProvider(t, srv, rec)
 
 	pr := 7
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo",
 		Branch: "org:feature", PRNumber: &pr,
 	})
@@ -131,7 +131,7 @@ func TestGitHubProviderPRNumberResolvesBranch(t *testing.T) {
 	p := newProvider(t, srv, rec)
 
 	pr := 7
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo", PRNumber: &pr,
 	})
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestGitHubProviderDegradesToUnknownOnAPIError(t *testing.T) {
 	rec := &enqueueRecorder{}
 	p := newProvider(t, srv, rec)
 
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo",
 	})
 	require.NoError(t, err, "degradation must not surface an error; the result must persist")
@@ -171,7 +171,7 @@ func TestGitHubProviderDegradesOnBranchResolutionError(t *testing.T) {
 	srv.HandleStatus("/repos/org/repo", http.StatusNotFound) // default-branch lookup fails
 	p := newProvider(t, srv, nil)
 
-	info, err := p.Resolve(context.Background(), commit.Request{
+	info, err := p.Resolve(t.Context(), commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo",
 	})
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestGitHubProviderNonGitHubRepoDegradesWithoutAPICall(t *testing.T) {
 		"github.com/org/repo",
 	}
 	for _, repo := range repos {
-		info, err := p.Resolve(context.Background(), commit.Request{
+		info, err := p.Resolve(t.Context(), commit.Request{
 			Commit: "abc", Repository: repo,
 		})
 		require.NoError(t, err, "repo %q", repo)
@@ -212,7 +212,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 	p := commit.NewGitHubProvider(commit.NewGitHubClient("", srv.URL), time.Second, nil)
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	info, err := p.Resolve(ctx, commit.Request{
 		Commit: childSha, Repository: "https://github.com/org/repo",
@@ -226,7 +226,7 @@ func TestGitHubProviderBudgetDegrades(t *testing.T) {
 func TestGitHubProviderNoCommitYieldsNil(t *testing.T) {
 	srv := githubtest.NewServer(t)
 	p := newProvider(t, srv, nil)
-	info, err := p.Resolve(context.Background(), commit.Request{Repository: "https://github.com/org/repo"})
+	info, err := p.Resolve(t.Context(), commit.Request{Repository: "https://github.com/org/repo"})
 	require.NoError(t, err)
 	assert.Nil(t, info)
 }

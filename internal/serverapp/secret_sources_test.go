@@ -70,7 +70,7 @@ func TestLoadConfigBrokenDatabaseFileDoesNotUseFallback(t *testing.T) {
 func TestRunRedactsInvalidDatabaseURL(t *testing.T) {
 	isolateLoadConfigEnv(t)
 	t.Setenv("BENCHDB_DB_URL", "host=localhost port=private-marker password=private-password")
-	err := Run(context.Background())
+	err := Run(t.Context())
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "private-password")
 	assert.NotContains(t, err.Error(), "private-marker")
@@ -79,7 +79,7 @@ func TestRunRedactsInvalidDatabaseURL(t *testing.T) {
 func TestRunPreservesDatabaseConnectionCause(t *testing.T) {
 	isolateLoadConfigEnv(t)
 	t.Setenv("BENCHDB_DB_URL", "postgres://localhost/unused")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	err := Run(ctx)
 	require.ErrorIs(t, err, context.Canceled)

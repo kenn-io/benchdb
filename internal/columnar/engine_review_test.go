@@ -108,7 +108,7 @@ func TestArchiveReclaimsAbandonedSpillAndPreservesActiveEngine(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, first.Close()) })
 	active := filepath.Join(first.scratch, "active-spill")
 	require.NoError(t, os.WriteFile(active, []byte("running query"), 0600))
-	abandoned, err := os.MkdirTemp(cfg.Dir, ".runtime-")
+	abandoned, err := os.MkdirTemp(cfg.Dir, ".runtime-") //nolint:usetesting // stands in for an abandoned engine runtime directory inside the archive
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(abandoned, "spill"), []byte("abandoned query"), 0600))
 	second, err := Open(ctx, pool, cfg)

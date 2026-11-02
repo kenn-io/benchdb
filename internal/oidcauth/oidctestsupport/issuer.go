@@ -4,7 +4,6 @@
 package oidctestsupport
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json/v2"
@@ -152,7 +151,7 @@ func (iss *Issuer) Client(t *testing.T) *oidcauth.Client {
 // server's callback so the IdP redirects the browser somewhere it can reach.
 func (iss *Issuer) ClientWithRedirect(t *testing.T, redirectURL string) *oidcauth.Client {
 	t.Helper()
-	c, err := oidcauth.New(context.Background(), oidcauth.Config{
+	c, err := oidcauth.New(t.Context(), oidcauth.Config{
 		IssuerURL: iss.srv.URL, ClientID: ClientID, ClientSecret: ClientSecret,
 		RedirectURL: redirectURL,
 	})

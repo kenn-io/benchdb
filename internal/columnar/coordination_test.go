@@ -49,7 +49,7 @@ func holdReclamation(t *testing.T, ctx context.Context, pool *pgxpool.Pool) func
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, reclamationLock)
 	require.NoError(t, err)
-	release := sync.OnceFunc(func() { require.NoError(t, tx.Rollback(context.Background())) })
+	release := sync.OnceFunc(func() { require.NoError(t, tx.Rollback(context.WithoutCancel(t.Context()))) })
 	t.Cleanup(release)
 	return release
 }
@@ -375,7 +375,7 @@ type cancelRelay struct {
 
 func newCancelRelay(t *testing.T, ctx context.Context, backend string) *cancelRelay {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	r := &cancelRelay{listener: listener}
 	accepting := make(chan struct{})

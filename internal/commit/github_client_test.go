@@ -62,7 +62,7 @@ func TestClientCommitInfoParsesFixture(t *testing.T) {
 		githubtest.Fixture(t, "github_child.json"))
 	c := NewGitHubClient("", srv.URL)
 
-	got, err := c.commitInfo(context.Background(), "org/repo", "02addad336ba19a654f9c857ede546331be7b631")
+	got, err := c.commitInfo(t.Context(), "org/repo", "02addad336ba19a654f9c857ede546331be7b631")
 	require.NoError(t, err)
 	assert.Equal(t, "Diana Clarke", got.AuthorName)
 	require.NotNil(t, got.Parent)
@@ -80,7 +80,7 @@ func TestClientCommitInfoNullAuthor(t *testing.T) {
 	srv.HandleJSON("/repos/org/repo/commits/sha1", githubtest.Fixture(t, "github_commit_no_author.json"))
 	c := NewGitHubClient("", srv.URL)
 
-	got, err := c.commitInfo(context.Background(), "org/repo", "sha1")
+	got, err := c.commitInfo(t.Context(), "org/repo", "sha1")
 	require.NoError(t, err)
 	assert.Nil(t, got.AuthorLogin, "top-level author is JSON null in this fixture")
 	assert.Nil(t, got.AuthorAvatar)
@@ -94,7 +94,7 @@ func TestClientMessageTruncatedTo240Runes(t *testing.T) {
 	srv.HandleJSON("/repos/org/repo/commits/s", []byte(body))
 	c := NewGitHubClient("", srv.URL)
 
-	got, err := c.commitInfo(context.Background(), "org/repo", "s")
+	got, err := c.commitInfo(t.Context(), "org/repo", "s")
 	require.NoError(t, err)
 	assert.Equal(t, strings.Repeat("ä", 240), got.Message)
 	assert.Nil(t, got.Parent, "no parents -> nil parent")
@@ -106,11 +106,11 @@ func TestClientDefaultBranchForkAware(t *testing.T) {
 	srv.HandleJSON("/repos/fork/repo", []byte(`{"fork":true,"owner":{"login":"fork"},"default_branch":"main","source":{"owner":{"login":"upstream"},"default_branch":"trunk"}}`))
 	c := NewGitHubClient("", srv.URL)
 
-	b, err := c.defaultBranch(context.Background(), "org/repo")
+	b, err := c.defaultBranch(t.Context(), "org/repo")
 	require.NoError(t, err)
 	assert.Equal(t, "org:main", b)
 
-	b, err = c.defaultBranch(context.Background(), "fork/repo")
+	b, err = c.defaultBranch(t.Context(), "fork/repo")
 	require.NoError(t, err)
 	assert.Equal(t, "upstream:trunk", b, "forks follow source")
 }
@@ -121,11 +121,11 @@ func TestClientPRBranchAndMergeBase(t *testing.T) {
 	srv.HandleJSON("/repos/org/repo/compare/org:main...abc", []byte(`{"merge_base_commit":{"sha":"forkpoint"}}`))
 	c := NewGitHubClient("", srv.URL)
 
-	b, err := c.prBranch(context.Background(), "org/repo", 7)
+	b, err := c.prBranch(t.Context(), "org/repo", 7)
 	require.NoError(t, err)
 	assert.Equal(t, "someuser:feature", b)
 
-	fp, err := c.mergeBase(context.Background(), "org/repo", "org:main", "abc")
+	fp, err := c.mergeBase(t.Context(), "org/repo", "org:main", "abc")
 	require.NoError(t, err)
 	assert.Equal(t, "forkpoint", fp)
 }
@@ -143,7 +143,7 @@ func TestClientRetriesOn5xx(t *testing.T) {
 	})
 	c := NewGitHubClient("", srv.URL)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	b, err := c.defaultBranch(ctx, "org/repo")
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestClientPermanentErrorNoRetry(t *testing.T) {
 	srv.HandleStatus("/repos/org/repo/commits/gone", http.StatusNotFound)
 	c := NewGitHubClient("", srv.URL)
 
-	_, err := c.commitInfo(context.Background(), "org/repo", "gone")
+	_, err := c.commitInfo(t.Context(), "org/repo", "gone")
 	require.Error(t, err)
 	assert.Len(t, srv.Requests(), 1, "404 is permanent, no retry")
 }
@@ -175,7 +175,7 @@ func TestClientRefreshesTokenSourceOnceAfterUnauthorized(t *testing.T) {
 
 	source := &renewableTestTokenSource{token: "expired"}
 	client := NewGitHubClientWithTokenSource(source, server.URL)
-	branch, err := client.defaultBranch(context.Background(), "org/repo")
+	branch, err := client.defaultBranch(t.Context(), "org/repo")
 
 	require.NoError(t, err)
 	assert.Equal(t, "org:main", branch)
@@ -192,7 +192,7 @@ func TestClientStopsAfterSecondUnauthorizedFromTokenSource(t *testing.T) {
 
 	source := &renewableTestTokenSource{token: "expired"}
 	client := NewGitHubClientWithTokenSource(source, server.URL)
-	_, err := client.defaultBranch(context.Background(), "org/repo")
+	_, err := client.defaultBranch(t.Context(), "org/repo")
 
 	require.Error(t, err)
 	assert.Equal(t, []string{"Bearer expired", "Bearer fresh"}, authorizations)
@@ -250,7 +250,7 @@ func TestClientConcurrentUnauthorizedResponsesDoNotEvictRefreshedToken(t *testin
 	require.NoError(t, err)
 	client := NewGitHubClientWithTokenSource(source, server.URL)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -273,7 +273,7 @@ func TestClientBudgetExceeded(t *testing.T) {
 	srv.HandleStatus("/repos/org/repo", http.StatusBadGateway) // always retryable
 	c := NewGitHubClient("", srv.URL)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) //nolint:kennlint // deadlinetest: the deadline is the expected result; the fake always returns 502, so only the context ends the retries
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond) //nolint:kennlint // deadlinetest: the deadline is the expected result; the fake always returns 502, so only the context ends the retries
 	defer cancel()
 	_, err := c.defaultBranch(ctx, "org/repo")
 	require.Error(t, err)
@@ -294,7 +294,7 @@ func TestClientRotatesTokenOnQuotaExhaustion(t *testing.T) {
 	})
 	c := NewGitHubClient("ghp_aaaaaa,ghp_bbbbbb", srv.URL)
 
-	b, err := c.defaultBranch(context.Background(), "org/repo")
+	b, err := c.defaultBranch(t.Context(), "org/repo")
 	require.NoError(t, err)
 	assert.Equal(t, "org:main", b)
 	require.Len(t, seen, 2)
@@ -309,7 +309,7 @@ func TestClientQuotaExhaustedAcrossPoolFails(t *testing.T) {
 	})
 	c := NewGitHubClient("ghp_aaaaaa,ghp_bbbbbb", srv.URL)
 
-	_, err := c.defaultBranch(context.Background(), "org/repo")
+	_, err := c.defaultBranch(t.Context(), "org/repo")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "quota")
 	// pool size 2: initial try + one try per rotation, capped like legacy
@@ -332,7 +332,7 @@ func TestClientCommitsOnBranchPagesAndStripsOrgPrefix(t *testing.T) {
 	})
 	c := NewGitHubClient("", srv.URL)
 
-	got, err := c.commitsOnBranch(context.Background(), "org/repo", "org:main",
+	got, err := c.commitsOnBranch(t.Context(), "org/repo", "org:main",
 		time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 2, 1, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
 	assert.Len(t, got, 25)

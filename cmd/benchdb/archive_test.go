@@ -55,7 +55,7 @@ func TestAdminArchiveRecoverStagingRemovesLeftoversOnFullVolume(t *testing.T) {
 	t.Setenv("BENCHDB_DUCKDB_EXTENSION_DIR", filepath.Join(t.TempDir(), "missing"))
 	require.NoError(t, os.Chmod(dataDir, 0o500))
 	t.Cleanup(func() { require.NoError(t, os.Chmod(dataDir, 0o700)) })
-	_, err := os.MkdirTemp(dataDir, ".runtime-")
+	_, err := os.MkdirTemp(dataDir, ".runtime-") //nolint:usetesting // probes that the read-only data directory refuses new entries
 	require.ErrorIs(t, err, fs.ErrPermission, "the read-only data directory refuses new entries")
 
 	var stdout, stderr bytes.Buffer
@@ -151,7 +151,7 @@ func TestAdminArchiveRecoverStagingUsageErrors(t *testing.T) {
 // a server that accepts connections and never answers. The connection check
 // must fail within its deadline instead of hanging the command.
 func TestAdminArchiveRecoverStagingGivesUpOnSilentDatabase(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	var accepted sync.WaitGroup
 	accepted.Go(func() {
@@ -235,7 +235,7 @@ func TestAdminArchiveTransferRefusesWhileAnotherSessionOwnsMaintenance(t *testin
 // refusingLoopbackAddress is a loopback address where nothing listens.
 func refusingLoopbackAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())

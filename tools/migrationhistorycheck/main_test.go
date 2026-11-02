@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +25,7 @@ func TestRunRejectsCommittedEditToBaseMigration(t *testing.T) {
 		require.NoError(t, os.Unsetenv(key))
 		t.Cleanup(func() {
 			if exists {
-				require.NoError(t, os.Setenv(key, value))
+				require.NoError(t, os.Setenv(key, value)) //nolint:usetesting // restores a variable the test unset; t.Setenv cannot unset one
 			} else {
 				require.NoError(t, os.Unsetenv(key))
 			}
@@ -44,7 +43,7 @@ func TestRunRejectsCommittedEditToBaseMigration(t *testing.T) {
 
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repoDir}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", repoDir}, args...)...)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
 	}
@@ -55,14 +54,11 @@ func TestRunRejectsCommittedEditToBaseMigration(t *testing.T) {
 	git("add", ".")
 	git("-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "edit migration")
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(repoDir))
-	t.Cleanup(func() { require.NoError(t, os.Chdir(originalDir)) })
+	t.Chdir(repoDir)
 	t.Setenv("BENCHDB_MIGRATION_BASE_REF", "HEAD^")
 	t.Setenv("GITHUB_REF", "")
 
-	err = run(context.Background())
+	err := run(t.Context())
 	require.ErrorContains(t, err, "already exists on the comparison base")
 }
 

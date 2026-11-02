@@ -29,14 +29,14 @@ func TestNewHandlerServesAPIAndSPA(t *testing.T) {
 
 	t.Run("api ping wins over the SPA catch-all", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+		handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.NotContains(t, rec.Body.String(), "<title>benchdb</title>")
 	})
 
 	t.Run("client route serves the app shell", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/benchmarks/history/abc", nil))
+		handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/benchmarks/history/abc", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "<title>benchdb</title>")
 	})
@@ -51,7 +51,7 @@ func TestNewHandlerServesAPIAndSPA(t *testing.T) {
 			{http.MethodDelete, "/api/ping"},
 		} {
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(p.method, p.path, nil))
+			handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), p.method, p.path, nil))
 			assert.Equal(t, http.StatusNotFound, rec.Code, p.path)
 			assert.NotContains(t, rec.Body.String(), "<title>benchdb</title>", p.path)
 		}
@@ -61,14 +61,14 @@ func TestNewHandlerServesAPIAndSPA(t *testing.T) {
 		// ServeMux cleans the request path before the SPA handler runs, so a raw
 		// ".." is redirected to its normalized in-app path -- never to an OS file.
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/../../etc/passwd", nil))
+		handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/../../etc/passwd", nil))
 		require.Equal(t, http.StatusTemporaryRedirect, rec.Code)
 		require.Equal(t, "/etc/passwd", rec.Header().Get("Location"))
 
 		// Following that redirect lands on the SPA shell (the embed's fs.FS sandbox
 		// makes reading outside it impossible), not the host's /etc/passwd.
 		rec = httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/etc/passwd", nil))
+		handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/etc/passwd", nil))
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "<title>benchdb</title>")
 	})

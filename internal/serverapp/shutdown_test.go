@@ -31,7 +31,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 	for _, key := range []string{"BENCHDB_ARTIFACT_BUCKET", "BENCHDB_SEED", "BENCHDB_INIT_SCHEMA", "BENCHDB_SEED_DEV_TOKEN"} {
 		t.Setenv(key, "")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -54,7 +54,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 	})
 	client := &http.Client{Timeout: 15 * time.Second}
 	require.Eventually(t, func() bool {
-		response, err := client.Get("http://" + address + "/api/ping")
+		response, err := get(t, client, "http://"+address+"/api/ping")
 		if err != nil {
 			return false
 		}
@@ -64,7 +64,7 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 
 	blocker, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blocker.Rollback(ctx) })
+	t.Cleanup(func() { _ = blocker.Rollback(context.WithoutCancel(ctx)) })
 	_, err = blocker.Exec(ctx, `LOCK TABLE benchmark_result IN SHARE MODE`)
 	require.NoError(t, err)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/api/results", strings.NewReader(`{
@@ -103,7 +103,8 @@ func TestRunDrainsInFlightIngest(t *testing.T) {
 	stopServer()
 	// Wait until shutdown has closed the listener before releasing the write.
 	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		dialer := net.Dialer{Timeout: 100 * time.Millisecond} //nolint:kennlint // deadlinetest: bounds one loopback dial; Eventually retries, so the budget decides no outcome
+		conn, err := dialer.DialContext(t.Context(), "tcp", address)
 		if err != nil {
 			return true
 		}
@@ -152,7 +153,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	for _, key := range []string{"BENCHDB_ARTIFACT_BUCKET", "BENCHDB_SEED", "BENCHDB_INIT_SCHEMA", "BENCHDB_SEED_DEV_TOKEN"} {
 		t.Setenv(key, "")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -174,7 +175,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	})
 	client := &http.Client{Timeout: time.Minute}
 	require.Eventually(t, func() bool {
-		response, err := client.Get("http://" + address + "/api/ping")
+		response, err := get(t, client, "http://"+address+"/api/ping")
 		if err != nil {
 			return false
 		}
@@ -186,7 +187,7 @@ func TestRunCancelsDatabaseBlockedHTTPRequest(t *testing.T) {
 	// inside the PostgreSQL extension. Keep it held past the drain deadline.
 	blocker, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blocker.Rollback(ctx) })
+	t.Cleanup(func() { _ = blocker.Rollback(context.WithoutCancel(ctx)) })
 	_, err = blocker.Exec(ctx, `LOCK TABLE "commit" IN ACCESS EXCLUSIVE MODE`)
 	require.NoError(t, err)
 	requestCtx, cancelRequest := context.WithCancel(ctx)
@@ -242,7 +243,7 @@ func TestEngineCancelsPostgresLockWait(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, engine.Close()) })
 	blocker, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blocker.Rollback(ctx) })
+	t.Cleanup(func() { _ = blocker.Rollback(context.WithoutCancel(ctx)) })
 	_, err = blocker.Exec(ctx, `LOCK TABLE "commit" IN ACCESS EXCLUSIVE MODE`)
 	require.NoError(t, err)
 	readCtx, cancelRead := context.WithCancel(ctx)
@@ -317,4 +318,14 @@ func TestEngineCancelsPostgresLockWait(t *testing.T) {
 			require.FailNow(t, "reader did not finish after releasing the fixture lock")
 		}
 	}
+}
+
+// get issues a GET request that ends with the test.
+func get(t *testing.T, client *http.Client, url string) (*http.Response, error) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(request)
 }

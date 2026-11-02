@@ -39,7 +39,7 @@ func TestRunProfileCollectsHTTPSQLPlansAndRelationSizes(t *testing.T) {
 	defer server.Close()
 	db := &fakeProfileDB{}
 
-	result, err := RunProfile(context.Background(), ProfileConfig{
+	result, err := RunProfile(t.Context(), ProfileConfig{
 		ServerURL: server.URL,
 		Samples:   validProfileManifest(),
 		DB:        db,
@@ -98,7 +98,7 @@ func TestRunProfileRecordsHTTPFailures(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := RunProfile(context.Background(), ProfileConfig{
+	result, err := RunProfile(t.Context(), ProfileConfig{
 		ServerURL: server.URL,
 		Samples:   validProfileManifest(),
 		DB:        &fakeProfileDB{},
@@ -114,7 +114,7 @@ func TestRunProfileRecordsHTTPFailures(t *testing.T) {
 func TestRunProfileRequiresCoreSamples(t *testing.T) {
 	t.Parallel()
 
-	_, err := RunProfile(context.Background(), ProfileConfig{
+	_, err := RunProfile(t.Context(), ProfileConfig{
 		ServerURL: "http://127.0.0.1:1",
 		Samples:   SampleManifest{},
 		DB:        &fakeProfileDB{},

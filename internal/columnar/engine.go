@@ -83,7 +83,7 @@ type Engine struct {
 	catalogs *catalogCache
 	// lifetime ends when Close starts, which cancels background work such
 	// as a GCS token request.
-	lifetime    context.Context
+	lifetime    context.Context //nolint:containedctx // background token fetches outlive their callers and end with the engine
 	endLifetime context.CancelFunc
 	// google is the GCS archive's OAuth credential, shared by Kit and DuckDB;
 	// tokens is its token source, and nil for other backends.
@@ -497,7 +497,7 @@ FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion, &appReadOnly)
 	}
 	defer func() {
 		// Closing a client does not end a pooled backend, so unlock first.
-		unlock, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		unlock, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		if _, unlockErr := conn.Exec(unlock, `SELECT pg_advisory_unlock($1)`, bindingLock); unlockErr != nil {
 			err = errors.Join(err, unlockErr, discard(conn))
@@ -520,7 +520,7 @@ FROM archive_dataset WHERE singleton`).Scan(&id, &e.serverVersion, &appReadOnly)
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, guard.Close(closeCtx))
 	}()
@@ -833,7 +833,7 @@ func (e *Engine) readSnapshot(ctx context.Context, handle *sql.DB, loseGuard con
 	defer func() {
 		// DuckDB work has joined. Release with a fresh budget: the read
 		// context may already have expired.
-		closeCtx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metadataTimeout)
 		defer cancel()
 		err = errors.Join(err, guard.Close(closeCtx))
 	}()

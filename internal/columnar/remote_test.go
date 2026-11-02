@@ -209,7 +209,7 @@ func isLoopback(host string) bool {
 // refusingAddress is a loopback address where nothing listens.
 func refusingAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -1345,7 +1345,7 @@ func TestCloseCancelsTokenFetch(t *testing.T) {
 	tokens := &stallingTokens{}
 	tokens.stall()
 	e := &Engine{tokens: tokens, tokenMargin: time.Hour, tokenFetchTimeout: time.Minute, handleTokens: map[*sql.DB]*handleToken{}}
-	e.lifetime, e.endLifetime = context.WithCancel(context.Background())
+	e.lifetime, e.endLifetime = context.WithCancel(t.Context())
 	ctx, cancel := context.WithCancel(t.Context())
 	waited := make(chan error, 1)
 	go func() {
@@ -1403,7 +1403,7 @@ func readOnlyPool(t *testing.T, pool *pgxpool.Pool) *pgxpool.Pool {
 	query := u.Query()
 	query.Set("options", "-c default_transaction_read_only=on")
 	u.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
-	readOnly, err := pgxpool.New(context.Background(), u.String())
+	readOnly, err := pgxpool.New(t.Context(), u.String())
 	require.NoError(t, err)
 	t.Cleanup(readOnly.Close)
 	return readOnly
