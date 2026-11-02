@@ -1533,6 +1533,18 @@ const listAlertRules = (
       `/api/alert-rules`,options
     );
   }
+const getListAlertRulesUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Create an alert rule
@@ -1545,6 +1557,18 @@ const createAlertRule = (
       alertRuleBody,options
     );
   }
+const getCreateAlertRuleUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Delete one alert rule
@@ -1556,6 +1580,18 @@ const deleteAlertRule = (
       `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
+const getDeleteAlertRuleUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Get one alert rule
@@ -1567,6 +1603,18 @@ const getAlertRule = (
       `/api/alert-rules/${encodeURIComponent(id)}`,options
     );
   }
+const getGetAlertRuleUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Update one alert rule
@@ -1580,6 +1628,18 @@ const updateAlertRule = (
       alertRuleBody,options
     );
   }
+const getUpdateAlertRuleUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List alert events for one rule
@@ -1594,6 +1654,19 @@ const listAlertEvents = (
         params: {...params, ...options?.params},}
     );
   }
+const getListAlertEventsUrl = (id: string,
+    params?: ListAlertEventsParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/alert-rules/${encodeURIComponent(id)}/events`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary OIDC callback
@@ -1607,6 +1680,18 @@ const authCallback = (
         params: {...params, ...options?.params},}
     );
   }
+const getAuthCallbackUrl = (params?: AuthCallbackParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/callback`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Browser-visible auth capabilities
@@ -1618,6 +1703,18 @@ const authCapabilities = (
       `/api/auth/capabilities`,options
     );
   }
+const getAuthCapabilitiesUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/capabilities`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Exchange a CLI login code for an API token
@@ -1630,6 +1727,18 @@ const authCliExchange = (
       cliExchangeInputBody,options
     );
   }
+const getAuthCliExchangeUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/cli-exchange`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Begin CLI loopback login
@@ -1643,6 +1752,18 @@ const authCliStart = (
         params: {...params, ...options?.params},}
     );
   }
+const getAuthCliStartUrl = (params?: AuthCliStartParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/cli-start`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Begin OIDC login
@@ -1654,6 +1775,18 @@ const authLogin = (
       `/api/auth/login`,options
     );
   }
+const getAuthLoginUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/login`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Log out
@@ -1666,6 +1799,18 @@ const authLogout = (
       undefined,options
     );
   }
+const getAuthLogoutUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/auth/logout`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List and search benchmark results
@@ -1679,6 +1824,18 @@ const listBenchmarkResults = (
         params: {...params, ...options?.params},}
     );
   }
+const getListBenchmarkResultsUrl = (params?: ListBenchmarkResultsParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Delete a benchmark result
@@ -1690,6 +1847,18 @@ const deleteResult = (
       `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
+const getDeleteResultUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Get a benchmark result
@@ -1701,6 +1870,18 @@ const getBenchmarkResult = (
       `/api/benchmark-results/${encodeURIComponent(id)}`,options
     );
   }
+const getGetBenchmarkResultUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Update a benchmark result's change_annotations
@@ -1714,6 +1895,18 @@ const updateResult = (
       updateResultInputBody,options
     );
   }
+const getUpdateResultUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Upload a diagnostic attachment as raw bytes
@@ -1730,6 +1923,19 @@ const uploadResultArtifact = (
         params: {...params, ...options?.params},}
     );
   }
+const getUploadResultArtifactUrl = (id: string,
+    params: UploadResultArtifactParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}/artifacts`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Delete an attachment without deleting its benchmark result
@@ -1742,6 +1948,19 @@ const deleteResultArtifact = (
       `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,options
     );
   }
+const getDeleteResultArtifactUrl = (id: string,
+    artifactId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Download a diagnostic attachment
@@ -1756,6 +1975,19 @@ const downloadResultArtifact = (
     ...options,}
     );
   }
+const getDownloadResultArtifactUrl = (id: string,
+    artifactId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List logical benchmarks across the fleet
@@ -1769,6 +2001,18 @@ const listBenchmarks = (
         params: {...params, ...options?.params},}
     );
   }
+const getListBenchmarksUrl = (params?: ListBenchmarksParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmarks`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Get all machine tracks for a logical benchmark
@@ -1780,6 +2024,18 @@ const getBenchmarkHistory = (
       `/api/benchmarks/${encodeURIComponent(benchmarkId)}`,options
     );
   }
+const getGetBenchmarkHistoryUrl = (benchmarkId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmarks/${encodeURIComponent(benchmarkId)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Get a PR/CI benchmark report
@@ -1793,6 +2049,18 @@ const getCiReport = (
         params: {...params, ...options?.params},}
     );
   }
+const getGetCiReportUrl = (params?: GetCiReportParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ci/report`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Read saved benchmark report summaries
@@ -1806,6 +2074,18 @@ const getRunReportSummaries = (
         params: {...params, ...options?.params},}
     );
   }
+const getGetRunReportSummariesUrl = (params: GetRunReportSummariesParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ci/reports`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Read a saved benchmark report
@@ -1820,6 +2100,19 @@ const getSavedRunReport = (
         params: {...params, ...options?.params},}
     );
   }
+const getGetSavedRunReportUrl = (runId: string,
+    params?: GetSavedRunReportParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ci/reports/${encodeURIComponent(runId)}`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Finalize a completed run's benchmark report
@@ -1833,6 +2126,18 @@ const finalizeRunReport = (
       finalizeRunReportInputBody,options
     );
   }
+const getFinalizeRunReportUrl = (runId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ci/reports/${encodeURIComponent(runId)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Reevaluate a saved run with its original baseline and measurements
@@ -1845,6 +2150,18 @@ const reevaluateRunReport = (
       undefined,options
     );
   }
+const getReevaluateRunReportUrl = (runId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ci/reports/${encodeURIComponent(runId)}/reevaluate`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Compare two benchmark results
@@ -1858,6 +2175,18 @@ const compareBenchmarkResults = (
         params: {...params, ...options?.params},}
     );
   }
+const getCompareBenchmarkResultsUrl = (params: CompareBenchmarkResultsParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/compare/benchmark-results`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Get a history series by fingerprint
@@ -1871,6 +2200,18 @@ const getHistory = (
         params: {...params, ...options?.params},}
     );
   }
+const getGetHistoryUrl = (params: GetHistoryParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/history`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Get the history series for a benchmark result
@@ -1882,6 +2223,18 @@ const getHistoryForResult = (
       `/api/history/${encodeURIComponent(benchmarkResultId)}`,options
     );
   }
+const getGetHistoryForResultUrl = (benchmarkResultId: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/history/${encodeURIComponent(benchmarkResultId)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List machines with benchmark history
@@ -1895,6 +2248,18 @@ const listMachines = (
         params: {...params, ...options?.params},}
     );
   }
+const getListMachinesUrl = (params?: ListMachinesParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/machines`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Liveness check
@@ -1906,6 +2271,18 @@ const ping = (
       `/api/ping`,options
     );
   }
+const getPingUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/ping`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List repositories with benchmark results
@@ -1917,6 +2294,18 @@ const listRepositories = (
       `/api/repositories`,options
     );
   }
+const getListRepositoriesUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/repositories`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Submit a benchmark result
@@ -1929,6 +2318,18 @@ const submitResult = (
       submitRequest,options
     );
   }
+const getSubmitResultUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/results`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List recent benchmark runs
@@ -1942,6 +2343,18 @@ const listRecentRuns = (
         params: {...params, ...options?.params},}
     );
   }
+const getListRecentRunsUrl = (params?: ListRecentRunsParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/runs/recent`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary List and search benchmark series
@@ -1955,6 +2368,18 @@ const listSeries = (
         params: {...params, ...options?.params},}
     );
   }
+const getListSeriesUrl = (params?: ListSeriesParams,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/series`,
+    baseURL: '',
+    params,
+
+  });
+}
 
 /**
  * @summary Storage usage and maintenance status
@@ -1966,6 +2391,18 @@ const storageStatus = (
       `/api/storage`,options
     );
   }
+const getStorageStatusUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/storage`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary List the caller's API tokens
@@ -1977,6 +2414,18 @@ const listTokens = (
       `/api/tokens`,options
     );
   }
+const getListTokensUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/tokens`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Mint an API token
@@ -1989,6 +2438,18 @@ const createToken = (
       createTokenInputBody,options
     );
   }
+const getCreateTokenUrl = () => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/tokens`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Revoke one of the caller's API tokens
@@ -2000,6 +2461,18 @@ const deleteToken = (
       `/api/tokens/${encodeURIComponent(id)}`,options
     );
   }
+const getDeleteTokenUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/tokens/${encodeURIComponent(id)}`,
+    baseURL: '',
+
+
+  });
+}
 
 /**
  * @summary Current session identity
@@ -2011,8 +2484,20 @@ const usersMe = (
       `/api/users/me`,options
     );
   }
+const getUsersMeUrl = () => {
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,reevaluateRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe}};
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/users/me`,
+    baseURL: '',
+
+
+  });
+}
+
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,reevaluateRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe,getListAlertRulesUrl,getCreateAlertRuleUrl,getDeleteAlertRuleUrl,getGetAlertRuleUrl,getUpdateAlertRuleUrl,getListAlertEventsUrl,getAuthCallbackUrl,getAuthCapabilitiesUrl,getAuthCliExchangeUrl,getAuthCliStartUrl,getAuthLoginUrl,getAuthLogoutUrl,getListBenchmarkResultsUrl,getDeleteResultUrl,getGetBenchmarkResultUrl,getUpdateResultUrl,getUploadResultArtifactUrl,getDeleteResultArtifactUrl,getDownloadResultArtifactUrl,getListBenchmarksUrl,getGetBenchmarkHistoryUrl,getGetCiReportUrl,getGetRunReportSummariesUrl,getGetSavedRunReportUrl,getFinalizeRunReportUrl,getReevaluateRunReportUrl,getCompareBenchmarkResultsUrl,getGetHistoryUrl,getGetHistoryForResultUrl,getListMachinesUrl,getPingUrl,getListRepositoriesUrl,getSubmitResultUrl,getListRecentRunsUrl,getListSeriesUrl,getStorageStatusUrl,getListTokensUrl,getCreateTokenUrl,getDeleteTokenUrl,getUsersMeUrl}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
