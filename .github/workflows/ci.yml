@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.4"
+          version: "0.13.5"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
       - run: make build-docs-ci
@@ -184,7 +184,7 @@ jobs:
           bun-version: 1.4.4
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.4"
+          version: "0.13.5"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
       - name: Install sqlc v1.30.0
@@ -279,7 +279,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.4"
+          version: "0.13.5"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.3
       - run: make docs-link-check
@@ -303,7 +303,7 @@ jobs:
           bun-version: 1.4.4
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.4"
+          version: "0.13.5"
           enable-cache: true
       - uses: actions/setup-node@v7.1.0
         with:
