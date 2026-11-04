@@ -53,7 +53,7 @@ jobs:
         env:
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
         run: make docs-screenshots
-      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: "0.13.6"
           enable-cache: true
