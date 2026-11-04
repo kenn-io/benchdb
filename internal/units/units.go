@@ -1,7 +1,7 @@
-// Package units ports BenchDB's legacy unit registry: the set of known
+// Package units extends BenchDB's legacy unit registry: the set of known
 // measurement-unit symbols and their less_is_better direction, used by the
-// analysis core to orient regressions. Behavior is pinned to the retired Python
-// output via golden tests under testdata/.
+// analysis core to orient regressions. Golden tests under testdata/ pin the
+// legacy behavior and additional units.
 package units
 
 import "fmt"
@@ -13,13 +13,14 @@ type Unit struct {
 	LessIsBetter bool
 }
 
-// known mirrors the legacy Python KNOWN_UNITS set.
+// known extends the legacy Python KNOWN_UNITS set.
 var known = map[string]Unit{
 	"B":   {Symbol: "B", Long: "bytes", LessIsBetter: true},
 	"B/s": {Symbol: "B/s", Long: "bytes per second", LessIsBetter: false},
 	"s":   {Symbol: "s", Long: "seconds", LessIsBetter: true},
 	"ns":  {Symbol: "ns", Long: "nanoseconds", LessIsBetter: true},
 	"i/s": {Symbol: "i/s", Long: "iterations per second", LessIsBetter: false},
+	"x":   {Symbol: "x", Long: "ratio", LessIsBetter: true},
 }
 
 // Known reports whether symbol is a recognized unit symbol.
