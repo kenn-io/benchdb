@@ -14,7 +14,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /workspace
 
 COPY web/package.json web/bun.lock ./web/
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libatomic1 && \
     cd web && bun install --frozen-lockfile && \
     bun x playwright install --with-deps chromium && \
     chmod -R a+rX /ms-playwright && \
