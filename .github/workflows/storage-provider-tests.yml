@@ -35,7 +35,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.5
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.47.6
       - run: make duckdb-extensions
 
       - name: Sign in to Google Cloud
