@@ -214,6 +214,8 @@ Publishers set the policy in the contender result's `optional_benchmark_info`:
 | `allocation`     | `B`                | 0                                   | 0%                     |
 | `unspecified`    | Any supported unit | 0                                   | 0%                     |
 
+The `x` unit represents a dimensionless ratio; lower is better.
+
 Without a metric kind, `s` and `ns` results use `duration` and other units use
 `unspecified`. BenchDB does not guess a metric kind from benchmark names, and it
 does not treat byte results as peak memory. Mark peak memory or live heap

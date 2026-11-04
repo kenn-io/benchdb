@@ -33,9 +33,9 @@ func loadUnitsGolden(t *testing.T) unitsGolden {
 	return g
 }
 
-// TestKnownUnitsMatchPythonGolden pins the registry to checked-in references
-// from the retired Python unit registry.
-func TestKnownUnitsMatchPythonGolden(t *testing.T) {
+// TestKnownUnitsMatchGolden pins unit metadata to checked-in references
+// covering legacy behavior and additional units.
+func TestKnownUnitsMatchGolden(t *testing.T) {
 	g := loadUnitsGolden(t)
 	for _, u := range g.Units {
 		assert.Truef(t, Known(u.Symbol), "Known(%q) = false, want true", u.Symbol)
@@ -48,9 +48,9 @@ func TestKnownUnitsMatchPythonGolden(t *testing.T) {
 	}
 }
 
-// TestLegacyConvertMatchesPython pins legacy_convert, including the b/s -> B/s
-// rewrite and rejection of unknown symbols.
-func TestLegacyConvertMatchesPython(t *testing.T) {
+// TestLegacyConvertMatchesGolden pins conversion behavior to checked-in cases,
+// including the b/s -> B/s rewrite and rejection of unknown symbols.
+func TestLegacyConvertMatchesGolden(t *testing.T) {
 	g := loadUnitsGolden(t)
 	for _, c := range g.LegacyConvert {
 		got, err := LegacyConvert(c.Input)
@@ -64,19 +64,17 @@ func TestLegacyConvertMatchesPython(t *testing.T) {
 	}
 }
 
-// TestRegistryIsExactlyGolden proves the Go registry equals the Python one in
-// both directions: the existing tests show every Python symbol is Known (Python
-// ⊆ Go); this adds Go ⊆ Python plus a size check, so a stray extra symbol in
-// the registry would fail.
+// TestRegistryIsExactlyGolden checks that the registry contains exactly the
+// symbols in the checked-in golden data, covering legacy and additional units.
 func TestRegistryIsExactlyGolden(t *testing.T) {
 	g := loadUnitsGolden(t)
-	assert.Lenf(t, known, len(g.Units), "registry has %d units, Python golden has %d", len(known), len(g.Units))
+	assert.Lenf(t, known, len(g.Units), "registry has %d units, golden data has %d", len(known), len(g.Units))
 	golden := make(map[string]bool, len(g.Units))
 	for _, u := range g.Units {
 		golden[u.Symbol] = true
 	}
 	for sym := range known {
-		assert.Truef(t, golden[sym], "registry has %q, which is not in the Python golden set", sym)
+		assert.Truef(t, golden[sym], "registry has %q, which is not in the golden set", sym)
 	}
 }
 
