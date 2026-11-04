@@ -95,6 +95,36 @@ func TestSeriesStatusNeedsMoreThanMinimumChange(t *testing.T) {
 	assert.Equal(t, statusImproved, status(0.97))
 }
 
+func TestRatioSeriesStatus(t *testing.T) {
+	values := []float64{10.0, 10.1, 9.9, 10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.1, 9.9, 10.0, 10.1, 9.9, 10.0, 45.0, 45.2}
+	for _, tc := range []struct {
+		name   string
+		points int
+		status string
+	}{
+		{"baseline", 15, statusStable},
+		{"first higher ratio", 16, statusStable},
+		{"second higher ratio", 17, statusRegressed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := membersFromSVS(values[:tc.points], "x")
+			unit, lessIsBetter := seriesIdentityUnit(rows)
+			require.NotNil(t, unit)
+			assert.Equal(t, "x", *unit)
+			require.NotNil(t, lessIsBetter)
+			assert.True(t, *lessIsBetter)
+			assert.Equal(t, tc.status, scoreSeries(rows, unit, lessIsBetter).status)
+
+			verdicts, err := benchmarkVerdicts(benchmarkHistory(rows))
+			require.NoError(t, err)
+			require.Len(t, verdicts, 1)
+			assert.Equal(t, tc.status, verdicts[0].Status)
+			require.NotNil(t, verdicts[0].Unit)
+			assert.Equal(t, "x", *verdicts[0].Unit)
+		})
+	}
+}
+
 func TestScoreSeriesReportsChangeFromTheWindowMean(t *testing.T) {
 	libTrue := true
 	score := func(svs []float64) seriesVerdict {
