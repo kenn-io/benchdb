@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.1
       - run: make build-docs-ci
@@ -184,7 +184,7 @@ jobs:
           bun-version: 1.4.4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.1
       - name: Install sqlc v1.30.0
@@ -279,7 +279,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.1
       - run: make docs-link-check
@@ -303,11 +303,11 @@ jobs:
           bun-version: 1.4.4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - uses: actions/setup-node@v7.1.0
         with:
-          node-version: "26.12.1"
+          node-version: "26.13.0"
           package-manager-cache: false
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.1
       - name: Install web deps (pinned Playwright CLI)
