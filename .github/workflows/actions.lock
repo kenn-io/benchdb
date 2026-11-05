@@ -11,7 +11,7 @@ workflows:
         - 'actions/upload-artifact@v7.0.2'
         - 'astral-sh/setup-uv@v10.3.3'
         - 'kenn-io/actions@main'
-        - 'kenn-io/kit@v0.47.6'
+        - 'kenn-io/kit@v0.48.1'
         - 'step-security/setup-bun@v2.1.3'
     '.github/workflows/release.yml':
         - 'actions/checkout@v7.0.1'
@@ -24,12 +24,12 @@ workflows:
         - 'actions/setup-go@v7.0.0'
         - 'aws-actions/configure-aws-credentials@v6.3.0'
         - 'google-github-actions/auth@v3.0.0'
-        - 'kenn-io/kit@v0.47.6'
+        - 'kenn-io/kit@v0.48.1'
     '.github/workflows/website.yml':
         - 'actions/checkout@v7.0.1'
         - 'astral-sh/setup-uv@v10.3.3'
         - 'kenn-io/actions@main'
-        - 'kenn-io/kit@v0.47.6'
+        - 'kenn-io/kit@v0.48.1'
     '.github/workflows/workflow-validation.yml':
         - 'actions/checkout@v7.0.1'
 dependencies:
@@ -85,9 +85,9 @@ dependencies:
         repo_id: 1427332808
         uses:
             - 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
-    'kenn-io/kit@v0.47.6':
-        ref: 'v0.47.6'
-        commit: 'sha1-192b82084042e49ff5d1b3f779642c2e607ef0bf'
+    'kenn-io/kit@v0.48.1':
+        ref: 'v0.48.1'
+        commit: 'sha1-eaa65a06250a20b7cf937260247760690f5fa56c'
         owner_id: 259885253
         repo_id: 1238000987
     'step-security/docker-build-push-action@v7.4.0':
