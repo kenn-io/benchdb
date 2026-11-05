@@ -2,7 +2,7 @@ ARG BUN_VERSION=1.4.4
 
 FROM docker.io/oven/bun:${BUN_VERSION} AS bun
 
-FROM node:24.22.2-bookworm-slim AS node
+FROM node:26.12.1-bookworm-slim AS node
 
 FROM ubuntu:24.04
 
@@ -14,7 +14,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /workspace
 
 COPY web/package.json web/bun.lock ./web/
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libatomic1 && \
     cd web && bun install --frozen-lockfile && \
     bun x playwright install --with-deps chromium && \
     chmod -R a+rX /ms-playwright && \
