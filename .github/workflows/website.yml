@@ -55,7 +55,7 @@ jobs:
         run: make docs-screenshots
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - name: Build the complete website
         env:
