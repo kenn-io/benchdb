@@ -47,6 +47,14 @@ func TestSeriesListKeepsAnArchivedSelectedBaselineOlderThanTheTail(t *testing.T)
 		ids[k], fingerprint = res.ID, res.HistoryFingerprint
 	}
 	require.NoError(t, ing.SetBaselineOverride(ctx, ids[0], ids[9]))
+	// A mark at the same commit timestamp as the selected baseline shares
+	// its segment, including when both results are older than the tail.
+	require.Less(t, ids[0], ids[1])
+	_, err = pool.Exec(ctx, `UPDATE "commit" SET "timestamp" = (
+		SELECT c."timestamp" FROM "commit" c JOIN benchmark_result br ON br.commit_id = c.id WHERE br.id = $1
+	) WHERE id = (SELECT commit_id FROM benchmark_result WHERE id = $2)`, ids[0], ids[1])
+	require.NoError(t, err)
+	require.NoError(t, ing.UpdateChangeAnnotations(ctx, ids[1], map[string]any{"begins_distribution_change": true}))
 	windowMean := func() float64 {
 		t.Helper()
 		page, err := reader.ListSeries(ctx, service.SeriesQuery{Fingerprint: &fingerprint, PageSize: 1})

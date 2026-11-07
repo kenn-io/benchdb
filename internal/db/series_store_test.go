@@ -676,6 +676,24 @@ func TestSelectSeriesMembersReturnsRecentBoundedTail(t *testing.T) {
 	assert.Equal(t, day(299), *got[len(got)-1].CommitTimestamp)
 }
 
+func TestSeriesPriorBoundaryPrefersBaselineAtSameTimestamp(t *testing.T) {
+	st, _, ctx := newTestStore(t)
+	seedSeries(t, st, ctx, "fp-boundary-tie", "boundary-tie", `{}`, "m5", []seriesMember{
+		{ts: day(0), value: 1}, {ts: day(0), value: 2}, {ts: day(1), value: 3},
+	})
+	rows, err := st.SelectHistoryForFingerprint(ctx, "fp-boundary-tie")
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	require.NoError(t, st.UpdateBenchmarkResultChangeAnnotations(ctx, rows[0].ID, []byte(`{"baseline_override":{"value":2}}`)))
+	require.NoError(t, st.UpdateBenchmarkResultChangeAnnotations(ctx, rows[1].ID, []byte(`{"begins_distribution_change":true}`)))
+	boundaries, err := st.SelectSeriesPriorBoundaries(ctx, []storage.SeriesBoundaryQuery{{
+		Fingerprint: "fp-boundary-tie", Before: storage.SeriesMemberBound{CommitTimestamp: day(1), ResultID: rows[2].ID},
+	}})
+	require.NoError(t, err)
+	require.Len(t, boundaries, 1)
+	assert.Equal(t, rows[0].ID, boundaries[0].ResultID)
+}
+
 func TestSelectSeriesMembersThroughBoundsBeforeTailLimit(t *testing.T) {
 	st, _, ctx := newTestStore(t)
 

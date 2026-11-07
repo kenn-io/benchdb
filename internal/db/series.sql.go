@@ -1016,7 +1016,9 @@ CROSS JOIN LATERAL (
     OFFSET 0
   ) c
   WHERE (c."timestamp", br.id) < (b.before_timestamp, b.before_id)
-  ORDER BY c."timestamp" DESC, br.id DESC
+  ORDER BY c."timestamp" DESC,
+           (jsonb_typeof(br.change_annotations->'baseline_override'->'value') = 'number') DESC NULLS LAST,
+           br.id ASC
   LIMIT 1
 ) m
 ORDER BY m.history_fingerprint

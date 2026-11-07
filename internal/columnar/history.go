@@ -124,7 +124,9 @@ SELECT unnest($1::VARCHAR[]) AS fingerprint, unnest($2::VARCHAR[])::TIMESTAMP AS
 unnest($3::VARCHAR[]) AS before_id),
 candidates AS (
 SELECT br.history_fingerprint,br.id,c."timestamp" AS commit_timestamp,br.change_annotations,
-row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,br.id DESC) AS position
+row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,
+CASE WHEN json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE') THEN 0 ELSE 1 END,
+br.id ASC) AS position
 FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
 JOIN bounds b ON b.fingerprint=br.history_fingerprint
 WHERE `+historyMembership+`

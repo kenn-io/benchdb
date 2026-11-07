@@ -372,7 +372,10 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 		if err != nil {
 			return err
 		}
-		if first.begins || first.override != nil {
+		// Boundaries sharing a timestamp form one segment. An override on an
+		// earlier result at that timestamp takes precedence over a mark or a
+		// later override on the first retained result.
+		if !boundary.CommitTimestamp.Equal(*members[0].CommitTimestamp) && (first.begins || first.override != nil) {
 			continue // the first member starts its own segment
 		}
 		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)

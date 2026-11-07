@@ -208,3 +208,26 @@ func TestListSeriesKeepsASelectedBaselineOlderThanTheMemberTail(t *testing.T) {
 	require.NoError(t, ing.UpdateChangeAnnotations(ctx, ids[12], map[string]any{"begins_distribution_change": true}))
 	assert.InDelta(t, 1.005, listedWindowMean(t, reader, fingerprint, nil), 0.001, "an intervening mark ends the baseline")
 }
+
+func TestListSeriesKeepsBaselineWhenTailSplitsTimestamp(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	reader := service.NewReader(store)
+	values := make([]float64, 257)
+	for i := range values {
+		values[i] = 1 + float64(i%2)/100
+	}
+	values[0], values[1] = 2, 2
+	ids := submitSeries(t, ing, values...)
+	_, err := pool.Exec(ctx, `UPDATE "commit" SET "timestamp" = (
+		SELECT c."timestamp" FROM "commit" c JOIN benchmark_result br ON br.commit_id = c.id WHERE br.id = $1
+	) WHERE id = (SELECT commit_id FROM benchmark_result WHERE id = $2)`, ids[0], ids[1])
+	require.NoError(t, err)
+	result, err := store.GetBenchmarkResultByID(ctx, ids[0])
+	require.NoError(t, err)
+	rows, err := store.SelectHistoryForFingerprint(ctx, result.HistoryFingerprint)
+	require.NoError(t, err)
+	require.Len(t, rows, 257)
+	require.NoError(t, ing.SetBaselineOverride(ctx, rows[0].ID, rows[0].ID))
+	require.NoError(t, ing.UpdateChangeAnnotations(ctx, rows[1].ID, map[string]any{"begins_distribution_change": true}))
+	assert.InDelta(t, 2, listedWindowMean(t, reader, result.HistoryFingerprint, nil), 1e-12)
+}
