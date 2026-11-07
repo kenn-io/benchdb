@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"go.kenn.io/benchdb/internal/stats"
@@ -160,6 +162,10 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 	if err != nil {
 		return insufficient
 	}
+	latestPoint, err := seriesPointFromRow(latest, latestSVS)
+	if err != nil {
+		return insufficient
+	}
 	points := make([]stats.SeriesPoint, 0, len(members)-1)
 	for _, m := range members[:len(members)-1] { // baseline = members before the latest
 		svs, _, err := historySVS(m.Unit, m.Data)
@@ -173,6 +179,26 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
+	// Earlier results at the latest's commit rank share its segment.
+	firstTied := len(points)
+	for firstTied > 0 && points[firstTied-1].CommitTimestamp.Equal(latestPoint.CommitTimestamp) {
+		firstTied--
+	}
+	tied := points[firstTied:]
+	switch {
+	case latestPoint.BaselineOverride != nil:
+		// A prior override at the same commit rank takes precedence.
+		if !slices.ContainsFunc(tied, func(p stats.SeriesPoint) bool { return p.BaselineOverride != nil }) {
+			mean = latestPoint.BaselineOverride
+		}
+	case latestPoint.BeginsDistributionChange && len(tied) == 0:
+		// The mark opens a segment holding only the latest result, which is
+		// its own mean there, as it is in history.
+		mean = &latestSVS
+	case latestPoint.BeginsDistributionChange:
+		tied[0].BeginsDistributionChange = true
+		mean, stddev = stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
+	}
 	verdict := seriesVerdict{status: statusInsufficient}
 	// Finite results can still sum past the float64 range, and an infinite
 	// mean cannot be sent as JSON.
@@ -295,11 +321,20 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 			return nil, fmt.Errorf("list series members: %w", err)
 		}
 		byFingerprint := groupMembersByFingerprint(members)
+		incompatible, err := r.carryPriorBaselines(ctx, byFingerprint)
+		if err != nil {
+			return nil, err
+		}
 
 		for i := range rows {
 			item, err := seriesListItem(rows[i], byFingerprint[rows[i].HistoryFingerprint])
 			if err != nil {
 				return nil, err
+			}
+			if incompatible[rows[i].HistoryFingerprint] {
+				item.Status = statusInsufficient
+				item.WindowMean = nil
+				item.ChangePercent = nil
 			}
 			if q.Status != nil && item.Status != *q.Status {
 				continue
@@ -326,6 +361,110 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 		result.NextCursor = &SeriesCursor{Ts: last.LatestCommitTimestamp, Fp: last.HistoryFingerprint}
 	}
 	return result, nil
+}
+
+// carryPriorBaselines keeps a selected baseline in force when the boundary
+// that started it is older than the member tail or the active window. It
+// finds the latest boundary before each tail's first member. When that
+// boundary is a selected baseline, its value moves onto the first member, so
+// scoring starts inside the fixed segment. A later distribution-change mark
+// is the latest boundary instead, and the rolling mean stays.
+func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[string][]storage.HistoryRow) (map[string]bool, error) {
+	incompatible := make(map[string]bool)
+	bounds := make([]storage.SeriesBoundaryQuery, 0, len(byFingerprint))
+	for fingerprint, members := range byFingerprint {
+		first := members[0]
+		if first.CommitTimestamp == nil {
+			continue
+		}
+		bounds = append(bounds, storage.SeriesBoundaryQuery{
+			Fingerprint: fingerprint,
+			Before:      storage.SeriesMemberBound{CommitTimestamp: *first.CommitTimestamp, ResultID: first.ID},
+		})
+	}
+	if len(bounds) == 0 {
+		return incompatible, nil
+	}
+	boundaries, err := r.store.SelectSeriesPriorBoundaries(ctx, bounds)
+	if err != nil {
+		return nil, fmt.Errorf("list series boundaries: %w", err)
+	}
+	for _, boundary := range boundaries {
+		prior, err := decodeSegmentAnnotations(boundary.ChangeAnnotations)
+		if err != nil {
+			return nil, err
+		}
+		members := byFingerprint[boundary.HistoryFingerprint]
+		// A mark on the same result does not cancel its override: the engine
+		// fixes a segment whenever its start carries one.
+		if prior.override == nil || len(members) == 0 {
+			continue
+		}
+		// Every result at a commit rank shares the same segment. An override
+		// before the retained tail at that rank takes precedence.
+		if !boundary.CommitTimestamp.Equal(*members[0].CommitTimestamp) {
+			hasBoundary := false
+			for _, member := range members {
+				if !member.CommitTimestamp.Equal(*members[0].CommitTimestamp) {
+					break
+				}
+				annotations, err := decodeSegmentAnnotations(member.ChangeAnnotations)
+				if err != nil {
+					return nil, err
+				}
+				hasBoundary = hasBoundary || annotations.begins || annotations.override != nil
+			}
+			if hasBoundary {
+				continue
+			}
+		}
+		if !sameUnitPtr(boundary.Unit, members[0].Unit) {
+			// The baseline only blocks scoring while it governs the latest
+			// member, so a later boundary in the tail lifts the block.
+			ended := false
+			for _, member := range members {
+				if !member.CommitTimestamp.After(boundary.CommitTimestamp) {
+					continue
+				}
+				annotations, err := decodeSegmentAnnotations(member.ChangeAnnotations)
+				if err != nil {
+					return nil, err
+				}
+				if annotations.begins || annotations.override != nil {
+					ended = true
+					break
+				}
+			}
+			if !ended {
+				incompatible[boundary.HistoryFingerprint] = true
+			}
+			continue
+		}
+		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)
+		if err != nil {
+			return nil, err
+		}
+		members[0].ChangeAnnotations = carried
+	}
+	return incompatible, nil
+}
+
+// withBaselineOverride returns annotations that also carry a selected
+// baseline value. Only the scoring copy of a member changes.
+func withBaselineOverride(raw []byte, value float64) ([]byte, error) {
+	annotations, err := jsonObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	if annotations == nil {
+		annotations = map[string]any{}
+	}
+	annotations[baselineOverrideKey] = map[string]any{"value": value}
+	out, err := json.Marshal(annotations)
+	if err != nil {
+		return nil, fmt.Errorf("carry selected baseline: %w", err)
+	}
+	return out, nil
 }
 
 // groupMembersByFingerprint partitions members by fingerprint in a single pass.

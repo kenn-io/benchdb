@@ -136,6 +136,7 @@ type HistorySample struct {
 type ZScoreStats struct {
 	_                        struct{} `json:"-" nullable:"true"`
 	BeginsDistributionChange bool     `json:"begins_distribution_change"`
+	FixedBaseline            bool     `json:"fixed_baseline" doc:"The rolling means are a fixed baseline override averaged from a selected range of results, not a rolling window."`
 	IsStep                   bool     `json:"is_step"`
 	IsOutlier                bool     `json:"is_outlier"`
 	SegmentID                int      `json:"segment_id"`
@@ -148,6 +149,7 @@ type ZScoreStats struct {
 func zscoreStatsFrom(rs stats.RollingStats) *ZScoreStats {
 	return &ZScoreStats{
 		BeginsDistributionChange: rs.BeginsDistributionChange,
+		FixedBaseline:            rs.FixedBaseline,
 		IsStep:                   rs.IsStep,
 		IsOutlier:                rs.IsOutlier,
 		SegmentID:                rs.SegmentID,
@@ -163,15 +165,49 @@ func zscoreStatsFrom(rs stats.RollingStats) *ZScoreStats {
 // "begins_distribution_change", False)) if x else False`): absent column, empty
 // object, or a non-boolean value all read as false.
 func beginsDistributionChange(raw []byte) (bool, error) {
+	a, err := decodeSegmentAnnotations(raw)
+	return a.begins, err
+}
+
+// baselineOverrideKey is the change annotation that fixes a series' baseline
+// from its result onward. The server computes it from a selected range of
+// results; see Ingester.SetBaselineOverride.
+const baselineOverrideKey = "baseline_override"
+
+// BaselineOverride is the stored baseline_override annotation: the mean of the
+// selected results' single value summaries, the last result in the selection,
+// and how many results it averaged. The value includes results committed after
+// the result that carries it.
+type BaselineOverride struct {
+	Value           float64 `json:"value"`
+	ThroughResultID string  `json:"through_result_id"`
+	ResultCount     int     `json:"result_count"`
+}
+
+type segmentAnnotations struct {
+	begins   bool
+	override *float64
+}
+
+// decodeSegmentAnnotations reads the annotations that start a new segment. An
+// override without a finite numeric value is ignored, as a non-boolean
+// begins_distribution_change is.
+func decodeSegmentAnnotations(raw []byte) (segmentAnnotations, error) {
+	var out segmentAnnotations
 	if len(raw) == 0 {
-		return false, nil
+		return out, nil
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return false, fmt.Errorf("decode change_annotations: %w", err)
+		return out, fmt.Errorf("decode change_annotations: %w", err)
 	}
-	v, _ := m["begins_distribution_change"].(bool)
-	return v, nil
+	out.begins, _ = m["begins_distribution_change"].(bool)
+	if override, ok := m[baselineOverrideKey].(map[string]any); ok {
+		if value, ok := override["value"].(float64); ok && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			out.override = &value
+		}
+	}
+	return out, nil
 }
 
 // seriesPointFromRow builds the engine input for one membership row, using the
@@ -179,7 +215,7 @@ func beginsDistributionChange(raw []byte) (bool, error) {
 // commit timestamp, so a member always has one; the zero-time fallback is a
 // defensive guard rather than a reachable degradation.
 func seriesPointFromRow(row storage.HistoryRow, svs float64) (stats.SeriesPoint, error) {
-	begins, err := beginsDistributionChange(row.ChangeAnnotations)
+	annotations, err := decodeSegmentAnnotations(row.ChangeAnnotations)
 	if err != nil {
 		return stats.SeriesPoint{}, err
 	}
@@ -191,7 +227,8 @@ func seriesPointFromRow(row storage.HistoryRow, svs float64) (stats.SeriesPoint,
 		CommitTimestamp:          ct,
 		ResultTimestamp:          row.Timestamp,
 		SVS:                      svs,
-		BeginsDistributionChange: begins,
+		BeginsDistributionChange: annotations.begins,
+		BaselineOverride:         annotations.override,
 	}, nil
 }
 

@@ -33,6 +33,7 @@ vi.mock("uplot", () => {
 
     destroy() {}
     redraw() {}
+    setSelect() {}
     setSize() {}
     posToVal(position: number, scale: string) {
       return scale === "x" ? plotState.xForPosition(position) : 1;
@@ -66,6 +67,7 @@ const boundaryPoint: SeriesPoint = {
     isOutlier: false,
     isStep: false,
     beginsChange: true,
+    fixedBaseline: false,
     segmentId: 1,
   },
 };
@@ -201,5 +203,146 @@ describe("SeriesChart", () => {
 
     expect(screen.getByText("Drag horizontally to zoom")).toBeInTheDocument();
     plotState.xForPosition = (position) => position;
+  });
+
+  describe("baseline range selection", () => {
+    const at = (resultId: string, seconds: number, svs: number): SeriesPoint => ({
+      ...boundaryPoint,
+      resultId,
+      commitHash: `sha-${resultId}`,
+      changeAnnotations: {},
+      chartMs: seconds * 1000,
+      svs,
+      measurements: [svs],
+      stats: { ...boundaryPoint.stats, beginsChange: false },
+    });
+    // The mock brush spans 100..300 seconds.
+    const points = [at("a", 50, 9), at("b", 150, 2), at("c", 250, 4), at("d", 400, 8)];
+
+    it("selects a dragged range instead of zooming, then applies its average", async () => {
+      plotState.scaleCalls = [];
+      const onselectbaseline = vi.fn(async () => null);
+      const onopen = vi.fn();
+      const { container } = render(SeriesChart, { props: { points, onselectbaseline, onopen } });
+
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      const options = plotState.options as { cursor: { drag: { setScale: boolean } } };
+      expect(options.cursor.drag.setScale).toBe(false);
+      plotState.selectHook?.(plotState.instance);
+      await tick();
+
+      expect(screen.queryByRole("button", { name: "Reset zoom" })).toBeNull();
+      expect(screen.getByText("2 results")).toBeTruthy();
+      expect(container.querySelector(".baseline-summary")?.textContent).toContain("3");
+      expect(screen.getByText(/includes results committed after that start/)).toBeTruthy();
+      await fireEvent.click(container.querySelector(".chart-wrap")!);
+      expect(onopen).not.toHaveBeenCalled();
+
+      await fireEvent.click(screen.getByRole("button", { name: "Apply baseline" }));
+      await tick();
+      expect(onselectbaseline).toHaveBeenCalledWith("b", "c");
+      expect(screen.queryByRole("group", { name: "Select baseline range" })).toBeNull();
+      const rebuilt = plotState.options as { cursor: { drag: { setScale: boolean } } };
+      expect(rebuilt.cursor.drag.setScale).toBe(true);
+      expect(screen.getByText("Drag horizontally to zoom")).toBeTruthy();
+    });
+
+    it("selects a range with the From and Through pickers and shows save errors", async () => {
+      const onselectbaseline = vi.fn(async () => "range crosses a boundary");
+      render(SeriesChart, { props: { points, onselectbaseline } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      const apply = screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement;
+      expect(apply.disabled).toBe(true);
+
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "d" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "a" } });
+      expect(screen.getByText("4 results")).toBeTruthy();
+      await fireEvent.click(apply);
+      await tick();
+
+      expect(onselectbaseline).toHaveBeenCalledWith("a", "d");
+      expect(screen.getByRole("alert").textContent).toContain("range crosses a boundary");
+      expect(screen.getByRole("group", { name: "Select baseline range" })).toBeTruthy();
+    });
+
+    it("blocks a range that crosses a marked distribution change", async () => {
+      const marked = [points[0]!, { ...points[1]!, changeAnnotations: { begins_distribution_change: true } }, points[2]!];
+      render(SeriesChart, { props: { points: marked, onselectbaseline: vi.fn(async () => null) } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "a" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "c" } });
+
+      expect(screen.getByRole("alert").textContent).toContain("sha-b");
+      expect((screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("replaces the baseline on a later result tied on commit time", async () => {
+      const tied = [at("a", 100, 2), { ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 4 } } }];
+      const onselectbaseline = vi.fn(async () => null);
+      render(SeriesChart, { props: { points: tied, onselectbaseline } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "b" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "b" } });
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      await fireEvent.click(screen.getByRole("button", { name: "Apply baseline" }));
+      await tick();
+      expect(onselectbaseline).toHaveBeenCalledWith("b", "b");
+    });
+
+    it("blocks starting beside a tied result that has a baseline", async () => {
+      const tied = [at("a", 100, 2), { ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 4 } } }];
+      render(SeriesChart, { props: { points: tied, onselectbaseline: vi.fn(async () => null) } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "a" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "a" } });
+
+      expect(screen.getByRole("alert").textContent).toContain("Start the range from that result");
+      expect((screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("shows only the value in a selected baseline's tooltip because the caption explains it", async () => {
+      const fixed: SeriesPoint = {
+        ...at("b", 150, 2),
+        stats: { ...boundaryPoint.stats, fixedBaseline: true, rollingMean: 3, rollingStddev: null, segmentId: 1 },
+      };
+      render(SeriesChart, { props: { points: [fixed] } });
+      plotState.cursorHook?.(plotState.instance);
+      await tick();
+      await tick();
+      expect(screen.getByText("selected baseline 3 s")).toBeInTheDocument();
+      expect(screen.queryByText(/includes later results/)).toBeNull();
+    });
+
+    it("captions a selected baseline carried by a later tied result", () => {
+      const fixed = (p: SeriesPoint): SeriesPoint => ({
+        ...p, stats: { ...p.stats, fixedBaseline: true, rollingMean: 3, segmentId: 1 },
+      });
+      const stored = [
+        fixed(at("a", 100, 2)),
+        fixed({ ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 3, through_result_id: "b", result_count: 2 } } }),
+      ];
+      const { container } = render(SeriesChart, { props: { points: stored } });
+      const caption = container.querySelector(".baseline-caption")?.textContent?.replace(/\s+/g, " ") ?? "";
+      expect(caption).toContain("the average of 2 results through sha-b");
+    });
+
+    it("labels a stored selected baseline as using later results", () => {
+      const fixed = (p: SeriesPoint): SeriesPoint => ({
+        ...p, stats: { ...p.stats, fixedBaseline: true, rollingMean: 3, segmentId: 1 },
+      });
+      const stored = [
+        points[0]!,
+        fixed({ ...points[1]!, changeAnnotations: { baseline_override: { value: 3, through_result_id: "c", result_count: 2 } } }),
+        fixed(points[2]!),
+        fixed(points[3]!),
+      ];
+      const { container } = render(SeriesChart, { props: { points: stored } });
+      const caption = container.querySelector(".baseline-caption")?.textContent?.replace(/\s+/g, " ") ?? "";
+      expect(caption).toContain("Selected baseline from sha-b");
+      expect(caption).toContain("the average of 2 results through sha-c");
+      expect(caption).toContain("uses results committed after the point where it starts");
+      expect(screen.queryByRole("button", { name: "Select baseline range" })).toBeNull();
+    });
   });
 });

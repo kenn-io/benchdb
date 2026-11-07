@@ -150,6 +150,17 @@ and use **Reset zoom** to return. Click a point to open its result. The page
 checks for new results every 30 seconds and reports how many arrived.
 **Refresh** checks right away.
 
+Users who can write results can fix a series' baseline from the chart of a
+single series. Choose **Select baseline range**, then drag across a stable
+stretch of results, or pick the first and last results in the **From** and
+**Through** lists. The chart previews the selected results, their count, and
+their average. **Apply baseline** saves it. While selecting, dragging selects
+instead of zooming; **Cancel**, or Escape in the selection panel, returns to zoom. A saved baseline is
+drawn as a solid line, with its source range shaded and a note that it uses
+later results. See [regression analysis](regression-analysis.md) for how it is
+scored. This is separate from **set baseline**, which picks one point to
+compare against.
+
 The results table lists each point's time, commit, machine, value, distance from
 the rolling mean, and flags. **Outliers** and **Steps** filter the table before
 it is cut to 200 rows, so an old flagged point is easy to find. **Show more**
@@ -212,7 +223,9 @@ info, validation, change annotations, run tags, and the raw payload.
 JSON** downloads `GET /api/history/<result_id>`.
 
 Users who can write results also see a **Manage** section. It can mark or
-unmark `begins_distribution_change` and delete the result. Both actions call
+unmark `begins_distribution_change`, remove a selected baseline that starts at
+this result, and delete the result. The result's chart offers
+**Select baseline range** too. Both actions call
 the same authenticated result APIs that automation uses.
 
 ## Run and batch pages

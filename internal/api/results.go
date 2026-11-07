@@ -49,6 +49,18 @@ func (h *Handler) Register(api huma.API) {
 	}, h.update)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "set-result-baseline-override",
+		Summary:     "Fix the series baseline from this result using the average of a selected range",
+		Description: "Averages the single value summaries of the series' default-branch results committed from this " +
+			"result through through_result_id, inclusive, and stores it on this result as the " +
+			"change_annotations.baseline_override. History, comparisons and alert checks then score against " +
+			"that fixed value from this result until the next distribution change or selected baseline. " +
+			"Remove it by setting change_annotations.baseline_override to null.",
+		Method: http.MethodPut,
+		Path:   "/api/benchmark-results/{id}/baseline-override",
+	}, h.setBaselineOverride)
+
+	huma.Register(api, huma.Operation{
 		OperationID:   "delete-result",
 		Summary:       "Delete a benchmark result",
 		Method:        http.MethodDelete,
@@ -138,6 +150,41 @@ func (h *Handler) update(ctx context.Context, in *UpdateResultInput) (*UpdateRes
 	// Update-then-read is not transactional: the echoed detail reflects the row
 	// as of this read, not a snapshot of this PUT (same shape as legacy). A row
 	// deleted in that window is still a 404, not a 500.
+	detail, err := h.reader.ResultDetail(ctx, in.ID)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			return nil, huma.Error404NotFound("benchmark result not found")
+		}
+		return nil, err
+	}
+	return &UpdateResultOutput{Body: *detail}, nil
+}
+
+// SetBaselineOverrideInput is the PUT /api/benchmark-results/{id}/baseline-override
+// request. The path result is the first selected result.
+type SetBaselineOverrideInput struct {
+	Authorization string `header:"Authorization" doc:"Bearer token, e.g. 'Bearer <token>'."`
+	// Session cookie; an alternative to the bearer token for browser writes.
+	Session string `cookie:"benchdb_session"`
+	ID      string `path:"id"`
+	Body    struct {
+		ThroughResultID string `json:"through_result_id" minLength:"1" doc:"The last selected result in the same series."`
+	}
+}
+
+func (h *Handler) setBaselineOverride(ctx context.Context, in *SetBaselineOverrideInput) (*UpdateResultOutput, error) {
+	if err := h.auth.Authenticate(ctx, in.Authorization, in.Session); err != nil {
+		return nil, huma.Error401Unauthorized("authentication required")
+	}
+	if err := h.ingester.SetBaselineOverride(ctx, in.ID, in.Body.ThroughResultID); err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			return nil, huma.Error404NotFound("benchmark result not found")
+		}
+		if ve, ok := errors.AsType[*service.ValidationError](err); ok {
+			return nil, huma.Error422UnprocessableEntity(ve.Message)
+		}
+		return nil, err
+	}
 	detail, err := h.reader.ResultDetail(ctx, in.ID)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {

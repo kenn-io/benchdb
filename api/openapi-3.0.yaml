@@ -2117,6 +2117,22 @@ components:
         - series
         - next_page_cursor
       type: object
+    SetBaselineOverrideInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SetBaselineOverrideInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        through_result_id:
+          description: The last selected result in the same series.
+          minLength: 1
+          type: string
+      required:
+        - through_result_id
+      type: object
     StatsInput:
       additionalProperties: false
       properties:
@@ -2431,6 +2447,9 @@ components:
       properties:
         begins_distribution_change:
           type: boolean
+        fixed_baseline:
+          description: The rolling means are a fixed baseline override averaged from a selected range of results, not a rolling window.
+          type: boolean
         is_outlier:
           type: boolean
         is_step:
@@ -2456,6 +2475,7 @@ components:
           type: integer
       required:
         - begins_distribution_change
+        - fixed_baseline
         - is_step
         - is_outlier
         - segment_id
@@ -3138,6 +3158,46 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Service Unavailable
       summary: Download a diagnostic attachment
+  /api/benchmark-results/{id}/baseline-override:
+    put:
+      description: Averages the single value summaries of the series' default-branch results committed from this result through through_result_id, inclusive, and stores it on this result as the change_annotations.baseline_override. History, comparisons and alert checks then score against that fixed value from this result until the next distribution change or selected baseline. Remove it by setting change_annotations.baseline_override to null.
+      operationId: set-result-baseline-override
+      parameters:
+        - description: Bearer token, e.g. 'Bearer <token>'.
+          in: header
+          name: Authorization
+          schema:
+            description: Bearer token, e.g. 'Bearer <token>'.
+            type: string
+        - in: cookie
+          name: benchdb_session
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetBaselineOverrideInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultDetail"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Fix the series baseline from this result using the average of a selected range
   /api/benchmarks:
     get:
       operationId: list-benchmarks

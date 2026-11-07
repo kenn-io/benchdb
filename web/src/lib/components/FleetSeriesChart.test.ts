@@ -74,6 +74,7 @@ function point(
       isOutlier: false,
       isStep: false,
       beginsChange: false,
+      fixedBaseline: false,
       segmentId: 1,
     },
   };

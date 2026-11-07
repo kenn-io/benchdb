@@ -844,6 +844,68 @@ func (o *DownloadResultArtifactRequestOptions) GetHeader() (map[string]string, e
 	return nil, nil
 }
 
+// SetResultBaselineOverrideRequestOptions is the options needed to make a request to SetResultBaselineOverride.
+type SetResultBaselineOverrideRequestOptions struct {
+	PathParams *SetResultBaselineOverridePath
+	Body       *SetResultBaselineOverrideBody
+	Header     *SetResultBaselineOverrideHeaders
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *SetResultBaselineOverrideRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.PathParams != nil {
+		if v, ok := any(o.PathParams).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("PathParams", err)
+			}
+		}
+	}
+
+	if o.Body != nil {
+		if v, ok := any(o.Body).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Body", err)
+			}
+		}
+	}
+
+	if o.Header != nil {
+		if v, ok := any(o.Header).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Header", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *SetResultBaselineOverrideRequestOptions) GetPathParams() (map[string]any, error) {
+	return runtime.AsMap[any](o.PathParams)
+}
+
+// GetQuery returns the query params as a map.
+func (o *SetResultBaselineOverrideRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *SetResultBaselineOverrideRequestOptions) GetBody() any {
+	return o.Body
+}
+
+// GetHeader returns the headers as a map.
+func (o *SetResultBaselineOverrideRequestOptions) GetHeader() (map[string]string, error) {
+	return runtime.AsMap[string](o.Header)
+}
+
 // ListBenchmarksRequestOptions is the options needed to make a request to ListBenchmarks.
 type ListBenchmarksRequestOptions struct {
 	Query *ListBenchmarksQuery
@@ -1696,6 +1758,7 @@ type ClientInterface interface {
 	UploadResultArtifactWithResponse(ctx context.Context, options *UploadResultArtifactRequestOptions, reqEditors ...runtime.RequestEditorFn) (*UploadResultArtifactResp, error)
 	DeleteResultArtifactWithResponse(ctx context.Context, options *DeleteResultArtifactRequestOptions, reqEditors ...runtime.RequestEditorFn) (*DeleteResultArtifactResp, error)
 	DownloadResultArtifactWithResponse(ctx context.Context, options *DownloadResultArtifactRequestOptions, reqEditors ...runtime.RequestEditorFn) (*DownloadResultArtifactResp, error)
+	SetResultBaselineOverrideWithResponse(ctx context.Context, options *SetResultBaselineOverrideRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SetResultBaselineOverrideResp, error)
 	ListBenchmarksWithResponse(ctx context.Context, options *ListBenchmarksRequestOptions, reqEditors ...runtime.RequestEditorFn) (*ListBenchmarksResp, error)
 	GetBenchmarkHistoryWithResponse(ctx context.Context, options *GetBenchmarkHistoryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetBenchmarkHistoryResp, error)
 	GetCiReportWithResponse(ctx context.Context, options *GetCiReportRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetCiReportResp, error)
@@ -2845,6 +2908,68 @@ func (c *Client) DownloadResultArtifactWithResponse(ctx context.Context, options
 		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	default:
 		return out, runtime.NewClientAPIError(fmt.Errorf("unexpected status code: %d", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
+	}
+}
+
+// SetResultBaselineOverride Fix the series baseline from this result using the average of a selected range
+func (c *Client) SetResultBaselineOverrideWithResponse(ctx context.Context, options *SetResultBaselineOverrideRequestOptions, reqEditors ...runtime.RequestEditorFn) (*SetResultBaselineOverrideResp, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL:  c.apiClient.GetBaseURL() + "/api/benchmark-results/{id}/baseline-override",
+		Method:      "PUT",
+		Options:     options,
+		ContentType: "application/json",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/benchmark-results/{id}/baseline-override")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+
+	out := &SetResultBaselineOverrideResp{
+		HTTPResponse: resp.Raw,
+		Body:         resp.Content,
+		StatusCode:   resp.StatusCode,
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		out.JSON200 = new(SetResultBaselineOverrideResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.JSON200); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "SetResultBaselineOverrideResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, nil
+	default:
+		out.ApplicationProblemPlusJSONDefault = new(SetResultBaselineOverrideErrorResponse)
+		bodyBytes := resp.Content
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, out.ApplicationProblemPlusJSONDefault); err != nil {
+				return out, &runtime.ResponseDecodeError{
+					StatusCode:    resp.StatusCode,
+					ContentType:   resp.Headers.Get("Content-Type"),
+					ContentLength: len(bodyBytes),
+					TargetType:    "SetResultBaselineOverrideErrorResponse",
+					Body:          bodyBytes,
+					Err:           err,
+				}
+			}
+		}
+		return out, runtime.NewClientAPIError(fmt.Errorf("API error (status %d)", resp.StatusCode), runtime.WithStatusCode(resp.StatusCode))
 	}
 }
 
@@ -4455,6 +4580,11 @@ type DeleteResultArtifactHeaders struct {
 	Authorization *string `json:"Authorization,omitempty"`
 }
 
+type SetResultBaselineOverrideHeaders struct {
+	// Authorization Bearer token, e.g. 'Bearer <token>'.
+	Authorization *string `json:"Authorization,omitempty"`
+}
+
 type FinalizeRunReportHeaders struct {
 	Authorization *string `json:"Authorization,omitempty"`
 }
@@ -4566,6 +4696,14 @@ func (d DownloadResultArtifactPath) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(d))
 }
 
+type SetResultBaselineOverridePath struct {
+	ID string `json:"id" validate:"required"`
+}
+
+func (s SetResultBaselineOverridePath) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(s))
+}
+
 type GetBenchmarkHistoryPath struct {
 	// BenchmarkID Stable benchmark identifier.
 	BenchmarkID string `json:"benchmark_id" validate:"required"`
@@ -4625,6 +4763,8 @@ type AuthCliExchangeBody = CliExchangeInputBody
 type UpdateResultBody = UpdateResultInputBody
 
 type UploadResultArtifactBody = runtime.File
+
+type SetResultBaselineOverrideBody = SetBaselineOverrideInputBody
 
 type FinalizeRunReportBody = FinalizeRunReportInputBody
 
@@ -4945,6 +5085,10 @@ type DownloadResultArtifactErrorResponseApplicationProblemPlusJSON500 = ErrorMod
 
 type DownloadResultArtifactErrorResponseApplicationProblemPlusJSON503 = ErrorModel
 
+type SetResultBaselineOverrideResponse = ResultDetail
+
+type SetResultBaselineOverrideErrorResponse = ErrorModel
+
 type ListBenchmarksResponse = BenchmarkPage
 
 type ListBenchmarksErrorResponse = ErrorModel
@@ -5205,6 +5349,14 @@ type DownloadResultArtifactResp struct {
 	ApplicationProblemPlusJSON422 *DownloadResultArtifactErrorResponseApplicationProblemPlusJSON
 	ApplicationProblemPlusJSON500 *DownloadResultArtifactErrorResponseApplicationProblemPlusJSON500
 	ApplicationProblemPlusJSON503 *DownloadResultArtifactErrorResponseApplicationProblemPlusJSON503
+}
+
+type SetResultBaselineOverrideResp struct {
+	HTTPResponse                      *http.Response
+	Body                              []byte
+	StatusCode                        int
+	JSON200                           *SetResultBaselineOverrideResponse
+	ApplicationProblemPlusJSONDefault *SetResultBaselineOverrideErrorResponse
 }
 
 type ListBenchmarksResp struct {
@@ -7277,6 +7429,18 @@ func (s SeriesPage) Validate() error {
 	return errors
 }
 
+type SetBaselineOverrideInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+
+	// ThroughResultID The last selected result in the same series.
+	ThroughResultID string `json:"through_result_id" validate:"required,min=1"`
+}
+
+func (s SetBaselineOverrideInputBody) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(s))
+}
+
 type StatsInput struct {
 	Data       []*float64 `json:"data" validate:"required"`
 	Iqr        *float64   `json:"iqr,omitempty"`
@@ -7504,7 +7668,10 @@ type UpdateResultInputBody struct {
 }
 
 type ZScoreStats struct {
-	BeginsDistributionChange       bool     `json:"begins_distribution_change"`
+	BeginsDistributionChange bool `json:"begins_distribution_change"`
+
+	// FixedBaseline The rolling means are a fixed baseline override averaged from a selected range of results, not a rolling window.
+	FixedBaseline                  bool     `json:"fixed_baseline"`
 	IsOutlier                      bool     `json:"is_outlier"`
 	IsStep                         bool     `json:"is_step"`
 	Residual                       *float64 `json:"residual"`

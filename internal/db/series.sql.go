@@ -980,3 +980,92 @@ func (q *Queries) SelectSeriesPageForQRecent(ctx context.Context, arg SelectSeri
 	}
 	return items, nil
 }
+
+const selectSeriesPriorBoundaries = `-- name: SelectSeriesPriorBoundaries :many
+WITH bounds(fingerprint, before_timestamp, before_id) AS MATERIALIZED (
+  SELECT
+    ($1::text[])[i],
+    ($2::timestamp[])[i],
+    ($3::text[])[i]
+  FROM generate_series(1, cardinality($1::text[])) AS i
+)
+SELECT m.id, m.history_fingerprint, m.change_annotations, m.unit, m.commit_timestamp
+FROM bounds b
+CROSS JOIN LATERAL (
+  SELECT
+    br.id,
+    br.history_fingerprint,
+    br.change_annotations,
+    br.unit,
+    c."timestamp" AS commit_timestamp
+  FROM (
+    SELECT id, history_fingerprint, change_annotations, commit_id, unit
+    FROM benchmark_result_local
+    WHERE error IS NULL
+      AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
+      AND history_fingerprint = b.fingerprint
+      AND (change_annotations->'begins_distribution_change' = 'true'::jsonb
+           OR jsonb_typeof(change_annotations->'baseline_override'->'value') = 'number')
+    OFFSET 0
+  ) br
+  CROSS JOIN LATERAL (
+    SELECT "timestamp"
+    FROM commit
+    WHERE id = br.commit_id
+      AND sha = fork_point_sha
+      AND "timestamp" IS NOT NULL
+    OFFSET 0
+  ) c
+  WHERE (c."timestamp", br.id) < (b.before_timestamp, b.before_id)
+  ORDER BY c."timestamp" DESC,
+           (jsonb_typeof(br.change_annotations->'baseline_override'->'value') = 'number') DESC NULLS LAST,
+           br.id ASC
+  LIMIT 1
+) m
+ORDER BY m.history_fingerprint
+`
+
+type SelectSeriesPriorBoundariesParams struct {
+	Fingerprints     []string
+	BeforeTimestamps []time.Time
+	BeforeIds        []string
+}
+
+type SelectSeriesPriorBoundariesRow struct {
+	ID                 string
+	HistoryFingerprint string
+	ChangeAnnotations  []byte
+	Unit               *string
+	CommitTimestamp    *time.Time
+}
+
+// The latest history member strictly before each bound that starts a segment:
+// a distribution-change mark or a selected baseline. The series list reads a
+// bounded member tail, so the boundary that governs the tail's first member can
+// be older than the tail or the active window. Membership matches
+// SelectSeriesMembers; at most one row per bound.
+func (q *Queries) SelectSeriesPriorBoundaries(ctx context.Context, arg SelectSeriesPriorBoundariesParams) ([]SelectSeriesPriorBoundariesRow, error) {
+	rows, err := q.db.Query(ctx, selectSeriesPriorBoundaries, arg.Fingerprints, arg.BeforeTimestamps, arg.BeforeIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectSeriesPriorBoundariesRow{}
+	for rows.Next() {
+		var i SelectSeriesPriorBoundariesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.HistoryFingerprint,
+			&i.ChangeAnnotations,
+			&i.Unit,
+			&i.CommitTimestamp,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

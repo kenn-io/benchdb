@@ -2,6 +2,7 @@ package stats
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -369,4 +370,62 @@ func TestDetectShiftsGolden(t *testing.T) {
 			assert.Equal(t, exp[i].IsOutlier, got[i].isOutlier, "%s[%d] is_outlier", name, i)
 		}
 	}
+}
+
+// TestRollingStatsBaselineOverride pins the fixed baseline: from the override's
+// commit rank until the next boundary, both means are the override value, the
+// residual is measured against it, and residual spread keeps rolling over the
+// whole series. A later distribution-change mark ends the fixed segment.
+func TestRollingStatsBaselineOverride(t *testing.T) {
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	day := func(d int) time.Time { return base.AddDate(0, 0, d) }
+	p := func(v float64) *float64 { return &v }
+	pts := []SeriesPoint{
+		{CommitTimestamp: day(0), ResultTimestamp: day(0), SVS: 10},
+		{CommitTimestamp: day(1), ResultTimestamp: day(1), SVS: 12},
+		{CommitTimestamp: day(2), ResultTimestamp: day(2), SVS: 20, BaselineOverride: p(21)},
+		{CommitTimestamp: day(3), ResultTimestamp: day(3), SVS: 22},
+		{CommitTimestamp: day(4), ResultTimestamp: day(4), SVS: 30},
+		{CommitTimestamp: day(5), ResultTimestamp: day(5), SVS: 40, BeginsDistributionChange: true},
+		{CommitTimestamp: day(6), ResultTimestamp: day(6), SVS: 42},
+	}
+	for _, includeCurrent := range []bool{false, true} {
+		got := RollingStatsForSeries(pts, includeCurrent, DistributionCommitsDefault)
+		require.Len(t, got, len(pts))
+		assert.Equal(t, []int{0, 0, 1, 1, 1, 2, 2},
+			[]int{got[0].SegmentID, got[1].SegmentID, got[2].SegmentID, got[3].SegmentID,
+				got[4].SegmentID, got[5].SegmentID, got[6].SegmentID})
+		for i := 2; i <= 4; i++ {
+			assert.True(t, got[i].FixedBaseline, "row %d fixed", i)
+			ptrEq(t, p(21), got[i].RollingMean, "fixed rolling mean")
+			ptrEq(t, p(21), got[i].RollingMeanExcludingThis, "fixed rolling mean excluding this")
+			ptrEq(t, p(pts[i].SVS-21), got[i].Residual, "residual against fixed baseline")
+		}
+		for _, i := range []int{0, 1, 5, 6} {
+			assert.False(t, got[i].FixedBaseline, "row %d rolls", i)
+		}
+		// The next segment rolls again from its own first point.
+		ptrEq(t, p(40), got[5].RollingMeanExcludingThis, "segment after mark restarts")
+	}
+	// Spread rolls over the fingerprint's residuals {0, 2, -1, 1, 9, 0, 2}.
+	got := RollingStatsForSeries(pts, true, DistributionCommitsDefault)
+	ptrEq(t, p(sampleStd([]float64{0, 2, -1, 1, 9})), got[4].RollingStddev, "spread keeps rolling")
+
+	// The latest point's baseline distribution is the fixed value, so a
+	// regression after the selected range is scored against it.
+	mean, _ := BaselineDistribution(pts[:5], DistributionCommitsDefault)
+	ptrEq(t, p(21), mean, "baseline distribution uses fixed value")
+}
+
+func sampleStd(xs []float64) float64 {
+	var sum float64
+	for _, x := range xs {
+		sum += x
+	}
+	m := sum / float64(len(xs))
+	var ss float64
+	for _, x := range xs {
+		ss += (x - m) * (x - m)
+	}
+	return math.Sqrt(ss / float64(len(xs)-1))
 }

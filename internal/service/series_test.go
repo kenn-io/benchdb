@@ -478,3 +478,77 @@ func TestWindowedPreviewKeepsPointsInsideTheWindow(t *testing.T) {
 	assert.Equal(t, []BenchmarkPreviewTrack{{MachineName: "m1", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(5), Value: 5}}}},
 		recent, "a machine without points in the window has no preview")
 }
+
+func TestSeriesStatusScoresAgainstSelectedBaseline(t *testing.T) {
+	libTrue := true
+	rows := membersFromSVS(then(steadyBase, 1.03, 1.03), "s")
+	rows[0].ChangeAnnotations = []byte(`{"baseline_override":{"value":0.9,"through_result_id":"x","result_count":4}}`)
+
+	verdict := scoreSeries(rows, new("s"), &libTrue)
+	require.NotNil(t, verdict.windowMean)
+	assert.InDelta(t, 0.9, *verdict.windowMean, 1e-12, "the window mean is the selected baseline")
+	require.NotNil(t, verdict.changePercent)
+	assert.InDelta(t, (1.03-0.9)/0.9*100, *verdict.changePercent, 1e-9)
+	assert.Equal(t, statusRegressed, verdict.status)
+}
+
+func TestLatestSelectedBaselineSetsMeanWithoutAddingItsResidual(t *testing.T) {
+	rows := membersFromSVS(then(noisyBase, 2), "s")
+	rows[len(rows)-1].ChangeAnnotations = []byte(`{"baseline_override":{"value":2,"through_result_id":"x","result_count":1}}`)
+	verdict := scoreLatest(rows, new("s"), new(true))
+	require.NotNil(t, verdict.windowMean)
+	assert.InDelta(t, 2, *verdict.windowMean, 1e-12)
+	require.NotNil(t, verdict.changePercent)
+	assert.InDelta(t, 0, *verdict.changePercent, 1e-12)
+	assert.Equal(t, statusStable, verdict.status)
+}
+
+func TestMarkOnLatestResultStartsItsOwnSegment(t *testing.T) {
+	markLatest := func(rows []storage.HistoryRow) {
+		rows[len(rows)-1].ChangeAnnotations = []byte(`{"begins_distribution_change":true}`)
+	}
+	selected := []byte(`{"baseline_override":{"value":0.9,"through_result_id":"x","result_count":4}}`)
+
+	t.Run("after a rolling mean", func(t *testing.T) {
+		rows := membersFromSVS(then(noisyBase, 2), "s")
+		markLatest(rows)
+		verdict := scoreLatest(rows, new("s"), new(true))
+		require.NotNil(t, verdict.windowMean)
+		assert.InDelta(t, 2, *verdict.windowMean, 1e-12)
+		require.NotNil(t, verdict.changePercent)
+		assert.InDelta(t, 0, *verdict.changePercent, 1e-12)
+		assert.Equal(t, statusStable, verdict.status)
+	})
+
+	t.Run("after a selected baseline", func(t *testing.T) {
+		rows := membersFromSVS(then(noisyBase, 2), "s")
+		rows[0].ChangeAnnotations = selected
+		markLatest(rows)
+		verdict := scoreLatest(rows, new("s"), new(true))
+		require.NotNil(t, verdict.windowMean)
+		assert.InDelta(t, 2, *verdict.windowMean, 1e-12)
+		assert.Equal(t, statusStable, verdict.status)
+	})
+
+	t.Run("shares the segment with results tied at its commit", func(t *testing.T) {
+		rows := membersFromSVS(then(noisyBase, 1.5, 2), "s")
+		rows[0].ChangeAnnotations = selected
+		rows[len(rows)-1].CommitTimestamp = rows[len(rows)-2].CommitTimestamp
+		markLatest(rows)
+		verdict := scoreLatest(rows, new("s"), new(true))
+		require.NotNil(t, verdict.windowMean)
+		assert.InDelta(t, 1.5, *verdict.windowMean, 1e-12)
+	})
+}
+
+func TestBaselineSelectionRejectsAnotherOverrideAtSameCommit(t *testing.T) {
+	rows := membersFromSVS([]float64{1, 2}, "s")
+	rows[0].ID, rows[1].ID = "a", "b"
+	rows[1].CommitTimestamp = rows[0].CommitTimestamp
+	rows[0].ChangeAnnotations = []byte(`{"baseline_override":{"value":1,"through_result_id":"a","result_count":1}}`)
+	_, err := baselineOverrideFromHistory(rows, "b", "b")
+	var validation *ValidationError
+	require.ErrorAs(t, err, &validation)
+	_, err = baselineOverrideFromHistory(rows, "a", "b")
+	require.NoError(t, err, "replacing the same result's baseline remains possible")
+}
