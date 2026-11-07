@@ -18,6 +18,8 @@ export interface PointStats {
   isOutlier: boolean;
   isStep: boolean;
   beginsChange: boolean;
+  /** fixedBaseline: the means are a selected baseline, not a rolling window. */
+  fixedBaseline: boolean;
   segmentId: number | null;
 }
 
@@ -51,6 +53,7 @@ function toPointStats(zsRaw: ZScoreStats): PointStats {
       isOutlier: false,
       isStep: false,
       beginsChange: false,
+      fixedBaseline: false,
       segmentId: null,
     };
   }
@@ -65,6 +68,7 @@ function toPointStats(zsRaw: ZScoreStats): PointStats {
     isOutlier: zsRaw.is_outlier,
     isStep: zsRaw.is_step,
     beginsChange: zsRaw.begins_distribution_change,
+    fixedBaseline: zsRaw.fixed_baseline,
     segmentId: zsRaw.segment_id,
   };
 }
@@ -332,6 +336,9 @@ export function pointTooltip(p: SeriesPoint, locale?: string, lessIsBetter: bool
   if (deviation !== null) {
     lines.push(`vs. rolling mean: ${deviation}`);
   }
+  if (p.stats.fixedBaseline && p.stats.rollingMean !== null) {
+    lines.push(`selected baseline ${formatMeasurement(p.stats.rollingMean, p.unit)}, averaged from a range that includes later results`);
+  }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
     lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);
   }
@@ -372,4 +379,105 @@ export function distinctUnits(samples: HistorySample[]): (string | null)[] {
     seen.add(s.unit);
   }
   return [...seen].sort((a, b) => (a ?? "").localeCompare(b ?? ""));
+}
+
+/** BaselineOverride is the stored baseline_override change annotation. */
+export interface BaselineOverride {
+  value: number;
+  throughResultId: string;
+  resultCount: number;
+}
+
+export function baselineOverrideOf(annotations: Record<string, unknown>): BaselineOverride | null {
+  const raw = annotations["baseline_override"];
+  if (raw === null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const value = o["value"];
+  const through = o["through_result_id"];
+  const count = o["result_count"];
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return {
+    value,
+    throughResultId: typeof through === "string" ? through : "",
+    resultCount: typeof count === "number" ? count : 0,
+  };
+}
+
+/** BaselineRangePreview describes a range being selected as a baseline. It
+ * mirrors the server: every point plotted from the first selection's time
+ * through the last's, inclusive, averaged by plotted value. */
+export interface BaselineRangePreview {
+  startIndex: number;
+  throughIndex: number;
+  indices: number[];
+  mean: number;
+  /** blockedBy is the first later point that already starts a marked
+   * distribution change or selected baseline; the server rejects such a range. */
+  blockedBy: SeriesPoint | null;
+}
+
+export function baselineRangePreview(
+  points: SeriesPoint[],
+  a: number,
+  b: number,
+): BaselineRangePreview | null {
+  if (a < 0 || b < 0) return null;
+  const first = points[Math.min(a, b)];
+  const last = points[Math.max(a, b)];
+  if (first === undefined || last === undefined) return null;
+  const indices: number[] = [];
+  let sum = 0;
+  let blockedBy: SeriesPoint | null = null;
+  points.forEach((p, i) => {
+    if (p.chartMs < first.chartMs || p.chartMs > last.chartMs) return;
+    indices.push(i);
+    sum += p.svs;
+    const boundary = p.changeAnnotations["begins_distribution_change"] === true
+      || baselineOverrideOf(p.changeAnnotations) !== null;
+    if (blockedBy === null && boundary && p.chartMs > first.chartMs) blockedBy = p;
+  });
+  return {
+    startIndex: indices[0]!,
+    throughIndex: indices[indices.length - 1]!,
+    indices,
+    mean: sum / indices.length,
+    blockedBy,
+  };
+}
+
+/** SelectedBaselineSpan is a stored selected baseline as plotted: the run of
+ * points it applies to (start..end) and, when its first result is plotted, the
+ * range it was averaged from (start..through). */
+export interface SelectedBaselineSpan {
+  startIndex: number;
+  throughIndex: number | null;
+  endIndex: number;
+  /** value is null only when the span's start is not plotted and every
+   * plotted point in it is an outlier. */
+  value: number | null;
+  override: BaselineOverride | null;
+}
+
+export function selectedBaselineSpans(points: SeriesPoint[]): SelectedBaselineSpan[] {
+  const spans: SelectedBaselineSpan[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    if (!p.stats.fixedBaseline) continue;
+    const last = spans[spans.length - 1];
+    if (last !== undefined && last.endIndex === i - 1 && points[last.startIndex]!.stats.segmentId === p.stats.segmentId) {
+      last.endIndex = i;
+      if (last.value === null && p.stats.rollingMean !== null) last.value = p.stats.rollingMean;
+      continue;
+    }
+    const override = baselineOverrideOf(p.changeAnnotations);
+    const through = override === null ? -1 : points.findIndex((q) => q.resultId === override.throughResultId);
+    spans.push({
+      startIndex: i,
+      throughIndex: through < 0 ? null : through,
+      endIndex: i,
+      value: override?.value ?? p.stats.rollingMean,
+      override,
+    });
+  }
+  return spans;
 }

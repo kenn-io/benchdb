@@ -41,6 +41,11 @@ type SeriesPoint struct {
 	// BeginsDistributionChange marks a manual distribution-change boundary that
 	// starts a new segment at this commit rank (closed-right).
 	BeginsDistributionChange bool
+	// BaselineOverride, when set, also starts a new segment at this commit rank
+	// and fixes that segment's mean at this value instead of rolling it. The
+	// segment lasts until the next boundary of either kind. Residual spread
+	// still rolls over the whole series.
+	BaselineOverride *float64
 }
 
 // shiftFlags is the per-point result of trimmed-estimator detection.
@@ -129,6 +134,9 @@ func stableOrder(points []SeriesPoint, withResultTie bool) []int {
 // applies the legacy wire mapping per consumer.
 type RollingStats struct {
 	BeginsDistributionChange bool
+	// FixedBaseline reports that the point's segment uses a baseline override,
+	// so both rolling means are that fixed value rather than a rolling window.
+	FixedBaseline            bool
 	SegmentID                int
 	RollingMeanExcludingThis *float64
 	RollingMean              *float64
@@ -154,12 +162,14 @@ func RollingStatsForSeries(points []SeriesPoint, includeCurrent bool, distributi
 	svs := make([]float64, n)
 	tsv := make([]int64, n)
 	begins := make([]bool, n)
+	override := make([]*float64, n)
 	isOutlier := make([]bool, n)
 	isStep := make([]bool, n)
 	for i, idx := range order {
 		svs[i] = points[idx].SVS
 		tsv[i] = points[idx].CommitTimestamp.UnixNano()
 		begins[i] = points[idx].BeginsDistributionChange
+		override[i] = points[idx].BaselineOverride
 		isOutlier[i] = flags[idx].isOutlier
 		isStep[i] = flags[idx].isStep
 	}
@@ -174,7 +184,7 @@ func RollingStatsForSeries(points []SeriesPoint, includeCurrent bool, distributi
 	maxRank := ranks[n-1]
 	rankCum := make([]int, maxRank+1) // rankCum[r] = total begins at ranks 1..r
 	for i := range n {
-		if begins[i] {
+		if begins[i] || override[i] != nil {
 			rankCum[ranks[i]]++
 		}
 	}
@@ -184,6 +194,17 @@ func RollingStatsForSeries(points []SeriesPoint, includeCurrent bool, distributi
 	segment := make([]int, n)
 	for i := range n {
 		segment[i] = rankCum[ranks[i]]
+	}
+	// A segment opened by a baseline override takes the first override found
+	// at its starting commit rank. Rows tied at that rank share the segment.
+	fixed := map[int]float64{}
+	for i := range n {
+		if override[i] == nil {
+			continue
+		}
+		if _, ok := fixed[segment[i]]; !ok {
+			fixed[segment[i]] = *override[i]
+		}
 	}
 
 	// rolling_mean_excluding_this_commit: rolling mean of svs over (segment),
@@ -204,6 +225,14 @@ func RollingStatsForSeries(points []SeriesPoint, includeCurrent bool, distributi
 		copy(rmean, rmeanExcl)
 	}
 
+	// A fixed baseline replaces both rolling means for the segment's inliers.
+	for i := range n {
+		if value, ok := fixed[segment[i]]; ok && !isOutlier[i] {
+			rmeanExcl[i] = value
+			rmean[i] = value
+		}
+	}
+
 	// residual = svs - rmeanExcl
 	residual := make([]float64, n)
 	for i := range n {
@@ -220,6 +249,7 @@ func RollingStatsForSeries(points []SeriesPoint, includeCurrent bool, distributi
 	for i := range n {
 		out[order[i]] = RollingStats{
 			BeginsDistributionChange: begins[i],
+			FixedBaseline:            hasFixedBaseline(fixed, segment[i]),
 			SegmentID:                segment[i],
 			RollingMeanExcludingThis: nilIfNaN(rmeanExcl[i]),
 			RollingMean:              nilIfNaN(rmean[i]),
@@ -323,6 +353,11 @@ func fingerprintCommitRollingStd(residual []float64, tsv []int64, isOutlier []bo
 		out[i] = res[k]
 	}
 	return out
+}
+
+func hasFixedBaseline(fixed map[int]float64, segment int) bool {
+	_, ok := fixed[segment]
+	return ok
 }
 
 func nilIfNaN(x float64) *float64 {

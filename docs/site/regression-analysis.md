@@ -45,6 +45,14 @@ submitting more rows.
 
 - The rolling mean is the mean of the values in the window. Marking a result
   with `begins_distribution_change` restarts the rolling mean at that commit.
+- A selected baseline replaces the rolling mean with a fixed value. You pick a
+  stable range of results, and BenchDB averages their values. The average then
+  applies from the first result in the range until the next selected baseline
+  or distribution change. Statuses, comparisons, CI reports, and alerts all
+  score against it. Because the average includes results committed after the
+  point where it starts, charts label it as a selected baseline. Saved report
+  evaluations keep their original results until you re-evaluate them. A range
+  cannot cross a distribution change or another selected baseline.
 - The rolling standard deviation is the sample standard deviation (`ddof=1`)
   of each point's distance from the mean of the commits before it, over the
   same window.

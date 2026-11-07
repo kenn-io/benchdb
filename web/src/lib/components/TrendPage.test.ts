@@ -21,6 +21,7 @@ vi.mock("./FleetSeriesChart.svelte", async () => await import("./SeriesChart.stu
 function zstats(over: Partial<NonNullable<ZScoreStats>> = {}): ZScoreStats {
   return {
     begins_distribution_change: false,
+    fixed_baseline: false,
     is_outlier: false,
     is_step: false,
     residual: 0.1,
@@ -237,7 +238,8 @@ describe("TrendPage", () => {
   });
 
   it("refreshes the trend and calls out newly arrived results", async () => {
-    GET.mockResolvedValueOnce({ status: 200,
+    // The write-capability check is the first request.
+    GET.mockResolvedValueOnce({ status: 200, data: { can_write_results: false } }).mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([sample("r1", "2024-01-07T12:00:00Z")]),
     }).mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([
@@ -267,7 +269,8 @@ describe("TrendPage", () => {
   });
 
   it("keeps the selected result when a refresh inserts an earlier point", async () => {
-    GET.mockResolvedValueOnce({ status: 200,
+    // The write-capability check is the first request.
+    GET.mockResolvedValueOnce({ status: 200, data: { can_write_results: false } }).mockResolvedValueOnce({ status: 200,
       data: benchmarkHistory([
         sample("r1", "2024-01-07T12:00:00Z"),
         sample("r3", "2024-01-09T12:00:00Z"),

@@ -23,6 +23,7 @@ import {
 function zs(over: Partial<NonNullable<ZScoreStats>> = {}): ZScoreStats {
   return {
     begins_distribution_change: false,
+    fixed_baseline: false,
     is_outlier: false,
     is_step: false,
     residual: 0.1,

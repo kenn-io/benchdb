@@ -361,3 +361,34 @@ func TestDeleteResultRejectsBadAuth(t *testing.T) {
 	resp = tapi.Get("/api/benchmark-results/" + id)
 	assert.Equal(t, http.StatusOK, resp.Code, "row should survive an unauthenticated delete; body = %s", resp.Body.String())
 }
+
+func TestPutBaselineOverride(t *testing.T) {
+	tapi, _, _ := newAPI(t)
+	var ids []string
+	for k, v := range []float64{4, 6} {
+		body := validBody()
+		body["github"] = map[string]any{"commit": "baseline-" + string(rune('a'+k)), "repository": "https://github.com/org/repo"}
+		body["timestamp"] = time.Date(2024, 1, 2, 3+k, 0, 0, 0, time.UTC).Format(time.RFC3339)
+		body["stats"] = map[string]any{"data": []float64{v}, "unit": "s"}
+		resp := tapi.Post("/api/results", "Authorization: Bearer "+testToken, body)
+		require.Equal(t, http.StatusCreated, resp.Code, "body = %s", resp.Body.String())
+		var out struct{ ID string }
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		ids = append(ids, out.ID)
+	}
+	path := "/api/benchmark-results/" + ids[0] + "/baseline-override"
+	body := map[string]any{"through_result_id": ids[1]}
+
+	resp := tapi.Put(path, body)
+	assert.Equal(t, http.StatusUnauthorized, resp.Code, "body = %s", resp.Body.String())
+
+	resp = tapi.Put(path, "Authorization: Bearer "+testToken, body)
+	require.Equal(t, http.StatusOK, resp.Code, "body = %s", resp.Body.String())
+	var d service.ResultDetail
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &d))
+	assert.Equal(t, map[string]any{"value": 5.0, "through_result_id": ids[1], "result_count": 2.0}, d.ChangeAnnotations["baseline_override"])
+
+	resp = tapi.Put("/api/benchmark-results/"+ids[1]+"/baseline-override", "Authorization: Bearer "+testToken,
+		map[string]any{"through_result_id": ids[0]})
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, "body = %s", resp.Body.String())
+}

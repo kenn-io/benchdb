@@ -478,3 +478,16 @@ func TestWindowedPreviewKeepsPointsInsideTheWindow(t *testing.T) {
 	assert.Equal(t, []BenchmarkPreviewTrack{{MachineName: "m1", Points: []BenchmarkPreviewPoint{{CommitTimestamp: at(5), Value: 5}}}},
 		recent, "a machine without points in the window has no preview")
 }
+
+func TestSeriesStatusScoresAgainstSelectedBaseline(t *testing.T) {
+	libTrue := true
+	rows := membersFromSVS(then(steadyBase, 1.03, 1.03), "s")
+	rows[0].ChangeAnnotations = []byte(`{"baseline_override":{"value":0.9,"through_result_id":"x","result_count":4}}`)
+
+	verdict := scoreSeries(rows, new("s"), &libTrue)
+	require.NotNil(t, verdict.windowMean)
+	assert.InDelta(t, 0.9, *verdict.windowMean, 1e-12, "the window mean is the selected baseline")
+	require.NotNil(t, verdict.changePercent)
+	assert.InDelta(t, (1.03-0.9)/0.9*100, *verdict.changePercent, 1e-9)
+	assert.Equal(t, statusRegressed, verdict.status)
+}

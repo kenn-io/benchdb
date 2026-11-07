@@ -25,6 +25,7 @@ function point(over: Partial<SeriesPoint>): SeriesPoint {
       isOutlier: false,
       isStep: false,
       beginsChange: false,
+      fixedBaseline: false,
       segmentId: null,
     },
     ...over,

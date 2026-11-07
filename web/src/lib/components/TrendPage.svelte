@@ -13,6 +13,7 @@
 
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
+  import { saveSelectedBaseline } from "../series/baseline";
   import { loadTrend, type TrendSource, type TrendViewModel } from "../series/loader";
   import {
     chartTimeExtent,
@@ -86,6 +87,25 @@
   let lastCheckedAt = $state<number | null>(null);
   let newPointCount = $state(0);
   let latestArrival = $state<{ machineName: string; point: SeriesPoint } | null>(null);
+  let canWrite = $state(false);
+
+  async function loadWriteCapability() {
+    try {
+      const res = await createBenchDBClient(baseUrl).authCapabilities();
+      canWrite = res.status < 400 && res.data?.can_write_results === true;
+    } catch {
+      canWrite = false;
+    }
+  }
+
+  async function selectBaseline(startResultId: string, throughResultId: string): Promise<string | null> {
+    const error = await saveSelectedBaseline(createBenchDBClient(baseUrl), startResultId, throughResultId);
+    if (error !== null) return error;
+    // A refresh already in flight may have read the history before the save.
+    await inflightRefresh;
+    await refreshTrend();
+    return null;
+  }
 
   function addedResults(
     previous: TrendViewModel,
@@ -101,8 +121,15 @@
     );
   }
 
-  async function refreshTrend(initial = false) {
-    if (refreshing) return;
+  let inflightRefresh: Promise<void> | null = null;
+
+  function refreshTrend(initial = false): Promise<void> {
+    if (refreshing) return inflightRefresh ?? Promise.resolve();
+    inflightRefresh = loadAndApplyTrend(initial);
+    return inflightRefresh;
+  }
+
+  async function loadAndApplyTrend(initial: boolean) {
     refreshing = true;
     try {
       const next = await loadTrend(createBenchDBClient(baseUrl), source);
@@ -127,6 +154,7 @@
   }
 
   onMount(() => {
+    void loadWriteCapability();
     void refreshTrend(true);
     const interval = window.setInterval(() => void refreshTrend(), 30_000);
     return () => window.clearInterval(interval);
@@ -560,6 +588,7 @@
           {currentResultId}
           onselect={select}
           onopen={openResult}
+          onselectbaseline={canWrite ? selectBaseline : undefined}
         />
       {/if}
       {#if selected !== null}
