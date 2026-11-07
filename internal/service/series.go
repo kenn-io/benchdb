@@ -145,10 +145,50 @@ func scoreSeries(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 	if verdict.status != statusRegressed && verdict.status != statusImproved {
 		return verdict
 	}
-	if previous := scoreLatest(members[:len(members)-1], unit, lessIsBetter); previous.status != verdict.status {
+	before, err := membersBeforeLatest(members)
+	if err != nil {
+		verdict.status = statusStable
+		return verdict
+	}
+	if previous := scoreLatest(before, unit, lessIsBetter); previous.status != verdict.status {
 		verdict.status = statusStable
 	}
 	return verdict
+}
+
+// membersBeforeLatest returns the members before the latest. A segment boundary
+// on the latest also governs results tied at its commit, so the member before
+// it takes that boundary when they share a commit timestamp.
+func membersBeforeLatest(members []storage.HistoryRow) ([]storage.HistoryRow, error) {
+	before := members[:len(members)-1]
+	latest := members[len(members)-1]
+	if len(before) == 0 || latest.CommitTimestamp == nil || before[len(before)-1].CommitTimestamp == nil ||
+		!before[len(before)-1].CommitTimestamp.Equal(*latest.CommitTimestamp) {
+		return before, nil
+	}
+	boundary, err := decodeSegmentAnnotations(latest.ChangeAnnotations)
+	if err != nil {
+		return nil, err
+	}
+	raw := before[len(before)-1].ChangeAnnotations
+	own, err := decodeSegmentAnnotations(raw)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case boundary.override != nil && own.override == nil:
+		raw, err = withAnnotation(raw, baselineOverrideKey, map[string]any{"value": *boundary.override})
+	case boundary.begins:
+		raw, err = withAnnotation(raw, "begins_distribution_change", true)
+	default:
+		return before, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	before = slices.Clone(before)
+	before[len(before)-1].ChangeAnnotations = raw
+	return before, nil
 }
 
 // scoreLatest scores only the latest member against the members before it.
@@ -179,23 +219,27 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
-	// Earlier results at the latest's commit rank share its segment.
+	// Earlier results at the latest's commit rank share its segment, so a
+	// boundary on the latest governs them too.
 	firstTied := len(points)
 	for firstTied > 0 && points[firstTied-1].CommitTimestamp.Equal(latestPoint.CommitTimestamp) {
 		firstTied--
 	}
 	tied := points[firstTied:]
 	switch {
-	case latestPoint.BaselineOverride != nil:
+	case latestPoint.BaselineOverride == nil && !latestPoint.BeginsDistributionChange:
+	case len(tied) == 0:
+		// The segment holds only the latest result. Without a selected value
+		// it is its own mean, as it is in history.
+		mean = latestPoint.BaselineOverride
+		if mean == nil {
+			mean = &latestSVS
+		}
+	default:
 		// A prior override at the same commit rank takes precedence.
 		if !slices.ContainsFunc(tied, func(p stats.SeriesPoint) bool { return p.BaselineOverride != nil }) {
-			mean = latestPoint.BaselineOverride
+			tied[0].BaselineOverride = latestPoint.BaselineOverride
 		}
-	case latestPoint.BeginsDistributionChange && len(tied) == 0:
-		// The mark opens a segment holding only the latest result, which is
-		// its own mean there, as it is in history.
-		mean = &latestSVS
-	case latestPoint.BeginsDistributionChange:
 		tied[0].BeginsDistributionChange = true
 		mean, stddev = stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
 	}
@@ -440,7 +484,7 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 			}
 			continue
 		}
-		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)
+		carried, err := withAnnotation(members[0].ChangeAnnotations, baselineOverrideKey, map[string]any{"value": *prior.override})
 		if err != nil {
 			return nil, err
 		}
@@ -449,9 +493,9 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 	return incompatible, nil
 }
 
-// withBaselineOverride returns annotations that also carry a selected
-// baseline value. Only the scoring copy of a member changes.
-func withBaselineOverride(raw []byte, value float64) ([]byte, error) {
+// withAnnotation returns annotations with one key set. Only the scoring copy of
+// a member changes.
+func withAnnotation(raw []byte, key string, value any) ([]byte, error) {
 	annotations, err := jsonObject(raw)
 	if err != nil {
 		return nil, err
@@ -459,10 +503,10 @@ func withBaselineOverride(raw []byte, value float64) ([]byte, error) {
 	if annotations == nil {
 		annotations = map[string]any{}
 	}
-	annotations[baselineOverrideKey] = map[string]any{"value": value}
+	annotations[key] = value
 	out, err := json.Marshal(annotations)
 	if err != nil {
-		return nil, fmt.Errorf("carry selected baseline: %w", err)
+		return nil, fmt.Errorf("carry segment boundary: %w", err)
 	}
 	return out, nil
 }

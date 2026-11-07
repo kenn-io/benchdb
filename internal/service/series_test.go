@@ -541,6 +541,25 @@ func TestMarkOnLatestResultStartsItsOwnSegment(t *testing.T) {
 	})
 }
 
+func TestSelectedBaselineOnNewestTiedResult(t *testing.T) {
+	tied := func(svs float64, override string) []storage.HistoryRow {
+		rows := membersFromSVS(then(steadyBase, svs, svs), "s")
+		rows[len(rows)-1].CommitTimestamp = rows[len(rows)-2].CommitTimestamp
+		rows[len(rows)-1].ChangeAnnotations = []byte(override)
+		return rows
+	}
+
+	// Spread must measure the tied result against the selected value, whichever
+	// tied result carries it.
+	rows := tied(1.5, `{"baseline_override":{"value":1.4,"through_result_id":"x","result_count":2}}`)
+	assert.Equal(t, statusRegressed, scoreLatest(rows, new("s"), new(true)).status)
+
+	// 1.01 is within 2% of the rolling mean but well above the selected value,
+	// so the confirming check on the tied result must use the selected value too.
+	rows = tied(1.01, `{"baseline_override":{"value":0.9,"through_result_id":"x","result_count":2}}`)
+	assert.Equal(t, statusRegressed, scoreSeries(rows, new("s"), new(true)).status)
+}
+
 func TestBaselineSelectionRejectsAnotherOverrideAtSameCommit(t *testing.T) {
 	rows := membersFromSVS([]float64{1, 2}, "s")
 	rows[0].ID, rows[1].ID = "a", "b"

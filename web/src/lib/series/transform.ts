@@ -346,7 +346,7 @@ export function pointTooltip(
   if (p.stats.fixedBaseline && p.stats.rollingMean !== null) {
     const value = formatMeasurement(p.stats.rollingMean, p.unit);
     if (baselineCaptioned) {
-      lines.push(`selected baseline ${value}`);
+      lines.push(p.stats.rollingStddev === null ? `selected baseline ${value}` : "selected baseline");
     } else {
       lines.push(p.stats.rollingStddev === null
         ? `selected baseline ${value}, averaged from a range that includes later results`

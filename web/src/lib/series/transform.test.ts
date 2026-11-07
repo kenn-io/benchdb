@@ -308,6 +308,13 @@ describe("pointTooltip", () => {
     expect(pointTooltip(p!, "en-US", null, true).lines).toContain("selected baseline 3 s");
   });
 
+  it("leaves a selected baseline's value to the mean line when that line is shown", () => {
+    const [p] = toSeriesPoints([sample({ zscorestats: zs({ fixed_baseline: true, rolling_mean: 3, rolling_stddev: 1 }) })]);
+    const lines = pointTooltip(p!, "en-US", null, true).lines;
+    expect(lines).toContain("selected baseline");
+    expect(lines).toContain("mean 3 s · standard deviation 1 s");
+  });
+
   it("omits unavailable lines instead of rendering nulls", () => {
     const [p] = toSeriesPoints([sample({ zscorestats: null, unit: null, commit_message: "" })]);
     const tip = pointTooltip(p!, "en-US");
