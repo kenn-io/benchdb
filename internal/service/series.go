@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"time"
@@ -295,6 +296,9 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 			return nil, fmt.Errorf("list series members: %w", err)
 		}
 		byFingerprint := groupMembersByFingerprint(members)
+		if err := r.carryPriorBaselines(ctx, byFingerprint); err != nil {
+			return nil, err
+		}
 
 		for i := range rows {
 			item, err := seriesListItem(rows[i], byFingerprint[rows[i].HistoryFingerprint])
@@ -326,6 +330,76 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 		result.NextCursor = &SeriesCursor{Ts: last.LatestCommitTimestamp, Fp: last.HistoryFingerprint}
 	}
 	return result, nil
+}
+
+// carryPriorBaselines keeps a selected baseline in force when the boundary
+// that started it is older than the member tail or the active window. It
+// finds the latest boundary before each tail's first member. When that
+// boundary is a selected baseline, its value moves onto the first member, so
+// scoring starts inside the fixed segment. A later distribution-change mark
+// is the latest boundary instead, and the rolling mean stays.
+func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[string][]storage.HistoryRow) error {
+	bounds := make([]storage.SeriesBoundaryQuery, 0, len(byFingerprint))
+	for fingerprint, members := range byFingerprint {
+		first := members[0]
+		if first.CommitTimestamp == nil {
+			continue
+		}
+		bounds = append(bounds, storage.SeriesBoundaryQuery{
+			Fingerprint: fingerprint,
+			Before:      storage.SeriesMemberBound{CommitTimestamp: *first.CommitTimestamp, ResultID: first.ID},
+		})
+	}
+	if len(bounds) == 0 {
+		return nil
+	}
+	boundaries, err := r.store.SelectSeriesPriorBoundaries(ctx, bounds)
+	if err != nil {
+		return fmt.Errorf("list series boundaries: %w", err)
+	}
+	for _, boundary := range boundaries {
+		prior, err := decodeSegmentAnnotations(boundary.ChangeAnnotations)
+		if err != nil {
+			return err
+		}
+		members := byFingerprint[boundary.HistoryFingerprint]
+		// A mark on the same result does not cancel its override: the engine
+		// fixes a segment whenever its start carries one.
+		if prior.override == nil || len(members) == 0 {
+			continue
+		}
+		first, err := decodeSegmentAnnotations(members[0].ChangeAnnotations)
+		if err != nil {
+			return err
+		}
+		if first.begins || first.override != nil {
+			continue // the first member starts its own segment
+		}
+		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)
+		if err != nil {
+			return err
+		}
+		members[0].ChangeAnnotations = carried
+	}
+	return nil
+}
+
+// withBaselineOverride returns annotations that also carry a selected
+// baseline value. Only the scoring copy of a member changes.
+func withBaselineOverride(raw []byte, value float64) ([]byte, error) {
+	annotations, err := jsonObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	if annotations == nil {
+		annotations = map[string]any{}
+	}
+	annotations[baselineOverrideKey] = map[string]any{"value": value}
+	out, err := json.Marshal(annotations)
+	if err != nil {
+		return nil, fmt.Errorf("carry selected baseline: %w", err)
+	}
+	return out, nil
 }
 
 // groupMembersByFingerprint partitions members by fingerprint in a single pass.

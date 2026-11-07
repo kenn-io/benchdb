@@ -103,3 +103,42 @@ FROM members WHERE position<=256 ORDER BY history_fingerprint,commit_timestamp,i
 	})
 	return
 }
+
+// SelectSeriesPriorBoundaries reads hot and archived facts, so a boundary
+// that has moved to the archive still governs the series list's member tail.
+func (s *Store) SelectSeriesPriorBoundaries(ctx context.Context, bounds []storage.SeriesBoundaryQuery) (out []storage.SeriesBoundary, err error) {
+	if len(bounds) == 0 {
+		return nil, nil
+	}
+	fingerprints := make([]string, len(bounds))
+	timestamps := make([]string, len(bounds))
+	ids := make([]string, len(bounds))
+	for i, b := range bounds {
+		fingerprints[i] = b.Fingerprint
+		timestamps[i] = b.Before.CommitTimestamp.UTC().Format("2006-01-02 15:04:05.999999")
+		ids[i] = b.Before.ResultID
+	}
+	err = s.read(ctx, queryScope{Fingerprints: fingerprints}, func(ctx context.Context, q queryer) error {
+		out, err = collectRows(ctx, q, `WITH bounds AS (
+SELECT unnest($1::VARCHAR[]) AS fingerprint, unnest($2::VARCHAR[])::TIMESTAMP AS before_timestamp,
+unnest($3::VARCHAR[]) AS before_id),
+candidates AS (
+SELECT br.history_fingerprint,br.id,c."timestamp" AS commit_timestamp,br.change_annotations,
+row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,br.id DESC) AS position
+FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
+JOIN bounds b ON b.fingerprint=br.history_fingerprint
+WHERE `+historyMembership+`
+AND (json_extract(br.change_annotations,'$.begins_distribution_change')='true'::JSON
+OR json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE'))
+AND (c."timestamp",br.id)<(b.before_timestamp,b.before_id))
+SELECT history_fingerprint,id,commit_timestamp,change_annotations FROM candidates
+WHERE position=1 ORDER BY history_fingerprint`, []any{fingerprints, timestamps, ids}, scanSeriesBoundary)
+		return err
+	})
+	return
+}
+
+func scanSeriesBoundary(row rowScanner) (out storage.SeriesBoundary, err error) {
+	err = row.Scan(&out.HistoryFingerprint, &out.ResultID, &out.CommitTimestamp, &out.ChangeAnnotations)
+	return
+}

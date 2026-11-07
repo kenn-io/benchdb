@@ -82,6 +82,11 @@ type Store interface {
 	SelectBenchmarkMachines(ctx context.Context, repository *string) ([]string, error)
 	SelectSeriesPage(ctx context.Context, p SeriesListParams) ([]SeriesPageRow, error)
 	SelectSeriesMembers(ctx context.Context, p SeriesMembersParams) ([]HistoryRow, error)
+	// SelectSeriesPriorBoundaries returns, for each bound, the latest history
+	// member of that fingerprint ordered strictly before the bound that marks a
+	// distribution change or carries a selected baseline. Bounds with no such
+	// member return no row.
+	SelectSeriesPriorBoundaries(ctx context.Context, bounds []SeriesBoundaryQuery) ([]SeriesBoundary, error)
 	// SelectBenchmarkList reads a benchmark page, its scope's status counts,
 	// and whether statuses are pending, all from one database snapshot.
 	SelectBenchmarkList(ctx context.Context, p BenchmarkListParams) (BenchmarkList, error)
@@ -765,6 +770,22 @@ type SeriesMembersParams struct {
 	// Through keeps members ordered at or before this result, before the tail
 	// limit applies, so an older page row is scored against its own history.
 	Through *SeriesMemberBound
+}
+
+// SeriesBoundaryQuery asks for the boundary in force just before Before in
+// one fingerprint's history.
+type SeriesBoundaryQuery struct {
+	Fingerprint string
+	Before      SeriesMemberBound
+}
+
+// SeriesBoundary is a history member that starts a segment, with the
+// annotations that make it one.
+type SeriesBoundary struct {
+	HistoryFingerprint string
+	ResultID           string
+	CommitTimestamp    time.Time
+	ChangeAnnotations  []byte
 }
 
 // SeriesMemberBound is a member's position in history order: commit time,

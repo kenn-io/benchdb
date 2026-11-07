@@ -566,3 +566,48 @@ SELECT
   commit_timestamp
 FROM members
 ORDER BY history_fingerprint, commit_timestamp, id;
+
+-- name: SelectSeriesPriorBoundaries :many
+-- The latest history member strictly before each bound that starts a segment:
+-- a distribution-change mark or a selected baseline. The series list reads a
+-- bounded member tail, so the boundary that governs the tail's first member can
+-- be older than the tail or the active window. Membership matches
+-- SelectSeriesMembers; at most one row per bound.
+WITH bounds(fingerprint, before_timestamp, before_id) AS MATERIALIZED (
+  SELECT
+    (sqlc.arg('fingerprints')::text[])[i],
+    (sqlc.arg('before_timestamps')::timestamp[])[i],
+    (sqlc.arg('before_ids')::text[])[i]
+  FROM generate_series(1, cardinality(sqlc.arg('fingerprints')::text[])) AS i
+)
+SELECT m.*
+FROM bounds b
+CROSS JOIN LATERAL (
+  SELECT
+    br.id,
+    br.history_fingerprint,
+    br.change_annotations,
+    c."timestamp" AS commit_timestamp
+  FROM (
+    SELECT id, history_fingerprint, change_annotations, commit_id
+    FROM benchmark_result_local
+    WHERE error IS NULL
+      AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
+      AND history_fingerprint = b.fingerprint
+      AND (change_annotations->'begins_distribution_change' = 'true'::jsonb
+           OR jsonb_typeof(change_annotations->'baseline_override'->'value') = 'number')
+    OFFSET 0
+  ) br
+  CROSS JOIN LATERAL (
+    SELECT "timestamp"
+    FROM commit
+    WHERE id = br.commit_id
+      AND sha = fork_point_sha
+      AND "timestamp" IS NOT NULL
+    OFFSET 0
+  ) c
+  WHERE (c."timestamp", br.id) < (b.before_timestamp, b.before_id)
+  ORDER BY c."timestamp" DESC, br.id DESC
+  LIMIT 1
+) m
+ORDER BY m.history_fingerprint;

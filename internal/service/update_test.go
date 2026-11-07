@@ -162,3 +162,49 @@ func TestSetBaselineOverrideRejectsInvalidSelections(t *testing.T) {
 	// A range that starts on the boundary is allowed.
 	require.NoError(t, ing.SetBaselineOverride(ctx, ids[2], ids[3]))
 }
+
+// tailSeries submits ten results at 2 (the selected range), then 262 results
+// near 1, so the series list's 256-result tail starts well after the selected
+// baseline. It returns the result ids in commit order.
+func tailSeries(t *testing.T, ing *service.Ingester) []string {
+	t.Helper()
+	values := make([]float64, 272)
+	for k := range values {
+		values[k] = 1 + float64(k%2)/100
+		if k < 10 {
+			values[k] = 2
+		}
+	}
+	return submitSeries(t, ing, values...)
+}
+
+func listedWindowMean(t *testing.T, reader *service.Reader, fingerprint string, since *time.Time) float64 {
+	t.Helper()
+	page, err := reader.ListSeries(t.Context(), service.SeriesQuery{Fingerprint: &fingerprint, ActiveSince: since, PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Series, 1)
+	require.NotNil(t, page.Series[0].WindowMean)
+	return *page.Series[0].WindowMean
+}
+
+func TestListSeriesKeepsASelectedBaselineOlderThanTheMemberTail(t *testing.T) {
+	ing, store, _, ctx := newIngester(t)
+	reader := service.NewReader(store)
+	ids := tailSeries(t, ing)
+	require.NoError(t, ing.SetBaselineOverride(ctx, ids[0], ids[9]))
+	row, err := store.GetBenchmarkResultByID(ctx, ids[0])
+	require.NoError(t, err)
+	fingerprint := row.HistoryFingerprint
+
+	assert.InDelta(t, 2.0, listedWindowMean(t, reader, fingerprint, nil), 1e-12, "the list scores against the selected baseline")
+
+	// A date filter that starts after the baseline's first result keeps it.
+	since, err := store.GetBenchmarkResultByID(ctx, ids[200])
+	require.NoError(t, err)
+	assert.InDelta(t, 2.0, listedWindowMean(t, reader, fingerprint, &since.Timestamp), 1e-12, "active window")
+
+	// A distribution change after the baseline, still older than the tail,
+	// ends it, so the list rolls again.
+	require.NoError(t, ing.UpdateChangeAnnotations(ctx, ids[12], map[string]any{"begins_distribution_change": true}))
+	assert.InDelta(t, 1.005, listedWindowMean(t, reader, fingerprint, nil), 0.001, "an intervening mark ends the baseline")
+}
