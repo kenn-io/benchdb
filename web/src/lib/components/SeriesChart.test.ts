@@ -276,6 +276,44 @@ describe("SeriesChart", () => {
       expect((screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement).disabled).toBe(true);
     });
 
+    it("replaces the baseline on a later result tied on commit time", async () => {
+      const tied = [at("a", 100, 2), { ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 4 } } }];
+      const onselectbaseline = vi.fn(async () => null);
+      render(SeriesChart, { props: { points: tied, onselectbaseline } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "b" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "b" } });
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      await fireEvent.click(screen.getByRole("button", { name: "Apply baseline" }));
+      await tick();
+      expect(onselectbaseline).toHaveBeenCalledWith("b", "b");
+    });
+
+    it("blocks starting beside a tied result that has a baseline", async () => {
+      const tied = [at("a", 100, 2), { ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 4 } } }];
+      render(SeriesChart, { props: { points: tied, onselectbaseline: vi.fn(async () => null) } });
+      await fireEvent.click(screen.getByRole("button", { name: "Select baseline range" }));
+      await fireEvent.change(screen.getByLabelText("From"), { target: { value: "a" } });
+      await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "a" } });
+
+      expect(screen.getByRole("alert").textContent).toContain("Start the range from that result");
+      expect((screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("shows only the value in a selected baseline's tooltip because the caption explains it", async () => {
+      const fixed: SeriesPoint = {
+        ...at("b", 150, 2),
+        stats: { ...boundaryPoint.stats, fixedBaseline: true, rollingMean: 3, rollingStddev: null, segmentId: 1 },
+      };
+      render(SeriesChart, { props: { points: [fixed] } });
+      plotState.cursorHook?.(plotState.instance);
+      await tick();
+      await tick();
+      expect(screen.getByText("selected baseline 3 s")).toBeInTheDocument();
+      expect(screen.queryByText(/includes later results/)).toBeNull();
+    });
+
     it("labels a stored selected baseline as using later results", () => {
       const fixed = (p: SeriesPoint): SeriesPoint => ({
         ...p, stats: { ...p.stats, fixedBaseline: true, rollingMean: 3, segmentId: 1 },

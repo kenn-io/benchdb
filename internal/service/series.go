@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"go.kenn.io/benchdb/internal/stats"
@@ -161,6 +162,10 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 	if err != nil {
 		return insufficient
 	}
+	latestPoint, err := seriesPointFromRow(latest, latestSVS)
+	if err != nil {
+		return insufficient
+	}
 	points := make([]stats.SeriesPoint, 0, len(members)-1)
 	for _, m := range members[:len(members)-1] { // baseline = members before the latest
 		svs, _, err := historySVS(m.Unit, m.Data)
@@ -174,22 +179,25 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
-	latestAnnotations, err := decodeSegmentAnnotations(latest.ChangeAnnotations)
-	if err != nil {
-		return insufficient
+	// Earlier results at the latest's commit rank share its segment.
+	firstTied := len(points)
+	for firstTied > 0 && points[firstTied-1].CommitTimestamp.Equal(latestPoint.CommitTimestamp) {
+		firstTied--
 	}
-	if latestAnnotations.override != nil {
+	tied := points[firstTied:]
+	switch {
+	case latestPoint.BaselineOverride != nil:
 		// A prior override at the same commit rank takes precedence.
-		firstAtRank := true
-		for i := len(points) - 1; i >= 0 && points[i].CommitTimestamp.Equal(*latest.CommitTimestamp); i-- {
-			if points[i].BaselineOverride != nil {
-				firstAtRank = false
-				break
-			}
+		if !slices.ContainsFunc(tied, func(p stats.SeriesPoint) bool { return p.BaselineOverride != nil }) {
+			mean = latestPoint.BaselineOverride
 		}
-		if firstAtRank {
-			mean = latestAnnotations.override
-		}
+	case latestPoint.BeginsDistributionChange && len(tied) == 0:
+		// The mark opens a segment holding only the latest result, which is
+		// its own mean there, as it is in history.
+		mean = &latestSVS
+	case latestPoint.BeginsDistributionChange:
+		tied[0].BeginsDistributionChange = true
+		mean, stddev = stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
 	}
 	verdict := seriesVerdict{status: statusInsufficient}
 	// Finite results can still sum past the float64 range, and an infinite
@@ -411,7 +419,25 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 			}
 		}
 		if !sameUnitPtr(boundary.Unit, members[0].Unit) {
-			incompatible[boundary.HistoryFingerprint] = true
+			// The baseline only blocks scoring while it governs the latest
+			// member, so a later boundary in the tail lifts the block.
+			ended := false
+			for _, member := range members {
+				if !member.CommitTimestamp.After(boundary.CommitTimestamp) {
+					continue
+				}
+				annotations, err := decodeSegmentAnnotations(member.ChangeAnnotations)
+				if err != nil {
+					return nil, err
+				}
+				if annotations.begins || annotations.override != nil {
+					ended = true
+					break
+				}
+			}
+			if !ended {
+				incompatible[boundary.HistoryFingerprint] = true
+			}
 			continue
 		}
 		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)

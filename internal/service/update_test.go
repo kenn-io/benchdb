@@ -268,3 +268,16 @@ func TestListSeriesRejectsPriorBaselineWithDifferentUnit(t *testing.T) {
 	assert.Nil(t, page.Series[0].WindowMean)
 	assert.Nil(t, page.Series[0].ChangePercent)
 }
+
+func TestListSeriesScoresNewerBaselineAfterPriorOneInAnotherUnit(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	reader := service.NewReader(store)
+	ids := tailSeries(t, ing)
+	require.NoError(t, ing.SetBaselineOverride(ctx, ids[0], ids[0]))
+	row, err := store.GetBenchmarkResultByID(ctx, ids[0])
+	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET unit = 'ns' WHERE history_fingerprint = $1 AND id <> $2`, row.HistoryFingerprint, ids[0])
+	// Six results at 1 and five at 1.01, all inside the 256-result tail.
+	require.NoError(t, ing.SetBaselineOverride(ctx, ids[100], ids[110]))
+	assert.InDelta(t, 11.05/11, listedWindowMean(t, reader, row.HistoryFingerprint, nil), 1e-9)
+}

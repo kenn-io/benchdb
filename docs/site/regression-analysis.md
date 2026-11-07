@@ -45,6 +45,7 @@ submitting more rows.
 
 - The rolling mean is the mean of the values in the window. Marking a result
   with `begins_distribution_change` restarts the rolling mean at that commit.
+  The marked result starts the new level, so it reports no change of its own.
 - A selected baseline replaces the rolling mean with a fixed value. You pick a
   stable range of results, and BenchDB averages their values. The average then
   applies from the first result in the range until the next selected baseline

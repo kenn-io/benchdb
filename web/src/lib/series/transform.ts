@@ -324,8 +324,15 @@ export function deviationText(z: number | null, lessIsBetter: boolean | null): s
 
 /** pointTooltip is the hover view-model. The title keeps the walking-skeleton
  * `sha · value unit` shape (the keystone e2e asserts it); lines add the engine
- * stats, omitting whatever is unavailable rather than printing nulls. */
-export function pointTooltip(p: SeriesPoint, locale?: string, lessIsBetter: boolean | null = null): TrendTooltip {
+ * stats, omitting whatever is unavailable rather than printing nulls.
+ * baselineCaptioned drops the selected baseline's explanation for a chart whose
+ * caption already gives it. */
+export function pointTooltip(
+  p: SeriesPoint,
+  locale?: string,
+  lessIsBetter: boolean | null = null,
+  baselineCaptioned = false,
+): TrendTooltip {
   const lines: string[] = [];
   const formatted = formatMeasurement(p.svs, p.unit);
   const exact = exactMeasurement(p.svs, p.unit);
@@ -337,9 +344,14 @@ export function pointTooltip(p: SeriesPoint, locale?: string, lessIsBetter: bool
     lines.push(`vs. rolling mean: ${deviation}`);
   }
   if (p.stats.fixedBaseline && p.stats.rollingMean !== null) {
-    lines.push(p.stats.rollingStddev === null
-      ? `selected baseline ${formatMeasurement(p.stats.rollingMean, p.unit)}, averaged from a range that includes later results`
-      : "selected baseline averaged from a range that includes later results");
+    const value = formatMeasurement(p.stats.rollingMean, p.unit);
+    if (baselineCaptioned) {
+      lines.push(`selected baseline ${value}`);
+    } else {
+      lines.push(p.stats.rollingStddev === null
+        ? `selected baseline ${value}, averaged from a range that includes later results`
+        : "selected baseline averaged from a range that includes later results");
+    }
   }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
     lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);
@@ -409,12 +421,16 @@ export function baselineOverrideOf(annotations: Record<string, unknown>): Baseli
  * mirrors the server: every point plotted from the first selection's time
  * through the last's, inclusive, averaged by plotted value. */
 export interface BaselineRangePreview {
+  /** start is the selected result that will carry the baseline. Results tied
+   * with it at startIndex are averaged too but do not receive it. */
+  start: SeriesPoint;
   startIndex: number;
   throughIndex: number;
   indices: number[];
   mean: number;
-  /** blockedBy is the first later point that already starts a marked
-   * distribution change or selected baseline; the server rejects such a range. */
+  /** blockedBy is the first point the server would reject the range for: a
+   * later marked distribution change or selected baseline, or a selected
+   * baseline on another result tied with the start. */
   blockedBy: SeriesPoint | null;
 }
 
@@ -434,11 +450,13 @@ export function baselineRangePreview(
     if (p.chartMs < first.chartMs || p.chartMs > last.chartMs) return;
     indices.push(i);
     sum += p.svs;
-    const boundary = p.changeAnnotations["begins_distribution_change"] === true
-      || baselineOverrideOf(p.changeAnnotations) !== null;
-    if (blockedBy === null && boundary && p.chartMs > first.chartMs) blockedBy = p;
+    const selected = baselineOverrideOf(p.changeAnnotations) !== null;
+    const crossed = p.chartMs > first.chartMs && (selected || p.changeAnnotations["begins_distribution_change"] === true);
+    const tiedConflict = p.chartMs === first.chartMs && p !== first && selected;
+    if (blockedBy === null && (crossed || tiedConflict)) blockedBy = p;
   });
   return {
+    start: first,
     startIndex: indices[0]!,
     throughIndex: indices[indices.length - 1]!,
     indices,

@@ -302,6 +302,12 @@ describe("pointTooltip", () => {
     expect(tip.lines).toContain("tune the flux capacitor");
   });
 
+  it("explains a selected baseline on a chart without a caption", () => {
+    const [p] = toSeriesPoints([sample({ zscorestats: zs({ fixed_baseline: true, rolling_mean: 3, rolling_stddev: null }) })]);
+    expect(pointTooltip(p!, "en-US").lines).toContain("selected baseline 3 s, averaged from a range that includes later results");
+    expect(pointTooltip(p!, "en-US", null, true).lines).toContain("selected baseline 3 s");
+  });
+
   it("omits unavailable lines instead of rendering nulls", () => {
     const [p] = toSeriesPoints([sample({ zscorestats: null, unit: null, commit_message: "" })]);
     const tip = pointTooltip(p!, "en-US");

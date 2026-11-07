@@ -371,7 +371,7 @@
   }
 
   async function showTooltip(p: SeriesPoint, cursorLeft: number, cursorTop: number) {
-    const vm = pointTooltip(p, undefined, lessIsBetter);
+    const vm = pointTooltip(p, undefined, lessIsBetter, true);
     const requestID = ++tooltipRequestID;
     tip = {
       left: tooltipLeftForCursor(cursorLeft, chartWrap?.clientWidth ?? 0),
@@ -570,7 +570,7 @@
     baselineError = null;
     try {
       const error = await onselectbaseline(
-        points[preview.startIndex]!.resultId,
+        preview.start.resultId,
         points[preview.throughIndex]!.resultId,
       );
       if (error === null) {
@@ -672,7 +672,7 @@
         </label>
       </div>
       {#if preview !== null}
-        {@const first = points[preview.startIndex]!}
+        {@const first = preview.start}
         <p class="baseline-summary" aria-live="polite">
           <strong>{preview.indices.length} {preview.indices.length === 1 ? "result" : "results"}</strong>
           · average <strong>{formatMeasurement(preview.mean, first.unit)}</strong>
@@ -683,8 +683,13 @@
         </p>
         {#if preview.blockedBy !== null}
           <p class="baseline-error" role="alert">
-            This range crosses a distribution change or selected baseline at {preview.blockedBy.commitHash.slice(0, 10)}.
-            Select a range that ends before it.
+            {#if preview.blockedBy.chartMs === first.chartMs}
+              {preview.blockedBy.commitHash.slice(0, 10)} has a selected baseline at the same commit time.
+              Start the range from that result, or remove its baseline.
+            {:else}
+              This range crosses a distribution change or selected baseline at {preview.blockedBy.commitHash.slice(0, 10)}.
+              Select a range that ends before it.
+            {/if}
           </p>
         {/if}
       {/if}
