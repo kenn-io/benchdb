@@ -125,14 +125,13 @@ func baselineOverrideFromHistory(rows []storage.HistoryRow, startID, throughID s
 		if !sameUnitPtr(row.Unit, start.Unit) {
 			return BaselineOverride{}, &ValidationError{Message: "the selected results mix measurement units"}
 		}
-		if ct.After(*start.CommitTimestamp) {
-			annotations, err := decodeSegmentAnnotations(row.ChangeAnnotations)
-			if err != nil {
-				return BaselineOverride{}, err
-			}
-			if annotations.begins || annotations.override != nil {
-				return BaselineOverride{}, &ValidationError{Message: "the selected range crosses a distribution change or another selected baseline; remove it or select a range that ends before it"}
-			}
+		annotations, err := decodeSegmentAnnotations(row.ChangeAnnotations)
+		if err != nil {
+			return BaselineOverride{}, err
+		}
+		if (ct.After(*start.CommitTimestamp) && (annotations.begins || annotations.override != nil)) ||
+			(ct.Equal(*start.CommitTimestamp) && row.ID != startID && annotations.override != nil) {
+			return BaselineOverride{}, &ValidationError{Message: "the selected range crosses a distribution change or another selected baseline; remove it or select a range that ends before it"}
 		}
 		svs, _, err := historySVS(row.Unit, row.Data)
 		if err != nil {

@@ -692,6 +692,7 @@ func TestSeriesPriorBoundaryPrefersBaselineAtSameTimestamp(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, boundaries, 1)
 	assert.Equal(t, rows[0].ID, boundaries[0].ResultID)
+	assert.Equal(t, rows[0].Unit, boundaries[0].Unit)
 }
 
 func TestSelectSeriesMembersThroughBoundsBeforeTailLimit(t *testing.T) {

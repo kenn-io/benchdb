@@ -785,6 +785,7 @@ type SeriesBoundary struct {
 	HistoryFingerprint string
 	ResultID           string
 	CommitTimestamp    time.Time
+	Unit               *string
 	ChangeAnnotations  []byte
 }
 

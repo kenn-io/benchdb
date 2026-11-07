@@ -13,6 +13,7 @@ import (
 	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
+	"go.kenn.io/benchdb/internal/storage"
 )
 
 // The series list reads a 256-result tail. A selected baseline that starts
@@ -76,6 +77,16 @@ func TestSeriesListKeepsAnArchivedSelectedBaselineOlderThanTheTail(t *testing.T)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM benchmark_result`).Scan(&retained))
 	require.Zero(t, retained, "every result must be archived")
 	assert.InDelta(t, 2.0, windowMean(), 1e-12, "archived")
+	rows, err := store.SelectHistoryForFingerprint(ctx, fingerprint)
+	require.NoError(t, err)
+	last := rows[len(rows)-1]
+	boundaries, err := store.SelectSeriesPriorBoundaries(ctx, []storage.SeriesBoundaryQuery{{
+		Fingerprint: fingerprint, Before: storage.SeriesMemberBound{CommitTimestamp: *last.CommitTimestamp, ResultID: last.ID},
+	}})
+	require.NoError(t, err)
+	require.Len(t, boundaries, 1)
+	require.NotNil(t, boundaries[0].Unit)
+	assert.Equal(t, "s", *boundaries[0].Unit)
 
 	require.NoError(t, ing.UpdateChangeAnnotations(ctx, ids[12], map[string]any{"begins_distribution_change": true}))
 	assert.InDelta(t, 1.005, windowMean(), 0.001, "an intervening mark ends the baseline")

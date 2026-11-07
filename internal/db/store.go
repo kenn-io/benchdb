@@ -1445,7 +1445,7 @@ func (s *Store) SelectSeriesPriorBoundaries(ctx context.Context, bounds []storag
 		}
 		out = append(out, storage.SeriesBoundary{
 			HistoryFingerprint: r.HistoryFingerprint, ResultID: r.ID,
-			CommitTimestamp: *r.CommitTimestamp, ChangeAnnotations: r.ChangeAnnotations,
+			CommitTimestamp: *r.CommitTimestamp, Unit: r.Unit, ChangeAnnotations: r.ChangeAnnotations,
 		})
 	}
 	return out, nil

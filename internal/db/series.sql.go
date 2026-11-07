@@ -989,16 +989,17 @@ WITH bounds(fingerprint, before_timestamp, before_id) AS MATERIALIZED (
     ($3::text[])[i]
   FROM generate_series(1, cardinality($1::text[])) AS i
 )
-SELECT m.id, m.history_fingerprint, m.change_annotations, m.commit_timestamp
+SELECT m.id, m.history_fingerprint, m.change_annotations, m.unit, m.commit_timestamp
 FROM bounds b
 CROSS JOIN LATERAL (
   SELECT
     br.id,
     br.history_fingerprint,
     br.change_annotations,
+    br.unit,
     c."timestamp" AS commit_timestamp
   FROM (
-    SELECT id, history_fingerprint, change_annotations, commit_id
+    SELECT id, history_fingerprint, change_annotations, commit_id, unit
     FROM benchmark_result_local
     WHERE error IS NULL
       AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb
@@ -1034,6 +1035,7 @@ type SelectSeriesPriorBoundariesRow struct {
 	ID                 string
 	HistoryFingerprint string
 	ChangeAnnotations  []byte
+	Unit               *string
 	CommitTimestamp    *time.Time
 }
 
@@ -1055,6 +1057,7 @@ func (q *Queries) SelectSeriesPriorBoundaries(ctx context.Context, arg SelectSer
 			&i.ID,
 			&i.HistoryFingerprint,
 			&i.ChangeAnnotations,
+			&i.Unit,
 			&i.CommitTimestamp,
 		); err != nil {
 			return nil, err

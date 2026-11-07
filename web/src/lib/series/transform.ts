@@ -337,7 +337,9 @@ export function pointTooltip(p: SeriesPoint, locale?: string, lessIsBetter: bool
     lines.push(`vs. rolling mean: ${deviation}`);
   }
   if (p.stats.fixedBaseline && p.stats.rollingMean !== null) {
-    lines.push(`selected baseline ${formatMeasurement(p.stats.rollingMean, p.unit)}, averaged from a range that includes later results`);
+    lines.push(p.stats.rollingStddev === null
+      ? `selected baseline ${formatMeasurement(p.stats.rollingMean, p.unit)}, averaged from a range that includes later results`
+      : "selected baseline averaged from a range that includes later results");
   }
   if (p.stats.rollingMean !== null && p.stats.rollingStddev !== null) {
     lines.push(`mean ${formatMeasurement(p.stats.rollingMean, p.unit)} · standard deviation ${formatMeasurement(p.stats.rollingStddev, p.unit)}`);

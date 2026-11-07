@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/service"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -230,4 +231,40 @@ func TestListSeriesKeepsBaselineWhenTailSplitsTimestamp(t *testing.T) {
 	require.NoError(t, ing.SetBaselineOverride(ctx, rows[0].ID, rows[0].ID))
 	require.NoError(t, ing.UpdateChangeAnnotations(ctx, rows[1].ID, map[string]any{"begins_distribution_change": true}))
 	assert.InDelta(t, 2, listedWindowMean(t, reader, result.HistoryFingerprint, nil), 1e-12)
+}
+
+func TestListSeriesUsesBoundaryOnLaterMemberAtFirstRetainedTimestamp(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	reader := service.NewReader(store)
+	ids := tailSeries(t, ing)
+	require.NoError(t, ing.SetBaselineOverride(ctx, ids[0], ids[9]))
+	// The 256-member tail starts at index 16; tie index 17 to that rank.
+	_, err := pool.Exec(ctx, `UPDATE "commit" SET "timestamp" = (
+		SELECT c."timestamp" FROM "commit" c JOIN benchmark_result br ON br.commit_id = c.id WHERE br.id = $1
+	) WHERE id = (SELECT commit_id FROM benchmark_result WHERE id = $2)`, ids[16], ids[17])
+	require.NoError(t, err)
+	row, err := store.GetBenchmarkResultByID(ctx, ids[0])
+	require.NoError(t, err)
+	members, err := store.SelectSeriesMembers(ctx, storage.SeriesMembersParams{Fingerprints: []string{row.HistoryFingerprint}})
+	require.NoError(t, err)
+	require.Len(t, members, 256)
+	require.Equal(t, *members[0].CommitTimestamp, *members[1].CommitTimestamp)
+	require.NoError(t, ing.UpdateChangeAnnotations(ctx, members[1].ID, map[string]any{"begins_distribution_change": true}))
+	assert.InDelta(t, 1.005, listedWindowMean(t, reader, row.HistoryFingerprint, nil), 0.001)
+}
+
+func TestListSeriesRejectsPriorBaselineWithDifferentUnit(t *testing.T) {
+	ing, store, pool, ctx := newIngester(t)
+	reader := service.NewReader(store)
+	ids := tailSeries(t, ing)
+	require.NoError(t, ing.SetBaselineOverride(ctx, ids[0], ids[9]))
+	row, err := store.GetBenchmarkResultByID(ctx, ids[0])
+	require.NoError(t, err)
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET unit = 'ns' WHERE history_fingerprint = $1 AND id <> $2`, row.HistoryFingerprint, ids[0])
+	page, err := reader.ListSeries(ctx, service.SeriesQuery{Fingerprint: &row.HistoryFingerprint, PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Series, 1)
+	assert.Equal(t, "insufficient", page.Series[0].Status)
+	assert.Nil(t, page.Series[0].WindowMean)
+	assert.Nil(t, page.Series[0].ChangePercent)
 }

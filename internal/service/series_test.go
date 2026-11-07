@@ -491,3 +491,26 @@ func TestSeriesStatusScoresAgainstSelectedBaseline(t *testing.T) {
 	assert.InDelta(t, (1.03-0.9)/0.9*100, *verdict.changePercent, 1e-9)
 	assert.Equal(t, statusRegressed, verdict.status)
 }
+
+func TestLatestSelectedBaselineSetsMeanWithoutAddingItsResidual(t *testing.T) {
+	rows := membersFromSVS(then(noisyBase, 2), "s")
+	rows[len(rows)-1].ChangeAnnotations = []byte(`{"baseline_override":{"value":2,"through_result_id":"x","result_count":1}}`)
+	verdict := scoreLatest(rows, new("s"), new(true))
+	require.NotNil(t, verdict.windowMean)
+	assert.InDelta(t, 2, *verdict.windowMean, 1e-12)
+	require.NotNil(t, verdict.changePercent)
+	assert.InDelta(t, 0, *verdict.changePercent, 1e-12)
+	assert.Equal(t, statusStable, verdict.status)
+}
+
+func TestBaselineSelectionRejectsAnotherOverrideAtSameCommit(t *testing.T) {
+	rows := membersFromSVS([]float64{1, 2}, "s")
+	rows[0].ID, rows[1].ID = "a", "b"
+	rows[1].CommitTimestamp = rows[0].CommitTimestamp
+	rows[0].ChangeAnnotations = []byte(`{"baseline_override":{"value":1,"through_result_id":"a","result_count":1}}`)
+	_, err := baselineOverrideFromHistory(rows, "b", "b")
+	var validation *ValidationError
+	require.ErrorAs(t, err, &validation)
+	_, err = baselineOverrideFromHistory(rows, "a", "b")
+	require.NoError(t, err, "replacing the same result's baseline remains possible")
+}

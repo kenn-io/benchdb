@@ -123,7 +123,7 @@ func (s *Store) SelectSeriesPriorBoundaries(ctx context.Context, bounds []storag
 SELECT unnest($1::VARCHAR[]) AS fingerprint, unnest($2::VARCHAR[])::TIMESTAMP AS before_timestamp,
 unnest($3::VARCHAR[]) AS before_id),
 candidates AS (
-SELECT br.history_fingerprint,br.id,c."timestamp" AS commit_timestamp,br.change_annotations,
+SELECT br.history_fingerprint,br.id,c."timestamp" AS commit_timestamp,br.unit,br.change_annotations,
 row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,
 CASE WHEN json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE') THEN 0 ELSE 1 END,
 br.id ASC) AS position
@@ -133,7 +133,7 @@ WHERE `+historyMembership+`
 AND (json_extract(br.change_annotations,'$.begins_distribution_change')='true'::JSON
 OR json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE'))
 AND (c."timestamp",br.id)<(b.before_timestamp,b.before_id))
-SELECT history_fingerprint,id,commit_timestamp,change_annotations FROM candidates
+SELECT history_fingerprint,id,commit_timestamp,unit,change_annotations FROM candidates
 WHERE position=1 ORDER BY history_fingerprint`, []any{fingerprints, timestamps, ids}, scanSeriesBoundary)
 		return err
 	})
@@ -141,6 +141,6 @@ WHERE position=1 ORDER BY history_fingerprint`, []any{fingerprints, timestamps, 
 }
 
 func scanSeriesBoundary(row rowScanner) (out storage.SeriesBoundary, err error) {
-	err = row.Scan(&out.HistoryFingerprint, &out.ResultID, &out.CommitTimestamp, &out.ChangeAnnotations)
+	err = row.Scan(&out.HistoryFingerprint, &out.ResultID, &out.CommitTimestamp, &out.Unit, &out.ChangeAnnotations)
 	return
 }

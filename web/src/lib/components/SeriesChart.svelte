@@ -687,8 +687,6 @@
             Select a range that ends before it.
           </p>
         {/if}
-      {:else}
-        <p class="baseline-note">Drag across the chart, or choose the first and last results.</p>
       {/if}
       {#if baselineError !== null}<p class="baseline-error" role="alert">{baselineError}</p>{/if}
       <div class="baseline-actions">

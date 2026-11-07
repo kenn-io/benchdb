@@ -587,9 +587,10 @@ CROSS JOIN LATERAL (
     br.id,
     br.history_fingerprint,
     br.change_annotations,
+    br.unit,
     c."timestamp" AS commit_timestamp
   FROM (
-    SELECT id, history_fingerprint, change_annotations, commit_id
+    SELECT id, history_fingerprint, change_annotations, commit_id, unit
     FROM benchmark_result_local
     WHERE error IS NULL
       AND (change_annotations->'exclude_from_history') IS DISTINCT FROM 'true'::jsonb

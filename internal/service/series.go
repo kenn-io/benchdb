@@ -174,6 +174,23 @@ func scoreLatest(members []storage.HistoryRow, unit *string, lessIsBetter *bool)
 		points = append(points, p)
 	}
 	mean, stddev := stats.BaselineDistribution(points, stats.DistributionCommitsDefault)
+	latestAnnotations, err := decodeSegmentAnnotations(latest.ChangeAnnotations)
+	if err != nil {
+		return insufficient
+	}
+	if latestAnnotations.override != nil {
+		// A prior override at the same commit rank takes precedence.
+		firstAtRank := true
+		for i := len(points) - 1; i >= 0 && points[i].CommitTimestamp.Equal(*latest.CommitTimestamp); i-- {
+			if points[i].BaselineOverride != nil {
+				firstAtRank = false
+				break
+			}
+		}
+		if firstAtRank {
+			mean = latestAnnotations.override
+		}
+	}
 	verdict := seriesVerdict{status: statusInsufficient}
 	// Finite results can still sum past the float64 range, and an infinite
 	// mean cannot be sent as JSON.
@@ -296,7 +313,8 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 			return nil, fmt.Errorf("list series members: %w", err)
 		}
 		byFingerprint := groupMembersByFingerprint(members)
-		if err := r.carryPriorBaselines(ctx, byFingerprint); err != nil {
+		incompatible, err := r.carryPriorBaselines(ctx, byFingerprint)
+		if err != nil {
 			return nil, err
 		}
 
@@ -304,6 +322,11 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 			item, err := seriesListItem(rows[i], byFingerprint[rows[i].HistoryFingerprint])
 			if err != nil {
 				return nil, err
+			}
+			if incompatible[rows[i].HistoryFingerprint] {
+				item.Status = statusInsufficient
+				item.WindowMean = nil
+				item.ChangePercent = nil
 			}
 			if q.Status != nil && item.Status != *q.Status {
 				continue
@@ -338,7 +361,8 @@ func (r *Reader) ListSeries(ctx context.Context, q SeriesQuery) (*SeriesResult, 
 // boundary is a selected baseline, its value moves onto the first member, so
 // scoring starts inside the fixed segment. A later distribution-change mark
 // is the latest boundary instead, and the rolling mean stays.
-func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[string][]storage.HistoryRow) error {
+func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[string][]storage.HistoryRow) (map[string]bool, error) {
+	incompatible := make(map[string]bool)
 	bounds := make([]storage.SeriesBoundaryQuery, 0, len(byFingerprint))
 	for fingerprint, members := range byFingerprint {
 		first := members[0]
@@ -351,16 +375,16 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 		})
 	}
 	if len(bounds) == 0 {
-		return nil
+		return incompatible, nil
 	}
 	boundaries, err := r.store.SelectSeriesPriorBoundaries(ctx, bounds)
 	if err != nil {
-		return fmt.Errorf("list series boundaries: %w", err)
+		return nil, fmt.Errorf("list series boundaries: %w", err)
 	}
 	for _, boundary := range boundaries {
 		prior, err := decodeSegmentAnnotations(boundary.ChangeAnnotations)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		members := byFingerprint[boundary.HistoryFingerprint]
 		// A mark on the same result does not cancel its override: the engine
@@ -368,23 +392,35 @@ func (r *Reader) carryPriorBaselines(ctx context.Context, byFingerprint map[stri
 		if prior.override == nil || len(members) == 0 {
 			continue
 		}
-		first, err := decodeSegmentAnnotations(members[0].ChangeAnnotations)
-		if err != nil {
-			return err
+		// Every result at a commit rank shares the same segment. An override
+		// before the retained tail at that rank takes precedence.
+		if !boundary.CommitTimestamp.Equal(*members[0].CommitTimestamp) {
+			hasBoundary := false
+			for _, member := range members {
+				if !member.CommitTimestamp.Equal(*members[0].CommitTimestamp) {
+					break
+				}
+				annotations, err := decodeSegmentAnnotations(member.ChangeAnnotations)
+				if err != nil {
+					return nil, err
+				}
+				hasBoundary = hasBoundary || annotations.begins || annotations.override != nil
+			}
+			if hasBoundary {
+				continue
+			}
 		}
-		// Boundaries sharing a timestamp form one segment. An override on an
-		// earlier result at that timestamp takes precedence over a mark or a
-		// later override on the first retained result.
-		if !boundary.CommitTimestamp.Equal(*members[0].CommitTimestamp) && (first.begins || first.override != nil) {
-			continue // the first member starts its own segment
+		if !sameUnitPtr(boundary.Unit, members[0].Unit) {
+			incompatible[boundary.HistoryFingerprint] = true
+			continue
 		}
 		carried, err := withBaselineOverride(members[0].ChangeAnnotations, *prior.override)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		members[0].ChangeAnnotations = carried
 	}
-	return nil
+	return incompatible, nil
 }
 
 // withBaselineOverride returns annotations that also carry a selected

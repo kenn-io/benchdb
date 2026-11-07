@@ -36,7 +36,7 @@
   let errorMsg = $state<string | null>(null);
   let actionMsg = $state<string | null>(null);
   let actionError = $state<string | null>(null);
-  let busyAction = $state<"annotation" | "delete" | null>(null);
+  let busyAction = $state<"annotation" | "baseline" | "delete" | null>(null);
   let canWrite = $state(false);
   let deleted = $state(false);
 
@@ -121,7 +121,7 @@
     if (vm === null || busyAction !== null) return;
     actionMsg = null;
     actionError = null;
-    busyAction = "annotation";
+    busyAction = "baseline";
     try {
       const res = await client.updateResult(vm.id, { change_annotations: { baseline_override: null } });
       if (res.status >= 400 || !res.data) {
@@ -460,7 +460,7 @@
               disabled={busyAction !== null}
               title={`Averaged from ${vm.selectedBaseline.resultCount} results starting here`}
             >
-              {busyAction === "annotation" ? "Saving..." : "Remove selected baseline"}
+              {busyAction === "baseline" ? "Removing..." : "Remove selected baseline"}
             </button>
           {/if}
           <button type="button" class="button-pill danger" onclick={deleteResult} disabled={busyAction !== null}>
