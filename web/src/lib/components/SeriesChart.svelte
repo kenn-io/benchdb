@@ -684,7 +684,7 @@
         {#if preview.blockedBy !== null}
           <p class="baseline-error" role="alert">
             {#if preview.blockedBy.chartMs === first.chartMs}
-              {preview.blockedBy.commitHash.slice(0, 10)} has a selected baseline at the same commit time.
+              Another result at this commit time ({formatMeasurement(preview.blockedBy.svs, preview.blockedBy.unit)}) has a selected baseline.
               Start the range from that result, or remove its baseline.
             {:else}
               This range crosses a distribution change or selected baseline at {preview.blockedBy.commitHash.slice(0, 10)}.

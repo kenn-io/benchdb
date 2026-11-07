@@ -489,7 +489,9 @@ export function selectedBaselineSpans(points: SeriesPoint[]): SelectedBaselineSp
       if (last.value === null && p.stats.rollingMean !== null) last.value = p.stats.rollingMean;
       continue;
     }
-    const override = baselineOverrideOf(p.changeAnnotations);
+    // Results tied at a commit share a segment, and any of them can carry its baseline.
+    const carrier = points.find((q) => q.chartMs === p.chartMs && baselineOverrideOf(q.changeAnnotations) !== null);
+    const override = carrier === undefined ? null : baselineOverrideOf(carrier.changeAnnotations);
     const through = override === null ? -1 : points.findIndex((q) => q.resultId === override.throughResultId);
     spans.push({
       startIndex: i,

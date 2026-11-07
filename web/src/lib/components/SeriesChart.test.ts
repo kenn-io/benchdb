@@ -314,6 +314,19 @@ describe("SeriesChart", () => {
       expect(screen.queryByText(/includes later results/)).toBeNull();
     });
 
+    it("captions a selected baseline carried by a later tied result", () => {
+      const fixed = (p: SeriesPoint): SeriesPoint => ({
+        ...p, stats: { ...p.stats, fixedBaseline: true, rollingMean: 3, segmentId: 1 },
+      });
+      const stored = [
+        fixed(at("a", 100, 2)),
+        fixed({ ...at("b", 100, 4), changeAnnotations: { baseline_override: { value: 3, through_result_id: "b", result_count: 2 } } }),
+      ];
+      const { container } = render(SeriesChart, { props: { points: stored } });
+      const caption = container.querySelector(".baseline-caption")?.textContent?.replace(/\s+/g, " ") ?? "";
+      expect(caption).toContain("the average of 2 results through sha-b");
+    });
+
     it("labels a stored selected baseline as using later results", () => {
       const fixed = (p: SeriesPoint): SeriesPoint => ({
         ...p, stats: { ...p.stats, fixedBaseline: true, rollingMean: 3, segmentId: 1 },
