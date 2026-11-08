@@ -134,6 +134,8 @@ export interface Hardware {
  */
 export type ZScoreStats = {
   begins_distribution_change: boolean;
+  /** The rolling means are a fixed baseline override averaged from a selected range of results, not a rolling window. */
+  fixed_baseline: boolean;
   is_outlier: boolean;
   is_step: boolean;
   /** @nullable */
@@ -1085,6 +1087,16 @@ export interface SeriesPage {
   series: SeriesListItem[];
 }
 
+export interface SetBaselineOverrideInputBody {
+  /** A URL to the JSON Schema for this object. */
+  readonly $schema?: string;
+  /**
+     * The last selected result in the same series.
+     * @minLength 1
+     */
+  through_result_id: string;
+}
+
 export interface StatsInput {
   /** @nullable */
   data: (number | null)[] | null;
@@ -1990,6 +2002,32 @@ const getDownloadResultArtifactUrl = (id: string,
 }
 
 /**
+ * Averages the single value summaries of the series' default-branch results committed from this result through through_result_id, inclusive, and stores it on this result as the change_annotations.baseline_override. History, comparisons and alert checks then score against that fixed value from this result until the next distribution change or selected baseline. Remove it by setting change_annotations.baseline_override to null.
+ * @summary Fix the series baseline from this result using the average of a selected range
+ */
+const setResultBaselineOverride = (
+    id: string,
+    setBaselineOverrideInputBody: NonReadonly<SetBaselineOverrideInputBody>, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<ResultDetail>> => {
+    return axiosInstance.put(
+      `/api/benchmark-results/${encodeURIComponent(id)}/baseline-override`,
+      setBaselineOverrideInputBody,options
+    );
+  }
+const getSetResultBaselineOverrideUrl = (id: string,) => {
+
+  return axiosInstance.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/benchmark-results/${encodeURIComponent(id)}/baseline-override`,
+    baseURL: '',
+
+
+  });
+}
+
+/**
  * @summary List logical benchmarks across the fleet
  */
 const listBenchmarks = (
@@ -2497,7 +2535,7 @@ const getUsersMeUrl = () => {
   });
 }
 
-return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,reevaluateRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe,getListAlertRulesUrl,getCreateAlertRuleUrl,getDeleteAlertRuleUrl,getGetAlertRuleUrl,getUpdateAlertRuleUrl,getListAlertEventsUrl,getAuthCallbackUrl,getAuthCapabilitiesUrl,getAuthCliExchangeUrl,getAuthCliStartUrl,getAuthLoginUrl,getAuthLogoutUrl,getListBenchmarkResultsUrl,getDeleteResultUrl,getGetBenchmarkResultUrl,getUpdateResultUrl,getUploadResultArtifactUrl,getDeleteResultArtifactUrl,getDownloadResultArtifactUrl,getListBenchmarksUrl,getGetBenchmarkHistoryUrl,getGetCiReportUrl,getGetRunReportSummariesUrl,getGetSavedRunReportUrl,getFinalizeRunReportUrl,getReevaluateRunReportUrl,getCompareBenchmarkResultsUrl,getGetHistoryUrl,getGetHistoryForResultUrl,getListMachinesUrl,getPingUrl,getListRepositoriesUrl,getSubmitResultUrl,getListRecentRunsUrl,getListSeriesUrl,getStorageStatusUrl,getListTokensUrl,getCreateTokenUrl,getDeleteTokenUrl,getUsersMeUrl}};
+return {listAlertRules,createAlertRule,deleteAlertRule,getAlertRule,updateAlertRule,listAlertEvents,authCallback,authCapabilities,authCliExchange,authCliStart,authLogin,authLogout,listBenchmarkResults,deleteResult,getBenchmarkResult,updateResult,uploadResultArtifact,deleteResultArtifact,downloadResultArtifact,setResultBaselineOverride,listBenchmarks,getBenchmarkHistory,getCiReport,getRunReportSummaries,getSavedRunReport,finalizeRunReport,reevaluateRunReport,compareBenchmarkResults,getHistory,getHistoryForResult,listMachines,ping,listRepositories,submitResult,listRecentRuns,listSeries,storageStatus,listTokens,createToken,deleteToken,usersMe,getListAlertRulesUrl,getCreateAlertRuleUrl,getDeleteAlertRuleUrl,getGetAlertRuleUrl,getUpdateAlertRuleUrl,getListAlertEventsUrl,getAuthCallbackUrl,getAuthCapabilitiesUrl,getAuthCliExchangeUrl,getAuthCliStartUrl,getAuthLoginUrl,getAuthLogoutUrl,getListBenchmarkResultsUrl,getDeleteResultUrl,getGetBenchmarkResultUrl,getUpdateResultUrl,getUploadResultArtifactUrl,getDeleteResultArtifactUrl,getDownloadResultArtifactUrl,getSetResultBaselineOverrideUrl,getListBenchmarksUrl,getGetBenchmarkHistoryUrl,getGetCiReportUrl,getGetRunReportSummariesUrl,getGetSavedRunReportUrl,getFinalizeRunReportUrl,getReevaluateRunReportUrl,getCompareBenchmarkResultsUrl,getGetHistoryUrl,getGetHistoryForResultUrl,getListMachinesUrl,getPingUrl,getListRepositoriesUrl,getSubmitResultUrl,getListRecentRunsUrl,getListSeriesUrl,getStorageStatusUrl,getListTokensUrl,getCreateTokenUrl,getDeleteTokenUrl,getUsersMeUrl}};
 export type ListAlertRulesResult = AxiosResponse<ListAlertRulesOutputBody>
 export type CreateAlertRuleResult = AxiosResponse<AlertRuleView>
 export type DeleteAlertRuleResult = AxiosResponse<void>
@@ -2517,6 +2555,7 @@ export type UpdateResultResult = AxiosResponse<ResultDetail>
 export type UploadResultArtifactResult = AxiosResponse<ArtifactMetadata>
 export type DeleteResultArtifactResult = AxiosResponse<void>
 export type DownloadResultArtifactResult = AxiosResponse<Blob>
+export type SetResultBaselineOverrideResult = AxiosResponse<ResultDetail>
 export type ListBenchmarksResult = AxiosResponse<BenchmarkPage>
 export type GetBenchmarkHistoryResult = AxiosResponse<BenchmarkHistory>
 export type GetCiReportResult = AxiosResponse<CIReport>

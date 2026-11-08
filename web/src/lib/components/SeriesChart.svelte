@@ -15,8 +15,10 @@
     type ComparisonMarker,
   } from "../series/chart-geometry";
   import {
+    baselineRangePreview,
     pointTooltip,
     segmentSpans,
+    selectedBaselineSpans,
     stepIndices,
     trendChartData,
     trendYRangeValues,
@@ -39,6 +41,7 @@
     lessIsBetter = null,
     onselect,
     onopen,
+    onselectbaseline,
   }: {
     points: SeriesPoint[];
     lessIsBetter?: boolean | null;
@@ -51,7 +54,31 @@
     comparisonMarkers?: ComparisonMarker[];
     onselect?: (index: number) => void;
     onopen?: (resultId: string) => void;
+    /** onselectbaseline saves a selected baseline averaged from the first
+     * through the last result. It resolves to an error message, or null on
+     * success. Without it the chart offers no baseline selection. */
+    onselectbaseline?: ((startResultId: string, throughResultId: string) => Promise<string | null>) | undefined;
   } = $props();
+
+  // Baseline selection mode turns horizontal drags into range selection
+  // instead of zoom. The From/Through pickers select the same range without a
+  // pointer.
+  let baselineMode = $state(false);
+  // Result ids, so a live refresh that adds points keeps the selection.
+  let rangeFrom = $state<string | null>(null);
+  let rangeThrough = $state<string | null>(null);
+  let baselineBusy = $state(false);
+  let baselineError = $state<string | null>(null);
+  let preview = $derived(
+    baselineMode && rangeFrom !== null && rangeThrough !== null
+      ? baselineRangePreview(
+          points,
+          points.findIndex((p) => p.resultId === rangeFrom),
+          points.findIndex((p) => p.resultId === rangeThrough),
+        )
+      : null,
+  );
+  let baselineSpans = $derived(selectedBaselineSpans(points));
 
   let chartWrap: HTMLDivElement;
   let plotHost: HTMLDivElement;
@@ -344,7 +371,7 @@
   }
 
   async function showTooltip(p: SeriesPoint, cursorLeft: number, cursorTop: number) {
-    const vm = pointTooltip(p, undefined, lessIsBetter);
+    const vm = pointTooltip(p, undefined, lessIsBetter, true);
     const requestID = ++tooltipRequestID;
     tip = {
       left: tooltipLeftForCursor(cursorLeft, chartWrap?.clientWidth ?? 0),
@@ -390,7 +417,7 @@
         x: xScale,
         y: yRange === null ? {} : { range: () => [yRange.min, yRange.max] },
       },
-      cursor: { drag: { x: true, y: false, dist: 8, setScale: true } },
+      cursor: { drag: { x: true, y: false, dist: 8, setScale: !baselineMode } },
       series: [
         {},
         { label: "result value", stroke: accent, width: 2, points: { show: false } },
@@ -409,7 +436,7 @@
       ],
       hooks: {
         ready: [() => requestAnimationFrame(syncPlotBox)],
-        setSelect: [rememberZoom],
+        setSelect: [(u) => (baselineMode ? selectRange(u) : rememberZoom(u))],
         drawClear: [drawSegments],
         draw: [drawSteps, drawMarked, drawSelection],
         setCursor: [
@@ -447,6 +474,8 @@
     // here so a caller-driven height change rebuilds instead of being ignored.
     void height;
     void zeroBased;
+    // Drag either zooms or selects a baseline range, fixed at build time.
+    void baselineMode;
     // Canvas colors are read from CSS tokens at build time, so a theme switch
     // must rebuild the chart to pick up the new palette.
     void resolvedTheme();
@@ -488,6 +517,7 @@
   });
 
   function selectAtCursor() {
+    if (baselineMode) return;
     if (hoverIndex != null) {
       onselect?.(hoverIndex);
       onopen?.(points[hoverIndex]!.resultId);
@@ -502,6 +532,69 @@
     zoomWindow = { min: Math.min(left, right), max: Math.max(left, right) };
     hoverIndex = null;
     tip = null;
+  }
+
+  function selectRange(u: uPlot) {
+    if (u.select.width < 8) return;
+    const left = u.posToVal(u.select.left, "x");
+    const right = u.posToVal(u.select.left + u.select.width, "x");
+    u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return;
+    const lo = Math.min(left, right) * 1000;
+    const hi = Math.max(left, right) * 1000;
+    const inside = points.flatMap((p, i) => (p.chartMs >= lo && p.chartMs <= hi ? [i] : []));
+    if (inside.length === 0) return;
+    rangeFrom = points[inside[0]!]!.resultId;
+    rangeThrough = points[inside[inside.length - 1]!]!.resultId;
+    baselineError = null;
+  }
+
+  function startBaselineMode(event: MouseEvent) {
+    event.stopPropagation();
+    baselineMode = true;
+    rangeFrom = null;
+    rangeThrough = null;
+    baselineError = null;
+    hoverIndex = null;
+    tip = null;
+  }
+
+  function cancelBaselineMode() {
+    baselineMode = false;
+    baselineError = null;
+  }
+
+  async function applyBaseline() {
+    if (preview === null || preview.blockedBy !== null || onselectbaseline === undefined || baselineBusy) return;
+    baselineBusy = true;
+    baselineError = null;
+    try {
+      const error = await onselectbaseline(
+        preview.start.resultId,
+        points[preview.throughIndex]!.resultId,
+      );
+      if (error === null) {
+        baselineMode = false;
+      } else {
+        baselineError = error;
+      }
+    } catch (err) {
+      baselineError = err instanceof Error ? err.message : String(err);
+    } finally {
+      baselineBusy = false;
+    }
+  }
+
+  function pointTime(p: SeriesPoint): string {
+    return new Date(p.chartMs).toISOString().slice(0, 16).replace("T", " ");
+  }
+
+  function pointRef(p: SeriesPoint): string {
+    return `${p.commitHash.slice(0, 10)} (${pointTime(p)})`;
+  }
+
+  function pointLabel(p: SeriesPoint): string {
+    return `${p.commitHash.slice(0, 10)} · ${pointTime(p)} · ${formatMeasurement(p.svs, p.unit)}`;
   }
 
   function resetZoom(event: MouseEvent) {
@@ -530,9 +623,15 @@
       {#if currentResultId !== null}<span><i class="current"></i>current</span>{/if}
       <span><i class="mean"></i>rolling mean</span>
       <span><i class="band"></i>{sigma}σ band</span>
+      {#if baselineSpans.length > 0}<span><i class="selected-baseline"></i>selected baseline</span>{/if}
     </div>
     <div class="zoom-controls">
-      {#if zoomWindow === null}
+      {#if onselectbaseline !== undefined && !baselineMode}
+        <button type="button" onclick={startBaselineMode}>Select baseline range</button>
+      {/if}
+      {#if baselineMode}
+        <span>Drag across a stable range to select it</span>
+      {:else if zoomWindow === null}
         <span>Drag horizontally to zoom</span>
       {:else}
         <span>Zoomed</span>
@@ -540,6 +639,80 @@
       {/if}
     </div>
   </div>
+  {#each baselineSpans as span (span.startIndex)}
+    {@const start = points[span.startIndex]!}
+    <p class="baseline-caption">
+      {#if span.override !== null}
+        Selected baseline from {pointRef(start)}:
+        {formatMeasurement(span.override.value, start.unit)}, the average of {span.override.resultCount}
+        {span.override.resultCount === 1 ? "result" : "results"}{span.throughIndex === null
+          ? ""
+          : ` through ${pointRef(points[span.throughIndex]!)}`}.
+        It uses results committed after the point where it starts.
+      {:else}
+        A selected baseline that starts before this range applies here. It uses results committed after its start.
+      {/if}
+    </p>
+  {/each}
+  {#if baselineMode}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="baseline-panel"
+      role="group"
+      aria-label="Select baseline range"
+      onclick={(event) => event.stopPropagation()}
+      onkeydown={(event) => { if (event.key === "Escape") cancelBaselineMode(); }}
+    >
+      <div class="baseline-pickers">
+        <label>
+          From
+          <select bind:value={rangeFrom}>
+            <option value={null} disabled>Choose a result</option>
+            {#each points as p (p.resultId)}<option value={p.resultId}>{pointLabel(p)}</option>{/each}
+          </select>
+        </label>
+        <label>
+          Through
+          <select bind:value={rangeThrough}>
+            <option value={null} disabled>Choose a result</option>
+            {#each points as p (p.resultId)}<option value={p.resultId}>{pointLabel(p)}</option>{/each}
+          </select>
+        </label>
+      </div>
+      {#if preview !== null}
+        {@const first = preview.start}
+        <p class="baseline-summary" aria-live="polite">
+          <strong>{preview.indices.length} {preview.indices.length === 1 ? "result" : "results"}</strong>
+          · average <strong>{formatMeasurement(preview.mean, first.unit)}</strong>
+        </p>
+        <p class="baseline-note">
+          Applies from {pointRef(first)} until the next selected baseline or distribution change.
+          {#if preview.indices.length > 1}Its value includes results committed after that start.{/if}
+        </p>
+        {#if preview.blockedBy !== null}
+          <p class="baseline-error" role="alert">
+            {#if preview.blockedBy.chartMs === first.chartMs}
+              Another result at this commit time ({formatMeasurement(preview.blockedBy.svs, preview.blockedBy.unit)}) has a selected baseline.
+              Start the range from that result, or remove its baseline.
+            {:else}
+              This range crosses a distribution change or selected baseline at {pointRef(preview.blockedBy)}.
+              Select a range that ends before it.
+            {/if}
+          </p>
+        {/if}
+      {/if}
+      {#if baselineError !== null}<p class="baseline-error" role="alert">{baselineError}</p>{/if}
+      <div class="baseline-actions">
+        <button
+          type="button"
+          class="primary"
+          onclick={applyBaseline}
+          disabled={preview === null || preview.blockedBy !== null || baselineBusy}
+        >{baselineBusy ? "Saving…" : "Apply baseline"}</button>
+        <button type="button" onclick={cancelBaselineMode} disabled={baselineBusy}>Cancel</button>
+      </div>
+    </div>
+  {/if}
   <div class="plot-host" bind:this={plotHost}>
     <div bind:this={host}></div>
     {#if overlayRange !== null && activeDomain !== null && plotBox.width > 0}
@@ -565,6 +738,36 @@
         viewBox={`0 0 ${plotBox.width} ${plotBox.height}`}
         aria-hidden="true"
       >
+        {#if overlayRange !== null}
+          {#each baselineSpans as span (span.startIndex)}
+            {@const x0 = overlayX(points[span.startIndex]!)}
+            {#if span.throughIndex !== null}
+              {@const x1 = overlayX(points[span.throughIndex]!)}
+              <rect class="baseline-source" x={x0} y="0" width={Math.max(x1 - x0, 2)} height={plotBox.height} />
+            {/if}
+            {#if span.value !== null}
+              <line
+                class="baseline-fixed"
+                x1={x0}
+                x2={Math.max(overlayX(points[span.endIndex]!), x0 + 2)}
+                y1={overlayY(span.value, overlayRange)}
+                y2={overlayY(span.value, overlayRange)}
+              />
+            {/if}
+          {/each}
+          {#if preview !== null}
+            {@const x0 = overlayX(points[preview.startIndex]!)}
+            {@const x1 = overlayX(points[preview.throughIndex]!)}
+            <rect class="baseline-preview" x={x0 - 4} y="0" width={Math.max(x1 - x0, 0) + 8} height={plotBox.height} />
+            <line
+              class="baseline-preview-mean"
+              x1={x0}
+              x2={plotBox.width}
+              y1={overlayY(preview.mean, overlayRange)}
+              y2={overlayY(preview.mean, overlayRange)}
+            />
+          {/if}
+        {/if}
         {#each sigmaBandPaths as path}
           <path class="band-fill" d={path} />
         {/each}
@@ -590,6 +793,11 @@
             r={point.outlier ? 4.3 : 3}
           />
         {/each}
+        {#if preview !== null && overlayRange !== null}
+          {#each preview.indices as i (i)}
+            <circle class="baseline-picked" cx={overlayX(points[i]!)} cy={overlayY(points[i]!.svs, overlayRange)} r="5" />
+          {/each}
+        {/if}
         {#if currentPoint}
           <g class="current-marker">
             <line x1={currentPoint.x - 8} y1={currentPoint.y - 8} x2={currentPoint.x + 8} y2={currentPoint.y + 8} />
@@ -741,6 +949,10 @@
   .legend .mean {
     background: var(--c-trend-mean);
   }
+  .legend .selected-baseline {
+    height: 3px;
+    background: var(--c-warning);
+  }
   .legend .band {
     height: 8px;
     background: var(--c-band-fill);
@@ -814,5 +1026,56 @@
     overflow-wrap: anywhere;
     z-index: 3;
   }
+  .zoom-controls button:focus-visible,
+  .baseline-panel button:focus-visible,
+  .baseline-panel select:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  .baseline-caption {
+    margin: 0 0 6px;
+    padding-left: 6px;
+    border-left: 2px solid var(--c-warning);
+    color: var(--c-text-muted);
+    font-size: 0.72rem;
+  }
+  .baseline-panel {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    font-size: 0.78rem;
+    cursor: default;
+  }
+  .baseline-panel p { margin: 0; }
+  .baseline-pickers { display: flex; flex-wrap: wrap; gap: 10px; }
+  .baseline-pickers label { display: grid; gap: 2px; color: var(--c-text-muted); }
+  .baseline-pickers select { max-width: 22rem; color: var(--c-text); background: var(--c-surface); }
+  .baseline-note { color: var(--c-text-muted); }
+  .baseline-error { color: var(--c-error); }
+  .baseline-actions { display: flex; gap: 6px; }
+  .baseline-actions button {
+    padding: 3px 9px;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+  }
+  .baseline-actions button.primary { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
+  .baseline-actions button:disabled { opacity: 0.55; cursor: not-allowed; }
+  .chart-overlay .baseline-preview { fill: color-mix(in srgb, var(--c-accent) 12%, transparent); }
+  .chart-overlay .baseline-preview-mean {
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+  }
+  .chart-overlay .baseline-picked { fill: none; stroke: var(--c-accent); stroke-width: 2; }
+  .chart-overlay .baseline-source {
+    fill: color-mix(in srgb, var(--c-warning) 10%, transparent);
+    stroke: color-mix(in srgb, var(--c-warning) 45%, transparent);
+    stroke-dasharray: 4 3;
+  }
+  .chart-overlay .baseline-fixed { stroke: var(--c-warning); stroke-width: 2.5; }
   .tip-action { margin-top: 0.2rem; color: #cbd5e1; font-weight: 650; }
 </style>

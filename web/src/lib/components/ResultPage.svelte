@@ -12,6 +12,7 @@
     type ResultViewModel,
   } from "../result/loader";
   import { interceptNavClick, navigate } from "../router";
+  import { saveSelectedBaseline } from "../series/baseline";
   import { flagsText, type SeriesPoint } from "../series/transform";
   import DiagnosticArtifacts from "./DiagnosticArtifacts.svelte";
   import EnvironmentDetails from "./EnvironmentDetails.svelte";
@@ -35,7 +36,7 @@
   let errorMsg = $state<string | null>(null);
   let actionMsg = $state<string | null>(null);
   let actionError = $state<string | null>(null);
-  let busyAction = $state<"annotation" | "delete" | null>(null);
+  let busyAction = $state<"annotation" | "baseline" | "delete" | null>(null);
   let canWrite = $state(false);
   let deleted = $state(false);
 
@@ -101,6 +102,35 @@
       vm = resultViewModelFromDetail(res.data);
       await refreshHistory();
       actionMsg = "annotation updated";
+    } catch (err) {
+      actionError = err instanceof Error ? err.message : String(err);
+    } finally {
+      busyAction = null;
+    }
+  }
+
+  async function selectBaseline(startResultId: string, throughResultId: string): Promise<string | null> {
+    const error = await saveSelectedBaseline(client, startResultId, throughResultId);
+    if (error !== null) return error;
+    if (startResultId === resultId) vm = await loadResult(client, resultId);
+    await refreshHistory();
+    return null;
+  }
+
+  async function removeSelectedBaseline() {
+    if (vm === null || busyAction !== null) return;
+    actionMsg = null;
+    actionError = null;
+    busyAction = "baseline";
+    try {
+      const res = await client.updateResult(vm.id, { change_annotations: { baseline_override: null } });
+      if (res.status >= 400 || !res.data) {
+        actionError = detailOf(res.data, "failed to remove the selected baseline");
+        return;
+      }
+      vm = resultViewModelFromDetail(res.data);
+      await refreshHistory();
+      actionMsg = "selected baseline removed";
     } catch (err) {
       actionError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -320,6 +350,7 @@
           height={320}
           currentResultId={resultId}
           onopen={openHistoryResult}
+          onselectbaseline={canWrite ? selectBaseline : undefined}
         />
         <div class="trend-foot">
           <span>{historyPoints.length} {historyPoints.length === 1 ? "result" : "results"}</span>
@@ -419,6 +450,17 @@
               disabled={busyAction !== null}
             >
               {busyAction === "annotation" ? "Saving..." : "Mark distribution change"}
+            </button>
+          {/if}
+          {#if vm.selectedBaseline !== null}
+            <button
+              type="button"
+              class="button-pill"
+              onclick={removeSelectedBaseline}
+              disabled={busyAction !== null}
+              title={`Averaged from ${vm.selectedBaseline.resultCount} results starting here`}
+            >
+              {busyAction === "baseline" ? "Removing..." : "Remove selected baseline"}
             </button>
           {/if}
           <button type="button" class="button-pill danger" onclick={deleteResult} disabled={busyAction !== null}>

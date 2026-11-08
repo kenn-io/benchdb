@@ -30,6 +30,7 @@ const rows = toSeriesPoints([
     change_annotations: {},
     zscorestats: {
       begins_distribution_change: false,
+      fixed_baseline: false,
       is_outlier: true,
       is_step: false,
       residual: 0.2,

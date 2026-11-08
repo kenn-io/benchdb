@@ -2,7 +2,13 @@ import type { createBenchDBClient } from "../api/client";
 import type { ResultDetail } from "../api/benchdb";
 import { formatDate, tagsText } from "../browse/transform";
 import { formatMeasurement } from "../format";
-import { orderSamplesForChart, toSeriesPoints, type SeriesPoint } from "../series/transform";
+import {
+  baselineOverrideOf,
+  orderSamplesForChart,
+  toSeriesPoints,
+  type BaselineOverride,
+  type SeriesPoint,
+} from "../series/transform";
 
 type Client = ReturnType<typeof createBenchDBClient>;
 
@@ -53,6 +59,8 @@ export interface ResultViewModel {
   timesCountText: string | null;
   historyExportHref: string;
   beginsDistributionChange: boolean;
+  /** selectedBaseline is the baseline fixed from this result, if any. */
+  selectedBaseline: BaselineOverride | null;
   jsonBlocks: JSONBlock[];
 }
 
@@ -139,6 +147,7 @@ export function resultViewModelFromDetail(
     timesCountText: valueCountText(d.times, 1),
     historyExportHref: `/api/history/${encodeURIComponent(d.id)}`,
     beginsDistributionChange: changeAnnotations["begins_distribution_change"] === true,
+    selectedBaseline: baselineOverrideOf(changeAnnotations),
     jsonBlocks: [
       { label: "tags", value: jsonText(d.tags) },
       { label: "info", value: jsonText(d.info) },

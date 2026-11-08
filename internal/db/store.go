@@ -1419,6 +1419,38 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 	return seriesMembersRowsFromRows(rows), nil
 }
 
+// SelectSeriesPriorBoundaries implements storage.Store.
+func (s *Store) SelectSeriesPriorBoundaries(ctx context.Context, bounds []storage.SeriesBoundaryQuery) ([]storage.SeriesBoundary, error) {
+	if len(bounds) == 0 {
+		return nil, nil
+	}
+	params := SelectSeriesPriorBoundariesParams{
+		Fingerprints:     make([]string, len(bounds)),
+		BeforeTimestamps: make([]time.Time, len(bounds)),
+		BeforeIds:        make([]string, len(bounds)),
+	}
+	for i, b := range bounds {
+		params.Fingerprints[i] = b.Fingerprint
+		params.BeforeTimestamps[i] = b.Before.CommitTimestamp
+		params.BeforeIds[i] = b.Before.ResultID
+	}
+	rows, err := s.q.SelectSeriesPriorBoundaries(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]storage.SeriesBoundary, 0, len(rows))
+	for _, r := range rows {
+		if r.CommitTimestamp == nil {
+			continue // membership requires a commit timestamp
+		}
+		out = append(out, storage.SeriesBoundary{
+			HistoryFingerprint: r.HistoryFingerprint, ResultID: r.ID,
+			CommitTimestamp: *r.CommitTimestamp, Unit: r.Unit, ChangeAnnotations: r.ChangeAnnotations,
+		})
+	}
+	return out, nil
+}
+
 // SelectCIReportRunsByCommits returns distinct runs for a normalized repository
 // and commit SHAs, with commit metadata for baseline resolution.
 func (s *Store) SelectCIReportRunsByCommits(ctx context.Context, repository string, shas []string) ([]storage.CIReportRunRow, error) {
