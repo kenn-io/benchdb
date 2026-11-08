@@ -15,7 +15,7 @@
     "codegen": "orval"
   },
   "dependencies": {
-    "@kenn-io/kit-ui": "github:kenn-io/kit-ui#3cff8420d7bfea6b8a754245b64f7a055c7d33de",
+    "@kenn-io/kit-ui": "github:kenn-io/kit-ui#9708f472d162c6019b3d96301720a582dc1c8234",
     "@lucide/svelte": "1.64.0",
     "uplot": "1.6.32",
     "axios": "1.21.0"
