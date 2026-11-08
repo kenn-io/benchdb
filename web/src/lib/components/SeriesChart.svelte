@@ -585,8 +585,16 @@
     }
   }
 
+  function pointTime(p: SeriesPoint): string {
+    return new Date(p.chartMs).toISOString().slice(0, 16).replace("T", " ");
+  }
+
+  function pointRef(p: SeriesPoint): string {
+    return `${p.commitHash.slice(0, 10)} (${pointTime(p)})`;
+  }
+
   function pointLabel(p: SeriesPoint): string {
-    return `${p.commitHash.slice(0, 10)} · ${new Date(p.chartMs).toISOString().slice(0, 16).replace("T", " ")} · ${formatMeasurement(p.svs, p.unit)}`;
+    return `${p.commitHash.slice(0, 10)} · ${pointTime(p)} · ${formatMeasurement(p.svs, p.unit)}`;
   }
 
   function resetZoom(event: MouseEvent) {
@@ -635,11 +643,11 @@
     {@const start = points[span.startIndex]!}
     <p class="baseline-caption">
       {#if span.override !== null}
-        Selected baseline from {start.commitHash.slice(0, 10)}:
+        Selected baseline from {pointRef(start)}:
         {formatMeasurement(span.override.value, start.unit)}, the average of {span.override.resultCount}
         {span.override.resultCount === 1 ? "result" : "results"}{span.throughIndex === null
           ? ""
-          : ` through ${points[span.throughIndex]!.commitHash.slice(0, 10)}`}.
+          : ` through ${pointRef(points[span.throughIndex]!)}`}.
         It uses results committed after the point where it starts.
       {:else}
         A selected baseline that starts before this range applies here. It uses results committed after its start.
@@ -678,7 +686,7 @@
           · average <strong>{formatMeasurement(preview.mean, first.unit)}</strong>
         </p>
         <p class="baseline-note">
-          Applies from {first.commitHash.slice(0, 10)} until the next selected baseline or distribution change.
+          Applies from {pointRef(first)} until the next selected baseline or distribution change.
           {#if preview.indices.length > 1}Its value includes results committed after that start.{/if}
         </p>
         {#if preview.blockedBy !== null}
@@ -687,7 +695,7 @@
               Another result at this commit time ({formatMeasurement(preview.blockedBy.svs, preview.blockedBy.unit)}) has a selected baseline.
               Start the range from that result, or remove its baseline.
             {:else}
-              This range crosses a distribution change or selected baseline at {preview.blockedBy.commitHash.slice(0, 10)}.
+              This range crosses a distribution change or selected baseline at {pointRef(preview.blockedBy)}.
               Select a range that ends before it.
             {/if}
           </p>

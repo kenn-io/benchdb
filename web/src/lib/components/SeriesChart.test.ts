@@ -272,7 +272,7 @@ describe("SeriesChart", () => {
       await fireEvent.change(screen.getByLabelText("From"), { target: { value: "a" } });
       await fireEvent.change(screen.getByLabelText("Through"), { target: { value: "c" } });
 
-      expect(screen.getByRole("alert").textContent).toContain("sha-b");
+      expect(screen.getByRole("alert").textContent).toContain("sha-b (1970-01-01 00:02)");
       expect((screen.getByRole("button", { name: "Apply baseline" }) as HTMLButtonElement).disabled).toBe(true);
     });
 
@@ -339,8 +339,8 @@ describe("SeriesChart", () => {
       ];
       const { container } = render(SeriesChart, { props: { points: stored } });
       const caption = container.querySelector(".baseline-caption")?.textContent?.replace(/\s+/g, " ") ?? "";
-      expect(caption).toContain("Selected baseline from sha-b");
-      expect(caption).toContain("the average of 2 results through sha-c");
+      expect(caption).toContain("Selected baseline from sha-b (1970-01-01 00:02)");
+      expect(caption).toContain("the average of 2 results through sha-c (1970-01-01 00:04)");
       expect(caption).toContain("uses results committed after the point where it starts");
       expect(screen.queryByRole("button", { name: "Select baseline range" })).toBeNull();
     });
