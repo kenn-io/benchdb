@@ -1,12 +1,45 @@
+<div align="center">
+
 # BenchDB
 
-BenchDB is a self-hosted server for benchmark results. Your benchmark harness
+</div>
+
+<p align="center">
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?logo=go" alt="Go 1.27.3+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://benchdb.io"><img src="https://img.shields.io/badge/Docs-benchdb.io-blue" alt="Docs"></a>
+</p>
+
+<p align="center">
+  <a href="https://benchdb.io/docs/">Documentation</a> ·
+  <a href="https://benchdb.io/docs/quickstart/">Quickstart</a> ·
+  <a href="docs/site/concepts.md">Concepts</a>
+</p>
+
+**A self-hosted server for benchmark results.**
+
+Your benchmark harness
 writes JSON, the `benchdb` CLI uploads it, and BenchDB keeps the history of
 each benchmark on each machine. The dashboard shows trends and comparisons, and
 `benchdb ci report` tells a pull request whether it made a benchmark slower.
 
 BenchDB works with benchmarks in any language that can write JSON. It does not
 run or schedule benchmarks.
+
+## What you can do
+
+- **Record results with full context.** Each result keeps the commit, the
+  run, the machine, the unit, and the raw observations, so a number stays
+  explainable later.
+- **Track trends per machine.** Results that share a benchmark case, context,
+  machine, and repository form one series, and the dashboard shows its trends
+  and comparisons.
+- **Catch regressions in CI.** Each new result is scored against its series'
+  history and the matching baseline run; `benchdb ci report` tells a pull
+  request whether it made a benchmark slower.
+- **Benchmark any language.** Anything that can write JSON can submit
+  results, and a failed upload reruns from the saved files without running
+  the benchmark again.
 
 Start with the [quickstart](https://benchdb.io/docs/quickstart/), or read the
 [documentation](https://benchdb.io/docs/) for the full reference.
