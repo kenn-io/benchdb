@@ -1,4 +1,8 @@
-<h1 align="center">BenchDB</h1>
+<div align="center">
+
+# BenchDB
+
+</div>
 
 <p align="center">
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?logo=go" alt="Go 1.27.3+"></a>
