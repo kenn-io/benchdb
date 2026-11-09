@@ -62,7 +62,7 @@ exact history-window counts come from the analytical store.
 
 ## Reading results
 
-The server embeds `github.com/duckdb/duckdb-go/v2` v2.10505.0 (DuckDB 1.5.5).
+The server embeds `github.com/duckdb/duckdb-go/v2` v2.20000.0 (DuckDB 2.0.0).
 Native builds use CGO and a C/C++ toolchain. Release images contain the matching
 PostgreSQL extension for Linux amd64 or arm64; startup only loads the prepared
 extension and does not install or download it.

@@ -254,11 +254,18 @@ func googleCredentials(file string, margin time.Duration) (*auth.Credentials, er
 // that resolves the AWS credential chain itself. REFRESH auto makes DuckDB
 // resolve the chain again when the provider rejects expired credentials. GCS
 // secrets carry a bearer token instead; see renewArchiveToken.
+//
+// DuckDB does not check for interrupts while it waits between HTTP retries,
+// and it retries a 503 up to five times beyond http_retries. The archive proxy
+// answers 503 once a read's deadline unbinds the handle. With DuckDB's default
+// exponential backoff, whose waits reach 20 seconds, a canceled read keeps
+// running for over a minute. A backoff factor of 1 caps every wait at
+// http_retry_wait_ms, so the retries end within a second.
 func (e *Engine) remoteExtensions(ctx context.Context, handle *sql.DB) error {
 	if !e.location.remote() {
 		return nil
 	}
-	statements := []string{"LOAD httpfs"}
+	statements := []string{"LOAD httpfs", "SET GLOBAL http_retry_backoff=1"}
 	if e.location.backend == backendS3 {
 		statements = append(statements, "LOAD aws", e.s3Secret())
 	}

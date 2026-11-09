@@ -5,7 +5,7 @@ set -euo pipefail
 # must match both the embedded DuckDB version and the target platform. BenchDB
 # loads these files with runtime downloads disabled: postgres_scanner for every
 # archive, and httpfs and aws for S3 and GCS archives.
-version=v1.5.5
+version=v2.0.0
 extensions=(postgres_scanner httpfs aws)
 destination="${1:?usage: install_duckdb_extensions.sh DIRECTORY}"
 case "$(uname -s)/$(uname -m)" in
