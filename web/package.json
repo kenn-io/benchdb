@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@kenn-io/kit-ui": "github:kenn-io/kit-ui#9708f472d162c6019b3d96301720a582dc1c8234",
-    "@lucide/svelte": "1.64.0",
+    "@lucide/svelte": "1.66.0",
     "uplot": "1.6.32",
     "axios": "1.21.0"
   },
@@ -29,10 +29,10 @@
     "@types/node": "25.9.9",
     "jsdom": "29.1.1",
     "svelte": "5.57.3",
-    "svelte-check": "4.7.7",
+    "svelte-check": "4.7.8",
     "typescript": "5.9.3",
     "vite": "8.3.6",
     "vitest": "5.1.0",
-    "orval": "8.45.0"
+    "orval": "8.46.0"
   }
 }
