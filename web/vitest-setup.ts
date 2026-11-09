@@ -13,6 +13,7 @@ globalThis.ResizeObserver = TestResizeObserver;
 class TestIntersectionObserver implements IntersectionObserver {
   readonly root = null;
   readonly rootMargin = "0px";
+  readonly scrollMargin = "0px";
   readonly thresholds = [0];
   constructor(private readonly callback: IntersectionObserverCallback) {}
   observe(target: Element): void {
