@@ -37,6 +37,14 @@
       "groupSlug": "vite-toolchain"
     },
     {
+      "description": [
+        "svelte-check does not support TypeScript 7. Keep TypeScript below 7 until it does."
+      ],
+      "matchManagers": ["bun"],
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
       "groupSlug": "github-actions"

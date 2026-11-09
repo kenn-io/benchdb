@@ -51,7 +51,6 @@ coverage.out
 # Svelte app dependencies and build output.
 /web/node_modules/
 /web/dist/
-/web/.svelte-check/
 
 # Track only a placeholder under web/dist so `//go:embed all:dist` compiles on a
 # clean checkout; the built SPA assets themselves stay ignored.

@@ -116,6 +116,10 @@ jobs:
       - uses: step-security/setup-bun@v2.1.3
         with:
           bun-version: 1.4.4
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "26.13.0"
+          package-manager-cache: false
       - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.4
       - run: kit-retry 3 5 bun install --frozen-lockfile
       - run: bun run check
