@@ -1267,95 +1267,61 @@ export interface UpdateResultInputBody {
 }
 
 export type ListAlertEventsParams = {
-/**
- * Maximum events to return.
- */
-limit?: number;
+  /** Maximum events to return. */
+  limit?: number;
 };
 
 export type AuthCallbackParams = {
-state?: string;
-code?: string;
+  state?: string;
+  code?: string;
 };
 
 export type AuthCliStartParams = {
-redirect_uri?: string;
-state?: string;
+  redirect_uri?: string;
+  state?: string;
 };
 
 export type ListBenchmarkResultsParams = {
-/**
- * Filter by run id.
- */
-run_id?: string;
-/**
- * Filter by batch id.
- */
-batch_id?: string;
-/**
- * Filter by run reason.
- */
-run_reason?: string;
-/**
- * Lower bound (inclusive), RFC3339.
- */
-earliest_timestamp?: string;
-/**
- * Upper bound (inclusive), RFC3339.
- */
-latest_timestamp?: string;
-/**
- * Pagination cursor (previous page's last id).
- */
-cursor?: string;
-/**
- * Page size (max 1000).
- */
-page_size?: number;
+  /** Filter by run id. */
+  run_id?: string;
+  /** Filter by batch id. */
+  batch_id?: string;
+  /** Filter by run reason. */
+  run_reason?: string;
+  /** Lower bound (inclusive), RFC3339. */
+  earliest_timestamp?: string;
+  /** Upper bound (inclusive), RFC3339. */
+  latest_timestamp?: string;
+  /** Pagination cursor (previous page's last id). */
+  cursor?: string;
+  /** Page size (max 1000). */
+  page_size?: number;
 };
 
 export type UploadResultArtifactParams = {
-name: string;
-kind?: string;
+  name: string;
+  kind?: string;
 };
 
 export type ListBenchmarksParams = {
-/**
- * Substring match on benchmark name and tags.
- */
-q?: string;
-/**
- * Only this machine's track of each benchmark: its status, latest value and history.
- */
-hardware?: string;
-/**
- * Filter by repository URL.
- */
-repository?: string;
-/**
- * Filter by stable benchmark identifier.
- */
-benchmark_id?: string;
-/**
- * Only machine tracks whose latest commit is at or after this instant, RFC3339.
- */
-active_since?: string;
-/**
- * Only machine tracks whose latest commit is at or before this instant, RFC3339.
- */
-active_until?: string;
-/**
- * Only benchmarks with this status.
- */
-status?: ListBenchmarksStatus;
-/**
- * Pagination cursor from a previous page.
- */
-cursor?: string;
-/**
- * Page size (max 1000).
- */
-page_size?: number;
+  /** Substring match on benchmark name and tags. */
+  q?: string;
+  /** Only this machine's track of each benchmark: its status, latest value and history. */
+  hardware?: string;
+  /** Filter by repository URL. */
+  repository?: string;
+  /** Filter by stable benchmark identifier. */
+  benchmark_id?: string;
+  /** Only machine tracks whose latest commit is at or after this instant, RFC3339. */
+  active_since?: string;
+  /** Only machine tracks whose latest commit is at or before this instant, RFC3339. */
+  active_until?: string;
+  /** Only benchmarks with this status. */
+  status?: ListBenchmarksStatus;
+  /** Pagination cursor from a previous page. */
+  cursor?: string;
+  /** Page size (max 1000). */
+  page_size?: number;
 };
 
 export type ListBenchmarksStatus = typeof ListBenchmarksStatus[keyof typeof ListBenchmarksStatus];
@@ -1369,34 +1335,20 @@ export const ListBenchmarksStatus = {
 } as const;
 
 export type GetCiReportParams = {
-/**
- * Repository URL.
- */
-repository?: string;
-/**
- * Commit SHA.
- */
-commit_sha?: string;
-/**
- * Comma-separated contender run IDs.
- */
-run_ids?: string;
-/**
- * Comma-separated explicit baseline run IDs, paired by position with run_ids.
- */
-baseline_run_ids?: string;
-/**
- * Automatic baseline selector.
- */
-baseline?: GetCiReportBaseline;
-/**
- * Pairwise percent-change threshold. Defaults to 5.
- */
-threshold?: number;
-/**
- * Lookback z-score threshold. Defaults to 2.
- */
-threshold_z?: number;
+  /** Repository URL. */
+  repository?: string;
+  /** Commit SHA. */
+  commit_sha?: string;
+  /** Comma-separated contender run IDs. */
+  run_ids?: string;
+  /** Comma-separated explicit baseline run IDs, paired by position with run_ids. */
+  baseline_run_ids?: string;
+  /** Automatic baseline selector. */
+  baseline?: GetCiReportBaseline;
+  /** Pairwise percent-change threshold. Defaults to 5. */
+  threshold?: number;
+  /** Lookback z-score threshold. Defaults to 2. */
+  threshold_z?: number;
 };
 
 export type GetCiReportBaseline = typeof GetCiReportBaseline[keyof typeof GetCiReportBaseline];
@@ -1409,119 +1361,79 @@ export const GetCiReportBaseline = {
 } as const;
 
 export type GetRunReportSummariesParams = {
-/**
- * Select the latest saved evaluation instead of the original.
- */
-latest?: boolean;
-/**
- * @maxLength 25600
- */
-run_ids: string;
+  /** Select the latest saved evaluation instead of the original. */
+  latest?: boolean;
+  /** @maxLength 25600 */
+  run_ids: string;
 };
 
 export type GetSavedRunReportParams = {
-/**
- * Saved evaluation number. Zero selects the latest evaluation.
- * @minimum 0
- */
-evaluation?: number;
+  /**
+   * Saved evaluation number. Zero selects the latest evaluation.
+   * @minimum 0
+   */
+  evaluation?: number;
 };
 
 export type CompareBenchmarkResultsParams = {
-/**
- * Baseline benchmark result id.
- */
-baseline_result_id: string;
-/**
- * Contender benchmark result id.
- */
-contender_result_id: string;
-/**
- * Pairwise percent-change threshold.
- */
-threshold?: number;
-/**
- * Lookback z-score threshold.
- */
-threshold_z?: number;
+  /** Baseline benchmark result id. */
+  baseline_result_id: string;
+  /** Contender benchmark result id. */
+  contender_result_id: string;
+  /** Pairwise percent-change threshold. */
+  threshold?: number;
+  /** Lookback z-score threshold. */
+  threshold_z?: number;
 };
 
 export type GetHistoryParams = {
-/**
- * History fingerprint.
- */
-fingerprint: string;
+  /** History fingerprint. */
+  fingerprint: string;
 };
 
 export type ListMachinesParams = {
-/**
- * Filter by repository URL.
- */
-repository?: string;
+  /** Filter by repository URL. */
+  repository?: string;
 };
 
 export type ListRecentRunsParams = {
-/**
- * Find runs by a commit SHA or any part of a commit URL (case-insensitive).
- * @maxLength 2048
- */
-q?: string;
-/**
- * Number of matching runs to skip.
- * @minimum 0
- */
-offset?: number;
-/**
- * Page size (max 100).
- */
-page_size?: number;
-/**
- * Return only runs whose CI report needs attention.
- */
-needs_attention?: boolean;
-/**
- * Filter by repository URL.
- */
-repository?: string;
+  /**
+   * Find runs by a commit SHA or any part of a commit URL (case-insensitive).
+   * @maxLength 2048
+   */
+  q?: string;
+  /**
+   * Number of matching runs to skip.
+   * @minimum 0
+   */
+  offset?: number;
+  /** Page size (max 100). */
+  page_size?: number;
+  /** Return only runs whose CI report needs attention. */
+  needs_attention?: boolean;
+  /** Filter by repository URL. */
+  repository?: string;
 };
 
 export type ListSeriesParams = {
-/**
- * Substring match on case name and case tags.
- */
-q?: string;
-/**
- * Filter by hardware name.
- */
-hardware?: string;
-/**
- * Filter by repository URL.
- */
-repository?: string;
-/**
- * Filter by history fingerprint.
- */
-fingerprint?: string;
-/**
- * Only series with this status.
- */
-status?: ListSeriesStatus;
-/**
- * Latest commit at or after this instant, RFC3339.
- */
-active_since?: string;
-/**
- * Latest commit at or before this instant, RFC3339.
- */
-active_until?: string;
-/**
- * Pagination cursor from a previous page's next_page_cursor.
- */
-cursor?: string;
-/**
- * Page size (max 1000).
- */
-page_size?: number;
+  /** Substring match on case name and case tags. */
+  q?: string;
+  /** Filter by hardware name. */
+  hardware?: string;
+  /** Filter by repository URL. */
+  repository?: string;
+  /** Filter by history fingerprint. */
+  fingerprint?: string;
+  /** Only series with this status. */
+  status?: ListSeriesStatus;
+  /** Latest commit at or after this instant, RFC3339. */
+  active_since?: string;
+  /** Latest commit at or before this instant, RFC3339. */
+  active_until?: string;
+  /** Pagination cursor from a previous page's next_page_cursor. */
+  cursor?: string;
+  /** Page size (max 1000). */
+  page_size?: number;
 };
 
 export type ListSeriesStatus = typeof ListSeriesStatus[keyof typeof ListSeriesStatus];
