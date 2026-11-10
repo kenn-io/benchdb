@@ -36,6 +36,13 @@ WITH scoped AS (
     AND (sqlc.narg('benchmark_id')::text IS NULL OR v.benchmark_id = sqlc.narg('benchmark_id')::text)
     AND (sqlc.narg('active_since')::timestamp IS NULL OR v.latest_commit_timestamp >= sqlc.narg('active_since')::timestamp)
     AND (sqlc.narg('active_until')::timestamp IS NULL OR v.latest_commit_timestamp <= sqlc.narg('active_until')::timestamp)
+    -- A benchmark ranks regressed, improved or stable only when one of its
+    -- tracks has that status, so a filter on those statuses reads only such
+    -- benchmarks and every track of each. Insufficient also covers tracks
+    -- without one unit, so that filter reads every benchmark.
+    AND (sqlc.narg('status_rank')::integer IS NULL OR sqlc.narg('status_rank')::integer = 3 OR v.benchmark_id IN (
+      SELECT r.benchmark_id FROM benchmark_verdict r
+      WHERE r.status = (ARRAY['regressed', 'improved', 'stable'])[sqlc.narg('status_rank')::integer + 1]))
 ),
 benchmark AS (
   SELECT
@@ -43,9 +50,11 @@ benchmark AS (
     s.repository,
     s.case_name,
     s.case_tags,
-    -- Empty when the tracks do not share one unit.
-    coalesce(CASE WHEN bool_and(s.unit IS NOT NULL) AND count(DISTINCT s.unit) = 1 THEN min(s.unit) END, '')::text AS unit,
-    (CASE WHEN bool_and(s.unit IS NOT NULL) AND count(DISTINCT s.unit) = 1 THEN min(s.status_rank) ELSE 3 END)::integer AS status_rank,
+    -- Empty when the tracks do not share one unit: every track has a unit and
+    -- the smallest equals the largest. Unlike count(DISTINCT), this needs no
+    -- sort within each group.
+    coalesce(CASE WHEN count(s.unit) = count(*) AND min(s.unit) = max(s.unit) THEN min(s.unit) END, '')::text AS unit,
+    (CASE WHEN count(s.unit) = count(*) AND min(s.unit) = max(s.unit) THEN min(s.status_rank) ELSE 3 END)::integer AS status_rank,
     array_agg(s.machine_name ORDER BY s.machine_name)::text[] AS machine_names
   FROM scoped s
   GROUP BY s.benchmark_id, s.repository, s.case_name, s.case_tags
@@ -138,8 +147,11 @@ WITH scoped AS (
     v.unit,
     CASE v.status WHEN 'regressed' THEN 0 WHEN 'improved' THEN 1 WHEN 'stable' THEN 2 ELSE 3 END AS status_rank
   FROM benchmark_verdict v
-  JOIN "case" cs ON cs.id = v.case_id
-  WHERE (sqlc.narg('q')::text IS NULL OR cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')
+  -- Every stored track's case exists: results reference their case and cases
+  -- are never deleted. So only the name search needs to read cases.
+  WHERE (sqlc.narg('q')::text IS NULL OR EXISTS (
+      SELECT 1 FROM "case" cs WHERE cs.id = v.case_id
+        AND (cs.name ILIKE '%' || sqlc.narg('q')::text || '%' OR cs.tags::text ILIKE '%' || sqlc.narg('q')::text || '%')))
     AND (sqlc.narg('hardware')::text IS NULL OR v.machine_name = sqlc.narg('hardware')::text)
     AND (sqlc.narg('repository')::text IS NULL OR v.repository = sqlc.narg('repository')::text)
     AND (sqlc.narg('benchmark_id')::text IS NULL OR v.benchmark_id = sqlc.narg('benchmark_id')::text)
@@ -148,7 +160,7 @@ WITH scoped AS (
 ),
 benchmark AS (
   SELECT
-    (CASE WHEN bool_and(s.unit IS NOT NULL) AND count(DISTINCT s.unit) = 1 THEN min(s.status_rank) ELSE 3 END)::integer AS status_rank
+    (CASE WHEN count(s.unit) = count(*) AND min(s.unit) = max(s.unit) THEN min(s.status_rank) ELSE 3 END)::integer AS status_rank
   FROM scoped s
   GROUP BY s.benchmark_id
 )
