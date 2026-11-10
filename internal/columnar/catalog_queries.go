@@ -37,6 +37,9 @@ func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParam
 		if err := snapshot.seriesSummaries(ctx); err != nil {
 			return err
 		}
+		if err := snapshot.staleSeries(ctx); err != nil {
+			return err
+		}
 		affected, err := collectRows(ctx, snapshot, `SELECT DISTINCT history_fingerprint FROM (`+affectedSeriesSQL+`)`, nil, scanString)
 		if err != nil {
 			return err

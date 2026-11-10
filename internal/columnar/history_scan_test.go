@@ -32,10 +32,8 @@ func TestHistoryReadsOnlyReferencedDimensions(t *testing.T) {
 	wantAsOf, err := pg.SelectHistoryForFingerprintsAsOf(ctx, []string{baseline.HistoryFingerprint}, *asOf)
 	require.NoError(t, err)
 
-	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, e.Close()) })
-	reads := measureDimensionReads(t, ctx, pool, e, func() {
+	cfg := Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1}
+	reads := measureDimensionReads(t, ctx, pool, cfg, func(e *Engine) {
 		store := NewStore(pg, e)
 		got, err := store.SelectHistoryForFingerprint(ctx, baseline.HistoryFingerprint)
 		require.NoError(t, err)

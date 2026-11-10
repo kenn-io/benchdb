@@ -532,6 +532,9 @@ func TestReadHasNoImplicitFactView(t *testing.T) {
 		if err := snapshot.seriesSummaries(ctx); err != nil {
 			return err
 		}
+		if err := snapshot.staleSeries(ctx); err != nil {
+			return err
+		}
 		runs, err := collectRows(ctx, snapshot, `SELECT run_id FROM archive_run_catalog`, nil, scanString)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"cold-run"}, runs)

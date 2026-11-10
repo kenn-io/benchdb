@@ -22,9 +22,9 @@ type ReadSnapshot struct {
 	// lookups reports a complete lookup directory in this snapshot. Until
 	// the backfill completes it, selection uses the summary catalogs.
 	lookups bool
-	// runSummariesReady and seriesSummariesReady report summary views this
-	// read has created.
-	runSummariesReady, seriesSummariesReady bool
+	// runSummariesReady, seriesSummariesReady, and staleSeriesReady report
+	// summary relations this read has created.
+	runSummariesReady, seriesSummariesReady, staleSeriesReady bool
 	// catalogs maps each catalog key this read opened to the location DuckDB
 	// reads; releases unpin its cached copies when the read ends.
 	catalogs map[string]string
