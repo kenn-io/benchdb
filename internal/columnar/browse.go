@@ -151,6 +151,9 @@ func seriesPageScope(ctx context.Context, snapshot *ReadSnapshot, p storage.Seri
 	if err := snapshot.seriesSummaries(ctx); err != nil {
 		return queryScope{}, err
 	}
+	if err := snapshot.staleSeries(ctx); err != nil {
+		return queryScope{}, err
+	}
 	fingerprints, err := collectRows(ctx, snapshot, seriesWindowCandidatesSQL,
 		[]any{p.ActiveSince, p.ActiveUntil, p.Q, p.Hardware, p.Repository}, scanString)
 	return queryScope{Fingerprints: fingerprints}, err

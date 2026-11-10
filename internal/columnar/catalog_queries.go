@@ -15,12 +15,18 @@ JOIN archive_stale_series s ON s.archive_path=c.archive_path`
 const seriesGroupColumns = `history_fingerprint,case_id,context_id,hardware_id,commit_repo_url,
 latest_result_id,commit_timestamp,first_commit_timestamp,point_count`
 
-func seriesGroupsSQL(source, filter string) string {
+// seriesGroupsSQL summarizes the facts of source that match filter. It
+// joins only the commits those facts reference.
+func seriesGroupsSQL(ctx context.Context, q queryer, source, filter string) (string, error) {
+	commits, err := referencedRows(ctx, q, `SELECT DISTINCT br.commit_id FROM (`+source+`) br WHERE `+filter, nil, "commit")
+	if err != nil {
+		return "", err
+	}
 	return `SELECT br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commit_repo_url,
 arg_max(br.id,(c."timestamp",br.id)) AS latest_result_id,max(c."timestamp") AS commit_timestamp,
 min(c."timestamp") AS first_commit_timestamp,count(*) AS point_count
-FROM (` + source + `) br JOIN "commit" c ON c.id=br.commit_id WHERE ` + historyMembership + ` AND ` + filter + `
-GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commit_repo_url`
+FROM (` + source + `) br JOIN ` + commits[0] + ` c ON c.id=br.commit_id WHERE ` + historyMembership + ` AND ` + filter + `
+GROUP BY br.history_fingerprint,br.case_id,br.context_id,br.hardware_id,br.commit_repo_url`, nil
 }
 
 func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParams) (out []storage.SeriesPageRow, err error) {
@@ -31,6 +37,9 @@ func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParam
 		if err := snapshot.seriesSummaries(ctx); err != nil {
 			return err
 		}
+		if err := snapshot.staleSeries(ctx); err != nil {
+			return err
+		}
 		affected, err := collectRows(ctx, snapshot, `SELECT DISTINCT history_fingerprint FROM (`+affectedSeriesSQL+`)`, nil, scanString)
 		if err != nil {
 			return err
@@ -39,14 +48,22 @@ func (s *Store) catalogSeriesPage(ctx context.Context, p storage.SeriesListParam
 		if err != nil {
 			return err
 		}
+		hotGroups, err := seriesGroupsSQL(ctx, snapshot, hot, "true")
+		if err != nil {
+			return err
+		}
 		groups := `SELECT ` + seriesGroupColumns + ` FROM archive_series_catalog
-WHERE history_fingerprint NOT IN (` + affectedSeriesSQL + `) UNION ALL ` + seriesGroupsSQL(hot, "true")
+WHERE history_fingerprint NOT IN (` + affectedSeriesSQL + `) UNION ALL ` + hotGroups
 		cold, err := snapshot.archivedFacts(ctx, queryScope{Fingerprints: affected})
 		if err != nil {
 			return err
 		}
 		if cold != "" {
-			groups += ` UNION ALL ` + seriesGroupsSQL(cold, `br.history_fingerprint IN (`+affectedSeriesSQL+`)`)
+			coldGroups, err := seriesGroupsSQL(ctx, snapshot, cold, `br.history_fingerprint IN (`+affectedSeriesSQL+`)`)
+			if err != nil {
+				return err
+			}
+			groups += ` UNION ALL ` + coldGroups
 		}
 		type selectedSeries struct {
 			fingerprint, id string
@@ -83,12 +100,18 @@ GROUP BY p.history_fingerprint,p.id,p.commit_timestamp ORDER BY p.commit_timesta
 		if err := snapshot.selectFacts(ctx, queryScope{ResultIDs: latestIDs}); err != nil {
 			return err
 		}
+		latest := `SELECT * FROM benchmark_result WHERE id IN (` + strings.Join(ids, ",") + `)`
+		rows, err := referencedRows(ctx, snapshot, `SELECT commit_id,case_id,context_id,hardware_id FROM (`+latest+`)`, nil,
+			"commit", "case", "context", "hardware")
+		if err != nil {
+			return err
+		}
 		out, err = collectRows(ctx, snapshot, `SELECT p.history_fingerprint,p.id,br."timestamp",c.sha,c."timestamp",br.commit_repo_url,
 br.unit,br.data,p.point_count,cs.name,cs.tags,ctx.tags,hw.id,hw.name,hw.type,hw.hash
 FROM (VALUES `+strings.Join(values, ",")+`) p(history_fingerprint,id,point_count)
-JOIN (SELECT * FROM benchmark_result WHERE id IN (`+strings.Join(ids, ",")+`)) br ON br.id=p.id
-JOIN "commit" c ON c.id=br.commit_id JOIN "case" cs ON cs.id=br.case_id
-JOIN context ctx ON ctx.id=br.context_id JOIN hardware hw ON hw.id=br.hardware_id
+JOIN (`+latest+`) br ON br.id=p.id
+JOIN `+rows[0]+` c ON c.id=br.commit_id JOIN `+rows[1]+` cs ON cs.id=br.case_id
+JOIN `+rows[2]+` ctx ON ctx.id=br.context_id JOIN `+rows[3]+` hw ON hw.id=br.hardware_id
 ORDER BY c."timestamp" DESC,p.history_fingerprint DESC`, nil, scanSeriesPage)
 		return err
 	})

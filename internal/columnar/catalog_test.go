@@ -97,6 +97,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 			if err := tx.seriesSummaries(ctx); err != nil {
 				return err
 			}
+			if err := tx.staleSeries(ctx); err != nil {
+				return err
+			}
 			var count int64
 			err := tx.QueryRowContext(ctx, `SELECT sum(point_count) FROM archive_series_catalog`).Scan(&count)
 			if err == nil && count != 0 {
@@ -162,6 +165,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 		if err := tx.seriesSummaries(ctx); err != nil {
 			return err
 		}
+		if err := tx.staleSeries(ctx); err != nil {
+			return err
+		}
 		var stale int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM archive_stale_series`).Scan(&stale); err != nil {
 			return err
@@ -187,6 +193,9 @@ func TestCatalogRepairDuringPublicationAndPinnedReader(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.NoError(t, e.Read(ctx, func(ctx context.Context, tx *ReadSnapshot) error {
 		if err := tx.seriesSummaries(ctx); err != nil {
+			return err
+		}
+		if err := tx.staleSeries(ctx); err != nil {
 			return err
 		}
 		var stale int
