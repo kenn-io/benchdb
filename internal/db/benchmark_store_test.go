@@ -176,6 +176,13 @@ func TestBenchmarkPageOrdersStoredStatusesAcrossPages(t *testing.T) {
 	assert.Equal(t, []string{"beta"}, benchmarkNames(improved.Rows))
 	assert.Equal(t, map[string]int64{"regressed": 1, "improved": 1, "stable": 1, "insufficient": 1},
 		improved.StatusCounts, "counts ignore the status filter")
+
+	regressed := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10, Status: new("regressed")}).Rows
+	assert.Equal(t, []string{"alpha"}, benchmarkNames(regressed), "gamma's regressed track measures another unit than its other track")
+	require.Len(t, regressed, 1)
+	assert.Equal(t, []string{"m5", "m7"}, regressed[0].MachineNames, "a filtered benchmark keeps every track")
+	insufficient := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{PageSize: 10, Status: new("insufficient")}).Rows
+	assert.Equal(t, []string{"gamma"}, benchmarkNames(insufficient))
 }
 
 func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
@@ -219,6 +226,11 @@ func TestBenchmarkPageScopesStoredTracks(t *testing.T) {
 			assert.Equal(t, int64(len(tc.want)), total, "counts share the page's scope")
 		})
 	}
+
+	regressedOnM5 := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Hardware: new("m5"), Status: new("regressed"), PageSize: 10}).Rows
+	assert.Equal(t, []string{"alpha"}, benchmarkNames(regressedOnM5))
+	regressedOnM7 := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Hardware: new("m7"), Status: new("regressed"), PageSize: 10}).Rows
+	assert.Empty(t, regressedOnM7, "alpha regressed only on a machine outside the scope")
 
 	m7 := listBenchmarks(t, ctx, st, storage.BenchmarkListParams{Hardware: new("m7"), PageSize: 10}).Rows
 	require.Len(t, m7, 1)
