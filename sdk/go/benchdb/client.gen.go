@@ -5830,8 +5830,10 @@ func (b BenchmarkPreviewPoint) Validate() error {
 }
 
 type BenchmarkPreviewTrack struct {
-	MachineName string                  `json:"machine_name" validate:"required"`
-	Points      []BenchmarkPreviewPoint `json:"points" validate:"required"`
+	// HistoryFingerprint The series that sets this machine's status. Absent until the track's status is next computed.
+	HistoryFingerprint *string                 `json:"history_fingerprint,omitempty"`
+	MachineName        string                  `json:"machine_name" validate:"required"`
+	Points             []BenchmarkPreviewPoint `json:"points" validate:"required"`
 }
 
 func (b BenchmarkPreviewTrack) Validate() error {

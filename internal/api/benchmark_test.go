@@ -143,6 +143,10 @@ func TestBenchmarkStatusFollowsMachineCurrentContext(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &history))
 	require.Len(t, history.Tracks, 1)
 	require.Len(t, history.Tracks[0].Segments, 2)
+	require.Len(t, page.Benchmarks[0].PreviewTracks, 1)
+	require.NotNil(t, page.Benchmarks[0].PreviewTracks[0].HistoryFingerprint)
+	assert.Equal(t, history.Tracks[0].Segments[1].HistoryFingerprint, *page.Benchmarks[0].PreviewTracks[0].HistoryFingerprint,
+		"the list names the current context's series, which sets the status")
 	samples := history.Tracks[0].Segments[1].Samples
 	require.Len(t, samples, len(postDrop))
 	latest := samples[len(samples)-1].ZScoreStats

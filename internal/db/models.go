@@ -393,6 +393,7 @@ type BenchmarkVerdict struct {
 	PreviewPoints         []byte
 	ChangePercent         *float64
 	PointCount            int64
+	StatusFingerprint     *string
 }
 
 type Case struct {

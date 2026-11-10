@@ -106,6 +106,7 @@ func (s *Store) FinishBenchmarkVerdicts(ctx context.Context, claim storage.Verdi
 				Unit:                  verdict.Unit,
 				Status:                verdict.Status,
 				ChangePercent:         verdict.ChangePercent,
+				StatusFingerprint:     verdict.StatusFingerprint,
 				LatestResultID:        verdict.LatestResultID,
 				LatestResultTimestamp: verdict.LatestResultTimestamp,
 				LatestCommitSha:       verdict.LatestCommitSHA,

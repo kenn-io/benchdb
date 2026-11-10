@@ -230,6 +230,8 @@ export interface BenchmarkPreviewPoint {
 }
 
 export interface BenchmarkPreviewTrack {
+  /** The series that sets this machine's status. Absent until the track's status is next computed. */
+  history_fingerprint?: string;
   machine_name: string;
   /** @nullable */
   points: BenchmarkPreviewPoint[] | null;

@@ -91,15 +91,19 @@ type RunVerdict struct {
 // in percent of the mean, from the segment that sets Status; nil when that
 // mean is zero or cannot be computed.
 type BenchmarkVerdict struct {
-	BenchmarkID           string
-	MachineName           string
-	Repository            string
-	CaseID                string
-	PointCount            int64
-	PreviewPoints         []byte
-	Unit                  *string
-	Status                string
-	ChangePercent         *float64
+	BenchmarkID   string
+	MachineName   string
+	Repository    string
+	CaseID        string
+	PointCount    int64
+	PreviewPoints []byte
+	Unit          *string
+	Status        string
+	ChangePercent *float64
+	// StatusFingerprint is the series that sets Status: the current segment
+	// with the worst status, or the latest result's series when no segment
+	// can be scored.
+	StatusFingerprint     string
 	LatestResultID        string
 	LatestResultTimestamp time.Time
 	LatestCommitSHA       string

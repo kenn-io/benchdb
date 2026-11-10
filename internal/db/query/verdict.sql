@@ -159,7 +159,7 @@ WHERE v.needs_attention
 -- name: UpsertBenchmarkVerdict :exec
 INSERT INTO benchmark_verdict (
   benchmark_id, machine_name, repository, case_id, point_count, preview_points, unit,
-  status, change_percent, latest_result_id, latest_result_timestamp,
+  status, change_percent, status_fingerprint, latest_result_id, latest_result_timestamp,
   latest_commit_sha, latest_commit_timestamp, computed_at
 )
 VALUES (
@@ -172,6 +172,7 @@ VALUES (
   sqlc.narg('unit'),
   sqlc.arg('status'),
   sqlc.narg('change_percent')::double precision,
+  sqlc.arg('status_fingerprint')::text,
   sqlc.arg('latest_result_id'),
   sqlc.arg('latest_result_timestamp'),
   sqlc.arg('latest_commit_sha'),
@@ -186,6 +187,7 @@ ON CONFLICT (benchmark_id, machine_name) DO UPDATE SET
   unit = EXCLUDED.unit,
   status = EXCLUDED.status,
   change_percent = EXCLUDED.change_percent,
+  status_fingerprint = EXCLUDED.status_fingerprint,
   latest_result_id = EXCLUDED.latest_result_id,
   latest_result_timestamp = EXCLUDED.latest_result_timestamp,
   latest_commit_sha = EXCLUDED.latest_commit_sha,
