@@ -535,13 +535,13 @@ func TestReadHasNoImplicitFactView(t *testing.T) {
 		runs, err := collectRows(ctx, snapshot, `SELECT run_id FROM archive_run_catalog`, nil, scanString)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"cold-run"}, runs)
-		for _, view := range summaryViews {
+		for _, view := range summaryRelations {
 			var n int
 			require.NoError(t, snapshot.QueryRowContext(ctx, `SELECT count(*) FROM `+view).Scan(&n), view)
 		}
 		return nil
 	}))
-	for _, view := range summaryViews {
+	for _, view := range summaryRelations {
 		require.Error(t, e.Read(ctx, func(ctx context.Context, snapshot *ReadSnapshot) error {
 			var n int
 			return snapshot.QueryRowContext(ctx, `SELECT count(*) FROM `+view).Scan(&n)

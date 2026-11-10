@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -25,10 +26,15 @@ LEFT JOIN "commit" c ON c.id=d.commit_id
 WHERE d.commit_timestamp IS DISTINCT FROM c."timestamp"
 OR d.on_default_branch IS DISTINCT FROM coalesce(c.sha=c.fork_point_sha,false)`
 
-// summaryViews are the per-read summary catalog views. A read creates each
-// only when a query needs it; see ReadSnapshot.runSummaries and
+// summaryViews are the per-read summary catalog views, and
+// staleSeriesTable qualifies the series catalog. A read creates each only
+// when a query needs it; see ReadSnapshot.runSummaries and
 // ReadSnapshot.seriesSummaries.
-var summaryViews = []string{"archive_run_catalog", "archive_series_catalog", "archive_stale_series"}
+var summaryViews = []string{"archive_run_catalog", "archive_series_catalog"}
+
+const staleSeriesTable = "archive_stale_series"
+
+var summaryRelations = append(slices.Clone(summaryViews), staleSeriesTable)
 
 // summaryCatalog is one per-file summary catalog, read as a view over the
 // pinned manifest's files.
@@ -75,8 +81,10 @@ func (s *ReadSnapshot) runSummaries(ctx context.Context) error {
 }
 
 // seriesSummaries creates the series summary view, and the stale-series
-// view that qualifies it, the first time one of the read's queries needs
-// them.
+// table that qualifies it, the first time one of the read's queries needs
+// them. The staleness check compares every archived commit dependency with
+// PostgreSQL, so it is evaluated once per read rather than once for each
+// query that names it.
 func (s *ReadSnapshot) seriesSummaries(ctx context.Context) error {
 	if s.seriesSummariesReady {
 		return nil
@@ -84,7 +92,7 @@ func (s *ReadSnapshot) seriesSummaries(ctx context.Context) error {
 	if err := s.summaryView(ctx, seriesSummaryCatalog); err != nil {
 		return err
 	}
-	if _, err := s.tx.ExecContext(ctx, `CREATE TEMP VIEW archive_stale_series AS SELECT * FROM postgres_query('pg',`+literal(staleCatalogSQL)+`)`); err != nil {
+	if _, err := s.tx.ExecContext(ctx, `CREATE TEMP TABLE `+staleSeriesTable+` AS SELECT * FROM postgres_query('pg',`+literal(staleCatalogSQL)+`)`); err != nil {
 		return err
 	}
 	s.seriesSummariesReady = true

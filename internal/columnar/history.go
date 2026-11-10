@@ -2,6 +2,7 @@ package columnar
 
 import (
 	"context"
+	"database/sql"
 	"slices"
 	"strings"
 	"time"
@@ -40,21 +41,14 @@ func (s *Store) SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprin
 }
 
 // selectHistory reads the history of the facts matching facts, whose only
-// parameter, $1, is selected. DuckDB does not pass join keys to the
-// PostgreSQL extension, so joining the live dimension views copies every
-// info and commit row for each read. Reading the referenced keys first lets
-// PostgreSQL fetch only those rows by primary key.
+// parameter, $1, is selected.
 func (s *Store) selectHistory(ctx context.Context, fingerprints []string, facts string, selected any, asOf *time.Time, order string) (out []storage.HistoryRow, err error) {
 	err = s.read(ctx, queryScope{Fingerprints: fingerprints}, func(ctx context.Context, q queryer) error {
 		args := []any{selected}
-		keys, err := collectRows(ctx, q, `SELECT DISTINCT br.info_id,br.hardware_id,br.commit_id FROM benchmark_result br
-WHERE br.error IS NULL AND br.commit_id IS NOT NULL AND `+facts, args, scanDimensionKeys)
+		rows, err := referencedRows(ctx, q, `SELECT DISTINCT br.info_id,br.hardware_id,br.commit_id FROM benchmark_result br
+WHERE br.error IS NULL AND br.commit_id IS NOT NULL AND `+facts, args, "info", "hardware", "commit")
 		if err != nil {
 			return err
-		}
-		var info, hardware, commits []string
-		for _, key := range keys {
-			info, hardware, commits = append(info, key[0]), append(hardware, key[1]), append(commits, key[2])
 		}
 		where := historyMembership + ` AND ` + facts
 		if asOf != nil {
@@ -62,18 +56,51 @@ WHERE br.error IS NULL AND br.commit_id IS NOT NULL AND `+facts, args, scanDimen
 			args = append(args, *asOf)
 		}
 		out, err = collectRows(ctx, q, `SELECT `+historyColumns+` FROM benchmark_result br
-JOIN `+postgresRows("info", info)+` inf ON inf.id=br.info_id
-JOIN `+postgresRows("hardware", hardware)+` hw ON hw.id=br.hardware_id
-JOIN `+postgresRows("commit", commits)+` c ON c.id=br.commit_id
+JOIN `+rows[0]+` inf ON inf.id=br.info_id
+JOIN `+rows[1]+` hw ON hw.id=br.hardware_id
+JOIN `+rows[2]+` c ON c.id=br.commit_id
 WHERE `+where+` `+order, args, scanHistory)
 		return err
 	})
 	return
 }
 
-func scanDimensionKeys(row rowScanner) (out [3]string, err error) {
-	err = row.Scan(&out[0], &out[1], &out[2])
-	return
+// referencedRows returns, for each table, a source of only the rows that
+// the facts selected by keys reference. Each column of keys holds IDs of the
+// table in the same position. DuckDB does not pass join keys to the
+// PostgreSQL extension, so a join with a live dimension view copies the
+// whole table. Reading the keys first lets PostgreSQL fetch only those rows
+// by primary key.
+func referencedRows(ctx context.Context, q queryer, keys string, args []any, tables ...string) ([]string, error) {
+	ids := make([][]string, len(tables))
+	rows, err := q.QueryContext(ctx, keys, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]sql.NullString, len(tables))
+	targets := make([]any, len(tables))
+	for i := range values {
+		targets[i] = &values[i]
+	}
+	for rows.Next() {
+		if err := rows.Scan(targets...); err != nil {
+			return nil, err
+		}
+		for i, value := range values {
+			if value.Valid {
+				ids[i] = append(ids[i], value.String)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]string, len(tables))
+	for i, table := range tables {
+		out[i] = postgresRows(table, ids[i])
+	}
+	return out, nil
 }
 
 // postgresRows reads the table's rows with the given IDs inside PostgreSQL,
@@ -136,13 +163,18 @@ func (s *Store) SelectSeriesMembers(ctx context.Context, p storage.SeriesMembers
 		throughTimestamp, throughID = &p.Through.CommitTimestamp, &p.Through.ResultID
 	}
 	err = s.read(ctx, queryScope{Fingerprints: p.Fingerprints}, func(ctx context.Context, q queryer) error {
+		rows, err := referencedRows(ctx, q, `SELECT DISTINCT br.hardware_id,br.commit_id FROM benchmark_result br
+WHERE br.error IS NULL AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))`, []any{p.Fingerprints}, "hardware", "commit")
+		if err != nil {
+			return err
+		}
 		out, err = collectRows(ctx, q, `WITH members AS (
 SELECT br.id,br.history_fingerprint,br."timestamp",br.unit,br.mean,br.data,
 NULL::VARCHAR AS run_tags,NULL::VARCHAR AS info_tags,br.change_annotations,br.optional_benchmark_info,hw.hash AS hardware_hash,
 hw.name AS hardware_name,c.sha AS commit_sha,c.repository AS commit_repository,
 c.message AS commit_message,c."timestamp" AS commit_timestamp,
 row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,br.id DESC) AS position
-FROM benchmark_result br JOIN hardware hw ON hw.id=br.hardware_id JOIN "commit" c ON c.id=br.commit_id
+FROM benchmark_result br JOIN `+rows[0]+` hw ON hw.id=br.hardware_id JOIN `+rows[1]+` c ON c.id=br.commit_id
 WHERE `+historyMembership+`
 AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))
 AND ($2::TIMESTAMP IS NULL OR c."timestamp">=$2)
@@ -172,6 +204,13 @@ func (s *Store) SelectSeriesPriorBoundaries(ctx context.Context, bounds []storag
 		ids[i] = b.Before.ResultID
 	}
 	err = s.read(ctx, queryScope{Fingerprints: fingerprints}, func(ctx context.Context, q queryer) error {
+		commits, err := referencedRows(ctx, q, `SELECT DISTINCT br.commit_id FROM benchmark_result br
+WHERE br.error IS NULL AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))
+AND (json_extract(br.change_annotations,'$.begins_distribution_change')='true'::JSON
+OR json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE'))`, []any{fingerprints}, "commit")
+		if err != nil {
+			return err
+		}
 		out, err = collectRows(ctx, q, `WITH bounds AS (
 SELECT unnest($1::VARCHAR[]) AS fingerprint, unnest($2::VARCHAR[])::TIMESTAMP AS before_timestamp,
 unnest($3::VARCHAR[]) AS before_id),
@@ -180,7 +219,7 @@ SELECT br.history_fingerprint,br.id,c."timestamp" AS commit_timestamp,br.unit,br
 row_number() OVER (PARTITION BY br.history_fingerprint ORDER BY c."timestamp" DESC,
 CASE WHEN json_type(br.change_annotations,'$.baseline_override.value') IN ('BIGINT','UBIGINT','DOUBLE') THEN 0 ELSE 1 END,
 br.id ASC) AS position
-FROM benchmark_result br JOIN "commit" c ON c.id=br.commit_id
+FROM benchmark_result br JOIN `+commits[0]+` c ON c.id=br.commit_id
 JOIN bounds b ON b.fingerprint=br.history_fingerprint
 WHERE `+historyMembership+`
 AND (json_extract(br.change_annotations,'$.begins_distribution_change')='true'::JSON

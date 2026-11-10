@@ -895,6 +895,9 @@ func (e *Engine) pinSnapshot(ctx context.Context, tx *sql.Tx) (*ReadSnapshot, er
 			return nil, err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS temp.`+staleSeriesTable); err != nil {
+		return nil, err
+	}
 	snapshot := &ReadSnapshot{tx: tx, engine: e, files: files, catalogs: map[string]string{}}
 	if err := tx.QueryRowContext(ctx, `SELECT complete FROM postgres_query('pg',`+literal(lookupCompleteSQL)+`)`).Scan(&snapshot.lookups); err != nil {
 		return nil, fmt.Errorf("read lookup directory state: %w", err)

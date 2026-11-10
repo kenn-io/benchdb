@@ -772,3 +772,34 @@ func TestGetUserByIDNotFound(t *testing.T) {
 	_, err := store.GetUserByID(ctx, "nosuchuser")
 	require.ErrorIs(t, err, storage.ErrNotFound)
 }
+
+// Result submissions look up their info row by tags, so the lookup must not
+// read the whole table as it grows.
+func TestGetOrCreateInfoReadsOnlyMatchingRows(t *testing.T) {
+	store, pool, ctx := newTestStore(t)
+	const unrelated = 20000
+	_, err := pool.Exec(ctx, `INSERT INTO info (id,tags)
+SELECT 'unrelated-info-'||i, jsonb_build_object('name','unrelated-'||i) FROM generate_series(1,$1::int) i`, unrelated)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `ANALYZE info`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `SELECT pg_stat_reset()`)
+	require.NoError(t, err)
+
+	existing, err := store.GetOrCreateInfo(ctx, []byte(`{"name":"unrelated-17"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "unrelated-info-17", existing)
+	created, err := store.GetOrCreateInfo(ctx, []byte(`{"name":"new"}`))
+	require.NoError(t, err)
+	again, err := store.GetOrCreateInfo(ctx, []byte(`{"name":"new"}`))
+	require.NoError(t, err)
+	assert.Equal(t, created, again)
+
+	var tuples, scans int64
+	require.Eventually(t, func() bool {
+		err := pool.QueryRow(ctx, `SELECT seq_tup_read+coalesce(idx_tup_fetch,0),seq_scan+coalesce(idx_scan,0)
+FROM pg_stat_user_tables WHERE relname='info'`).Scan(&tuples, &scans)
+		return err == nil && scans >= 3
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Less(t, tuples, int64(100), "three lookups among %d rows", unrelated)
+}
