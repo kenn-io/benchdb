@@ -119,6 +119,7 @@ WITH scoped AS (
     v.preview_points,
     v.unit,
     v.change_percent,
+    v.status_fingerprint,
     v.latest_result_id,
     v.latest_result_timestamp,
     v.latest_commit_sha,
@@ -201,7 +202,8 @@ SELECT
     WHERE s.benchmark_id = p.benchmark_id
   )::bigint AS point_count,
   (
-    SELECT jsonb_agg(jsonb_build_object('machine_name', s.machine_name, 'points', s.preview_points)
+    SELECT jsonb_agg(jsonb_build_object('machine_name', s.machine_name, 'history_fingerprint', s.status_fingerprint,
+                                        'points', s.preview_points)
                      ORDER BY s.machine_name)
     FROM scoped s
     WHERE s.benchmark_id = p.benchmark_id

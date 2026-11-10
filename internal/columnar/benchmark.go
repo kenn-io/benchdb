@@ -60,7 +60,8 @@ AND ($5::TIMESTAMP IS NOT NULL OR $6::TIMESTAMP IS NOT NULL)
 AND ($5::TIMESTAMP IS NULL OR c."timestamp">=$5) AND ($6::TIMESTAMP IS NULL OR c."timestamp"<=$6)
 GROUP BY br.benchmark_id),
 previews AS (
-SELECT s.benchmark_id,to_json(list(json_object('machine_name',s.machine_name,'points',s.preview_points::JSON)
+SELECT s.benchmark_id,to_json(list(json_object('machine_name',s.machine_name,'history_fingerprint',s.status_fingerprint,
+'points',s.preview_points::JSON)
 ORDER BY s.machine_name))::VARCHAR AS preview_tracks FROM scoped s JOIN page p ON p.benchmark_id=s.benchmark_id
 GROUP BY s.benchmark_id)
 SELECT p.benchmark_id,p.repository,p.case_name,p.case_tags,p.unit,p.status_rank,p.machine_names,

@@ -206,6 +206,7 @@ func TestTrackVerdictTakesTheChangeOfTheSegmentThatSetsStatus(t *testing.T) {
 		map[string][]storage.HistoryRow{"stable-context": stable, "regressed-context": regressed}, unit, lessIsBetter)
 
 	assert.Equal(t, statusRegressed, verdict.status)
+	assert.Equal(t, "regressed-context", verdict.fingerprint, "the segment that sets the status names the track's series")
 	require.NotNil(t, verdict.changePercent)
 	heldMean := (12 + 1.03) / 13
 	assert.InDelta(t, (1.03-heldMean)/heldMean*100, *verdict.changePercent, 1e-9,
@@ -260,8 +261,9 @@ func TestBenchmarkStatusIgnoresSupersededMachineSegment(t *testing.T) {
 	// but a later context on the same machine has replaced it.
 	assert.Equal(t, statusRegressed, seriesStatus(old, unit, lessIsBetter))
 	assert.Equal(t, statusStable, seriesStatus(current, unit, lessIsBetter))
-	assert.Equal(t, statusStable,
-		trackVerdict([]string{"old-context", "new-context"}, members, unit, lessIsBetter).status)
+	verdict := trackVerdict([]string{"old-context", "new-context"}, members, unit, lessIsBetter)
+	assert.Equal(t, statusStable, verdict.status)
+	assert.Equal(t, "new-context", verdict.fingerprint, "the replaced series never names the track")
 }
 
 var (

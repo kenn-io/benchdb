@@ -24,8 +24,9 @@ type BenchmarkPreviewPoint struct {
 }
 
 type BenchmarkPreviewTrack struct {
-	MachineName string                  `json:"machine_name"`
-	Points      []BenchmarkPreviewPoint `json:"points"`
+	MachineName        string                  `json:"machine_name"`
+	HistoryFingerprint *string                 `json:"history_fingerprint,omitempty" doc:"The series that sets this machine's status. Absent until the track's status is next computed."`
+	Points             []BenchmarkPreviewPoint `json:"points"`
 }
 
 // BenchmarkListItem is one logical benchmark in the fleet browse response.
@@ -207,7 +208,7 @@ func windowedPreview(data []byte, since *time.Time) ([]BenchmarkPreviewTrack, er
 			return since != nil && point.CommitTimestamp.Before(*since)
 		})
 		if len(points) > 0 {
-			tracks = append(tracks, BenchmarkPreviewTrack{MachineName: track.MachineName, Points: points})
+			tracks = append(tracks, BenchmarkPreviewTrack{MachineName: track.MachineName, HistoryFingerprint: track.HistoryFingerprint, Points: points})
 		}
 	}
 	return tracks, nil
@@ -256,7 +257,8 @@ var statusOrder = map[string]int{statusRegressed: 0, statusImproved: 1, statusSt
 
 // trackVerdict scores a machine's track by its current segments: the worst
 // status among them, and the change of the segment that sets it, the largest
-// change when several share that status.
+// change when several share that status. The verdict's fingerprint names that
+// segment; it is empty when no segment sets the status.
 func trackVerdict(
 	fingerprints []string,
 	members map[string][]storage.HistoryRow,
@@ -269,6 +271,7 @@ func trackVerdict(
 	}
 	for _, segment := range currentSegments(fingerprints, members) {
 		verdict := scoreSeries(segment, unit, lessIsBetter)
+		verdict.fingerprint = segment[0].HistoryFingerprint
 		if worseVerdict(verdict, best) {
 			best = verdict
 		}
@@ -385,6 +388,7 @@ func benchmarkVerdicts(rows []storage.BenchmarkHistoryRow) ([]storage.BenchmarkV
 		scored := trackVerdict(track.fingerprints, track.members, unit, lessIsBetter)
 		verdict.Status = scored.status
 		verdict.ChangePercent = scored.changePercent
+		verdict.StatusFingerprint = cmp.Or(scored.fingerprint, track.latest.HistoryFingerprint)
 		verdict.LatestResultID = track.latest.ID
 		verdict.LatestResultTimestamp = track.latest.Timestamp
 		verdict.LatestCommitSHA = track.latest.CommitSha

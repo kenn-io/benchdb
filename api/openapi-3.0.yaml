@@ -380,6 +380,9 @@ components:
     BenchmarkPreviewTrack:
       additionalProperties: false
       properties:
+        history_fingerprint:
+          description: The series that sets this machine's status. Absent until the track's status is next computed.
+          type: string
         machine_name:
           type: string
         points:

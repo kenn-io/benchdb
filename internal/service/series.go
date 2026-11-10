@@ -131,6 +131,9 @@ type seriesVerdict struct {
 	status        string
 	changePercent *float64
 	windowMean    *float64
+	// fingerprint names the scored series when a track verdict picks one of
+	// several segments.
+	fingerprint string
 }
 
 // minHistoryPoints is the fewest earlier results a series status or a
