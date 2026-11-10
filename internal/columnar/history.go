@@ -2,6 +2,8 @@ package columnar
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"time"
 
 	"go.kenn.io/benchdb/internal/storage"
@@ -29,14 +31,65 @@ func scanHistory(row rowScanner) (out storage.HistoryRow, err error) {
 }
 
 func (s *Store) SelectHistoryForFingerprint(ctx context.Context, fingerprint string) ([]storage.HistoryRow, error) {
-	return readRows(ctx, s, queryScope{Fingerprints: []string{fingerprint}}, `SELECT `+historyColumns+historyJoins+`WHERE `+historyMembership+`
-AND br.history_fingerprint=$1 ORDER BY c."timestamp",br.id`, []any{fingerprint}, scanHistory)
+	return s.selectHistory(ctx, []string{fingerprint}, `br.history_fingerprint=$1`, fingerprint, nil, `ORDER BY c."timestamp",br.id`)
 }
 
 func (s *Store) SelectHistoryForFingerprintsAsOf(ctx context.Context, fingerprints []string, asOf time.Time) ([]storage.HistoryRow, error) {
-	return readRows(ctx, s, queryScope{Fingerprints: fingerprints}, `SELECT `+historyColumns+historyJoins+`WHERE `+historyMembership+`
-AND br.history_fingerprint IN (SELECT unnest($1::VARCHAR[])) AND c."timestamp"<=$2
-ORDER BY br.history_fingerprint,c."timestamp",br.id`, []any{fingerprints, asOf}, scanHistory)
+	return s.selectHistory(ctx, fingerprints, `br.history_fingerprint IN (SELECT unnest($1::VARCHAR[]))`, fingerprints, &asOf,
+		`ORDER BY br.history_fingerprint,c."timestamp",br.id`)
+}
+
+// selectHistory reads the history of the facts matching facts, whose only
+// parameter, $1, is selected. DuckDB does not pass join keys to the
+// PostgreSQL extension, so joining the live dimension views copies every
+// info and commit row for each read. Reading the referenced keys first lets
+// PostgreSQL fetch only those rows by primary key.
+func (s *Store) selectHistory(ctx context.Context, fingerprints []string, facts string, selected any, asOf *time.Time, order string) (out []storage.HistoryRow, err error) {
+	err = s.read(ctx, queryScope{Fingerprints: fingerprints}, func(ctx context.Context, q queryer) error {
+		args := []any{selected}
+		keys, err := collectRows(ctx, q, `SELECT DISTINCT br.info_id,br.hardware_id,br.commit_id FROM benchmark_result br
+WHERE br.error IS NULL AND br.commit_id IS NOT NULL AND `+facts, args, scanDimensionKeys)
+		if err != nil {
+			return err
+		}
+		var info, hardware, commits []string
+		for _, key := range keys {
+			info, hardware, commits = append(info, key[0]), append(hardware, key[1]), append(commits, key[2])
+		}
+		where := historyMembership + ` AND ` + facts
+		if asOf != nil {
+			where += ` AND c."timestamp"<=$2`
+			args = append(args, *asOf)
+		}
+		out, err = collectRows(ctx, q, `SELECT `+historyColumns+` FROM benchmark_result br
+JOIN `+postgresRows("info", info)+` inf ON inf.id=br.info_id
+JOIN `+postgresRows("hardware", hardware)+` hw ON hw.id=br.hardware_id
+JOIN `+postgresRows("commit", commits)+` c ON c.id=br.commit_id
+WHERE `+where+` `+order, args, scanHistory)
+		return err
+	})
+	return
+}
+
+func scanDimensionKeys(row rowScanner) (out [3]string, err error) {
+	err = row.Scan(&out[0], &out[1], &out[2])
+	return
+}
+
+// postgresRows reads the table's rows with the given IDs inside PostgreSQL,
+// where the primary key index serves the lookup.
+func postgresRows(table string, ids []string) string {
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	list := "NULL"
+	if len(ids) > 0 {
+		quoted := make([]string, len(ids))
+		for i, id := range ids {
+			quoted[i] = literal(id)
+		}
+		list = strings.Join(quoted, ",")
+	}
+	return `postgres_query('pg',` + literal(`SELECT * FROM public."`+table+`" WHERE id IN (`+list+`)`) + `)`
 }
 
 // SelectHistoryForBenchmark discovers the benchmark's series from the summary
