@@ -269,6 +269,8 @@ Without result IDs in the URL, the page walks you through a choice:
 The picker offers only results from one machine, one series, and one unit. If
 you already know the result IDs, open **Advanced: compare by result ID**. The
 compare API rejects results from different series or units as not comparable.
+The API's `allow_series_change=true` lifts the series check; see
+[comparison verdicts](regression-analysis.md#comparison-verdicts).
 
 The comparison shows the status, the lookback z-score line, and the pairwise
 change line, with the practical tolerance when one applies. The lookback line

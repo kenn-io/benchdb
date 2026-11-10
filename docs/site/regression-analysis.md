@@ -124,6 +124,13 @@ with a tied commit time do not enter the window, including reruns of the
 baseline commit. Earlier results with tied timestamps still count. CI reports
 use the same window for their verdict and history count.
 
+The history comes from the baseline's series. The baseline and the contender
+usually share one series, and `GET /api/compare/benchmark-results` refuses
+results from different series. Pass `allow_series_change=true` to compare them
+anyway, for example when a machine's context or hardware changed and started a
+new series. The contender is then scored against the old series' history. The
+units must still match, and failed results are still refused.
+
 A comparison counts as a regression or improvement only when all of these hold:
 
 - That history has at least 10 results, the same minimum as benchmark status.

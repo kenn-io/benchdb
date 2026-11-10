@@ -57,7 +57,7 @@ lists the exact checks and failure codes.
 | `GET /api/series` | List series. Filters: `q`, `hardware`, `repository`, `fingerprint`, `status`, `active_since`, `active_until`. Pages with `cursor` and `page_size` (default 100, max 1000). |
 | `GET /api/history/{benchmark_result_id}` | The history series that contains a result. |
 | `GET /api/history?fingerprint=` | A history series by fingerprint. |
-| `GET /api/compare/benchmark-results` | Compare `baseline_result_id` with `contender_result_id`. `threshold` defaults to 5 and `threshold_z` to 2. |
+| `GET /api/compare/benchmark-results` | Compare `baseline_result_id` with `contender_result_id`. `threshold` defaults to 5 and `threshold_z` to 2. Results from different series are refused unless `allow_series_change=true`; the lookback z-score then uses the baseline's series. |
 | `GET /api/runs/recent` | Recent runs. Filters: `q` (commit SHA or URL), `repository`, `needs_attention`. Pages with `offset` and `page_size` (default 25, max 100). |
 
 Each item from `GET /api/benchmarks` has a `status` (`regressed`, `improved`,

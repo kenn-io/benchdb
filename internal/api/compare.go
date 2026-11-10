@@ -16,6 +16,7 @@ type CompareInput struct {
 	ContenderResultID string  `query:"contender_result_id" required:"true" doc:"Contender benchmark result id."`
 	Threshold         float64 `query:"threshold" default:"5" doc:"Pairwise percent-change threshold."`
 	ThresholdZ        float64 `query:"threshold_z" default:"2" doc:"Lookback z-score threshold."`
+	AllowSeriesChange bool    `query:"allow_series_change" doc:"Compare results from different series of the same unit. The lookback z-score uses the baseline's series."`
 }
 
 // CompareOutput carries a compare result body.
@@ -30,7 +31,7 @@ func (h *ReadHandler) getCompare(ctx context.Context, in *CompareInput) (*Compar
 	if err := validatePositiveCompareFloat(in.ThresholdZ, "threshold_z"); err != nil {
 		return nil, err
 	}
-	result, err := h.reader.Compare(ctx, in.BaselineResultID, in.ContenderResultID, in.Threshold, in.ThresholdZ)
+	result, err := h.reader.Compare(ctx, in.BaselineResultID, in.ContenderResultID, in.Threshold, in.ThresholdZ, in.AllowSeriesChange)
 	if err != nil {
 		return nil, mapReadError(err)
 	}

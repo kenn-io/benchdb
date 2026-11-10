@@ -3712,6 +3712,13 @@ paths:
             description: Lookback z-score threshold.
             format: double
             type: number
+        - description: Compare results from different series of the same unit. The lookback z-score uses the baseline's series.
+          explode: false
+          in: query
+          name: allow_series_change
+          schema:
+            description: Compare results from different series of the same unit. The lookback z-score uses the baseline's series.
+            type: boolean
       responses:
         "200":
           content:

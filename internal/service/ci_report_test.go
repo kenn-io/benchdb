@@ -646,7 +646,7 @@ func TestCIReportLoadsEachBaselineHistoryOnlyForItsComparisons(t *testing.T) {
 			baseline := map[string]string{contenderA.ID: baselineA.ID, contenderB.ID: baselineB.ID}[row.Contender.ResultID]
 			require.NotEmpty(t, baseline, "unexpected contender %s", row.Contender.ResultID)
 			single, err := reader.Compare(ctx, baseline, row.Contender.ResultID,
-				stats.PairwisePercentThresholdDefault, stats.ZScoreThresholdDefault)
+				stats.PairwisePercentThresholdDefault, stats.ZScoreThresholdDefault, false)
 			require.NoError(t, err)
 			require.NotNil(t, row.Analysis)
 			require.NotNil(t, single.Analysis.LookbackZScore, "the comparison has lookback history")

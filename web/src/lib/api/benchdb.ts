@@ -1386,6 +1386,8 @@ export type CompareBenchmarkResultsParams = {
   threshold?: number;
   /** Lookback z-score threshold. */
   threshold_z?: number;
+  /** Compare results from different series of the same unit. The lookback z-score uses the baseline's series. */
+  allow_series_change?: boolean;
 };
 
 export type GetHistoryParams = {

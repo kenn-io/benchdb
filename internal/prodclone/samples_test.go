@@ -134,7 +134,7 @@ func TestSelectSampleManifestFindsAllRepresentativeCategories(t *testing.T) {
 	assert.Equal(t, fixture.recentResultID, manifest.CIReport.ResultID)
 	assert.Equal(t, "fp-recent", manifest.CIReport.HistoryFingerprint)
 
-	compare, err := service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5)
+	compare, err := service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5, false)
 	require.NoError(t, err, "manifest compare pair must be accepted by the compare service")
 	assert.Equal(t, "s", compare.Unit)
 }
@@ -205,7 +205,7 @@ func TestSelectSampleManifestFallsBackWhenMetadataTimeoutsInReadOnlyTransaction(
 	assert.NotEmpty(t, historyMember.Note)
 	require.NotNil(t, manifest.Compare)
 
-	compare, err := service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5)
+	compare, err := service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5, false)
 	require.NoError(t, err, "metadata fallback compare pair must be accepted by the compare service")
 	assert.NotEmpty(t, compare.Unit)
 }
@@ -367,7 +367,7 @@ func TestSelectSampleManifestCompareAllowsDifferentTimeUnits(t *testing.T) {
 	assert.Equal(t, baselineID, manifest.Compare.BaselineResultID)
 	assert.Equal(t, contenderID, manifest.Compare.ContenderResultID)
 
-	_, err = service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5)
+	_, err = service.NewReader(store).Compare(ctx, manifest.Compare.BaselineResultID, manifest.Compare.ContenderResultID, 5, 5, false)
 	require.NoError(t, err)
 }
 
