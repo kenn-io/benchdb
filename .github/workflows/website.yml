@@ -34,7 +34,7 @@ jobs:
   build:
     env:
       DOWNLOAD_RETRY: kit-retry 3 5
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-8cpu
     timeout-minutes: 30
     permissions:
       contents: read
