@@ -5,7 +5,7 @@
 </div>
 
 <p align="center">
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?logo=go" alt="Go 1.27.3+"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?logo=go" alt="Go 1.27.4+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://benchdb.io"><img src="https://img.shields.io/badge/Docs-benchdb.io-blue" alt="Docs"></a>
 </p>
