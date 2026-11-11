@@ -73,3 +73,48 @@ func TestLookbackWorseThanHistoryUsesTheUnroundedScoreStrictly(t *testing.T) {
 	assert.False(t, analyze(rounded).WorseThanHistory, "the real score %v does not exceed %v", exact, rounded)
 	assert.True(t, analyze(exact-1e-9).WorseThanHistory)
 }
+
+// TestCompareAcrossSeriesUsesTheBaselineWindow compares a result from a new
+// series with a result from the series it replaced. The contender's own
+// series sits at its new level, so only the baseline's window shows the move.
+func TestCompareAcrossSeriesUsesTheBaselineWindow(t *testing.T) {
+	windows := map[string][]storage.HistoryRow{
+		"old": membersFromSVS([]float64{0.180, 0.181, 0.182, 0.181, 0.179, 0.183, 0.181, 0.180, 0.182, 0.181, 0.181}, "s"),
+		"new": membersFromSVS([]float64{0.306, 0.307, 0.308, 0.307, 0.305, 0.309, 0.307, 0.306, 0.308, 0.307, 0.307}, "s"),
+	}
+	history := func(_ context.Context, fingerprint string, _ storage.CompareResultRow) ([]storage.HistoryRow, error) {
+		return windows[fingerprint], nil
+	}
+	result := func(id, fingerprint string, svs float64) storage.CompareResultRow {
+		at := windows["old"][len(windows["old"])-1].CommitTimestamp
+		return storage.CompareResultRow{
+			ID: id, RunID: id, HistoryFingerprint: fingerprint, Timestamp: *at,
+			Unit: new("s"), Data: []*float64{new(svs)}, CommitID: new("commit-" + id), CommitTimestamp: at,
+		}
+	}
+	baseline := result("baseline", "old", 0.181)
+	compare := func(contender storage.CompareResultRow, allowSeriesChange bool) (*CompareResult, error) {
+		return (&Reader{}).compareRows(t.Context(), baseline, contender, 5, 2, allowSeriesChange, history)
+	}
+
+	_, err := compare(result("slow", "new", 0.307), false)
+	require.ErrorIs(t, err, ErrNotComparable)
+
+	slow, err := compare(result("slow", "new", 0.307), true)
+	require.NoError(t, err)
+	require.NotNil(t, slow.Analysis.LookbackZScore)
+	assert.True(t, slow.Analysis.LookbackZScore.RegressionIndicated)
+	assert.InDelta(t, 0.181, slow.Analysis.LookbackZScore.Tolerance.Reference, 1e-3)
+
+	steady, err := compare(result("steady", "new", 0.182), true)
+	require.NoError(t, err)
+	require.NotNil(t, steady.Analysis.LookbackZScore)
+	assert.False(t, steady.Analysis.LookbackZScore.RegressionIndicated)
+
+	same := result("same", "old", 0.307)
+	without, err := compare(same, false)
+	require.NoError(t, err)
+	with, err := compare(same, true)
+	require.NoError(t, err)
+	assert.Equal(t, without, with)
+}

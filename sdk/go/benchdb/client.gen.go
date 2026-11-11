@@ -4932,6 +4932,9 @@ type CompareBenchmarkResultsQuery struct {
 
 	// ThresholdZ Lookback z-score threshold.
 	ThresholdZ *float64 `json:"threshold_z,omitempty"`
+
+	// AllowSeriesChange Compare results from different series of the same unit. The lookback z-score uses the baseline's series.
+	AllowSeriesChange *bool `json:"allow_series_change,omitempty"`
 }
 
 func (c CompareBenchmarkResultsQuery) Validate() error {

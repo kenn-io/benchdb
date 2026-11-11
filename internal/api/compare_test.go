@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
@@ -179,6 +180,64 @@ func TestCompareFingerprintMismatchIs422(t *testing.T) {
 
 	cmp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + created.ID)
 	require.Equal(t, http.StatusUnprocessableEntity, cmp.Code, "body %s", cmp.Body.String())
+}
+
+// TestCompareAcrossSeriesChange compares results from a machine whose
+// environment changed, which starts a new series. The new series already sits
+// at its slower level, so only the old series' window shows the regression.
+func TestCompareAcrossSeriesChange(t *testing.T) {
+	tapi, _, _ := seedAPI(t)
+	oldSeries, newSeries := seedOpts{machine: "m1"}, seedOpts{machine: "m2"}
+	seedEarlierHistory(t, tapi, oldSeries, 0.180, 0.181, 0.182, 0.181, 0.179, 0.183, 0.181, 0.180, 0.182, 0.181, 0.181)
+	seedEarlierHistory(t, tapi, newSeries, 0.306, 0.307, 0.308, 0.307, 0.305, 0.309, 0.307, 0.306, 0.308, 0.307, 0.307)
+	baseline := seedResult(t, tapi, seedOpts{machine: "m1", sha: "base", ts: day(1), data: []float64{0.181}})
+	slow := seedResult(t, tapi, seedOpts{machine: "m2", sha: "slow", ts: day(2), runID: "slow-run", data: []float64{0.307}})
+	steady := seedResult(t, tapi, seedOpts{machine: "m2", sha: "steady", ts: day(3), runID: "steady-run", data: []float64{0.182}})
+	sameSeries := seedResult(t, tapi, seedOpts{machine: "m1", sha: "same", ts: day(4), runID: "same-run", data: []float64{0.307}})
+	require.NotEqual(t, fpForResult(t, tapi, baseline), fpForResult(t, tapi, slow))
+	require.Equal(t, fpForResult(t, tapi, baseline), fpForResult(t, tapi, sameSeries))
+
+	get := func(contender, extra string) *httptest.ResponseRecorder {
+		t.Helper()
+		return tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender + extra)
+	}
+	lookback := func(contender string) *service.LookbackAnalysis {
+		t.Helper()
+		resp := get(contender, "&allow_series_change=true")
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		var out service.CompareResult
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		require.NotNil(t, out.Analysis.LookbackZScore)
+		return out.Analysis.LookbackZScore
+	}
+
+	resp := get(slow, "")
+	require.Equal(t, http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
+	assert.Contains(t, resp.Body.String(), "history fingerprints differ")
+
+	regressed := lookback(slow)
+	assert.True(t, regressed.RegressionIndicated)
+	assert.InDelta(t, 0.181, regressed.Tolerance.Reference, 1e-3, "the window is the old series")
+	assert.False(t, lookback(steady).RegressionIndicated)
+
+	without, with := get(sameSeries, ""), get(sameSeries, "&allow_series_change=true")
+	require.Equal(t, http.StatusOK, without.Code, without.Body.String())
+	require.Equal(t, http.StatusOK, with.Code, with.Body.String())
+	assert.JSONEq(t, without.Body.String(), with.Body.String())
+}
+
+func TestCompareAcrossSeriesChangeStillRefusesUnitsAndFailures(t *testing.T) {
+	tapi, pool, ctx := seedAPI(t)
+	baseline := seedResult(t, tapi, seedOpts{machine: "m1", sha: "c1", ts: day(1), data: []float64{10}})
+	otherUnit := seedResult(t, tapi, seedOpts{machine: "m2", sha: "c2", ts: day(2), unit: "B/s", data: []float64{20}})
+	failed := seedResult(t, tapi, seedOpts{machine: "m2", sha: "c3", ts: day(3), data: []float64{20}})
+	dbtest.UpdateResultFixture(t, ctx, pool, `UPDATE benchmark_result SET error = $1 WHERE id = $2`,
+		[]byte(`{"stack":"boom"}`), failed)
+
+	for _, contender := range []string{otherUnit, failed} {
+		resp := tapi.Get("/api/compare/benchmark-results?allow_series_change=true&baseline_result_id=" + baseline + "&contender_result_id=" + contender)
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
+	}
 }
 
 func TestCompareBaselineZeroSVSNullsPairwise(t *testing.T) {

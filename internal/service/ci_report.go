@@ -967,7 +967,7 @@ func (r *CIReporter) batchedHistory(pending []ciReportPendingComparison) history
 	for _, comparison := range pending {
 		if at := comparison.baselineRow.CommitTimestamp; at != nil {
 			key := at.UnixNano()
-			requested[key] = append(requested[key], comparison.row.HistoryFingerprint)
+			requested[key] = append(requested[key], comparison.baselineRow.HistoryFingerprint)
 		}
 	}
 	loaded := map[int64]map[string][]storage.HistoryRow{}
@@ -1095,7 +1095,7 @@ func (r *CIReporter) analyzeComparison(
 		}
 		return rows, err
 	}
-	analysis, err := r.reader.compareRows(ctx, item.baselineRow, item.row, threshold, thresholdZ, countedHistory)
+	analysis, err := r.reader.compareRows(ctx, item.baselineRow, item.row, threshold, thresholdZ, false, countedHistory)
 	if errors.Is(err, ErrNotComparable) {
 		comp.Status = CIReportRowStatusNotComparable
 		reason := err.Error()

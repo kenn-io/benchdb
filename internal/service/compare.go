@@ -15,8 +15,9 @@ import (
 )
 
 // ErrNotComparable is returned when two results cannot be compared (a failed
-// result, a unit mismatch, or different history fingerprints). The API maps it to
-// 422. The wrapped message names the reason.
+// result, a unit mismatch, or different history fingerprints when the caller
+// did not allow a series change). The API maps it to 422. The wrapped message
+// names the reason.
 var ErrNotComparable = errors.New("not comparable")
 
 // CompareSide identifies one side of a comparison.
@@ -38,7 +39,7 @@ type PairwiseAnalysis struct {
 	ImprovementIndicated bool             `json:"improvement_indicated"`
 }
 
-// LookbackAnalysis is the contender's z-score verdict against its baseline
+// LookbackAnalysis is the contender's z-score verdict against the baseline's
 // window. Null when there is no baseline commit, the window is not single-unit,
 // or the z-score is not computable.
 type LookbackAnalysis struct {
@@ -82,7 +83,14 @@ type historyLoader func(ctx context.Context, fingerprint string, baseline storag
 
 // Compare loads two results, validates they are comparable, and returns the
 // pairwise + lookback-z analysis. The API defaults to 5 percent and 2 standard deviations.
-func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, threshold, thresholdZ float64) (*CompareResult, error) {
+// Results from different series are refused unless allowSeriesChange is set;
+// either way the lookback window is the baseline's series.
+func (r *Reader) Compare(
+	ctx context.Context,
+	baselineID, contenderID string,
+	threshold, thresholdZ float64,
+	allowSeriesChange bool,
+) (*CompareResult, error) {
 	baseline, err := r.loadCompareResult(ctx, baselineID)
 	if err != nil {
 		return nil, err
@@ -91,7 +99,7 @@ func (r *Reader) Compare(ctx context.Context, baselineID, contenderID string, th
 	if err != nil {
 		return nil, err
 	}
-	return r.compareRows(ctx, baseline, contender, threshold, thresholdZ, r.historyAsOf)
+	return r.compareRows(ctx, baseline, contender, threshold, thresholdZ, allowSeriesChange, r.historyAsOf)
 }
 
 func (r *Reader) historyAsOf(ctx context.Context, fingerprint string, baseline storage.CompareResultRow) ([]storage.HistoryRow, error) {
@@ -118,6 +126,7 @@ func (r *Reader) compareRows(
 	ctx context.Context,
 	baseline, contender storage.CompareResultRow,
 	threshold, thresholdZ float64,
+	allowSeriesChange bool,
 	history historyLoader,
 ) (*CompareResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -142,7 +151,7 @@ func (r *Reader) compareRows(
 	if err != nil {
 		return nil, fmt.Errorf("%w: unknown unit %q", ErrNotComparable, unit)
 	}
-	if baseline.HistoryFingerprint != contender.HistoryFingerprint {
+	if !allowSeriesChange && baseline.HistoryFingerprint != contender.HistoryFingerprint {
 		return nil, fmt.Errorf("%w: history fingerprints differ", ErrNotComparable)
 	}
 
@@ -242,8 +251,8 @@ type lookbackInput struct {
 	history      historyLoader
 }
 
-// lookbackAnalysis scores the contender against its default-branch baseline
-// window, ending at the selected baseline execution. Returns (nil, nil) for the
+// lookbackAnalysis scores the contender against the default-branch history of
+// the baseline's series, ending at the selected baseline execution. Returns (nil, nil) for the
 // legitimately-absent cases: no baseline commit, a window shorter than
 // minHistoryPoints, a mixed-unit window, or an uncomputable z-score. A query failure or data-integrity fault
 // propagates as an error so the caller can surface it as a 500, matching
@@ -252,7 +261,7 @@ func (r *Reader) lookbackAnalysis(ctx context.Context, in lookbackInput) (*Lookb
 	if in.baseline.CommitID == nil || in.baseline.CommitTimestamp == nil {
 		return nil, nil
 	}
-	rows, err := in.history(ctx, in.contender.HistoryFingerprint, in.baseline)
+	rows, err := in.history(ctx, in.baseline.HistoryFingerprint, in.baseline)
 	if err != nil {
 		return nil, fmt.Errorf("lookback window: %w", err)
 	}
