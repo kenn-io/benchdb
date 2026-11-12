@@ -62,14 +62,11 @@ jobs:
       - run: make go-vet
       - run: make go-test GO_TEST_FLAGS=-json | tee "$RUNNER_TEMP/go-tests.json"
         shell: bash
-      - name: Upload Go test results
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
-        uses: actions/upload-artifact@v7.0.2
         with:
           name: gotestsum-go-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/go-tests.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   archive-coordination:
     name: archive-coordination (${{ matrix.name }})
@@ -135,14 +132,11 @@ jobs:
       - run: bun run check:e2e
       - run: bun run check:docs-screenshots
       - run: bun run test --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
-      - name: Upload Vitest results
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
-        uses: actions/upload-artifact@v7.0.2
         with:
           name: vitest-web-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/vitest.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   docs:
     env:
