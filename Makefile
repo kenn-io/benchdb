@@ -221,7 +221,7 @@ go-vet:
 # loaded host, so the limit is 30 minutes.
 .PHONY: go-test
 go-test: duckdb-extensions
-	go test -shuffle=on -timeout 30m ./...
+	go test $(GO_TEST_FLAGS) -shuffle=on -timeout 30m ./...
 
 # Fast Go tests: -short skips the Postgres-backed tests (no Docker needed).
 .PHONY: go-test-short
