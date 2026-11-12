@@ -60,7 +60,16 @@ jobs:
           CXX: x86_64-w64-mingw32-g++
         run: make go-lint-ci
       - run: make go-vet
-      - run: make go-test
+      - run: make duckdb-extensions
+      - run: go test -json -shuffle=on -timeout 30m ./... | tee "$RUNNER_TEMP/go-tests.json"
+      - name: Upload Go test results
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: gotestsum-go-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-tests.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   archive-coordination:
     name: archive-coordination (${{ matrix.name }})
@@ -125,7 +134,15 @@ jobs:
       - run: bun run check
       - run: bun run check:e2e
       - run: bun run check:docs-screenshots
-      - run: bun run test
+      - run: bun run test --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
+      - name: Upload Vitest results
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: vitest-web-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/vitest.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   docs:
     env:
