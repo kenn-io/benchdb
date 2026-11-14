@@ -48,7 +48,7 @@ jobs:
           ref: docs-assets
           path: .ci-docs-assets
           persist-credentials: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.48.4
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.53.0
       - name: Capture dashboard screenshots
         env:
           BENCHDB_DOCS_SCREENSHOT_OUT_DIR: ${{ runner.temp }}/benchdb-dashboard-screenshots
