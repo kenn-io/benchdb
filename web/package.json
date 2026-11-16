@@ -16,12 +16,12 @@
   },
   "dependencies": {
     "@kenn-io/kit-ui": "github:kenn-io/kit-ui#9708f472d162c6019b3d96301720a582dc1c8234",
-    "@lucide/svelte": "1.66.0",
+    "@lucide/svelte": "1.70.0",
     "uplot": "1.6.32",
     "axios": "1.21.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/svelte": "5.4.2",
@@ -33,6 +33,6 @@
     "typescript": "6.0.3",
     "vite": "8.3.6",
     "vitest": "5.1.0",
-    "orval": "8.46.0"
+    "orval": "8.47.0"
   }
 }
