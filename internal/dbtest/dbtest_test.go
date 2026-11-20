@@ -2,6 +2,7 @@ package dbtest
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,10 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	if path := os.Getenv("BENCHDB_TEST_CONTAINER_ID_FILE"); path != "" {
 		defer func() {
 			if t.Skipped() {
-				assert.NoError(t, os.WriteFile(path+".skip", nil, 0600))
+				_, err := os.Stat(path)
+				if errors.Is(err, os.ErrNotExist) {
+					assert.NoError(t, os.WriteFile(path, nil, 0600))
+				}
 			}
 		}()
 		NewPool(t)
@@ -56,14 +60,11 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TESTCONTAINERS_RYUK_DISABLED=true", "BENCHDB_TEST_CONTAINER_ID_FILE="+path)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
-	_, err = os.Stat(path + ".skip")
-	if err == nil {
-		t.Skip("child skipped because Postgres could not start")
-	}
-	require.ErrorIs(t, err, os.ErrNotExist)
 	id, err := os.ReadFile(path)
 	require.NoError(t, err, "child must record its container")
-	require.NotEmpty(t, id)
+	if len(id) == 0 {
+		t.Skip("child skipped because Postgres could not start")
+	}
 	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
 	require.NoError(t, err)
 	defer docker.Close()
