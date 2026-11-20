@@ -577,6 +577,32 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 	return snapshot
 }
 
+func TestSnapshotDatabase(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	id := dbtest.SeedUser(t, ctx, pool)
+	var copyName string
+	t.Run("snapshot", func(t *testing.T) {
+		snapshot := snapshotDatabase(t, t.Context(), pool, "snapshot")
+		var found bool
+		require.NoError(t, snapshot.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, id).Scan(&found))
+		require.True(t, found)
+		copyID := dbtest.SeedUser(t, t.Context(), snapshot)
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, copyID).Scan(&found))
+		require.False(t, found)
+		require.NoError(t, snapshot.QueryRow(t.Context(), `SELECT current_database()`).Scan(&copyName))
+		conn, err := pgx.Connect(t.Context(), snapshot.Config().ConnString())
+		require.NoError(t, err)
+		var dsnName string
+		require.NoError(t, conn.QueryRow(t.Context(), `SELECT current_database()`).Scan(&dsnName))
+		assert.Equal(t, copyName, dsnName)
+		assert.NotEqual(t, pool.Config().ConnConfig.Database, dsnName)
+		require.NoError(t, conn.Close(t.Context()))
+	})
+	var exists bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)`, copyName).Scan(&exists))
+	assert.False(t, exists)
+}
+
 func TestRestoreRetainsOldManifest(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)

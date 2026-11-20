@@ -21,6 +21,7 @@ import (
 	"go.kenn.io/kit/objectstore"
 	"go.kenn.io/kit/stacktest"
 
+	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -286,7 +287,12 @@ func TestCoordinationConfiguration(t *testing.T) {
 
 func TestCoordinationRejectsAnotherDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
-	otherPool, _ := dbtest.NewPool(t)
+	otherPool, _ := dbtest.NewEmptyPool(t)
+	require.NoError(t, db.Migrate(ctx, otherPool))
+	var firstID, otherID string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM archive_dataset WHERE singleton`).Scan(&firstID))
+	require.NoError(t, otherPool.QueryRow(ctx, `SELECT id::text FROM archive_dataset WHERE singleton`).Scan(&otherID))
+	require.NotEqual(t, firstID, otherID)
 	otherURL := otherPool.Config().ConnString()
 	_, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
 	require.ErrorContains(t, err, "reaches a different BenchDB database")

@@ -3,8 +3,8 @@ package dbtest
 import (
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +18,13 @@ func TestIsolation(t *testing.T) {
 	require.NoError(t, first.QueryRow(ctx, `SELECT current_database()`).Scan(&firstName))
 	require.NoError(t, second.QueryRow(ctx, `SELECT current_database()`).Scan(&secondName))
 	assert.NotEqual(t, firstName, secondName)
-	assert.Contains(t, first.Config().ConnString(), "/"+firstName)
-	_, err := first.Exec(ctx, `CREATE TABLE isolation_probe (value integer); INSERT INTO isolation_probe VALUES (1)`)
+	conn, err := pgx.Connect(ctx, first.Config().ConnString())
+	require.NoError(t, err)
+	var dsnName string
+	require.NoError(t, conn.QueryRow(ctx, `SELECT current_database()`).Scan(&dsnName))
+	assert.Equal(t, firstName, dsnName)
+	require.NoError(t, conn.Close(ctx))
+	_, err = first.Exec(ctx, `CREATE TABLE isolation_probe (value integer); INSERT INTO isolation_probe VALUES (1)`)
 	require.NoError(t, err)
 	var table *string
 	require.NoError(t, second.QueryRow(ctx, `SELECT to_regclass('isolation_probe')::text`).Scan(&table))
