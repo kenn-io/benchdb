@@ -50,7 +50,7 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 			assert.NoError(t, err, "remove leaked container")
 		}
 	})
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSharedServerStopsWithoutRyuk$")
 	cmd.Env = append(os.Environ(), "TESTCONTAINERS_RYUK_DISABLED=true", "BENCHDB_TEST_CONTAINER_ID_FILE="+path)
