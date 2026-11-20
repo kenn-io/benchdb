@@ -620,7 +620,7 @@ func TestRestoreRetainsOldManifest(t *testing.T) {
 	oldManifest := manifestKeys(t, ctx, pool)
 	require.Len(t, oldManifest, 3)
 	require.NoError(t, source.Close())
-	restored := snapshotDatabase(t, ctx, pool, "oracle")
+	restored := snapshotDatabase(t, ctx, pool, "restored")
 
 	// After the backup, new results are exported and compacted with the old
 	// file, which retires the backup's manifest.
