@@ -163,7 +163,6 @@ func TestInheritedArchiveTimeouts(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []dbtest.PoolMode{dbtest.Direct, dbtest.Session} {
 		t.Run(mode.String(), func(t *testing.T) {
-			t.Parallel()
 			direct, base, ctx := dbtest.NewArchivePool(t, dbtest.ArchivePostgresImage(), mode)
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			defer cancel()
