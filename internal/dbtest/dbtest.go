@@ -24,8 +24,6 @@ import (
 	"go.kenn.io/benchdb/internal/db"
 )
 
-const snapshotName = "benchdb_template"
-
 var sharedServer struct {
 	once     sync.Once
 	config   *pgxpool.Config
@@ -35,7 +33,7 @@ var sharedServer struct {
 
 // NewPool returns an isolated database with the BenchDB schema.
 func NewPool(t *testing.T) (*pgxpool.Pool, context.Context) {
-	return newPool(t, snapshotName)
+	return newPool(t, "benchdb")
 }
 
 // NewEmptyPool returns an isolated database without the BenchDB schema.
@@ -76,9 +74,6 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 				err = db.Migrate(serverCtx, pool)
 				pool.Close()
 			}
-		}
-		if err == nil {
-			err = container.Snapshot(serverCtx, postgres.WithSnapshotName(snapshotName))
 		}
 		sharedServer.setupErr = err
 	})
