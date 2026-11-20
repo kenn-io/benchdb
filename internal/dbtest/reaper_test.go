@@ -9,7 +9,6 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
-	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -87,29 +86,27 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 		t.Skip("skipping Docker-backed test in -short mode")
 	}
 	ctx := t.Context()
-	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, docker.Close()) })
-	created, err := docker.ContainerCreate(ctx, client.ContainerCreateOptions{Image: Postgres15Image})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		_, err := docker.ContainerRemove(cleanupCtx, created.ID, client.ContainerRemoveOptions{Force: true})
-		assert.NoError(t, err)
+	target, err := retryReaperRace(ctx, t, "create container", func() (testcontainers.Container, error) {
+		started, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{Image: Postgres15Image},
+		})
+		if err != nil {
+			_ = testcontainers.TerminateContainer(started)
+		}
+		return started, err
 	})
-	provider, err := testcontainers.NewDockerProvider()
+	testcontainers.CleanupContainer(t, target)
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, provider.Close()) })
-	target := &testcontainers.DockerContainer{ID: created.ID}
-	target.SetProvider(provider)
 	statusErr := wait.ForListeningPort("5432/tcp").SkipInternalCheck().WithPollInterval(time.Millisecond).WaitUntilReady(ctx, target)
 	require.ErrorContains(t, statusErr, `unexpected container status "created"`)
 	attempts := 0
 	got, err := retryReaperRace(ctx, t, "create container", func() (string, error) {
 		attempts++
 		if attempts == 1 {
-			return "", fmt.Errorf("reaper: from container %q: wait for reaper %s: %w", created.ID[:8], created.ID[:8], statusErr)
+			// Match the wrapping in testcontainers v0.44.0 reaper.go;
+			// the wait strategy above supplies the actual status error.
+			id := target.GetContainerID()[:8]
+			return "", fmt.Errorf("reaper: from container %q: wait for reaper %s: %w", id, id, statusErr)
 		}
 		return "ok", nil
 	})
