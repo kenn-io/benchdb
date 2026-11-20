@@ -3,9 +3,11 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+
+	"go.kenn.io/benchdb/internal/db"
 )
 
 func TestMain(m *testing.M) { Main(m) }
@@ -80,8 +84,11 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^TestNewPoolRecoversDirtyTemplate$")
-		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1", "CI=true")
+		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1")
 		output, err := cmd.CombinedOutput()
+		if err == nil && strings.Contains(string(output), "--- SKIP: TestNewPoolRecoversDirtyTemplate") {
+			t.Skip("child skipped because Postgres could not start")
+		}
 		var exitErr *exec.ExitError
 		require.ErrorAs(t, err, &exitErr, "%s", output)
 		assert.Contains(t, string(output), "database is in a dirty migration state")
@@ -90,13 +97,16 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 		return
 	}
 	empty, ctx := NewEmptyPool(t)
-	config := empty.Config().ConnConfig.Copy()
-	config.Database = "benchdb"
-	conn, err := pgx.ConnectConfig(ctx, config)
+	connURL, err := url.Parse(empty.Config().ConnString())
 	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL); INSERT INTO schema_migrations VALUES (1, true)`)
+	connURL.Path = "/benchdb"
+	template, err := pgxpool.New(ctx, connURL.String())
 	require.NoError(t, err)
-	require.NoError(t, conn.Close(ctx))
+	t.Cleanup(template.Close)
+	require.NoError(t, db.Migrate(ctx, template))
+	_, err = template.Exec(ctx, `UPDATE schema_migrations SET dirty = true`)
+	require.NoError(t, err)
+	template.Close()
 
 	t.Run("dirty", func(t *testing.T) { NewPool(t) })
 	t.Run("retry", func(t *testing.T) {
