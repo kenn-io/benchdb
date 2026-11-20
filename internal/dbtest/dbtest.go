@@ -1,14 +1,15 @@
-// Package dbtest provides a real-Postgres test harness shared by the packages
-// that exercise the data layer end to end (the store, the ingestion service, the
-// API). It starts an ephemeral Postgres via testcontainers, applies the frozen
-// schema, and skips gracefully when Docker is unavailable so `go test ./...`
-// stays green off-CI. Tests run against real Postgres, never mocks.
+// Package dbtest provides isolated databases on a shared PostgreSQL server per
+// test binary. NewPool copies a migrated template; NewEmptyPool starts empty.
+// Test cleanup drops each database, and testcontainers' Ryuk reaps the server
+// when the test binary exits. If Ryuk is disabled, the environment must clean up
+// the server.
 package dbtest
 
 import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,10 +26,10 @@ import (
 )
 
 var sharedServer struct {
-	once     sync.Once
-	config   *pgxpool.Config
-	startErr error
-	setupErr error
+	mu          sync.Mutex
+	config      *pgxpool.Config
+	migrateOnce sync.Once
+	migrateErr  error
 }
 
 // NewPool returns an isolated database with the BenchDB schema.
@@ -47,10 +48,13 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		t.Skip("skipping Postgres-backed test in -short mode")
 	}
 	ctx := t.Context()
-	sharedServer.once.Do(func() {
-		// The server outlives the first test that requests it.
-		serverCtx := context.WithoutCancel(ctx)
-		container, err := retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
+	// The server outlives the first test that requests it.
+	serverCtx := context.WithoutCancel(ctx)
+	sharedServer.mu.Lock()
+	var startErr error
+	if sharedServer.config == nil {
+		var container *postgres.PostgresContainer
+		container, startErr = retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
 			started, err := postgres.Run(serverCtx, Postgres15Image,
 				postgres.WithDatabase("benchdb"), postgres.WithUsername("postgres"),
 				postgres.WithPassword("postgres"), postgres.BasicWaitStrategies())
@@ -59,28 +63,35 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 			}
 			return started, err
 		})
-		if err != nil {
-			sharedServer.startErr = err
-			return
+		if startErr == nil {
+			var connStr string
+			connStr, startErr = container.ConnectionString(serverCtx, "sslmode=disable")
+			if startErr == nil {
+				sharedServer.config, startErr = pgxpool.ParseConfig(connStr)
+			}
+			if startErr != nil {
+				_ = testcontainers.TerminateContainer(container)
+			}
 		}
-		connStr, err := container.ConnectionString(serverCtx, "sslmode=disable")
-		if err == nil {
-			sharedServer.config, err = pgxpool.ParseConfig(connStr)
+	}
+	sharedServer.mu.Unlock()
+	if startErr != nil {
+		if os.Getenv("CI") == "true" {
+			t.Fatalf("cannot start Postgres container: %v", startErr)
 		}
-		if err == nil {
-			var pool *pgxpool.Pool
-			pool, err = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
+		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", startErr)
+	}
+	if template == "benchdb" {
+		sharedServer.migrateOnce.Do(func() {
+			pool, err := pgxpool.NewWithConfig(serverCtx, sharedServer.config)
 			if err == nil {
 				err = db.Migrate(serverCtx, pool)
 				pool.Close()
 			}
-		}
-		sharedServer.setupErr = err
-	})
-	if sharedServer.startErr != nil {
-		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", sharedServer.startErr)
+			sharedServer.migrateErr = err
+		})
+		require.NoError(t, sharedServer.migrateErr, "prepare shared Postgres template")
 	}
-	require.NoError(t, sharedServer.setupErr, "prepare shared Postgres")
 
 	config := sharedServer.config.Copy()
 	config.ConnConfig.Database = "postgres"

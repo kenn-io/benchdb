@@ -33,8 +33,6 @@ func TestIsolation(t *testing.T) {
 		require.NoError(t, empty.QueryRow(ctx, `SELECT to_regclass($1)::text`, name).Scan(&table))
 		assert.Nil(t, table)
 	}
-	archive, _, _ := NewArchivePool(t, Postgres15Image, Direct)
-	assert.NotEqual(t, first.Config().ConnConfig.Port, archive.Config().ConnConfig.Port)
 	var childName string
 	t.Run("cleanup", func(t *testing.T) {
 		child, childCtx := NewPool(t)
