@@ -68,7 +68,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	// The server outlives the first test that requests it.
 	serverCtx := context.WithoutCancel(ctx)
 	sharedServer.mu.Lock()
-	var startErr error
+	var startErr, recordErr error
 	if sharedServer.config == nil {
 		var container *postgres.PostgresContainer
 		container, startErr = retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
@@ -81,12 +81,17 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 			return started, err
 		})
 		if startErr == nil {
+			if path := os.Getenv("BENCHDB_TEST_CONTAINER_ID_FILE"); path != "" {
+				recordErr = os.WriteFile(path, []byte(container.GetContainerID()), 0600)
+			}
 			var connStr string
-			connStr, startErr = container.ConnectionString(serverCtx, "sslmode=disable")
-			if startErr == nil {
+			if recordErr == nil {
+				connStr, startErr = container.ConnectionString(serverCtx, "sslmode=disable")
+			}
+			if startErr == nil && recordErr == nil {
 				sharedServer.config, startErr = pgxpool.ParseConfig(connStr)
 			}
-			if startErr != nil {
+			if startErr != nil || recordErr != nil {
 				_ = testcontainers.TerminateContainer(container)
 			} else {
 				sharedServer.container = container
@@ -94,7 +99,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		}
 	}
 	var migrateErr error
-	if startErr == nil && template == "benchdb" && !sharedServer.migrated {
+	if startErr == nil && recordErr == nil && template == "benchdb" && !sharedServer.migrated {
 		var pool *pgxpool.Pool
 		pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
 		if migrateErr == nil {
@@ -104,6 +109,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		sharedServer.migrated = migrateErr == nil
 	}
 	sharedServer.mu.Unlock()
+	require.NoError(t, recordErr, "record Postgres container ID")
 	if startErr != nil {
 		if os.Getenv("CI") == "true" {
 			require.NoError(t, startErr, "start Postgres container")

@@ -25,10 +25,8 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	}
 	if path := os.Getenv("BENCHDB_TEST_CONTAINER_ID_FILE"); path != "" {
 		defer func() {
-			if sharedServer.container != nil {
-				assert.NoError(t, os.WriteFile(path, []byte(sharedServer.container.GetContainerID()), 0600))
-			} else if t.Skipped() {
-				assert.NoError(t, os.WriteFile(path, nil, 0600))
+			if t.Skipped() {
+				assert.NoError(t, os.WriteFile(path+".skip", nil, 0600))
 			}
 		}()
 		NewPool(t)
@@ -58,11 +56,14 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TESTCONTAINERS_RYUK_DISABLED=true", "BENCHDB_TEST_CONTAINER_ID_FILE="+path)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
-	id, err := os.ReadFile(path)
-	require.NoError(t, err, "child must record its container")
-	if len(id) == 0 {
+	_, err = os.Stat(path + ".skip")
+	if err == nil {
 		t.Skip("child skipped because Postgres could not start")
 	}
+	require.ErrorIs(t, err, os.ErrNotExist)
+	id, err := os.ReadFile(path)
+	require.NoError(t, err, "child must record its container")
+	require.NotEmpty(t, id)
 	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
 	require.NoError(t, err)
 	defer docker.Close()
