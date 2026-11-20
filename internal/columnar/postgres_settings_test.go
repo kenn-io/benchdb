@@ -160,7 +160,6 @@ AND application_name LIKE 'benchdb-duckdb-%' AND wait_event='PgSleep')`).Scan(&s
 // deadlines bound their lock waits and SQL, while the application pool keeps
 // the inherited policy.
 func TestInheritedArchiveTimeouts(t *testing.T) {
-	t.Parallel()
 	for _, mode := range []dbtest.PoolMode{dbtest.Direct, dbtest.Session} {
 		t.Run(mode.String(), func(t *testing.T) {
 			direct, base, ctx := dbtest.NewArchivePool(t, dbtest.ArchivePostgresImage(), mode)

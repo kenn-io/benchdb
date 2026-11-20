@@ -141,6 +141,7 @@ func TestMaintenanceCycleRemovesStagingFilesWhileRetentionIsPaused(t *testing.T)
 }
 
 func TestStagingRecoveryResolvesSymlinkedDataDirectory(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	target := t.TempDir()
 	link := filepath.Join(t.TempDir(), "volume")
