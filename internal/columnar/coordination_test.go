@@ -21,7 +21,6 @@ import (
 	"go.kenn.io/kit/objectstore"
 	"go.kenn.io/kit/stacktest"
 
-	"go.kenn.io/benchdb/internal/db"
 	"go.kenn.io/benchdb/internal/dbtest"
 	"go.kenn.io/benchdb/internal/storage"
 )
@@ -287,15 +286,9 @@ func TestCoordinationConfiguration(t *testing.T) {
 
 func TestCoordinationRejectsAnotherDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
-	_, err := pool.Exec(ctx, `CREATE DATABASE other_benchdb`)
-	require.NoError(t, err)
-	conn := pool.Config().ConnConfig
-	otherURL := fmt.Sprintf("postgres://%s:%s@%s:%d/other_benchdb?sslmode=disable", conn.User, conn.Password, conn.Host, conn.Port)
-	otherPool, err := pgxpool.New(ctx, otherURL)
-	require.NoError(t, err)
-	t.Cleanup(otherPool.Close)
-	require.NoError(t, db.Migrate(ctx, otherPool))
-	_, err = Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
+	otherPool, _ := dbtest.NewPool(t)
+	otherURL := otherPool.Config().ConnString()
+	_, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
 	require.ErrorContains(t, err, "reaches a different BenchDB database")
 }
 

@@ -553,6 +553,7 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 	t.Helper()
 	admin := pool.Config().ConnConfig.Copy()
 	source := admin.Database
+	name = source + "_" + name
 	admin.Database = "postgres"
 	conn, err := pgx.ConnectConfig(ctx, admin)
 	require.NoError(t, err)
@@ -565,6 +566,7 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 		_, err := conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, pgx.Identifier{name}.Sanitize(), pgx.Identifier{source}.Sanitize()))
 		return err == nil
 	}, 30*time.Second, 100*time.Millisecond, "copy the database while no session uses it")
+	dbtest.DropDatabaseOnCleanup(t, admin, name)
 	// DuckDB attaches with the pool's connection string, so name the copy there.
 	restored, err := url.Parse(pool.Config().ConnString())
 	require.NoError(t, err)
