@@ -198,6 +198,7 @@ func TestStagingRecoveryRequiresOwnershipDuringWalk(t *testing.T) {
 // timeout, so only the application deadline ends the wait; the scheduled
 // cycle then keeps the staging file and still exports.
 func TestStalledStagingRecoveryKeepsMaintenance(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()

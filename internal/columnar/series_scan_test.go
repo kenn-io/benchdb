@@ -20,6 +20,7 @@ import (
 // for a repository: the page, its members, and their prior boundaries. Some
 // of the series' results are archived, so both catalog sources are read.
 func TestSeriesListReadsOnlyReferencedDimensions(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	pg := db.NewStore(pool)
 	summary, err := seed.Run(ctx, pg)

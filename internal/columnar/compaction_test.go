@@ -15,6 +15,7 @@ import (
 )
 
 func TestArchiveCompactionAccumulatesSmallArrivals(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Retention: immediateRetention})
 	require.NoError(t, err)

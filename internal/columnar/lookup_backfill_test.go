@@ -260,6 +260,7 @@ func readPiece(t *testing.T, path string) lookupPiece {
 }
 
 func TestLookupBackfillResumes(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	tracer := &interruptTracer{}
 	openAt := tracedArchive(t, ctx, pool, tracer)
@@ -659,6 +660,7 @@ func TestLookupBackfillRecapturesStaleState(t *testing.T) {
 // statement timeout, so only the application deadline ends the wait; the
 // cycle then records the failure and still exports.
 func TestLookupBackfillStalledMetadataKeepsExporting(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, table, query, failure string
 		captured                    bool
