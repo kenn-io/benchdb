@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"go.kenn.io/benchdb/internal/db"
@@ -51,9 +52,15 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	sharedServer.once.Do(func() {
 		// The server outlives the first test that requests it.
 		serverCtx := context.WithoutCancel(ctx)
-		container, err := postgres.Run(serverCtx, Postgres15Image,
-			postgres.WithDatabase("benchdb"), postgres.WithUsername("postgres"),
-			postgres.WithPassword("postgres"), postgres.BasicWaitStrategies())
+		container, err := retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
+			started, err := postgres.Run(serverCtx, Postgres15Image,
+				postgres.WithDatabase("benchdb"), postgres.WithUsername("postgres"),
+				postgres.WithPassword("postgres"), postgres.BasicWaitStrategies())
+			if err != nil {
+				_ = testcontainers.TerminateContainer(started)
+			}
+			return started, err
+		})
 		if err != nil {
 			sharedServer.startErr = err
 			return

@@ -352,5 +352,10 @@ func TestProbeTargetSafetySkipsCounts(t *testing.T) {
 	info, err := ProbeTargetSafety(ctx, pool)
 	require.NoError(t, err)
 
+	assert.Equal(t, pool.Config().ConnConfig.Database, info.Database)
+	assert.NotEmpty(t, info.User)
+	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue", "benchmark_verdict"}, info.SchemaTables)
 	assert.Empty(t, info.WritableTableCounts)
+	require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
+	assert.Contains(t, info.WritableTablePrivileges["public.benchmark_result"], "INSERT")
 }
