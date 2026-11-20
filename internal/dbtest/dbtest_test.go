@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/containerd/errdefs"
 	"github.com/jackc/pgx/v5"
@@ -60,9 +61,13 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
+	session := uuid.New().String()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSharedServerStopsWithoutRyuk$")
-	cmd.Env = append(os.Environ(), "TESTCONTAINERS_RYUK_DISABLED=true", "BENCHDB_TEST_CONTAINER_ID_FILE="+path)
+	cmd.Env = append(os.Environ(), "TESTCONTAINERS_RYUK_DISABLED=true", "BENCHDB_TEST_CONTAINER_ID_FILE="+path, "TESTCONTAINERS_SESSION_ID="+session)
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		removeSessionContainers(t, session)
+	}
 	require.NoError(t, err, "%s", output)
 	id, err := os.ReadFile(path)
 	require.NoError(t, err, "child must record its container")
@@ -83,14 +88,20 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 	if os.Getenv("BENCHDB_TEST_DIRTY_TEMPLATE") == "" {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 		defer cancel()
+		session := uuid.New().String()
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^TestNewPoolRecoversDirtyTemplate$")
-		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1")
+		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1", "TESTCONTAINERS_SESSION_ID="+session)
 		output, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			removeSessionContainers(t, session)
+		}
+		require.NoError(t, ctx.Err(), "child did not finish: %s", output)
 		if err == nil && strings.Contains(string(output), "--- SKIP: TestNewPoolRecoversDirtyTemplate") {
 			t.Skip("child skipped because Postgres could not start")
 		}
 		var exitErr *exec.ExitError
 		require.ErrorAs(t, err, &exitErr, "%s", output)
+		require.Equal(t, 1, exitErr.ExitCode(), "%s", output)
 		assert.Contains(t, string(output), "database is in a dirty migration state")
 		assert.Contains(t, string(output), "--- FAIL: TestNewPoolRecoversDirtyTemplate/dirty")
 		assert.Contains(t, string(output), "--- PASS: TestNewPoolRecoversDirtyTemplate/retry")
@@ -117,6 +128,23 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 		require.NoError(t, empty.QueryRow(ctx, `SELECT to_regclass('benchmark_result')::text`).Scan(&table))
 		assert.Nil(t, table)
 	})
+}
+
+func removeSessionContainers(t *testing.T, session string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+	defer cancel()
+	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
+	require.NoError(t, err, "connect for container cleanup")
+	defer docker.Close()
+	containers, err := docker.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("label", "org.testcontainers.sessionId="+session)})
+	require.NoError(t, err, "list containers for cleanup")
+	for _, container := range containers.Items {
+		_, err := docker.ContainerRemove(ctx, container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if !errdefs.IsNotFound(err) {
+			assert.NoError(t, err, "remove leaked container")
+		}
+	}
 }
 
 func TestIsolation(t *testing.T) {
