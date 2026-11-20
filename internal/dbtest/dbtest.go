@@ -1,8 +1,6 @@
 // Package dbtest provides isolated databases on a shared PostgreSQL server per
 // test binary. NewPool copies a migrated template; NewEmptyPool starts empty.
-// Test cleanup drops each database, and testcontainers' Ryuk reaps the server
-// when the test binary exits. If Ryuk is disabled, the environment must clean up
-// the server.
+// Main stops the server after tests finish, and Ryuk handles a crashed binary.
 package dbtest
 
 import (
@@ -26,14 +24,32 @@ import (
 )
 
 var sharedServer struct {
-	mu     sync.Mutex
-	config *pgxpool.Config
-	// The first migration error is retained for this test process; NewEmptyPool does not use it.
-	migrateOnce sync.Once
-	migrateErr  error
+	mu        sync.Mutex
+	container *postgres.PostgresContainer
+	config    *pgxpool.Config
+	migrated  bool
 }
 
-// NewPool returns an isolated database with the BenchDB schema.
+// Main runs tests and stops their shared PostgreSQL server.
+func Main(m *testing.M) {
+	code := m.Run()
+	if sharedServer.container != nil {
+		// Cleanup must finish after all test contexts have ended.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := sharedServer.container.Terminate(ctx)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stop shared Postgres container: %v\n", err)
+			if code == 0 {
+				code = 1
+			}
+		}
+	}
+	os.Exit(code)
+}
+
+// NewPool returns an isolated database with the BenchDB schema. Copies share
+// archive_dataset.id; use NewEmptyPool and db.Migrate for a distinct dataset.
 func NewPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	return newPool(t, "benchdb")
 }
@@ -72,8 +88,20 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 			}
 			if startErr != nil {
 				_ = testcontainers.TerminateContainer(container)
+			} else {
+				sharedServer.container = container
 			}
 		}
+	}
+	var migrateErr error
+	if startErr == nil && template == "benchdb" && !sharedServer.migrated {
+		var pool *pgxpool.Pool
+		pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
+		if migrateErr == nil {
+			migrateErr = db.Migrate(serverCtx, pool)
+			pool.Close()
+		}
+		sharedServer.migrated = migrateErr == nil
 	}
 	sharedServer.mu.Unlock()
 	if startErr != nil {
@@ -82,17 +110,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		}
 		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", startErr)
 	}
-	if template == "benchdb" {
-		sharedServer.migrateOnce.Do(func() {
-			pool, err := pgxpool.NewWithConfig(serverCtx, sharedServer.config)
-			if err == nil {
-				err = db.Migrate(serverCtx, pool)
-				pool.Close()
-			}
-			sharedServer.migrateErr = err
-		})
-		require.NoError(t, sharedServer.migrateErr, "prepare shared Postgres template")
-	}
+	require.NoError(t, migrateErr, "prepare shared Postgres template")
 
 	config := sharedServer.config.Copy()
 	config.ConnConfig.Database = "postgres"
