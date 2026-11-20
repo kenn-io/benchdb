@@ -27,6 +27,7 @@ import (
 )
 
 const reclamationLockFilter = `locktype='advisory' AND objsubid=1
+AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
 AND classid::bigint=($1::bigint>>32) AND objid::bigint=($1::bigint&4294967295)`
 
 // reclamationAvailable reports whether a cleaner could take the exclusive
@@ -287,15 +288,10 @@ func TestCoordinationConfiguration(t *testing.T) {
 
 func TestCoordinationRejectsAnotherDatabase(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
-	_, err := pool.Exec(ctx, `CREATE DATABASE other_benchdb`)
-	require.NoError(t, err)
-	conn := pool.Config().ConnConfig
-	otherURL := fmt.Sprintf("postgres://%s:%s@%s:%d/other_benchdb?sslmode=disable", conn.User, conn.Password, conn.Host, conn.Port)
-	otherPool, err := pgxpool.New(ctx, otherURL)
-	require.NoError(t, err)
-	t.Cleanup(otherPool.Close)
+	otherPool, _ := dbtest.NewEmptyPool(t)
 	require.NoError(t, db.Migrate(ctx, otherPool))
-	_, err = Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
+	otherURL := otherPool.Config().ConnString()
+	_, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, CoordinationDBURL: otherURL})
 	require.ErrorContains(t, err, "reaches a different BenchDB database")
 }
 

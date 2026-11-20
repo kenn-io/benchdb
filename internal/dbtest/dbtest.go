@@ -1,16 +1,19 @@
-// Package dbtest provides a real-Postgres test harness shared by the packages
-// that exercise the data layer end to end (the store, the ingestion service, the
-// API). It starts an ephemeral Postgres via testcontainers, applies the frozen
-// schema, and skips gracefully when Docker is unavailable so `go test ./...`
-// stays green off-CI. Tests run against real Postgres, never mocks.
+// Package dbtest provides isolated databases on a shared PostgreSQL server per
+// test binary. NewPool copies a migrated template; NewEmptyPool starts empty.
+// Main stops the server after tests finish, and Ryuk handles a crashed binary.
 package dbtest
 
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -20,43 +23,152 @@ import (
 	"go.kenn.io/benchdb/internal/db"
 )
 
-// NewPool starts an ephemeral Postgres (the pinned image), applies the embedded
-// schema, and returns a connected pool plus a context. It registers cleanups for
-// the pool and container, and skips when Docker is not reachable or under
-// `go test -short`.
-func NewPool(t *testing.T) (*pgxpool.Pool, context.Context) {
-	pool, ctx := NewEmptyPool(t)
-	require.NoError(t, db.Migrate(ctx, pool), "apply schema")
-	return pool, ctx
+var sharedServer struct {
+	mu            sync.Mutex
+	container     *postgres.PostgresContainer
+	config        *pgxpool.Config
+	migrated      bool
+	resetTemplate bool
 }
 
-// NewEmptyPool starts an ephemeral Postgres without applying the BenchDB
-// schema. Migration tests use it to exercise first-install behavior.
+// Main runs tests and stops their shared PostgreSQL server.
+func Main(m *testing.M) {
+	code := m.Run()
+	if sharedServer.container != nil {
+		// Cleanup must finish after all test contexts have ended.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := sharedServer.container.Terminate(ctx)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stop shared Postgres container: %v\n", err)
+			if code == 0 {
+				code = 1
+			}
+		}
+	}
+	os.Exit(code)
+}
+
+// NewPool returns an isolated database with the BenchDB schema. Copies share
+// archive_dataset.id; use NewEmptyPool and db.Migrate for a distinct dataset.
+func NewPool(t *testing.T) (*pgxpool.Pool, context.Context) {
+	return newPool(t, "benchdb")
+}
+
+// NewEmptyPool returns an isolated database without the BenchDB schema.
 func NewEmptyPool(t *testing.T) (*pgxpool.Pool, context.Context) {
+	return newPool(t, "template0")
+}
+
+func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping Postgres-backed test in -short mode")
 	}
 	ctx := t.Context()
-
-	container, err := postgres.Run(ctx, "postgres:15.2-alpine",
-		postgres.WithDatabase("benchdb"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", err)
+	// The server outlives the first test that requests it.
+	serverCtx := context.WithoutCancel(ctx)
+	sharedServer.mu.Lock()
+	var startErr, setupErr error
+	if sharedServer.config == nil {
+		var container *postgres.PostgresContainer
+		container, startErr = retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
+			started, err := postgres.Run(serverCtx, Postgres15Image,
+				postgres.WithDatabase("benchdb"), postgres.WithUsername("postgres"),
+				postgres.WithPassword("postgres"), postgres.BasicWaitStrategies())
+			if err != nil {
+				_ = testcontainers.TerminateContainer(started)
+			}
+			return started, err
+		})
+		if startErr == nil {
+			if path := os.Getenv("BENCHDB_TEST_CONTAINER_ID_FILE"); path != "" {
+				setupErr = os.WriteFile(path, []byte(container.GetContainerID()), 0600)
+			}
+			var connStr string
+			if setupErr == nil {
+				connStr, setupErr = container.ConnectionString(serverCtx, "sslmode=disable")
+			}
+			if setupErr == nil {
+				sharedServer.config, setupErr = pgxpool.ParseConfig(connStr)
+			}
+			if setupErr != nil {
+				_ = testcontainers.TerminateContainer(container)
+			} else {
+				sharedServer.container = container
+			}
+		}
 	}
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
+	var migrateErr error
+	if startErr == nil && setupErr == nil && template == "benchdb" && !sharedServer.migrated {
+		if sharedServer.resetTemplate {
+			adminConfig := sharedServer.config.ConnConfig.Copy()
+			adminConfig.Database = "postgres"
+			var admin *pgx.Conn
+			admin, migrateErr = pgx.ConnectConfig(serverCtx, adminConfig)
+			if migrateErr == nil {
+				_, migrateErr = admin.Exec(serverCtx, `DROP DATABASE IF EXISTS benchdb WITH (FORCE)`)
+				if migrateErr == nil {
+					_, migrateErr = admin.Exec(serverCtx, `CREATE DATABASE benchdb TEMPLATE template0`)
+				}
+				closeErr := admin.Close(serverCtx)
+				if migrateErr == nil {
+					migrateErr = closeErr
+				}
+			}
+		}
+		var pool *pgxpool.Pool
+		if migrateErr == nil {
+			pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
+		}
+		if migrateErr == nil {
+			migrateErr = db.Migrate(serverCtx, pool)
+			pool.Close()
+		}
+		sharedServer.migrated = migrateErr == nil
+		sharedServer.resetTemplate = migrateErr != nil
+	}
+	sharedServer.mu.Unlock()
+	require.NoError(t, setupErr, "set up Postgres container")
+	if startErr != nil {
+		if os.Getenv("CI") == "true" {
+			require.NoError(t, startErr, "start Postgres container")
+		}
+		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", startErr)
+	}
+	require.NoError(t, migrateErr, "prepare shared Postgres template")
 
-	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err, "connection string")
-	pool, err := pgxpool.New(ctx, connStr)
+	config := sharedServer.config.Copy()
+	config.ConnConfig.Database = "postgres"
+	admin, err := pgx.ConnectConfig(ctx, config.ConnConfig)
+	require.NoError(t, err, "connect to Postgres")
+	name := fmt.Sprintf("benchdb_t%d", userSeq.Add(1))
+	_, err = admin.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", pgx.Identifier{name}.Sanitize(), pgx.Identifier{template}.Sanitize()))
+	closeErr := admin.Close(ctx)
+	require.NoError(t, err, "create test database")
+	DropDatabaseOnCleanup(t, config.ConnConfig, name)
+	require.NoError(t, closeErr, "close admin connection")
+	connURL, err := url.Parse(sharedServer.config.ConnString())
+	require.NoError(t, err, "parse connection string")
+	connURL.Path = "/" + name
+	pool, err := pgxpool.New(ctx, connURL.String())
 	require.NoError(t, err, "open pool")
 	t.Cleanup(pool.Close)
-
 	return pool, ctx
+}
+
+// DropDatabaseOnCleanup removes a test-owned database after its pool closes.
+func DropDatabaseOnCleanup(t *testing.T, config *pgx.ConnConfig, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+		defer cancel()
+		conn, err := pgx.ConnectConfig(ctx, config)
+		require.NoError(t, err, "connect to drop test database")
+		defer func() { require.NoError(t, conn.Close(ctx)) }()
+		_, err = conn.Exec(ctx, fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", pgx.Identifier{name}.Sanitize()))
+		require.NoError(t, err, "drop test database")
+	})
 }
 
 // userSeq disambiguates seeded users within a test binary run; the unique

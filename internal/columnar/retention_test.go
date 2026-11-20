@@ -553,6 +553,7 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 	t.Helper()
 	admin := pool.Config().ConnConfig.Copy()
 	source := admin.Database
+	name = source + "_" + name
 	admin.Database = "postgres"
 	conn, err := pgx.ConnectConfig(ctx, admin)
 	require.NoError(t, err)
@@ -565,6 +566,7 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 		_, err := conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, pgx.Identifier{name}.Sanitize(), pgx.Identifier{source}.Sanitize()))
 		return err == nil
 	}, 30*time.Second, 100*time.Millisecond, "copy the database while no session uses it")
+	dbtest.DropDatabaseOnCleanup(t, admin, name)
 	// DuckDB attaches with the pool's connection string, so name the copy there.
 	restored, err := url.Parse(pool.Config().ConnString())
 	require.NoError(t, err)
@@ -573,6 +575,26 @@ func snapshotDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 	require.NoError(t, err)
 	t.Cleanup(snapshot.Close)
 	return snapshot
+}
+
+func TestSnapshotDatabase(t *testing.T) {
+	pool, ctx := dbtest.NewPool(t)
+	id := dbtest.SeedUser(t, ctx, pool)
+	var copyName string
+	t.Run("snapshot", func(t *testing.T) {
+		snapshot := snapshotDatabase(t, t.Context(), pool, "oracle")
+		var found bool
+		require.NoError(t, snapshot.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, id).Scan(&found))
+		require.True(t, found)
+		copyID := dbtest.SeedUser(t, t.Context(), snapshot)
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, copyID).Scan(&found))
+		require.False(t, found)
+		require.NoError(t, snapshot.QueryRow(t.Context(), `SELECT current_database()`).Scan(&copyName))
+		assert.Equal(t, pool.Config().ConnConfig.Database+"_oracle", copyName)
+	})
+	var exists bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)`, copyName).Scan(&exists))
+	assert.False(t, exists)
 }
 
 func TestRestoreRetainsOldManifest(t *testing.T) {
@@ -594,7 +616,7 @@ func TestRestoreRetainsOldManifest(t *testing.T) {
 	oldManifest := manifestKeys(t, ctx, pool)
 	require.Len(t, oldManifest, 3)
 	require.NoError(t, source.Close())
-	restored := snapshotDatabase(t, ctx, pool, "benchdb_restored")
+	restored := snapshotDatabase(t, ctx, pool, "restored")
 
 	// After the backup, new results are exported and compacted with the old
 	// file, which retires the backup's manifest.
