@@ -72,6 +72,43 @@ func TestSharedServerStopsWithoutRyuk(t *testing.T) {
 	assert.True(t, errdefs.IsNotFound(err), "shared container should be gone: %v", err)
 }
 
+func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Postgres-backed test in -short mode")
+	}
+	if os.Getenv("BENCHDB_TEST_DIRTY_TEMPLATE") == "" {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^TestNewPoolRecoversDirtyTemplate$")
+		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1", "CI=true")
+		output, err := cmd.CombinedOutput()
+		var exitErr *exec.ExitError
+		require.ErrorAs(t, err, &exitErr, "%s", output)
+		assert.Contains(t, string(output), "database is in a dirty migration state")
+		assert.Contains(t, string(output), "--- FAIL: TestNewPoolRecoversDirtyTemplate/dirty")
+		assert.Contains(t, string(output), "--- PASS: TestNewPoolRecoversDirtyTemplate/retry")
+		return
+	}
+	empty, ctx := NewEmptyPool(t)
+	config := empty.Config().ConnConfig.Copy()
+	config.Database = "benchdb"
+	conn, err := pgx.ConnectConfig(ctx, config)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL); INSERT INTO schema_migrations VALUES (1, true)`)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(ctx))
+
+	t.Run("dirty", func(t *testing.T) { NewPool(t) })
+	t.Run("retry", func(t *testing.T) {
+		pool, _ := NewPool(t)
+		var table *string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT to_regclass('benchmark_result')::text`).Scan(&table))
+		require.NotNil(t, table)
+		require.NoError(t, empty.QueryRow(ctx, `SELECT to_regclass('benchmark_result')::text`).Scan(&table))
+		assert.Nil(t, table)
+	})
+}
+
 func TestIsolation(t *testing.T) {
 	first, ctx := NewPool(t)
 	second, _ := NewPool(t)

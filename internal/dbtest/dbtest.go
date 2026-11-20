@@ -24,10 +24,11 @@ import (
 )
 
 var sharedServer struct {
-	mu        sync.Mutex
-	container *postgres.PostgresContainer
-	config    *pgxpool.Config
-	migrated  bool
+	mu            sync.Mutex
+	container     *postgres.PostgresContainer
+	config        *pgxpool.Config
+	migrated      bool
+	resetTemplate bool
 }
 
 // Main runs tests and stops their shared PostgreSQL server.
@@ -100,13 +101,32 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	}
 	var migrateErr error
 	if startErr == nil && setupErr == nil && template == "benchdb" && !sharedServer.migrated {
+		if sharedServer.resetTemplate {
+			adminConfig := sharedServer.config.ConnConfig.Copy()
+			adminConfig.Database = "postgres"
+			var admin *pgx.Conn
+			admin, migrateErr = pgx.ConnectConfig(serverCtx, adminConfig)
+			if migrateErr == nil {
+				_, migrateErr = admin.Exec(serverCtx, `DROP DATABASE IF EXISTS benchdb WITH (FORCE)`)
+				if migrateErr == nil {
+					_, migrateErr = admin.Exec(serverCtx, `CREATE DATABASE benchdb TEMPLATE template0`)
+				}
+				closeErr := admin.Close(serverCtx)
+				if migrateErr == nil {
+					migrateErr = closeErr
+				}
+			}
+		}
 		var pool *pgxpool.Pool
-		pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
+		if migrateErr == nil {
+			pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
+		}
 		if migrateErr == nil {
 			migrateErr = db.Migrate(serverCtx, pool)
 			pool.Close()
 		}
 		sharedServer.migrated = migrateErr == nil
+		sharedServer.resetTemplate = migrateErr != nil
 	}
 	sharedServer.mu.Unlock()
 	require.NoError(t, setupErr, "set up Postgres container")
