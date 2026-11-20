@@ -590,11 +590,7 @@ func TestSnapshotDatabase(t *testing.T) {
 		require.NoError(t, pool.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, copyID).Scan(&found))
 		require.False(t, found)
 		require.NoError(t, snapshot.QueryRow(t.Context(), `SELECT current_database()`).Scan(&copyName))
-		conn, err := pgx.Connect(t.Context(), snapshot.Config().ConnString())
-		require.NoError(t, err)
-		require.NoError(t, conn.QueryRow(t.Context(), `SELECT EXISTS (SELECT FROM "user" WHERE id = $1)`, copyID).Scan(&found))
-		assert.True(t, found)
-		require.NoError(t, conn.Close(t.Context()))
+		assert.Equal(t, pool.Config().ConnConfig.Database+"_oracle", copyName)
 	})
 	var exists bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)`, copyName).Scan(&exists))

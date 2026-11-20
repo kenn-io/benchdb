@@ -1,8 +1,10 @@
 package prodclone
 
 import (
+	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/benchdb/internal/dbtest"
@@ -319,16 +321,30 @@ func completePreflightCountSnapshot() CountSnapshot {
 func TestProbeTargetCollectsSchemaCountsAndPrivileges(t *testing.T) {
 	pool, ctx := dbtest.NewPool(t)
 
-	info, err := ProbeTarget(ctx, pool)
-	require.NoError(t, err)
-
-	assert.Equal(t, pool.Config().ConnConfig.Database, info.Database)
-	assert.NotEmpty(t, info.User)
-	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue", "benchmark_verdict"}, info.SchemaTables)
-	assert.NotContains(t, info.WritableTableCounts, "public.benchmark_result")
-	assert.Contains(t, info.WritableTableCounts, `public."case"`)
-	require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
-	assert.Contains(t, info.WritableTablePrivileges["public.benchmark_result"], "INSERT")
+	for _, probe := range []struct {
+		name   string
+		run    func(context.Context, *pgxpool.Pool) (TargetInfo, error)
+		counts bool
+	}{
+		{"full", ProbeTarget, true},
+		{"safety", ProbeTargetSafety, false},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			info, err := probe.run(ctx, pool)
+			require.NoError(t, err)
+			assert.Equal(t, pool.Config().ConnConfig.Database, info.Database)
+			assert.NotEmpty(t, info.User)
+			assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue", "benchmark_verdict"}, info.SchemaTables)
+			if probe.counts {
+				assert.NotContains(t, info.WritableTableCounts, "public.benchmark_result")
+				assert.Contains(t, info.WritableTableCounts, `public."case"`)
+			} else {
+				assert.Empty(t, info.WritableTableCounts)
+			}
+			require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
+			assert.Contains(t, info.WritableTablePrivileges["public.benchmark_result"], "INSERT")
+		})
+	}
 }
 
 func TestProbeTargetSkipsCountsForMissingTables(t *testing.T) {
@@ -344,18 +360,4 @@ func TestProbeTargetSkipsCountsForMissingTables(t *testing.T) {
 	assert.NotContains(t, info.WritableTablePrivileges, `public."user"`)
 	assert.NotContains(t, info.WritableTableCounts, "public.benchmark_result")
 	assert.Contains(t, info.WritableTableCounts, `public."case"`)
-}
-
-func TestProbeTargetSafetySkipsCounts(t *testing.T) {
-	pool, ctx := dbtest.NewPool(t)
-
-	info, err := ProbeTargetSafety(ctx, pool)
-	require.NoError(t, err)
-
-	assert.Equal(t, pool.Config().ConnConfig.Database, info.Database)
-	assert.NotEmpty(t, info.User)
-	assert.ElementsMatch(t, []string{"benchmark_result", "case", "context", "info", "hardware", "commit", "api_token", "user", "run_verdict", "verdict_queue", "benchmark_verdict"}, info.SchemaTables)
-	assert.Empty(t, info.WritableTableCounts)
-	require.Contains(t, info.WritableTablePrivileges, "public.benchmark_result")
-	assert.Contains(t, info.WritableTablePrivileges["public.benchmark_result"], "INSERT")
 }

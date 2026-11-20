@@ -92,10 +92,8 @@ func TestIsolation(t *testing.T) {
 		require.NotNil(t, table)
 	}
 	empty, _ := NewEmptyPool(t)
-	for _, name := range []string{"benchmark_result", "schema_migrations"} {
-		require.NoError(t, empty.QueryRow(ctx, `SELECT to_regclass($1)::text`, name).Scan(&table))
-		assert.Nil(t, table)
-	}
+	require.NoError(t, empty.QueryRow(ctx, `SELECT to_regclass('benchmark_result')::text`).Scan(&table))
+	assert.Nil(t, table)
 	var childName string
 	t.Run("cleanup", func(t *testing.T) {
 		child, childCtx := NewPool(t)

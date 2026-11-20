@@ -124,7 +124,7 @@ func measureDimensionReads(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 		pool.Reset()
 		require.Eventually(t, func() bool {
 			var others int
-			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND pid<>pg_backend_pid()`).Scan(&others)
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND pid<>pg_backend_pid()`).Scan(&others)
 			return err == nil && others == 0
 		}, 10*time.Second, 10*time.Millisecond)
 	}
