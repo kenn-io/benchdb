@@ -13,18 +13,14 @@ func TestIsolation(t *testing.T) {
 	first, ctx := NewPool(t)
 	second, _ := NewPool(t)
 	assert.Equal(t, first.Config().ConnConfig.Port, second.Config().ConnConfig.Port)
-	var firstName, secondName string
-	require.NoError(t, first.QueryRow(ctx, `SELECT current_database()`).Scan(&firstName))
-	require.NoError(t, second.QueryRow(ctx, `SELECT current_database()`).Scan(&secondName))
-	assert.NotEqual(t, firstName, secondName)
+	_, err := first.Exec(ctx, `CREATE TABLE isolation_probe (value integer); INSERT INTO isolation_probe VALUES (1)`)
+	require.NoError(t, err)
 	conn, err := pgx.Connect(ctx, first.Config().ConnString())
 	require.NoError(t, err)
-	var dsnName string
-	require.NoError(t, conn.QueryRow(ctx, `SELECT current_database()`).Scan(&dsnName))
-	assert.Equal(t, firstName, dsnName)
+	var value int
+	require.NoError(t, conn.QueryRow(ctx, `SELECT value FROM isolation_probe`).Scan(&value))
+	assert.Equal(t, 1, value)
 	require.NoError(t, conn.Close(ctx))
-	_, err = first.Exec(ctx, `CREATE TABLE isolation_probe (value integer); INSERT INTO isolation_probe VALUES (1)`)
-	require.NoError(t, err)
 	var table *string
 	require.NoError(t, second.QueryRow(ctx, `SELECT to_regclass('isolation_probe')::text`).Scan(&table))
 	assert.Nil(t, table)

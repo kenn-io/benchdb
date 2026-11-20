@@ -764,7 +764,7 @@ func TestLookupBackfillRestoreRepeatsLostCatchUp(t *testing.T) {
 		step(e)
 	}
 	require.NoError(t, e.Close())
-	restored := snapshotDatabase(t, ctx, pool, "benchdb_restored")
+	restored := snapshotDatabase(t, ctx, pool, "oracle")
 
 	// The source indexes the first staged file; the backup lacks it.
 	e = open(pool)
@@ -925,7 +925,7 @@ func TestLookupBackfillRestoreRebuildsMovedRuns(t *testing.T) {
 			forgetLookups(t, ctx, pool)
 			step(e) // The capture.
 			require.NoError(t, e.Close())
-			restored := snapshotDatabase(t, ctx, pool, "benchdb_restored")
+			restored := snapshotDatabase(t, ctx, pool, "oracle")
 
 			// After the backup, a deletion compaction rewrites the first
 			// captured file without one row, and the build reads the output.
@@ -996,7 +996,7 @@ func TestLookupBackfillRestoreRevivesEmptyFile(t *testing.T) {
 	require.Len(t, exportSettled(t, ctx, e, pool), 2)
 	require.False(t, directoryComplete(t, ctx, pool), "no backfill has completed the directory")
 	require.NoError(t, e.Close())
-	restored := snapshotDatabase(t, ctx, pool, "benchdb_restored")
+	restored := snapshotDatabase(t, ctx, pool, "oracle")
 
 	// After the backup, every February row is deleted and compaction leaves
 	// its logical file with no physical file. The capture then lists only
