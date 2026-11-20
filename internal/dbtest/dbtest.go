@@ -68,7 +68,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	// The server outlives the first test that requests it.
 	serverCtx := context.WithoutCancel(ctx)
 	sharedServer.mu.Lock()
-	var startErr, recordErr error
+	var startErr, setupErr error
 	if sharedServer.config == nil {
 		var container *postgres.PostgresContainer
 		container, startErr = retryReaperRace(serverCtx, t, "start Postgres", func() (*postgres.PostgresContainer, error) {
@@ -82,16 +82,16 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		})
 		if startErr == nil {
 			if path := os.Getenv("BENCHDB_TEST_CONTAINER_ID_FILE"); path != "" {
-				recordErr = os.WriteFile(path, []byte(container.GetContainerID()), 0600)
+				setupErr = os.WriteFile(path, []byte(container.GetContainerID()), 0600)
 			}
 			var connStr string
-			if recordErr == nil {
-				connStr, startErr = container.ConnectionString(serverCtx, "sslmode=disable")
+			if setupErr == nil {
+				connStr, setupErr = container.ConnectionString(serverCtx, "sslmode=disable")
 			}
-			if startErr == nil && recordErr == nil {
-				sharedServer.config, startErr = pgxpool.ParseConfig(connStr)
+			if setupErr == nil {
+				sharedServer.config, setupErr = pgxpool.ParseConfig(connStr)
 			}
-			if startErr != nil || recordErr != nil {
+			if setupErr != nil {
 				_ = testcontainers.TerminateContainer(container)
 			} else {
 				sharedServer.container = container
@@ -99,7 +99,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		}
 	}
 	var migrateErr error
-	if startErr == nil && recordErr == nil && template == "benchdb" && !sharedServer.migrated {
+	if startErr == nil && setupErr == nil && template == "benchdb" && !sharedServer.migrated {
 		var pool *pgxpool.Pool
 		pool, migrateErr = pgxpool.NewWithConfig(serverCtx, sharedServer.config)
 		if migrateErr == nil {
@@ -109,7 +109,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 		sharedServer.migrated = migrateErr == nil
 	}
 	sharedServer.mu.Unlock()
-	require.NoError(t, recordErr, "record Postgres container ID")
+	require.NoError(t, setupErr, "set up Postgres container")
 	if startErr != nil {
 		if os.Getenv("CI") == "true" {
 			require.NoError(t, startErr, "start Postgres container")
