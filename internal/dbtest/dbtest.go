@@ -78,7 +78,7 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 	sharedServer.mu.Unlock()
 	if startErr != nil {
 		if os.Getenv("CI") == "true" {
-			t.Fatalf("cannot start Postgres container: %v", startErr)
+			require.NoError(t, startErr, "start Postgres container")
 		}
 		t.Skipf("skipping: cannot start Postgres container (Docker required): %v", startErr)
 	}
