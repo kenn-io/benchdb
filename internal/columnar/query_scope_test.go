@@ -147,7 +147,7 @@ func newFactScopeFixture(t *testing.T) (*factScopeFixture, context.Context) {
 			break
 		}
 	}
-	f.oracleRaw = snapshotDatabase(t, ctx, pool, pool.Config().ConnConfig.Database+"_oracle")
+	f.oracleRaw = snapshotDatabase(t, ctx, pool, "oracle")
 	f.oracle = db.NewStore(f.oracleRaw)
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1,
 		BatchRows: 2, Settle: time.Nanosecond, Retention: immediateRetention})

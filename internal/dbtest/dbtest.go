@@ -26,8 +26,9 @@ import (
 )
 
 var sharedServer struct {
-	mu          sync.Mutex
-	config      *pgxpool.Config
+	mu     sync.Mutex
+	config *pgxpool.Config
+	// The first migration error is retained for this test process; NewEmptyPool does not use it.
 	migrateOnce sync.Once
 	migrateErr  error
 }
