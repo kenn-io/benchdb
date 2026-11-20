@@ -660,7 +660,6 @@ func TestLookupBackfillRecapturesStaleState(t *testing.T) {
 // statement timeout, so only the application deadline ends the wait; the
 // cycle then records the failure and still exports.
 func TestLookupBackfillStalledMetadataKeepsExporting(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		name, table, query, failure string
 		captured                    bool

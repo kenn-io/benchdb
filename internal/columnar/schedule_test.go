@@ -465,7 +465,6 @@ FOR EACH ROW EXECUTE FUNCTION reject_schedule_write()`, operation))
 // their metadata deadlines, release maintenance ownership, and leave the
 // shared record unchanged.
 func TestLockedScheduleDoesNotHoldMaintenance(t *testing.T) {
-	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	e := openRetentionArchive(t, ctx, pool, t.TempDir(), 0)
 	require.NoError(t, e.importMaintenance(ctx))

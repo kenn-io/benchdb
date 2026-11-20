@@ -32,6 +32,17 @@ func TestRetryReaperRace(t *testing.T) {
 			wantAttempts: 3,
 		},
 		{
+			name:         "recovers while shared reaper starts",
+			failures:     []error{errors.New(`run postgres: generic container: create container: reaper: from container "0ffb3f91": wait for reaper 0ffb3f91: unexpected container status "created"`)},
+			wantAttempts: 2,
+		},
+		{
+			name:         "does not retry other created containers",
+			failures:     []error{errors.New(`wait for container: unexpected container status "created"`)},
+			wantErr:      `unexpected container status "created"`,
+			wantAttempts: 1,
+		},
+		{
 			name:         "stops at the attempt cap",
 			failures:     []error{reaperConflict(), reaperConflict(), reaperConflict(), reaperConflict()},
 			wantErr:      "already in use",

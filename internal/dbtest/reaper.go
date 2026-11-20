@@ -34,10 +34,9 @@ func isReaperNameConflict(err error) bool {
 	return errdefs.IsConflict(err) && strings.Contains(err.Error(), reaperNamePrefix)
 }
 
-// retryReaperRace runs op, trying again with backoff only when concurrent test
-// binaries raced to create the reaper. Other errors, and the last reaper
-// conflict once attempts run out, are returned unchanged for the caller to
-// fail on. op must release anything a failed attempt created.
+// retryReaperRace runs op again when concurrent test binaries race to create
+// or start the shared reaper. Other errors are returned unchanged. op must
+// release anything a failed attempt created.
 func retryReaperRace[T any](
 	ctx context.Context, t *testing.T, what string, op func() (T, error),
 ) (T, error) {
@@ -46,7 +45,9 @@ func retryReaperRace[T any](
 	policy.InitialInterval = 500 * time.Millisecond
 	result, err := backoff.Retry(ctx, func() (T, error) {
 		value, err := op()
-		if err != nil && !isReaperNameConflict(err) {
+		// Another test binary may find the reaper before Docker starts it.
+		starting := err != nil && strings.Contains(err.Error(), "reaper: from container ") && strings.Contains(err.Error(), `: unexpected container status "created"`)
+		if err != nil && !isReaperNameConflict(err) && !starting {
 			return value, backoff.Permanent(err)
 		}
 		return value, err
