@@ -86,12 +86,34 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 		t.Skip("skipping Postgres-backed test in -short mode")
 	}
 	if os.Getenv("BENCHDB_TEST_DIRTY_TEMPLATE") == "" {
+		path := filepath.Join(t.TempDir(), "container-id")
+		t.Cleanup(func() {
+			id, err := os.ReadFile(path)
+			if errors.Is(err, os.ErrNotExist) {
+				return
+			}
+			require.NoError(t, err, "read child container ID")
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+			defer cancel()
+			docker, err := testcontainers.NewDockerClientWithOpts(ctx)
+			require.NoError(t, err, "connect for container cleanup")
+			defer docker.Close()
+			_, inspectErr := docker.ContainerInspect(ctx, string(id), client.ContainerInspectOptions{})
+			if inspectErr == nil {
+				_, err = docker.ContainerRemove(ctx, string(id), client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+				if !errdefs.IsNotFound(err) {
+					assert.NoError(t, err, "remove leaked container")
+				}
+			}
+			assert.True(t, errdefs.IsNotFound(inspectErr), "shared container should be gone: %v", inspectErr)
+		})
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 		defer cancel()
 		session := uuid.New().String()
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^TestNewPoolRecoversDirtyTemplate$")
-		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1", "TESTCONTAINERS_SESSION_ID="+session)
+		cmd.Env = append(os.Environ(), "BENCHDB_TEST_DIRTY_TEMPLATE=1", "BENCHDB_TEST_CONTAINER_ID_FILE="+path, "TESTCONTAINERS_SESSION_ID="+session)
 		output, err := cmd.CombinedOutput()
+		assert.NotContains(t, string(output), "stop shared Postgres container:", "%s", output)
 		if ctx.Err() != nil {
 			removeSessionContainers(t, session)
 		}
@@ -99,6 +121,8 @@ func TestNewPoolRecoversDirtyTemplate(t *testing.T) {
 		if err == nil && strings.Contains(string(output), "--- SKIP: TestNewPoolRecoversDirtyTemplate") {
 			t.Skip("child skipped because Postgres could not start")
 		}
+		_, statErr := os.Stat(path)
+		require.NoError(t, statErr, "child must record its container")
 		var exitErr *exec.ExitError
 		require.ErrorAs(t, err, &exitErr, "%s", output)
 		require.Equal(t, 1, exitErr.ExitCode(), "%s", output)
