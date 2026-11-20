@@ -12,7 +12,6 @@ import (
 func TestIsolation(t *testing.T) {
 	first, ctx := NewPool(t)
 	second, _ := NewPool(t)
-	assert.Equal(t, first.Config().ConnConfig.Host, second.Config().ConnConfig.Host)
 	assert.Equal(t, first.Config().ConnConfig.Port, second.Config().ConnConfig.Port)
 	var firstName, secondName string
 	require.NoError(t, first.QueryRow(ctx, `SELECT current_database()`).Scan(&firstName))

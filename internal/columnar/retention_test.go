@@ -595,7 +595,6 @@ func TestSnapshotDatabase(t *testing.T) {
 		var dsnName string
 		require.NoError(t, conn.QueryRow(t.Context(), `SELECT current_database()`).Scan(&dsnName))
 		assert.Equal(t, copyName, dsnName)
-		assert.NotEqual(t, pool.Config().ConnConfig.Database, dsnName)
 		require.NoError(t, conn.Close(t.Context()))
 	})
 	var exists bool

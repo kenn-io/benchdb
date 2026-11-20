@@ -102,8 +102,6 @@ func newPool(t *testing.T, template string) (*pgxpool.Pool, context.Context) {
 // DropDatabaseOnCleanup removes a test-owned database after its pool closes.
 func DropDatabaseOnCleanup(t *testing.T, config *pgx.ConnConfig, name string) {
 	t.Helper()
-	config = config.Copy()
-	config.Database = "postgres"
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
