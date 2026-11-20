@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func reaperConflict() error {
@@ -30,11 +33,6 @@ func TestRetryReaperRace(t *testing.T) {
 			name:         "recovers after reaper conflicts",
 			failures:     []error{reaperConflict(), reaperConflict()},
 			wantAttempts: 3,
-		},
-		{
-			name:         "recovers while shared reaper starts",
-			failures:     []error{errors.New(`run postgres: generic container: create container: reaper: from container "0ffb3f91": wait for reaper 0ffb3f91: unexpected container status "created"`)},
-			wantAttempts: 2,
 		},
 		{
 			name:         "does not retry other created containers",
@@ -80,6 +78,44 @@ func TestRetryReaperRace(t *testing.T) {
 			assert.Equal(t, "ok", got)
 		})
 	}
+}
+
+// TestRetryReaperWhileStarting uses Testcontainers' wait strategy against a
+// created container to exercise the status error its reaper can return.
+func TestRetryReaperWhileStarting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Docker-backed test in -short mode")
+	}
+	ctx := t.Context()
+	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, docker.Close()) })
+	created, err := docker.ContainerCreate(ctx, client.ContainerCreateOptions{Image: Postgres15Image})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, err := docker.ContainerRemove(cleanupCtx, created.ID, client.ContainerRemoveOptions{Force: true})
+		assert.NoError(t, err)
+	})
+	provider, err := testcontainers.NewDockerProvider()
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, provider.Close()) })
+	target := &testcontainers.DockerContainer{ID: created.ID}
+	target.SetProvider(provider)
+	statusErr := wait.ForListeningPort("5432/tcp").SkipInternalCheck().WithPollInterval(time.Millisecond).WaitUntilReady(ctx, target)
+	require.ErrorContains(t, statusErr, `unexpected container status "created"`)
+	attempts := 0
+	got, err := retryReaperRace(ctx, t, "create container", func() (string, error) {
+		attempts++
+		if attempts == 1 {
+			return "", fmt.Errorf("reaper: from container %q: wait for reaper %s: %w", created.ID[:8], created.ID[:8], statusErr)
+		}
+		return "ok", nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ok", got)
+	assert.Equal(t, 2, attempts)
 }
 
 func TestRetryReaperRaceStopsWhenContextEnds(t *testing.T) {
