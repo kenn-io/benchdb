@@ -96,6 +96,7 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 		provider, err := testcontainers.NewDockerProvider()
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, provider.Close()) })
+		//nolint:staticcheck // Exercise the actual reaper error despite the deprecated entry point.
 		_, err = testcontainers.NewReaper(ctx, session, provider, "")
 		require.True(t, err != nil && isReaperStarting(err), "%v", err)
 		return
@@ -103,6 +104,8 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 
 	session := uuid.NewString()
 	id := strings.Repeat("a", 64)
+	//nolint:staticcheck // The fixture must match the image used by this Testcontainers version.
+	reaperImage := testcontainers.ReaperDefaultImage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Api-Version", "1.44")
@@ -116,9 +119,9 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/containers/json"):
 			assert.Contains(t, r.URL.Query().Get("filters"), session)
 			assert.Contains(t, r.URL.Query().Get("filters"), "reaper_"+session)
-			_, _ = fmt.Fprintf(w, `[{"Id":%q,"Names":[%q],"Image":%q,"State":"created","Labels":{"org.testcontainers.sessionId":%q,"org.testcontainers.reaper":"true","org.testcontainers.ryuk":"true"}}]`, id, "/reaper_"+session, testcontainers.ReaperDefaultImage, session)
+			_, _ = fmt.Fprintf(w, `[{"Id":%q,"Names":[%q],"Image":%q,"State":"created","Labels":{"org.testcontainers.sessionId":%q,"org.testcontainers.reaper":"true","org.testcontainers.ryuk":"true"}}]`, id, "/reaper_"+session, reaperImage, session)
 		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/json"):
-			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Config":{"Image":%q},"State":{"Status":"created","Running":false},"NetworkSettings":{"Ports":{}}}`, id, "/reaper_"+session, testcontainers.ReaperDefaultImage)
+			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Config":{"Image":%q},"State":{"Status":"created","Running":false},"NetworkSettings":{"Ports":{}}}`, id, "/reaper_"+session, reaperImage)
 		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/logs"):
 			w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
 		default:
