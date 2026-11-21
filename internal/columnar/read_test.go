@@ -20,6 +20,7 @@ import (
 // The PostgreSQL adapter is the independent oracle. Every check is repeated
 // after physical eviction, so accidentally inheriting its fact reads fails.
 func TestAnalyticalReadsMatchPostgresAcrossArchive(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	pg := db.NewStore(pool)
 	summary, err := seed.Run(ctx, pg)

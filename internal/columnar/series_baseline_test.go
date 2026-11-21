@@ -20,6 +20,7 @@ import (
 // before the tail must still govern it after its result leaves PostgreSQL for
 // the archive, and a mark added to an archived result must still end it.
 func TestSeriesListKeepsAnArchivedSelectedBaselineOlderThanTheTail(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	pg := db.NewStore(pool)
 	e, err := Open(ctx, pool, Config{Dir: t.TempDir(), ExtensionDir: os.Getenv("BENCHDB_DUCKDB_EXTENSION_DIR"), Readers: 1, Settle: time.Nanosecond})

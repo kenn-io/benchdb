@@ -4,7 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -30,6 +36,12 @@ func TestRetryReaperRace(t *testing.T) {
 			name:         "recovers after reaper conflicts",
 			failures:     []error{reaperConflict(), reaperConflict()},
 			wantAttempts: 3,
+		},
+		{
+			name:         "does not retry other created containers",
+			failures:     []error{errors.New(`wait until ready: unexpected container status "created"`)},
+			wantErr:      `unexpected container status "created"`,
+			wantAttempts: 1,
 		},
 		{
 			name:         "stops at the attempt cap",
@@ -69,6 +81,53 @@ func TestRetryReaperRace(t *testing.T) {
 			assert.Equal(t, "ok", got)
 		})
 	}
+}
+
+// TestRetryReaperRaceWhileStarting retries the reaper's error when another
+// process has created its container but has not started it yet.
+func TestRetryReaperRaceWhileStarting(t *testing.T) {
+	ctx := t.Context()
+	if session := os.Getenv("BENCHDB_TEST_REAPER_STARTING"); session != "" {
+		provider, err := testcontainers.NewDockerProvider()
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, provider.Close()) })
+		attempts := 0
+		_, err = retryReaperRace(ctx, t, "start reaper", func() (*testcontainers.Reaper, error) {
+			attempts++
+			//nolint:staticcheck // Exercise the actual reaper error despite the deprecated entry point.
+			return testcontainers.NewReaper(ctx, session, provider, "")
+		})
+		assert.Equal(t, reaperRaceAttempts, attempts)
+		require.Error(t, err)
+		assert.True(t, isReaperStarting(err), "%v", err)
+		return
+	}
+
+	session := uuid.NewString()
+	id := strings.Repeat("a", 64)
+	//nolint:staticcheck // The fixture must match the image used by this Testcontainers version.
+	reaperImage := testcontainers.ReaperDefaultImage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/info"):
+			_, _ = w.Write([]byte(`{"ID":"test","ServerVersion":"test","OperatingSystem":"test","OSType":"linux"}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = fmt.Fprintf(w, `[{"Id":%q,"Names":[%q],"Image":%q,"State":"created","Labels":{"org.testcontainers.sessionId":%q,"org.testcontainers.reaper":"true","org.testcontainers.ryuk":"true"}}]`, id, "/reaper_"+session, reaperImage, session)
+		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/json"):
+			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Config":{"Image":%q},"State":{"Status":"created","Running":false},"NetworkSettings":{"Ports":{}}}`, id, "/reaper_"+session, reaperImage)
+		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/logs"):
+			w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		default:
+			http.Error(w, "unexpected Docker API request", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	childCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperRaceWhileStarting$")
+	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1), "TESTCONTAINERS_RYUK_DISABLED=false", "DOCKER_CERT_PATH=")
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
 
 func TestRetryReaperRaceStopsWhenContextEnds(t *testing.T) {

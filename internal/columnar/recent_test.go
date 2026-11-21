@@ -54,6 +54,7 @@ FROM benchmark_result CROSS JOIN generate_series(1,50000) i WHERE id=$1`, summar
 }
 
 func TestRecentRunsDoesNotRescanTimestampTies(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	pg := db.NewStore(pool)
 	summary, err := seed.Run(ctx, pg)

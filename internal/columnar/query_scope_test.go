@@ -383,6 +383,7 @@ func (f *factScopeFixture) readEndpoints(t *testing.T, ctx context.Context) map[
 }
 
 func TestFactScopePerEndpoint(t *testing.T) {
+	t.Parallel()
 	f, ctx := newFactScopeFixture(t)
 	before := f.readEndpoints(t, ctx)
 	related := manifestPaths(t, ctx, f.pool)

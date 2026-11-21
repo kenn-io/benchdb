@@ -260,6 +260,7 @@ func readPiece(t *testing.T, path string) lookupPiece {
 }
 
 func TestLookupBackfillResumes(t *testing.T) {
+	t.Parallel()
 	pool, ctx := dbtest.NewPool(t)
 	tracer := &interruptTracer{}
 	openAt := tracedArchive(t, ctx, pool, tracer)
