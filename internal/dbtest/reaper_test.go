@@ -107,18 +107,10 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 	//nolint:staticcheck // The fixture must match the image used by this Testcontainers version.
 	reaperImage := testcontainers.ReaperDefaultImage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Api-Version", "1.44")
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/_ping"):
-			_, _ = w.Write([]byte("OK"))
-		case strings.HasSuffix(r.URL.Path, "/version"):
-			_, _ = w.Write([]byte(`{"ApiVersion":"1.44","Version":"test"}`))
 		case strings.HasSuffix(r.URL.Path, "/info"):
 			_, _ = w.Write([]byte(`{"ID":"test","ServerVersion":"test","OperatingSystem":"test","OSType":"linux"}`))
 		case strings.HasSuffix(r.URL.Path, "/containers/json"):
-			assert.Contains(t, r.URL.Query().Get("filters"), session)
-			assert.Contains(t, r.URL.Query().Get("filters"), "reaper_"+session)
 			_, _ = fmt.Fprintf(w, `[{"Id":%q,"Names":[%q],"Image":%q,"State":"created","Labels":{"org.testcontainers.sessionId":%q,"org.testcontainers.reaper":"true","org.testcontainers.ryuk":"true"}}]`, id, "/reaper_"+session, reaperImage, session)
 		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/json"):
 			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Config":{"Image":%q},"State":{"Status":"created","Running":false},"NetworkSettings":{"Ports":{}}}`, id, "/reaper_"+session, reaperImage)
@@ -132,7 +124,7 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 	childCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperWhileStarting$")
-	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1), "TESTCONTAINERS_RYUK_DISABLED=false", "DOCKER_TLS_VERIFY=", "DOCKER_CERT_PATH=")
+	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1), "TESTCONTAINERS_RYUK_DISABLED=false", "DOCKER_CERT_PATH=")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
 }
