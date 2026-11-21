@@ -21,6 +21,8 @@ env:
   GOPROXY: https://proxy.golang.org|direct
   # Module-relative source paths let every checkout share Go build cache entries.
   GOFLAGS: -trimpath
+  # The archive jobs run these tests, so the go job skips them.
+  ARCHIVE_COORDINATION_TESTS: '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere|TestScheduledMaintenanceFollowsSharedSchedule|TestLostOwnerLeavesSharedSchedule|TestInheritedArchiveTimeouts|TestArchiveConnectionBudget|TestCoordinationRejectsTransactionPooling|TestRemoteIdentityAndRestart|TestRemoteBindingRejectsChangedLocation|TestRemoteNamespaceClaim|TestAWSCredentialRefresh)$'
 
 jobs:
   go:
@@ -64,7 +66,7 @@ jobs:
           CXX: x86_64-w64-mingw32-g++
         run: make go-lint-ci
       - run: make go-vet
-      - run: make go-test GO_TEST_FLAGS=-json | tee "$RUNNER_TEMP/go-tests.json"
+      - run: make go-test GO_TEST_FLAGS='-json -skip "$$ARCHIVE_COORDINATION_TESTS"' | tee "$RUNNER_TEMP/go-tests.json"
         shell: bash
       - uses: actions/upload-artifact@v7.0.2
         if: always()
@@ -111,7 +113,7 @@ jobs:
         run: |
           go test -shuffle=on -timeout 30m ./internal/dbtest/...
           go test -shuffle=on -timeout 30m ./internal/columnar \
-            -run '^(TestSessionGuardAcrossWorkingDirectories|TestCleanupQueuesBehindActiveReader|TestGuardSessionLost|TestScheduledMaintenanceSkipsWhenOwnedElsewhere|TestScheduledMaintenanceFollowsSharedSchedule|TestLostOwnerLeavesSharedSchedule|TestInheritedArchiveTimeouts|TestArchiveConnectionBudget|TestCoordinationRejectsTransactionPooling|TestRemoteIdentityAndRestart|TestRemoteBindingRejectsChangedLocation|TestRemoteNamespaceClaim|TestAWSCredentialRefresh)$'
+            -run "$ARCHIVE_COORDINATION_TESTS"
 
   web:
     runs-on: namespace-profile-linux-4cpu
