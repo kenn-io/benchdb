@@ -38,11 +38,6 @@ func TestRetryReaperRace(t *testing.T) {
 			wantAttempts: 3,
 		},
 		{
-			name:         "recovers while shared reaper starts",
-			failures:     []error{errors.New(`reaper: from container "aaaaaaaa": wait for reaper aaaaaaaa: unexpected container status "created"`)},
-			wantAttempts: 2,
-		},
-		{
 			name:         "does not retry other created containers",
 			failures:     []error{errors.New(`wait until ready: unexpected container status "created"`)},
 			wantErr:      `unexpected container status "created"`,
@@ -88,17 +83,23 @@ func TestRetryReaperRace(t *testing.T) {
 	}
 }
 
-// TestRetryReaperWhileStarting exercises the reaper's error when another
+// TestRetryReaperRaceWhileStarting retries the reaper's error when another
 // process has created its container but has not started it yet.
-func TestRetryReaperWhileStarting(t *testing.T) {
+func TestRetryReaperRaceWhileStarting(t *testing.T) {
 	ctx := t.Context()
 	if session := os.Getenv("BENCHDB_TEST_REAPER_STARTING"); session != "" {
 		provider, err := testcontainers.NewDockerProvider()
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, provider.Close()) })
-		//nolint:staticcheck // Exercise the actual reaper error despite the deprecated entry point.
-		_, err = testcontainers.NewReaper(ctx, session, provider, "")
-		require.True(t, err != nil && isReaperStarting(err), "%v", err)
+		attempts := 0
+		_, err = retryReaperRace(ctx, t, "start reaper", func() (*testcontainers.Reaper, error) {
+			attempts++
+			//nolint:staticcheck // Exercise the actual reaper error despite the deprecated entry point.
+			return testcontainers.NewReaper(ctx, session, provider, "")
+		})
+		assert.Equal(t, reaperRaceAttempts, attempts)
+		require.Error(t, err)
+		assert.True(t, isReaperStarting(err), "%v", err)
 		return
 	}
 
@@ -123,7 +124,7 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 	t.Cleanup(server.Close)
 	childCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperWhileStarting$")
+	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperRaceWhileStarting$")
 	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1), "TESTCONTAINERS_RYUK_DISABLED=false", "DOCKER_CERT_PATH=")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
