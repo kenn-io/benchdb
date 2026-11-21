@@ -38,8 +38,13 @@ func TestRetryReaperRace(t *testing.T) {
 			wantAttempts: 3,
 		},
 		{
+			name:         "recovers while shared reaper starts",
+			failures:     []error{errors.New(`reaper: from container "aaaaaaaa": wait for reaper aaaaaaaa: unexpected container status "created"`)},
+			wantAttempts: 2,
+		},
+		{
 			name:         "does not retry other created containers",
-			failures:     []error{errors.New(`wait for container: unexpected container status "created"`)},
+			failures:     []error{errors.New(`wait until ready: unexpected container status "created"`)},
 			wantErr:      `unexpected container status "created"`,
 			wantAttempts: 1,
 		},
@@ -91,17 +96,8 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 		provider, err := testcontainers.NewDockerProvider()
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, provider.Close()) })
-		attempts := 0
-		_, err = retryReaperRace(ctx, t, "find reaper", func() (string, error) {
-			attempts++
-			if attempts == 1 {
-				_, err := testcontainers.NewReaper(ctx, session, provider, "")
-				require.ErrorContains(t, err, `unexpected container status "created"`)
-				return "", err
-			}
-			return "ok", nil
-		})
-		require.NoError(t, err)
+		_, err = testcontainers.NewReaper(ctx, session, provider, "")
+		require.True(t, err != nil && isReaperStarting(err), "%v", err)
 		return
 	}
 
@@ -133,7 +129,7 @@ func TestRetryReaperWhileStarting(t *testing.T) {
 	childCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperWhileStarting$")
-	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1))
+	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1), "TESTCONTAINERS_RYUK_DISABLED=false", "DOCKER_TLS_VERIFY=", "DOCKER_CERT_PATH=")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
 }
