@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func reaperConflict() error {
@@ -79,40 +83,63 @@ func TestRetryReaperRace(t *testing.T) {
 	}
 }
 
-// TestRetryReaperWhileStarting uses Testcontainers' wait strategy against a
-// created container to exercise the status error its reaper can return.
+// TestRetryReaperWhileStarting exercises the reaper's error when another
+// process has created its container but has not started it yet.
 func TestRetryReaperWhileStarting(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping Docker-backed test in -short mode")
-	}
 	ctx := t.Context()
-	target, err := retryReaperRace(ctx, t, "create container", func() (testcontainers.Container, error) {
-		started, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: testcontainers.ContainerRequest{Image: Postgres15Image},
+	if session := os.Getenv("BENCHDB_TEST_REAPER_STARTING"); session != "" {
+		provider, err := testcontainers.NewDockerProvider()
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, provider.Close()) })
+		attempts := 0
+		got, err := retryReaperRace(ctx, t, "find reaper", func() (string, error) {
+			attempts++
+			if attempts == 1 {
+				_, err := testcontainers.NewReaper(ctx, session, provider, "")
+				require.ErrorContains(t, err, `unexpected container status "created"`)
+				assert.True(t, isReaperStarting(err), "%v", err)
+				return "", err
+			}
+			return "ok", nil
 		})
-		if err != nil {
-			_ = testcontainers.TerminateContainer(started)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", got)
+		assert.Equal(t, 2, attempts)
+		return
+	}
+
+	session := uuid.NewString()
+	id := strings.Repeat("a", 64)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Api-Version", "1.44")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			_, _ = w.Write([]byte("OK"))
+		case strings.HasSuffix(r.URL.Path, "/version"):
+			_, _ = w.Write([]byte(`{"ApiVersion":"1.44","Version":"test"}`))
+		case strings.HasSuffix(r.URL.Path, "/info"):
+			_, _ = w.Write([]byte(`{"ID":"test","ServerVersion":"test","OperatingSystem":"test","OSType":"linux"}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			assert.Contains(t, r.URL.Query().Get("filters"), session)
+			assert.Contains(t, r.URL.Query().Get("filters"), "reaper_"+session)
+			_, _ = fmt.Fprintf(w, `[{"Id":%q,"Names":[%q],"Image":%q,"State":"created","Labels":{"org.testcontainers.sessionId":%q,"org.testcontainers.reaper":"true","org.testcontainers.ryuk":"true"}}]`, id, "/reaper_"+session, testcontainers.ReaperDefaultImage, session)
+		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/json"):
+			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Config":{"Image":%q},"State":{"Status":"created","Running":false},"NetworkSettings":{"Ports":{}}}`, id, "/reaper_"+session, testcontainers.ReaperDefaultImage)
+		case strings.HasSuffix(r.URL.Path, "/containers/"+id+"/logs"):
+			w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		default:
+			http.Error(w, "unexpected Docker API request", http.StatusNotFound)
 		}
-		return started, err
-	})
-	testcontainers.CleanupContainer(t, target)
-	require.NoError(t, err)
-	statusErr := wait.ForListeningPort("5432/tcp").SkipInternalCheck().WithPollInterval(time.Millisecond).WaitUntilReady(ctx, target)
-	require.ErrorContains(t, statusErr, `unexpected container status "created"`)
-	attempts := 0
-	got, err := retryReaperRace(ctx, t, "create container", func() (string, error) {
-		attempts++
-		if attempts == 1 {
-			// Match the wrapping in testcontainers v0.44.0 reaper.go;
-			// the wait strategy above supplies the actual status error.
-			id := target.GetContainerID()[:8]
-			return "", fmt.Errorf("reaper: from container %q: wait for reaper %s: %w", id, id, statusErr)
-		}
-		return "ok", nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "ok", got)
-	assert.Equal(t, 2, attempts)
+	}))
+	t.Cleanup(server.Close)
+	childCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRetryReaperWhileStarting$")
+	cmd.Env = append(os.Environ(), "BENCHDB_TEST_REAPER_STARTING="+session, "TESTCONTAINERS_SESSION_ID="+session, "DOCKER_HOST="+strings.Replace(server.URL, "http://", "tcp://", 1))
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, childCtx.Err(), "%s", output)
+	require.NoError(t, err, "%s", output)
 }
 
 func TestRetryReaperRaceStopsWhenContextEnds(t *testing.T) {
