@@ -26,7 +26,7 @@ RUN scripts/install_duckdb_extensions.sh /out/duckdb/extensions
 
 # Only the extension-check target builds this test binary.
 FROM go-build AS extension-check-build
-RUN CGO_ENABLED=1 go test -c -o /out/columnar.test ./internal/columnar
+RUN CGO_ENABLED=1 go test -trimpath -c -o /out/columnar.test ./internal/columnar
 
 FROM debian:bookworm-slim AS runtime
 
