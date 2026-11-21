@@ -950,6 +950,11 @@ VALUES ($1,$2,$3,date_trunc('month',$4::timestamptz),true)`, deleted.id, deleted
 			t.Cleanup(func() { require.NoError(t, e.Close()) })
 			if c.rebuilt {
 				before := backfillFiles(t, dir)
+				// Keep the old file open so deleting it cannot free its inode
+				// for the rebuilt file before the SameFile comparison.
+				original, err := os.Open(work(runName(lookupResult, 0)))
+				require.NoError(t, err)
+				defer func() { require.NoError(t, original.Close()) }()
 				step(e)
 				after := backfillFiles(t, dir)
 				assert.False(t, os.SameFile(before[runName(lookupResult, 0)], after[runName(lookupResult, 0)]),
