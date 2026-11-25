@@ -31,9 +31,14 @@
       "long": "ratio"
     },
     {
-      "symbol": "count",
+      "symbol": "char",
       "less_is_better": true,
-      "long": "count"
+      "long": "characters"
+    },
+    {
+      "symbol": "request",
+      "less_is_better": true,
+      "long": "requests"
     }
   ],
   "legacy_convert": [
@@ -73,8 +78,13 @@
       "valid": true
     },
     {
-      "input": "count",
-      "output": "count",
+      "input": "char",
+      "output": "char",
+      "valid": true
+    },
+    {
+      "input": "request",
+      "output": "request",
       "valid": true
     },
     {

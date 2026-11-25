@@ -15,13 +15,14 @@ type Unit struct {
 
 // known extends the legacy Python KNOWN_UNITS set.
 var known = map[string]Unit{
-	"B":     {Symbol: "B", Long: "bytes", LessIsBetter: true},
-	"B/s":   {Symbol: "B/s", Long: "bytes per second", LessIsBetter: false},
-	"s":     {Symbol: "s", Long: "seconds", LessIsBetter: true},
-	"ns":    {Symbol: "ns", Long: "nanoseconds", LessIsBetter: true},
-	"i/s":   {Symbol: "i/s", Long: "iterations per second", LessIsBetter: false},
-	"x":     {Symbol: "x", Long: "ratio", LessIsBetter: true},
-	"count": {Symbol: "count", Long: "count", LessIsBetter: true},
+	"B":       {Symbol: "B", Long: "bytes", LessIsBetter: true},
+	"B/s":     {Symbol: "B/s", Long: "bytes per second", LessIsBetter: false},
+	"s":       {Symbol: "s", Long: "seconds", LessIsBetter: true},
+	"ns":      {Symbol: "ns", Long: "nanoseconds", LessIsBetter: true},
+	"i/s":     {Symbol: "i/s", Long: "iterations per second", LessIsBetter: false},
+	"x":       {Symbol: "x", Long: "ratio", LessIsBetter: true},
+	"char":    {Symbol: "char", Long: "characters", LessIsBetter: true},
+	"request": {Symbol: "request", Long: "requests", LessIsBetter: true},
 }
 
 // Known reports whether symbol is a recognized unit symbol.
