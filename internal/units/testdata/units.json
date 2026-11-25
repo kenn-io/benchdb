@@ -29,6 +29,11 @@
       "symbol": "x",
       "less_is_better": true,
       "long": "ratio"
+    },
+    {
+      "symbol": "count",
+      "less_is_better": true,
+      "long": "count"
     }
   ],
   "legacy_convert": [
@@ -65,6 +70,11 @@
     {
       "input": "x",
       "output": "x",
+      "valid": true
+    },
+    {
+      "input": "count",
+      "output": "count",
       "valid": true
     },
     {
