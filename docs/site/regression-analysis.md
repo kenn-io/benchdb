@@ -234,10 +234,9 @@ Without a metric kind, `s` and `ns` results use `duration` and other units,
 including `x` for dimensionless ratios and `count` for tallies such as characters
 or requests, use `unspecified`. Lower ratios and counts are better. BenchDB does
 not guess a metric kind from benchmark names, and it does not treat byte results
-as peak memory. Mark peak memory or live heap
-explicitly. Microbenchmark publishers must choose `microbenchmark` or set a
-smaller floor, because the `duration` default holds back any change smaller
-than 30 ms.
+as peak memory. Mark peak memory or live heap explicitly. Microbenchmark
+publishers must choose `microbenchmark` or set a smaller floor, because the
+`duration` default holds back any change smaller than 30 ms.
 
 Both floors are optional, finite, non-negative numbers. An omitted or `null`
 floor uses the metric default. An explicit `0` turns that floor off. Absolute
