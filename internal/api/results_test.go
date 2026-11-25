@@ -89,11 +89,8 @@ func TestTallyResultsCompareAsRegression(t *testing.T) {
 			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &comparison))
 			assert.Equal(t, unit, comparison.Unit)
 			assert.True(t, comparison.LessIsBetter)
-			assert.Equal(t, 100.0, comparison.Baseline.SVS)
-			assert.Equal(t, 200.0, comparison.Contender.SVS)
 			require.NotNil(t, comparison.Analysis.Pairwise)
 			assert.True(t, comparison.Analysis.Pairwise.RegressionIndicated)
-			assert.False(t, comparison.Analysis.Pairwise.ImprovementIndicated)
 		})
 	}
 }

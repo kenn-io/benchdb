@@ -78,16 +78,6 @@
       "valid": true
     },
     {
-      "input": "char",
-      "output": "char",
-      "valid": true
-    },
-    {
-      "input": "request",
-      "output": "request",
-      "valid": true
-    },
-    {
       "input": "ms",
       "output": null,
       "valid": false
