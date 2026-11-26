@@ -76,6 +76,25 @@ func TestPostResultsCreates(t *testing.T) {
 	}
 }
 
+func TestTallyResultsCompareAsRegression(t *testing.T) {
+	for _, unit := range []string{"char", "request"} {
+		t.Run(unit, func(t *testing.T) {
+			tapi, _, _ := seedAPI(t)
+			baseline := seedResult(t, tapi, seedOpts{sha: "tally-a", ts: day(1), unit: unit, data: []float64{110, 100}})
+			contender := seedResult(t, tapi, seedOpts{sha: "tally-b", ts: day(2), unit: unit, data: []float64{210, 200}})
+
+			resp := tapi.Get("/api/compare/benchmark-results?baseline_result_id=" + baseline + "&contender_result_id=" + contender)
+			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			var comparison service.CompareResult
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &comparison))
+			assert.Equal(t, unit, comparison.Unit)
+			assert.True(t, comparison.LessIsBetter)
+			require.NotNil(t, comparison.Analysis.Pairwise)
+			assert.True(t, comparison.Analysis.Pairwise.RegressionIndicated)
+		})
+	}
+}
+
 func TestPostResultsSubmissionConflictReturns409(t *testing.T) {
 	tapi, _, _ := newAPI(t)
 	body := validBody()

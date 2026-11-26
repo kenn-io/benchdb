@@ -29,6 +29,16 @@
       "symbol": "x",
       "less_is_better": true,
       "long": "ratio"
+    },
+    {
+      "symbol": "char",
+      "less_is_better": true,
+      "long": "characters"
+    },
+    {
+      "symbol": "request",
+      "less_is_better": true,
+      "long": "requests"
     }
   ],
   "legacy_convert": [

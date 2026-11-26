@@ -231,12 +231,12 @@ Publishers set the policy in the contender result's `optional_benchmark_info`:
 | `unspecified`    | Any supported unit | 0                                   | 0%                     |
 
 Without a metric kind, `s` and `ns` results use `duration` and other units,
-including `x` for dimensionless ratios where lower is better, use
-`unspecified`. BenchDB does not guess a metric kind from benchmark names, and it
-does not treat byte results as peak memory. Mark peak memory or live heap
-explicitly. Microbenchmark publishers must choose `microbenchmark` or set a
-smaller floor, because the `duration` default holds back any change smaller
-than 30 ms.
+including the lower-is-better units `x` for dimensionless ratios, `char` for
+characters, and `request` for requests, use `unspecified`. BenchDB does not
+guess a metric kind from benchmark names, and it does not treat byte results as
+peak memory. Mark peak memory or live heap explicitly. Microbenchmark publishers
+must choose `microbenchmark` or set a smaller floor, because the `duration`
+default holds back any change smaller than 30 ms.
 
 Both floors are optional, finite, non-negative numbers. An omitted or `null`
 floor uses the metric default. An explicit `0` turns that floor off. Absolute
