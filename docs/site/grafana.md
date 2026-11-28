@@ -65,19 +65,18 @@ then by name:
 | Verdict | The worst status across those machines. |
 | Change machine | The machine whose latest result set the status. |
 | Change % | How far that machine's latest result moved from its history mean. Positive means the value went up, whatever the unit's direction, so the sign alone does not mean a regression. Blank when units are missing or differ, or the mean is zero. |
-| Unit | The result unit. Blank when units are missing or differ; the status is then `insufficient`. |
+| Unit | The result unit. Blank when units are missing or differ, and the status is then `insufficient`. |
 
 The status panel and each table page are separate reads, so they can disagree
 briefly. Refresh after a recompute finishes to get updated rows.
 
 With no matching benchmarks, Grafana 12.3 shows an empty table with no rows.
-When BenchDB rejects a request, the panel shows its error message.
+If a request fails, check the panel's error for details.
 
 ## Time range and limits
 
-- The time range selects benchmarks whose machines have a latest commit inside
-  it. It does not show statuses as they were at that time. The default is the
-  last 30 days.
+- The table shows current verdicts for tracks whose latest commit is within
+  the selected range. The default is the last 30 days.
 - The table loads pages of 500 benchmarks and follows the cursor for at most 5
   more pages, so it shows up to 3,000 benchmarks. Grafana does not say when it
   stops early. If the status counts add up to more than the table's rows, set
