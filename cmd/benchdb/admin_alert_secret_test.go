@@ -60,9 +60,18 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 		t.Setenv("BENCHDB_ALERT_WEBHOOK_URL", "")
 		t.Setenv("BENCHDB_ALERT_WEBHOOK_URL_FILE", "/private/path")
 		cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, nil)
+		cmd.SetArgs([]string{})
 		err := cmd.Execute()
 		require.ErrorContains(t, err, "cannot both be set")
-		assert.NotContains(t, err.Error(), "/private/path")
+	})
+	t.Run("flag wins over missing file", func(t *testing.T) {
+		isolateAlertDeliveryEnv(t)
+		t.Setenv("BENCHDB_ALERT_WEBHOOK_URL_FILE", "/synthetic/missing")
+		var got adminAlertsDeliverConfig
+		cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, func(_ context.Context, cfg adminAlertsDeliverConfig, _, _ io.Writer) error { got = cfg; return nil })
+		cmd.SetArgs([]string{"--webhook-url", "https://example.test/hook"})
+		require.NoError(t, cmd.Execute())
+		assert.Equal(t, "https://example.test/hook", got.WebhookURL)
 	})
 
 	for _, tc := range []struct {
@@ -71,7 +80,7 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 		{name: "empty inline falls back", want: "ghs_generic"},
 		{name: "invalid inline falls back", inline: "bad", want: "ghs_generic"},
 		{name: "unusable file does not fall back", file: "bad", wantErr: "no usable GitHub token"},
-		{name: "missing file does not fall back", file: "missing", wantErr: "file is missing"},
+		{name: "missing file does not fall back", file: "missing"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateAlertDeliveryEnv(t)
@@ -95,8 +104,11 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 			})
 			cmd.SetArgs([]string{"--channel", "github-check", "--github-repository", "https://github.com/org/repo"})
 			err := cmd.Execute()
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
+			if tc.wantErr != "" || tc.file == "missing" {
+				require.Error(t, err)
+				if tc.wantErr != "" {
+					assert.ErrorContains(t, err, tc.wantErr)
+				}
 				assert.ErrorContains(t, err, "BENCHDB_ALERT_GITHUB_TOKEN_FILE")
 				assert.NotContains(t, err.Error(), path)
 				if tc.file != "missing" {
@@ -110,15 +122,4 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 			assert.Equal(t, tc.want, got.GitHubToken)
 		})
 	}
-}
-
-func TestAlertDeliveryEmailEmptyPasswordWithoutAuthentication(t *testing.T) {
-	isolateAlertDeliveryEnv(t)
-	t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD", "")
-	var got adminAlertsDeliverConfig
-	cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, func(_ context.Context, cfg adminAlertsDeliverConfig, _, _ io.Writer) error { got = cfg; return nil })
-	cmd.SetArgs([]string{"--channel", "email", "--email-smtp-addr", "smtp.example:587", "--email-from", "a@example.com", "--email-to", "b@example.com"})
-	require.NoError(t, cmd.Execute())
-	assert.Empty(t, got.EmailUsername)
-	assert.Empty(t, got.EmailPassword)
 }

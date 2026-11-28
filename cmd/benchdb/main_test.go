@@ -1204,7 +1204,6 @@ func TestAdminAlertsDeliverRunnerConfigAndJSONOutput(t *testing.T) {
 	}
 	t.Cleanup(func() { runAdminAlertsDeliver = runAdminAlertsDeliverReal })
 	t.Setenv("BENCHDB_DB_URL", "postgres://user:pass@db/benchdb")
-	t.Setenv("BENCHDB_ALERT_WEBHOOK_URL_FILE", "/synthetic/missing")
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
