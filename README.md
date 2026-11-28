@@ -78,6 +78,9 @@ keeps machines apart, selects a baseline, classifies regressions, and writes CI
 reports. Use Grafana to ask what a system is doing over time. Use BenchDB to ask
 whether a code change made a benchmark slower. You can run both.
 
+The [Grafana verdict table](docs/site/grafana.md) shows BenchDB's statuses in
+a Grafana dashboard.
+
 ## What is in this repository
 
 - the Go server and `benchdb` CLI, built into one binary

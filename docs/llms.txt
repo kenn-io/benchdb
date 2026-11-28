@@ -28,6 +28,7 @@ served as raw Markdown at `/docs/<page>.md`.
 
 - [Alerting](https://benchdb.io/docs/alerting.md): Alert rules, scheduled evaluation, and delivery
 - [API and SDK](https://benchdb.io/docs/api-and-sdk.md): The OpenAPI document and the generated Go and TypeScript clients
+- [Grafana verdict table](https://benchdb.io/docs/grafana.md): Import a Grafana dashboard that lists benchmark statuses and links to trends
 - [CLI reference](https://benchdb.io/docs/cli-reference.md): Every `benchdb` command, flag, and environment variable
 - [Authentication and tokens](https://benchdb.io/docs/auth-and-tokens.md): OIDC sign-in for people and reporter tokens for automation
 - [Operations](https://benchdb.io/docs/operations.md): Configuration, containers, migrations, health checks, and deployment

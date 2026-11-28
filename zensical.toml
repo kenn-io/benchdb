@@ -29,6 +29,7 @@ nav = [
     "agents.md",
     "alerting.md",
     "api-and-sdk.md",
+    "grafana.md",
     "cli-reference.md",
   ] },
   { "Operate" = [
