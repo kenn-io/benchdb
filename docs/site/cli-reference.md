@@ -436,10 +436,9 @@ benchdb admin alerts deliver --channel email --format json
 | `--timeout` | none | `10s` | Timeout for each delivery request. |
 | `--format` | none | `text` | `text` or `json`. |
 
-Webhook, Slack, and GitHub API URLs must be `http` or `https`. See
-[Alerting](alerting.md) for rule evaluation, the delivery outbox, and each
-channel's message format. [Secrets from files](alerting.md#secrets-from-files)
-covers the `_FILE` forms.
+Webhook, Slack, and GitHub API URLs must be `http` or `https`. See [Alerting](alerting.md)
+for rule evaluation, the delivery outbox, and each channel's message format.
+[Secrets from files](alerting.md#secrets-from-files) covers the `_FILE` forms.
 
 ## Server and schema
 

@@ -278,18 +278,14 @@ Each secret setting has a file form that names a file holding the value.
 | `BENCHDB_ALERT_EMAIL_PASSWORD` | `BENCHDB_ALERT_EMAIL_PASSWORD_FILE` |
 
 A matching flag with a value, such as `--webhook-url`, takes precedence, and
-BenchDB then ignores both forms. Without a flag value, BenchDB reads the inline
-form directly from the environment. An empty inline value by itself counts as
-unset, as before. Set at most one form per setting. The command fails when both
-forms are present, even if one is empty. It also fails when the file path is
-empty.
+BenchDB then ignores both forms. An empty inline value by itself counts as
+unset. Set at most one form per setting. The command fails when both forms are
+present, even if one is empty. It also fails when the file path is empty.
 
 BenchDB reads the file under the
 [Kit file policy](https://github.com/kenn-io/kit/blob/v0.58.1/docs/secrets.md#file-policy),
 which sets the trusted ownership, mode, and parent directory rules for each
-platform. For example, a file that belongs to the user who runs BenchDB and has
-mode `0600` meets the Unix rules. A relative path resolves from the working
-directory. BenchDB strips trailing line endings from the value.
+platform.
 
 ### Webhook
 
