@@ -277,16 +277,20 @@ Each secret setting has a file form that names a file holding the value.
 | `BENCHDB_ALERT_GITHUB_TOKEN` | `BENCHDB_ALERT_GITHUB_TOKEN_FILE` |
 | `BENCHDB_ALERT_EMAIL_PASSWORD` | `BENCHDB_ALERT_EMAIL_PASSWORD_FILE` |
 
-Set one form per setting. The command fails when both forms are present, even
-if one is empty. It also fails when the selected value or file path is empty.
-A matching flag, such as `--webhook-url`, takes precedence over both forms.
+A matching flag with a value, such as `--webhook-url`, takes precedence, and
+BenchDB then ignores both forms. Without a flag value, BenchDB reads the inline
+form directly from the environment. An empty inline value by itself counts as
+unset, as before. Set at most one form per setting. The command fails when both
+forms are present, even if one is empty. It also fails when the file path is
+empty.
 
-On Unix, give the file to the user who runs BenchDB with mode `0600` and keep
-it under directories that only that user or root can write. Kubernetes secret
-mounts and systemd credentials meet these checks. A relative path resolves from
-the working directory. BenchDB strips trailing line endings from the value. The
-[Kit file policy](https://github.com/kenn-io/kit/blob/v0.58.1/docs/secrets.md#file-policy)
-lists the full rules for each platform.
+BenchDB reads the file under the
+[Kit file policy](https://github.com/kenn-io/kit/blob/v0.58.1/docs/secrets.md#file-policy),
+which lists the full rules for each platform. On Unix, the file must belong to
+the user who runs BenchDB, have mode `0600`, and sit under directories that only
+that user or root can write. Kubernetes secret mounts and systemd credentials
+work when they meet these rules. A relative path resolves from the working
+directory. BenchDB strips trailing line endings from the value.
 
 ### Webhook
 
@@ -411,7 +415,8 @@ benchdb admin alerts deliver --channel email --format json
 
 The username and password are optional. Set both or neither. The password comes
 from `BENCHDB_ALERT_EMAIL_PASSWORD` or `BENCHDB_ALERT_EMAIL_PASSWORD_FILE`.
-BenchDB uses STARTTLS when the server offers it. If you set credentials, the server must support SMTP AUTH.
+BenchDB uses STARTTLS when the server offers it. If you set credentials, the
+server must support SMTP AUTH.
 
 The delivery target is the normalized recipient list, with duplicates removed.
 The SMTP server and password are not part of the target, so retries stay
