@@ -40,7 +40,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - name: Install golangci-lint v2.13.1
         run: |
           cd /tmp
@@ -101,7 +101,7 @@ jobs:
           cache: true
       - name: Require a selected PostgreSQL image
         run: test -n "$BENCHDB_TEST_ARCHIVE_POSTGRES_IMAGE"
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: make duckdb-extensions
         env:
           DOWNLOAD_RETRY: kit-retry 3 5
@@ -132,7 +132,7 @@ jobs:
         with:
           node-version: "26.13.0"
           package-manager-cache: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: kit-retry 3 5 bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check:e2e
@@ -157,7 +157,7 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: make build-docs-ci
 
   docs-screenshots:
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - name: Capture dashboard screenshots
         env:
           DOWNLOAD_RETRY: kit-retry 3 5
@@ -207,7 +207,7 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - name: Install sqlc v1.30.0
         run: |
           cd /tmp
@@ -235,7 +235,7 @@ jobs:
       - uses: step-security/setup-bun@v2.1.3
         with:
           bun-version: 1.4.4
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: make build
       - uses: actions/upload-artifact@v7.0.2
         with:
@@ -256,7 +256,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: kit-retry 3 5 docker compose -f docker-compose.server.yml pull --policy missing db
       - run: make server-image-extension-check
       - run: make server-container-smoke
@@ -302,7 +302,7 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - run: make docs-link-check
       - run: make docs-screenshots-check
 
@@ -330,7 +330,7 @@ jobs:
         with:
           node-version: "26.13.0"
           package-manager-cache: false
-      - uses: kenn-io/kit/.github/actions/kit-retry@v0.58.1
+      - uses: kenn-io/kit/.github/actions/kit-retry@v0.60.0
       - name: Install web deps (pinned Playwright CLI)
         working-directory: web
         run: kit-retry 3 5 bun install --frozen-lockfile
