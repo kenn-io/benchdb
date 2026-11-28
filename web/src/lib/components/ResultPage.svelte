@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { PageHeader } from "@kenn-io/kit-ui";
+  import { overlayScrollbars, PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -324,7 +324,7 @@
       {#if vm.error !== null}
         <div class="errbox" role="alert">
           <h3>error</h3>
-          <pre>{JSON.stringify(vm.error, null, 2)}</pre>
+          <pre {@attach overlayScrollbars({ axis: "both" })}>{JSON.stringify(vm.error, null, 2)}</pre>
         </div>
       {/if}
     </section>
@@ -483,7 +483,7 @@
       <div class="technical-body">
         <div class="json-grid">
           <EnvironmentDetails context={vm.context} />
-          <details class="json-panel">
+          <details class="json-panel" {@attach overlayScrollbars({ axis: "both" })}>
             <summary>Identifiers</summary>
             <dl class="compact-dl identifier-list">
               <dt>machine identity</dt>
@@ -495,9 +495,9 @@
             </dl>
           </details>
           {#each vm.jsonBlocks as block (block.label)}
-            <details class="json-panel">
+            <details class="json-panel" {@attach overlayScrollbars({ axis: "both" })}>
               <summary>{block.label}</summary>
-              <pre>{block.value}</pre>
+              <pre {@attach overlayScrollbars({ axis: "both" })}>{block.value}</pre>
             </details>
           {/each}
         </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { overlayScrollbars } from "@kenn-io/kit-ui";
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
   import { onDestroy, tick, untrack } from "svelte";
@@ -815,6 +816,7 @@
       class="tip"
       bind:this={tooltipElement}
       style={`left:${tip.left}px;top:${tip.top}px;visibility:${tip.positioned ? "visible" : "hidden"}`}
+      {@attach overlayScrollbars({ axis: "y", visibility: "never" })}
     >
       <strong>{tip.vm.title}</strong>
       {#each tip.vm.lines as line, i (i)}

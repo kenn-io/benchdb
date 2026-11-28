@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SelectDropdown, trapFocus, type SelectDropdownOption } from "@kenn-io/kit-ui";
+  import { overlayScrollbars, SelectDropdown, trapFocus, type SelectDropdownOption } from "@kenn-io/kit-ui";
   import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import ChartLineIcon from "@lucide/svelte/icons/chart-line";
   import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";
@@ -278,6 +278,7 @@
   aria-label="Sidebar"
   bind:this={sidebarElement}
   {@attach drawerShown ? trapFocus : undefined}
+  {@attach overlayScrollbars({ axis: "y" })}
 >
   <div class="sidebar-head">
     <a class="brand" href={appURL("/")} onclick={(e) => go(e, "/")} title={rail ? "BenchDB" : undefined}>

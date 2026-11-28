@@ -230,6 +230,21 @@ describe("ComparePage", () => {
     expect(screen.getByRole("searchbox", { name: /search benchmarks/i })).toHaveValue("");
   });
 
+  it("mounts benchmark picker overlay scrollbars outside the list so only list items live inside ul", async () => {
+    mockBenchmarkList(() => [
+      seriesListItem({ benchmark_id: "a", name: "alpha" }),
+      seriesListItem({ benchmark_id: "b", name: "beta" }),
+    ]);
+    render(ComparePage, { props: { query: EMPTY_QUERY } });
+
+    const list = await screen.findByRole("list", { name: "Benchmarks" });
+    const frame = list.parentElement!;
+    expect(list).toHaveAttribute("data-kit-overlay-scroll-viewport");
+    expect(frame).toHaveAttribute("data-kit-overlay-scroll-host");
+    expect(frame.querySelectorAll(":scope > .kit-scrollbar--y")).toHaveLength(1);
+    expect(Array.from(list.children).every((child) => child.tagName === "LI")).toBe(true);
+  });
+
   it("filters the benchmark list as the user types", async () => {
     mockBenchmarkList((q) => q === undefined
       ? [seriesListItem({ benchmark_id: "a", name: "alpha" }), seriesListItem({ benchmark_id: "b", name: "beta" })]

@@ -51,4 +51,14 @@ describe("App", () => {
     expect(document.activeElement).toHaveAttribute("id", "main-content");
     expect(document.activeElement).toContainElement(screen.getByRole("heading", { name: "Not found" }));
   });
+
+  it("hosts overlay scrollbars for main content on the non-scrolling app shell", () => {
+    const { container } = render(App);
+    const shell = container.querySelector(".app-shell")!;
+    const content = container.querySelector(".app-content")!;
+    expect(content.parentElement).toBe(shell);
+    expect(content).toHaveAttribute("data-kit-overlay-scroll-viewport");
+    expect(shell).toHaveAttribute("data-kit-overlay-scroll-host");
+    expect(shell.querySelectorAll(":scope > .kit-scrollbar")).toHaveLength(2);
+  });
 });

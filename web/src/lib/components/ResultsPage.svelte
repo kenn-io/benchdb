@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { PageHeader } from "@kenn-io/kit-ui";
+  import { overlayScrollbars, PageHeader } from "@kenn-io/kit-ui";
   import { createBenchDBClient } from "../api/client";
   import { formatMeasurement } from "../format";
   import {
@@ -290,7 +290,11 @@
       {/if}
     </p>
 
-    <section class="panel table-panel" aria-label="Benchmark results">
+    <section
+      class="panel table-panel"
+      aria-label="Benchmark results"
+      {@attach overlayScrollbars({ axis: "x" })}
+    >
       <table class="data-table stacked-table results-table">
         <colgroup>
           <col class="benchmark-col" />
