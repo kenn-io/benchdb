@@ -279,7 +279,7 @@ func newAdminAlertsDeliverCommand(
 			case service.AlertDeliveryChannelWebhook:
 				if cfg.WebhookURL == "" {
 					var err error
-					cfg.WebhookURL, err = alertDeliverySecret("BENCHDB_ALERT_WEBHOOK_URL")
+					cfg.WebhookURL, _, err = alertDeliverySecret("BENCHDB_ALERT_WEBHOOK_URL")
 					if err != nil {
 						return err
 					}
@@ -294,7 +294,7 @@ func newAdminAlertsDeliverCommand(
 			case service.AlertDeliveryChannelSlack:
 				if cfg.SlackWebhookURL == "" {
 					var err error
-					cfg.SlackWebhookURL, err = alertDeliverySecret("BENCHDB_ALERT_SLACK_WEBHOOK_URL")
+					cfg.SlackWebhookURL, _, err = alertDeliverySecret("BENCHDB_ALERT_SLACK_WEBHOOK_URL")
 					if err != nil {
 						return err
 					}
@@ -320,13 +320,13 @@ func newAdminAlertsDeliverCommand(
 				cfg.GitHubRepository = repository
 				cfg.Target = repository
 				if cfg.GitHubToken == "" {
-					token, err := alertDeliverySecret("BENCHDB_ALERT_GITHUB_TOKEN")
+					token, fileSelected, err := alertDeliverySecret("BENCHDB_ALERT_GITHUB_TOKEN")
 					if err != nil {
 						return err
 					}
 					cfg.GitHubToken = commit.FirstUsableGitHubToken(token)
 					if cfg.GitHubToken == "" {
-						if _, selected := os.LookupEnv("BENCHDB_ALERT_GITHUB_TOKEN_FILE"); selected {
+						if fileSelected {
 							return errors.New("BENCHDB_ALERT_GITHUB_TOKEN_FILE: no usable GitHub token")
 						}
 						cfg.GitHubToken = firstUsableGitHubTokenEnv("GITHUB_TOKEN", "GITHUB_API_TOKEN")
@@ -386,7 +386,7 @@ func newAdminAlertsDeliverCommand(
 				}
 				if cfg.EmailPassword == "" {
 					var err error
-					cfg.EmailPassword, err = alertDeliverySecret("BENCHDB_ALERT_EMAIL_PASSWORD")
+					cfg.EmailPassword, _, err = alertDeliverySecret("BENCHDB_ALERT_EMAIL_PASSWORD")
 					if err != nil {
 						return err
 					}
@@ -444,23 +444,23 @@ func validateAdminAlertGitHubRepository(raw string) (string, error) {
 }
 
 // alertDeliverySecret hides Kit's file source, which contains the private path.
-func alertDeliverySecret(name string) (string, error) {
+func alertDeliverySecret(name string) (string, bool, error) {
 	ref, err := secretref.FromEnv(name)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if ref.File == "" {
-		return os.Getenv(name), nil
+		return os.Getenv(name), false, nil
 	}
 	secret, err := ref.Resolve()
 	if err != nil {
 		var sourceErr *secretref.SourceError
 		if errors.As(err, &sourceErr) {
-			return "", fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
+			return "", true, fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
 		}
-		return "", fmt.Errorf("%s_FILE: cannot resolve secret", name)
+		return "", true, fmt.Errorf("%s_FILE: cannot resolve secret", name)
 	}
-	return secret.Value, nil
+	return secret.Value, true, nil
 }
 
 func firstUsableGitHubTokenEnv(names ...string) string {

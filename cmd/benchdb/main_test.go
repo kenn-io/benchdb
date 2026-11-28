@@ -981,6 +981,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			isolateAlertDeliveryEnv(t)
 			runAdminAlertsDeliver = func(
 				_ context.Context,
 				_ adminAlertsDeliverConfig,
@@ -1019,6 +1020,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverSlackChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1048,6 +1050,7 @@ func TestAdminAlertsDeliverSlackChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCheckChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1082,6 +1085,7 @@ func TestAdminAlertsDeliverGitHubCheckChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCommentChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1116,6 +1120,7 @@ func TestAdminAlertsDeliverGitHubCommentChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverEmailChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1156,6 +1161,7 @@ func TestAdminAlertsDeliverEmailChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCheckUsesFirstTokenFromGitHubAPITokenPool(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1185,6 +1191,7 @@ func TestAdminAlertsDeliverGitHubCheckUsesFirstTokenFromGitHubAPITokenPool(t *te
 }
 
 func TestAdminAlertsDeliverRunnerConfigAndJSONOutput(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1197,6 +1204,7 @@ func TestAdminAlertsDeliverRunnerConfigAndJSONOutput(t *testing.T) {
 	}
 	t.Cleanup(func() { runAdminAlertsDeliver = runAdminAlertsDeliverReal })
 	t.Setenv("BENCHDB_DB_URL", "postgres://user:pass@db/benchdb")
+	t.Setenv("BENCHDB_ALERT_WEBHOOK_URL_FILE", "/synthetic/missing")
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
