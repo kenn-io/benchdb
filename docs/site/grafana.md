@@ -35,6 +35,8 @@ Tested with Grafana 12.3.0 and the Infinity datasource 4.1.8.
     - **Repository** (`repository`): a repository URL to show one repository.
       Use the exact URL BenchDB stores, as shown in the Repository column.
       Leave it empty to show all.
+    - **Page cursor** (`cursor`): leave it empty. See
+      [Pages](#pages).
 5. Save the dashboard.
 
 ## Keep BenchDB private
@@ -52,6 +54,7 @@ The **status panel** sits above the table:
 | --- | --- |
 | Status | `Recomputing, statuses may change` while BenchDB has queued recompute work for the selected repository. Statuses settle within seconds. `Current` means no recompute was queued when the panel read. |
 | Regressed, improved, stable, insufficient | How many benchmarks match the filters, by status. These counts cover every matching benchmark, not only the rows in the table. |
+| Next page cursor | The cursor for the page after the one in the table. Blank on the last page. |
 
 The **verdict table** lists benchmarks in BenchDB's order, regressions first,
 then by name:
@@ -67,22 +70,39 @@ then by name:
 | Change % | How far that machine's latest result moved from its history mean. Positive means the value went up, whatever the unit's direction, so the sign alone does not mean a regression. Blank when units are missing or differ, or the mean is zero. |
 | Unit | The result unit. Blank when units are missing or differ, and the status is then `insufficient`. |
 
-The status panel and each table page are separate reads, so they can disagree
+The status panel and the table are separate reads, so they can disagree
 briefly. Refresh after a recompute finishes to get updated rows.
 
 With no matching benchmarks, the table shows Grafana's **No data** message. The
 status panel still shows the zero counts and whether BenchDB is recomputing.
 If a request fails, check the panel's error for details.
 
+## Pages
+
+The table shows one page of up to 500 benchmarks per refresh. An empty
+**Page cursor** shows the first page. To see the next page:
+
+1. Copy the **Next page cursor** from the status panel. Select the text, or
+   use the cell's inspect button to see and copy all of it.
+2. Paste it into **Page cursor** as is and press Enter.
+
+Repeat until **Next page cursor** is blank, which means the table shows the
+last page. Clear **Page cursor** to go back to the first page.
+
+A cursor belongs to the filters it came from. Clear **Page cursor** after you
+change `repository` or the time range, and after a recompute finishes, since
+statuses can move benchmarks between pages. The dashboard does not clear it
+for you.
+
+If the panels fail with a `422` error after you paste a cursor, the cursor is
+incomplete or damaged. Copy it again, or clear **Page cursor**.
+
 ## Time range and limits
 
 - The table shows current verdicts for tracks whose latest commit is within
   the selected range. The default is the last 30 days.
-- The table loads pages of 500 benchmarks and follows the cursor for at most 5
-  more pages, so it shows up to 3,000 benchmarks. Grafana does not say when it
-  stops early. If the status counts add up to more than the table's rows, set
-  `repository` or narrow the time range.
-- A full refresh can send the status request plus up to 6 table requests. The
-  row limit caps what Grafana shows, not the work BenchDB does per request.
+- Each refresh sends two requests of up to 500 rows each: one for the status
+  panel and one for the table, with the same filters and cursor. Page size
+  caps the rows returned, not the work BenchDB does per request.
 - BenchDB's service metrics on `/metrics` are separate. See
   [Metrics](operations.md#metrics) in Operations.

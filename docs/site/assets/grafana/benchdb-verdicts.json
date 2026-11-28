@@ -59,6 +59,16 @@
           "text": "",
           "value": ""
         }
+      },
+      {
+        "name": "cursor",
+        "label": "Page cursor",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
       }
     ]
   },
@@ -94,7 +104,7 @@
             "params": [
               {
                 "key": "page_size",
-                "value": "1"
+                "value": "500"
               },
               {
                 "key": "repository",
@@ -107,6 +117,10 @@
               {
                 "key": "active_until",
                 "value": "${__to:date:iso}"
+              },
+              {
+                "key": "cursor",
+                "value": "${cursor}"
               }
             ]
           },
@@ -136,6 +150,11 @@
               "selector": "status_counts.insufficient",
               "text": "Insufficient",
               "type": "number"
+            },
+            {
+              "selector": "next_page_cursor",
+              "text": "Next page cursor",
+              "type": "string"
             }
           ]
         }
@@ -178,6 +197,66 @@
                 "value": 300
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Regressed"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Improved"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Insufficient"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Next page cursor"
+            },
+            "properties": [
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
           }
         ]
       },
@@ -190,7 +269,8 @@
               "Regressed": 1,
               "Improved": 2,
               "Stable": 3,
-              "Insufficient": 4
+              "Insufficient": 4,
+              "Next page cursor": 5
             }
           }
         }
@@ -258,6 +338,10 @@
               {
                 "key": "active_until",
                 "value": "${__to:date:iso}"
+              },
+              {
+                "key": "cursor",
+                "value": "${cursor}"
               }
             ]
           },
@@ -308,12 +392,7 @@
               "text": "Unit",
               "type": "string"
             }
-          ],
-          "pagination_mode": "cursor",
-          "pagination_max_pages": 5,
-          "pagination_param_cursor_field_name": "cursor",
-          "pagination_param_cursor_field_type": "query",
-          "pagination_param_cursor_extraction_path": "next_page_cursor"
+          ]
         }
       ],
       "fieldConfig": {
