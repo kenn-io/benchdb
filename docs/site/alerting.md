@@ -286,10 +286,9 @@ empty.
 
 BenchDB reads the file under the
 [Kit file policy](https://github.com/kenn-io/kit/blob/v0.58.1/docs/secrets.md#file-policy),
-which lists the full rules for each platform. On Unix, the file must belong to
-the user who runs BenchDB, have mode `0600`, and sit under directories that only
-that user or root can write. Kubernetes secret mounts and systemd credentials
-work when they meet these rules. A relative path resolves from the working
+which sets the trusted ownership, mode, and parent directory rules for each
+platform. For example, a file that belongs to the user who runs BenchDB and has
+mode `0600` meets the Unix rules. A relative path resolves from the working
 directory. BenchDB strips trailing line endings from the value.
 
 ### Webhook
@@ -373,7 +372,8 @@ benchdb admin alerts deliver --channel github-check --format json
 The token needs `checks:write` on the repository. The CLI reads
 `--github-token`, then `BENCHDB_ALERT_GITHUB_TOKEN` or
 `BENCHDB_ALERT_GITHUB_TOKEN_FILE`, then `GITHUB_TOKEN`, then
-`GITHUB_API_TOKEN`.
+`GITHUB_API_TOKEN`. A selected token file must hold a usable token. Otherwise
+the command fails without trying `GITHUB_TOKEN` or `GITHUB_API_TOKEN`.
 
 BenchDB creates a completed Check Run named `BenchDB alert` on the event's
 commit. An `opened` event becomes a failing check and a `resolved` event a
