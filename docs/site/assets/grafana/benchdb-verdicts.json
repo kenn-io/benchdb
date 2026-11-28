@@ -1,0 +1,567 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_INFINITY",
+      "label": "Infinity",
+      "description": "BenchDB Infinity datasource",
+      "type": "datasource",
+      "pluginId": "yesoreyeram-infinity-datasource",
+      "pluginName": "Infinity"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "12.3.0"
+    },
+    {
+      "type": "datasource",
+      "id": "yesoreyeram-infinity-datasource",
+      "name": "Infinity",
+      "version": "4.1.8"
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    }
+  ],
+  "uid": "benchdb-verdicts",
+  "title": "BenchDB benchmark verdicts",
+  "schemaVersion": 41,
+  "version": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "benchdb_url",
+        "label": "BenchDB browser URL",
+        "type": "textbox",
+        "query": "http://localhost:8080",
+        "current": {
+          "text": "http://localhost:8080",
+          "value": "http://localhost:8080"
+        }
+      },
+      {
+        "name": "repository",
+        "label": "Repository",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "cursor",
+        "label": "Page cursor",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Status",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/benchmarks",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "page_size",
+                "value": "500"
+              },
+              {
+                "key": "repository",
+                "value": "${repository}"
+              },
+              {
+                "key": "active_since",
+                "value": "${__from:date:iso}"
+              },
+              {
+                "key": "active_until",
+                "value": "${__to:date:iso}"
+              },
+              {
+                "key": "cursor",
+                "value": "${cursor}"
+              }
+            ]
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "statuses_pending",
+              "text": "Status",
+              "type": "boolean"
+            },
+            {
+              "selector": "status_counts.regressed",
+              "text": "Regressed",
+              "type": "number"
+            },
+            {
+              "selector": "status_counts.improved",
+              "text": "Improved",
+              "type": "number"
+            },
+            {
+              "selector": "status_counts.stable",
+              "text": "Stable",
+              "type": "number"
+            },
+            {
+              "selector": "status_counts.insufficient",
+              "text": "Insufficient",
+              "type": "number"
+            },
+            {
+              "selector": "next_page_cursor",
+              "text": "Next page cursor",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "text": "Recomputing, statuses may change",
+                        "color": "orange"
+                      },
+                      "false": {
+                        "text": "Current",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Regressed"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Improved"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stable"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Insufficient"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Next page cursor"
+            },
+            "properties": [
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Status": 0,
+              "Regressed": 1,
+              "Improved": 2,
+              "Stable": 3,
+              "Insufficient": 4,
+              "Next page cursor": 5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "benchmark_id": 0,
+              "Benchmark": 1,
+              "Tags": 2,
+              "Repository": 3,
+              "Machines": 4,
+              "Verdict": 5,
+              "Change machine": 6,
+              "Change %": 7,
+              "Unit": 8
+            }
+          }
+        }
+      ],
+      "id": 2,
+      "title": "Benchmark verdicts",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 24,
+        "h": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/benchmarks",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "page_size",
+                "value": "500"
+              },
+              {
+                "key": "repository",
+                "value": "${repository}"
+              },
+              {
+                "key": "active_since",
+                "value": "${__from:date:iso}"
+              },
+              {
+                "key": "active_until",
+                "value": "${__to:date:iso}"
+              },
+              {
+                "key": "cursor",
+                "value": "${cursor}"
+              }
+            ]
+          },
+          "root_selector": "$append([], $.benchmarks.{\"benchmark_id\": benchmark_id, \"name\": name, \"tags_text\": $string(tags), \"repository\": repository, \"machines_text\": $join(machine_names, \", \"), \"status\": status, \"change_machine\": change_machine, \"change_percent\": change_percent, \"unit\": unit})",
+          "columns": [
+            {
+              "selector": "benchmark_id",
+              "text": "benchmark_id",
+              "type": "string"
+            },
+            {
+              "selector": "name",
+              "text": "Benchmark",
+              "type": "string"
+            },
+            {
+              "selector": "tags_text",
+              "text": "Tags",
+              "type": "string"
+            },
+            {
+              "selector": "repository",
+              "text": "Repository",
+              "type": "string"
+            },
+            {
+              "selector": "machines_text",
+              "text": "Machines",
+              "type": "string"
+            },
+            {
+              "selector": "status",
+              "text": "Verdict",
+              "type": "string"
+            },
+            {
+              "selector": "change_machine",
+              "text": "Change machine",
+              "type": "string"
+            },
+            {
+              "selector": "change_percent",
+              "text": "Change %",
+              "type": "number"
+            },
+            {
+              "selector": "unit",
+              "text": "Unit",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "benchmark_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Benchmark"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open benchmark trend",
+                    "url": "${benchdb_url}/benchmarks/${__data.fields.benchmark_id}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Verdict"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "regressed": {
+                        "text": "regressed",
+                        "color": "red"
+                      },
+                      "improved": {
+                        "text": "improved",
+                        "color": "green"
+                      },
+                      "stable": {
+                        "text": "stable",
+                        "color": "blue"
+                      },
+                      "insufficient": {
+                        "text": "insufficient",
+                        "color": "semi-dark-orange"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Change %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tags"
+            },
+            "properties": [
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Repository"
+            },
+            "properties": [
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Machines"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              },
+              {
+                "id": "custom.wrapText",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Change machine"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Unit"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

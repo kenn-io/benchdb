@@ -928,8 +928,9 @@ stored rows.
 
 The ServiceMonitor scrapes `/metrics` through the `benchdb-service-port`
 Service port every 30 seconds. BenchDB ships only that ServiceMonitor. Your
-cluster's Prometheus and Grafana stack is yours to run, and the repository
-ships no Grafana dashboard. Build panels from the metrics above.
+cluster's Prometheus and Grafana stack is yours to run. The repository ships
+no service-metrics dashboard, so build panels from the metrics above. For
+benchmark statuses in Grafana, see [Grafana verdict table](grafana.md).
 
 ## Run verdicts and benchmark statuses
 
