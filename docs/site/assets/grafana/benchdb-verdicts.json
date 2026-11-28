@@ -9,26 +9,6 @@
       "pluginName": "Infinity"
     }
   ],
-  "__requires": [
-    {
-      "type": "grafana",
-      "id": "grafana",
-      "name": "Grafana",
-      "version": "12.3.0"
-    },
-    {
-      "type": "datasource",
-      "id": "yesoreyeram-infinity-datasource",
-      "name": "Infinity",
-      "version": "4.1.8"
-    },
-    {
-      "type": "panel",
-      "id": "table",
-      "name": "Table",
-      "version": ""
-    }
-  ],
   "uid": "benchdb-verdicts",
   "title": "BenchDB benchmark verdicts",
   "schemaVersion": 41,
@@ -140,18 +120,6 @@
           ]
         }
       ],
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "countRows": false,
-          "fields": ""
-        }
-      },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
@@ -328,18 +296,6 @@
           "pagination_param_cursor_extraction_path": "next_page_cursor"
         }
       ],
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "countRows": false,
-          "fields": ""
-        }
-      },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
