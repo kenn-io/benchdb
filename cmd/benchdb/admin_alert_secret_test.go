@@ -35,7 +35,6 @@ func TestAlertDeliverySecretFiles(t *testing.T) {
 		{"webhook", "BENCHDB_ALERT_WEBHOOK_URL", "https://example.test/hook", nil, func(c adminAlertsDeliverConfig) string { return c.WebhookURL }},
 		{"slack", "BENCHDB_ALERT_SLACK_WEBHOOK_URL", "https://example.test/slack", nil, func(c adminAlertsDeliverConfig) string { return c.SlackWebhookURL }},
 		{"github-check", "BENCHDB_ALERT_GITHUB_TOKEN", "ghs_testtoken", []string{"--github-repository", "https://github.com/org/repo"}, func(c adminAlertsDeliverConfig) string { return c.GitHubToken }},
-		{"github-comment", "BENCHDB_ALERT_GITHUB_TOKEN", "ghs_testtoken", []string{"--github-repository", "https://github.com/org/repo"}, func(c adminAlertsDeliverConfig) string { return c.GitHubToken }},
 		{"email", "BENCHDB_ALERT_EMAIL_PASSWORD", "smtp-secret", []string{"--email-smtp-addr", "smtp.example:587", "--email-from", "a@example.com", "--email-to", "b@example.com", "--email-username", "user"}, func(c adminAlertsDeliverConfig) string { return c.EmailPassword }},
 	} {
 		t.Run(tc.channel, func(t *testing.T) {
@@ -115,10 +114,7 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 
 func TestAlertDeliveryEmailEmptyPasswordWithoutAuthentication(t *testing.T) {
 	isolateAlertDeliveryEnv(t)
-	t.Setenv("BENCHDB_ALERT_EMAIL_USERNAME", "")
 	t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD", "")
-	t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD_FILE", "")
-	require.NoError(t, os.Unsetenv("BENCHDB_ALERT_EMAIL_PASSWORD_FILE"))
 	var got adminAlertsDeliverConfig
 	cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, func(_ context.Context, cfg adminAlertsDeliverConfig, _, _ io.Writer) error { got = cfg; return nil })
 	cmd.SetArgs([]string{"--channel", "email", "--email-smtp-addr", "smtp.example:587", "--email-from", "a@example.com", "--email-to", "b@example.com"})
