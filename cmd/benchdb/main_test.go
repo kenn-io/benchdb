@@ -1000,16 +1000,6 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			t.Setenv("BENCHDB_ALERT_EMAIL_TO", tt.emailTo)
 			t.Setenv("BENCHDB_ALERT_EMAIL_USERNAME", tt.emailUser)
 			t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD", tt.emailPass)
-			// An empty selector is configured under Kit's presence-based policy.
-			for name, value := range map[string]string{
-				"BENCHDB_ALERT_WEBHOOK_URL":       tt.webhookURL,
-				"BENCHDB_ALERT_SLACK_WEBHOOK_URL": tt.slackURL,
-				"BENCHDB_ALERT_EMAIL_PASSWORD":    tt.emailPass,
-			} {
-				if value == "" {
-					require.NoError(t, os.Unsetenv(name))
-				}
-			}
 
 			var stdout, stderr bytes.Buffer
 			code := run(tt.args, &stdout, &stderr)

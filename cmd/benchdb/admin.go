@@ -402,16 +402,16 @@ func newAdminAlertsDeliverCommand(
 		},
 	})
 	cmd.Flags().StringVar(&cfg.Channel, "channel", cfg.Channel, "delivery channel: webhook, slack, github-check, github-comment, or email")
-	cmd.Flags().StringVar(&cfg.WebhookURL, "webhook-url", cfg.WebhookURL, "webhook URL for alert delivery (or BENCHDB_ALERT_WEBHOOK_URL)")
-	cmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack incoming webhook URL for alert delivery (or BENCHDB_ALERT_SLACK_WEBHOOK_URL)")
+	cmd.Flags().StringVar(&cfg.WebhookURL, "webhook-url", cfg.WebhookURL, "webhook URL for alert delivery (or BENCHDB_ALERT_WEBHOOK_URL, BENCHDB_ALERT_WEBHOOK_URL_FILE)")
+	cmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack incoming webhook URL for alert delivery (or BENCHDB_ALERT_SLACK_WEBHOOK_URL, BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE)")
 	cmd.Flags().StringVar(&cfg.GitHubRepository, "github-repository", cfg.GitHubRepository, "GitHub repository URL for check-run delivery (or BENCHDB_ALERT_GITHUB_REPOSITORY)")
-	cmd.Flags().StringVar(&cfg.GitHubToken, "github-token", cfg.GitHubToken, "GitHub token for check-run delivery (or BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, GITHUB_API_TOKEN)")
+	cmd.Flags().StringVar(&cfg.GitHubToken, "github-token", cfg.GitHubToken, "GitHub token for check-run delivery (or BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, GITHUB_API_TOKEN)")
 	cmd.Flags().StringVar(&cfg.GitHubAPIURL, "github-api-url", cfg.GitHubAPIURL, "GitHub API base URL for check-run delivery (or BENCHDB_ALERT_GITHUB_API_URL)")
 	cmd.Flags().StringVar(&cfg.EmailSMTPAddr, "email-smtp-addr", cfg.EmailSMTPAddr, "SMTP host:port for email alert delivery (or BENCHDB_ALERT_EMAIL_SMTP_ADDR)")
 	cmd.Flags().StringVar(&cfg.EmailFrom, "email-from", cfg.EmailFrom, "from address for email alert delivery (or BENCHDB_ALERT_EMAIL_FROM)")
 	cmd.Flags().StringVar(&cfg.EmailTo, "email-to", cfg.EmailTo, "comma-separated recipient addresses for email alert delivery (or BENCHDB_ALERT_EMAIL_TO)")
 	cmd.Flags().StringVar(&cfg.EmailUsername, "email-username", cfg.EmailUsername, "SMTP username for email alert delivery (or BENCHDB_ALERT_EMAIL_USERNAME)")
-	cmd.Flags().StringVar(&cfg.EmailPassword, "email-password", cfg.EmailPassword, "SMTP password for email alert delivery (or BENCHDB_ALERT_EMAIL_PASSWORD)")
+	cmd.Flags().StringVar(&cfg.EmailPassword, "email-password", cfg.EmailPassword, "SMTP password for email alert delivery (or BENCHDB_ALERT_EMAIL_PASSWORD, BENCHDB_ALERT_EMAIL_PASSWORD_FILE)")
 	cmd.Flags().Int32Var(&cfg.Limit, "limit", cfg.Limit, "maximum deliveries to enqueue and attempt")
 	cmd.Flags().DurationVar(&cfg.RetryAfter, "retry-after", cfg.RetryAfter, "delay before retrying a failed delivery")
 	cmd.Flags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "delivery request timeout")
@@ -446,15 +446,14 @@ func alertDeliverySecret(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if ref.File == "" {
+		return os.Getenv(name), nil
+	}
 	secret, err := ref.Resolve()
 	if err != nil {
 		var sourceErr *secretref.SourceError
 		if errors.As(err, &sourceErr) {
-			setting := name
-			if ref.File != "" {
-				setting += "_FILE"
-			}
-			return "", fmt.Errorf("%s: %s", setting, sourceErr.Reason)
+			return "", fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
 		}
 		return "", fmt.Errorf("%s: cannot resolve secret", name)
 	}

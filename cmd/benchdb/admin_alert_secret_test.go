@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"os"
@@ -31,6 +30,9 @@ func TestAlertDeliverySecretFiles(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "secret")
 			require.NoError(t, os.WriteFile(path, []byte(tc.value+"\n"), 0o600))
 			t.Setenv(tc.name+"_FILE", path)
+			if tc.name == "BENCHDB_ALERT_GITHUB_TOKEN" {
+				t.Setenv("GITHUB_TOKEN", "ghs_generic")
+			}
 			var got adminAlertsDeliverConfig
 			cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, func(_ context.Context, cfg adminAlertsDeliverConfig, _, _ io.Writer) error { got = cfg; return nil })
 			cmd.SetArgs(append([]string{"--channel", tc.channel}, tc.args...))
@@ -40,31 +42,12 @@ func TestAlertDeliverySecretFiles(t *testing.T) {
 	}
 }
 
-func TestAlertDeliverySecretErrorsAreRedacted(t *testing.T) {
-	t.Setenv("BENCHDB_DB_URL", "postgres://db")
-	t.Setenv("BENCHDB_ALERT_WEBHOOK_URL", "")
-	require.NoError(t, os.Unsetenv("BENCHDB_ALERT_WEBHOOK_URL"))
-	path := filepath.Join(t.TempDir(), "private-path")
-	t.Setenv("BENCHDB_ALERT_WEBHOOK_URL_FILE", path)
-	var out bytes.Buffer
-	cmd := newAdminAlertsDeliverCommand(&out, &out, func(_ context.Context, _ adminAlertsDeliverConfig, _, _ io.Writer) error {
-		t.Fatal("unexpected delivery")
-		return nil
-	})
-	cmd.SetArgs([]string{})
-	err := cmd.Execute()
-	require.ErrorContains(t, err, "BENCHDB_ALERT_WEBHOOK_URL_FILE")
-	assert.NotContains(t, err.Error(), path)
-}
-
 func TestAlertDeliverySecretSelection(t *testing.T) {
 	for _, tc := range []struct {
 		name, inline, file, flag, want, wantErr string
 		setInline, setFile                      bool
 	}{
-		{name: "conflict", inline: "https://example.test/secret", file: "/private/path", setInline: true, setFile: true, wantErr: "cannot both be set"},
-		{name: "empty inline", setInline: true, wantErr: "unset or empty"},
-		{name: "empty file selector", setFile: true, wantErr: "file selector is empty"},
+		{name: "conflict with empty inline", file: "/private/path", setInline: true, setFile: true, wantErr: "cannot both be set"},
 		{name: "flag overrides conflicting env", inline: "https://example.test/env", file: "/private/path", setInline: true, setFile: true, flag: "https://example.test/flag", want: "https://example.test/flag"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,7 +88,8 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 
 func TestAlertDeliveryGitHubTokenFallback(t *testing.T) {
 	for _, tc := range []struct{ name, alert, generic, pool, file, flag, want, wantErr string }{
-		{name: "alert token first", alert: "ghs_alert", generic: "ghs_generic", pool: "ghs_pool", want: "ghs_alert"},
+		{name: "alert token first", alert: " bad,  ghs_alert ", generic: "ghs_generic", pool: "ghs_pool", want: "ghs_alert"},
+		{name: "empty alert falls back", generic: "ghs_generic", want: "ghs_generic"},
 		{name: "invalid alert falls back", alert: "bad", generic: "ghs_generic", pool: "ghs_pool", want: "ghs_generic"},
 		{name: "invalid generic falls back to pool", generic: "bad", pool: "bad, ghs_pool", want: "ghs_pool"},
 		{name: "flag wins", alert: "ghs_alert", generic: "ghs_generic", flag: "ghs_flag", want: "ghs_flag"},
@@ -117,7 +101,7 @@ func TestAlertDeliveryGitHubTokenFallback(t *testing.T) {
 				t.Setenv(name, "")
 				require.NoError(t, os.Unsetenv(name))
 			}
-			if tc.alert != "" {
+			if tc.alert != "" || tc.name == "empty alert falls back" {
 				t.Setenv("BENCHDB_ALERT_GITHUB_TOKEN", tc.alert)
 			}
 			if tc.file != "" {
@@ -140,6 +124,7 @@ func TestAlertDeliveryGitHubTokenFallback(t *testing.T) {
 			err := cmd.Execute()
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
+				assert.ErrorContains(t, err, "BENCHDB_ALERT_GITHUB_TOKEN_FILE")
 				assert.NotContains(t, err.Error(), tc.file)
 				return
 			}
@@ -147,4 +132,18 @@ func TestAlertDeliveryGitHubTokenFallback(t *testing.T) {
 			assert.Equal(t, tc.want, got.GitHubToken)
 		})
 	}
+}
+
+func TestAlertDeliveryEmailEmptyPasswordWithoutAuthentication(t *testing.T) {
+	t.Setenv("BENCHDB_DB_URL", "postgres://db")
+	t.Setenv("BENCHDB_ALERT_EMAIL_USERNAME", "")
+	t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD", "")
+	t.Setenv("BENCHDB_ALERT_EMAIL_PASSWORD_FILE", "")
+	require.NoError(t, os.Unsetenv("BENCHDB_ALERT_EMAIL_PASSWORD_FILE"))
+	var got adminAlertsDeliverConfig
+	cmd := newAdminAlertsDeliverCommand(io.Discard, io.Discard, func(_ context.Context, cfg adminAlertsDeliverConfig, _, _ io.Writer) error { got = cfg; return nil })
+	cmd.SetArgs([]string{"--channel", "email", "--email-smtp-addr", "smtp.example:587", "--email-from", "a@example.com", "--email-to", "b@example.com"})
+	require.NoError(t, cmd.Execute())
+	assert.Empty(t, got.EmailUsername)
+	assert.Empty(t, got.EmailPassword)
 }
