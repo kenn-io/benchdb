@@ -9,6 +9,26 @@
       "pluginName": "Infinity"
     }
   ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "12.3.0"
+    },
+    {
+      "type": "datasource",
+      "id": "yesoreyeram-infinity-datasource",
+      "name": "Infinity",
+      "version": "4.1.8"
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    }
+  ],
   "uid": "benchdb-verdicts",
   "title": "BenchDB benchmark verdicts",
   "schemaVersion": 41,
