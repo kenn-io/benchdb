@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { overlayScrollbars } from "@kenn-io/kit-ui";
   import { appURL } from "../base-path";
   import type { BrowseRow, SortKey, SortSpec } from "../browse/transform";
   import { interceptNavClick } from "../router";
@@ -45,7 +46,7 @@
   }
 </script>
 
-<div class="table-panel browse-table-panel">
+<div class="table-panel browse-table-panel" {@attach overlayScrollbars({ axis: "x" })}>
   <table class="data-table stacked-table browse-table">
     <colgroup>
       <col class="benchmark-col" />

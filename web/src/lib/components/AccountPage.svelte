@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { NumberInput, PageHeader } from "@kenn-io/kit-ui";
+  import { NumberInput, overlayScrollbars, PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -405,7 +405,7 @@
         {#if tokens.length === 0}
           <p class="empty-copy">No API tokens.</p>
         {:else}
-          <div class="table-wrap">
+          <div class="table-wrap" {@attach overlayScrollbars({ axis: "x" })}>
             <table>
               <thead>
                 <tr>
@@ -498,7 +498,7 @@
       {#if alertRules.length === 0}
         <p class="empty-copy">No alert rules.</p>
       {:else}
-        <div class="table-wrap">
+        <div class="table-wrap" {@attach overlayScrollbars({ axis: "x" })}>
           <table>
             <thead>
               <tr>

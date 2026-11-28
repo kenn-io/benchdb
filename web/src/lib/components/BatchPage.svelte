@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { PageHeader } from "@kenn-io/kit-ui";
+  import { overlayScrollbars, PageHeader } from "@kenn-io/kit-ui";
   import { onMount } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -196,7 +196,11 @@
       <a class="button-pill" href={appURL("/series")} onclick={(e) => go(e, "/series")}>Browse series</a>
     </section>
 
-    <section class="panel table-panel" aria-label="Runs in batch">
+    <section
+      class="panel table-panel"
+      aria-label="Runs in batch"
+      {@attach overlayScrollbars({ axis: "x" })}
+    >
       <table class="data-table stacked-table batch-runs-table">
         <colgroup>
           <col class="run-col" />
@@ -257,7 +261,11 @@
       </table>
     </section>
 
-    <section class="panel table-panel" aria-label="Batch results">
+    <section
+      class="panel table-panel"
+      aria-label="Batch results"
+      {@attach overlayScrollbars({ axis: "x" })}
+    >
       <table class="data-table stacked-table batch-results-table">
         <colgroup>
           <col class="benchmark-col" />

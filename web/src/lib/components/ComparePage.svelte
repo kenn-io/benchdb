@@ -3,6 +3,7 @@
   import { onMount, untrack } from "svelte";
   import {
     NumberInput,
+    overlayScrollbars,
     PageHeader,
     SelectDropdown,
     type SelectDropdownOption,
@@ -68,6 +69,7 @@
   let baselineID = $state(untrack(() => query.baseline));
   let contenderID = $state(untrack(() => query.contender));
   let showAdvanced = $state(false);
+  let seriesResultsFrame = $state<HTMLDivElement>();
 
   let reqToken = 0;
   let searchToken = 0;
@@ -290,20 +292,27 @@
             <p class="hint">No benchmarks yet.</p>
           {/if}
         {:else}
-          <ul class="series-results" aria-label="Benchmarks" aria-busy={seriesLoading}>
-            {#each seriesResults as row (row.benchmarkId)}
-              <li>
-                <button type="button" class="series-option" onclick={() => selectSeries(row)}>
-                  <span class="series-name">{row.name}</span>
-                  <span class="series-meta">
-                    {[row.paramsText, countText(row.machineNames.length, "machine"), countText(row.pointCount, "point"), `latest ${row.svsText}`, row.commitDateText]
-                      .filter((part) => part !== "")
-                      .join(" · ")}
-                  </span>
-                </button>
-              </li>
-            {/each}
-          </ul>
+          <div class="series-results-frame" bind:this={seriesResultsFrame}>
+            <ul
+              class="series-results"
+              aria-label="Benchmarks"
+              aria-busy={seriesLoading}
+              {@attach overlayScrollbars({ axis: "y", host: seriesResultsFrame })}
+            >
+              {#each seriesResults as row (row.benchmarkId)}
+                <li>
+                  <button type="button" class="series-option" onclick={() => selectSeries(row)}>
+                    <span class="series-name">{row.name}</span>
+                    <span class="series-meta">
+                      {[row.paramsText, countText(row.machineNames.length, "machine"), countText(row.pointCount, "point"), `latest ${row.svsText}`, row.commitDateText]
+                        .filter((part) => part !== "")
+                        .join(" · ")}
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
         {/if}
       </section>
     {:else}
@@ -366,7 +375,7 @@
               onchange={selectComparisonTrack}
             />
           </label>
-          <div class="table-panel">
+          <div class="table-panel" {@attach overlayScrollbars({ axis: "x" })}>
             <table class="commit-table">
               <thead>
                 <tr>
@@ -695,13 +704,17 @@
     color: var(--c-error);
   }
 
+  .series-results-frame {
+    margin: 12px 0 0;
+    border: 1px solid var(--c-border-muted);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
   .series-results {
     max-height: min(60vh, 34rem);
     list-style: none;
-    margin: 12px 0 0;
+    margin: 0;
     padding: 0;
-    border: 1px solid var(--c-border-muted);
-    border-radius: var(--radius-md);
     overflow-y: auto;
   }
   .series-results[aria-busy="true"] {

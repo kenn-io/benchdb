@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { overlayScrollbars } from "@kenn-io/kit-ui";
   import { appURL } from "./lib/base-path";
   import { onMount } from "svelte";
 
@@ -21,6 +22,7 @@
   }
 
   let route = $state<Route>(currentRoute());
+  let shell = $state<HTMLDivElement>();
   let content: HTMLElement;
 
   $effect(() => {
@@ -50,10 +52,16 @@
 
 <a class="skip-link" href="#main-content" onclick={skipToContent}>Skip to content</a>
 
-<div class="app-shell">
+<div class="app-shell" bind:this={shell}>
   <AppSidebar {route} />
 
-  <div class="app-content" id="main-content" tabindex="-1" bind:this={content}>
+  <div
+    class="app-content"
+    id="main-content"
+    tabindex="-1"
+    bind:this={content}
+    {@attach overlayScrollbars({ axis: "both", host: shell })}
+  >
     {#if route.name === "home"}
       {#key JSON.stringify(route.query)}
         <RecentRunsHome query={route.query} />

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appURL } from "../base-path";
-  import { PageHeader } from "@kenn-io/kit-ui";
+  import { overlayScrollbars, PageHeader } from "@kenn-io/kit-ui";
   import { onMount, untrack } from "svelte";
 
   import { createBenchDBClient } from "../api/client";
@@ -34,6 +34,7 @@
   let loading = $state(true);
   let errorMsg = $state<string | null>(null);
   let refreshError = $state<string | null>(null);
+  let runsTable = $state<HTMLTableElement>();
 
   // The server computes verdicts in the background. A repository-wide
   // recheck waits through two 15-second settle windows plus worker ticks, so
@@ -209,8 +210,12 @@
       <p class="refresh-error" role="status">Couldn't refresh run verdicts: {refreshError}</p>
     {/if}
 
-    <section class="panel table-panel" aria-label="Benchmark runs">
-      <table class="data-table stacked-table runs-table">
+    <section
+      class="panel table-panel"
+      aria-label="Benchmark runs"
+      {@attach overlayScrollbars({ axis: "both", insetTop: runsTable?.tHead ?? null })}
+    >
+      <table class="data-table stacked-table runs-table" bind:this={runsTable}>
         <thead>
           <tr>
             <th>Commit</th>

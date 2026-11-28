@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { overlayScrollbars } from "@kenn-io/kit-ui";
   import { summarizeEnvironment } from "../environment";
 
   let {
@@ -22,7 +23,7 @@
       {#each summary.highlights as item (item)}<li>{item}</li>{/each}
     </ul>
   {/if}
-  <pre>{JSON.stringify(context, null, 2)}</pre>
+  <pre {@attach overlayScrollbars({ axis: "both" })}>{JSON.stringify(context, null, 2)}</pre>
 </details>
 
 <style>
