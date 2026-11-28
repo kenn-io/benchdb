@@ -285,7 +285,7 @@ func newAdminAlertsDeliverCommand(
 					}
 				}
 				if cfg.WebhookURL == "" {
-					return commandUsageError(cmd, "--webhook-url or BENCHDB_ALERT_WEBHOOK_URL is required")
+					return commandUsageError(cmd, "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE is required")
 				}
 				if err := validateAdminAlertDeliveryURL("--webhook-url", cfg.WebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
@@ -300,7 +300,7 @@ func newAdminAlertsDeliverCommand(
 					}
 				}
 				if cfg.SlackWebhookURL == "" {
-					return commandUsageError(cmd, "--slack-webhook-url or BENCHDB_ALERT_SLACK_WEBHOOK_URL is required")
+					return commandUsageError(cmd, "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE is required")
 				}
 				if err := validateAdminAlertDeliveryURL("--slack-webhook-url", cfg.SlackWebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
@@ -326,6 +326,9 @@ func newAdminAlertsDeliverCommand(
 					}
 					cfg.GitHubToken = commit.FirstUsableGitHubToken(token)
 					if cfg.GitHubToken == "" {
+						if _, selected := os.LookupEnv("BENCHDB_ALERT_GITHUB_TOKEN_FILE"); selected {
+							return errors.New("BENCHDB_ALERT_GITHUB_TOKEN_FILE: no usable GitHub token")
+						}
 						cfg.GitHubToken = firstUsableGitHubTokenEnv("GITHUB_TOKEN", "GITHUB_API_TOKEN")
 					}
 				} else {
@@ -334,7 +337,7 @@ func newAdminAlertsDeliverCommand(
 				if cfg.GitHubToken == "" {
 					return commandUsageError(
 						cmd,
-						"--github-token, BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
+						"--github-token, BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
 					)
 				}
 				if cfg.GitHubAPIURL == "" {
@@ -455,7 +458,7 @@ func alertDeliverySecret(name string) (string, error) {
 		if errors.As(err, &sourceErr) {
 			return "", fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
 		}
-		return "", fmt.Errorf("%s: cannot resolve secret", name)
+		return "", fmt.Errorf("%s_FILE: cannot resolve secret", name)
 	}
 	return secret.Value, nil
 }

@@ -827,7 +827,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--webhook-url or BENCHDB_ALERT_WEBHOOK_URL is required",
+			wantStderr:   "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE is required",
 			wantNoStdout: true,
 		},
 		{
@@ -910,7 +910,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "github-check", "--github-repository", "https://github.com/org/repo"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--github-token, BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
+			wantStderr:   "--github-token, BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
 			wantNoStdout: true,
 		},
 		{
@@ -927,7 +927,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "slack"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--slack-webhook-url or BENCHDB_ALERT_SLACK_WEBHOOK_URL is required",
+			wantStderr:   "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE is required",
 			wantNoStdout: true,
 		},
 		{
