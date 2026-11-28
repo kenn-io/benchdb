@@ -59,8 +59,8 @@ then by name:
 | Column | Meaning |
 | --- | --- |
 | Benchmark | The benchmark name. It links to the BenchDB trend page. |
-| Tags | The benchmark's tags as JSON. |
-| Repository | The repository URL. |
+| Tags | The benchmark's tags as JSON. Hover over a long value, or use the cell's inspect button, to see all of it. |
+| Repository | The repository URL. Long URLs show in full the same way. |
 | Machines | Each machine whose latest commit is in the time range. |
 | Verdict | The worst status across those machines. |
 | Change machine | The machine whose latest result set the status. |
@@ -70,7 +70,8 @@ then by name:
 The status panel and each table page are separate reads, so they can disagree
 briefly. Refresh after a recompute finishes to get updated rows.
 
-With no matching benchmarks, Grafana 12.3 shows an empty table with no rows.
+With no matching benchmarks, the table shows Grafana's **No data** message. The
+status panel still shows the zero counts and whether BenchDB is recomputing.
 If a request fails, check the panel's error for details.
 
 ## Time range and limits
