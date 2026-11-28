@@ -835,7 +835,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--webhook-url", "ftp://hooks.example/benchdb"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--webhook-url must be an http or https URL",
+			wantStderr:   "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE must be an http or https URL",
 			wantNoStdout: true,
 		},
 		{
@@ -893,7 +893,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			emailTo:      "ops@example.com",
 			emailUser:    "smtp-user",
 			wantCode:     2,
-			wantStderr:   "BENCHDB_ALERT_EMAIL_USERNAME and BENCHDB_ALERT_EMAIL_PASSWORD must be set together",
+			wantStderr:   "BENCHDB_ALERT_EMAIL_USERNAME and a password (BENCHDB_ALERT_EMAIL_PASSWORD or BENCHDB_ALERT_EMAIL_PASSWORD_FILE) must be set together",
 			wantNoStdout: true,
 		},
 		{
@@ -935,7 +935,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "slack", "--slack-webhook-url", "slack://hooks.example/benchdb"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--slack-webhook-url must be an http or https URL",
+			wantStderr:   "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE must be an http or https URL",
 			wantNoStdout: true,
 		},
 		{

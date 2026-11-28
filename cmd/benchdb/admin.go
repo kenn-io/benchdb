@@ -287,7 +287,7 @@ func newAdminAlertsDeliverCommand(
 				if cfg.WebhookURL == "" {
 					return commandUsageError(cmd, "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE is required")
 				}
-				if err := validateAdminAlertDeliveryURL("--webhook-url", cfg.WebhookURL); err != nil {
+				if err := validateAdminAlertDeliveryURL("--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE", cfg.WebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
 				}
 				cfg.Target = cfg.WebhookURL
@@ -302,7 +302,7 @@ func newAdminAlertsDeliverCommand(
 				if cfg.SlackWebhookURL == "" {
 					return commandUsageError(cmd, "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE is required")
 				}
-				if err := validateAdminAlertDeliveryURL("--slack-webhook-url", cfg.SlackWebhookURL); err != nil {
+				if err := validateAdminAlertDeliveryURL("--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE", cfg.SlackWebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
 				}
 				cfg.Target = cfg.SlackWebhookURL
@@ -394,7 +394,7 @@ func newAdminAlertsDeliverCommand(
 				if (cfg.EmailUsername == "") != (cfg.EmailPassword == "") {
 					return commandUsageError(
 						cmd,
-						"BENCHDB_ALERT_EMAIL_USERNAME and BENCHDB_ALERT_EMAIL_PASSWORD must be set together",
+						"BENCHDB_ALERT_EMAIL_USERNAME and a password (BENCHDB_ALERT_EMAIL_PASSWORD or BENCHDB_ALERT_EMAIL_PASSWORD_FILE) must be set together",
 					)
 				}
 			}
