@@ -454,8 +454,7 @@ func alertDeliverySecret(name string) (string, bool, error) {
 	}
 	secret, err := ref.Resolve()
 	if err != nil {
-		var sourceErr *secretref.SourceError
-		if errors.As(err, &sourceErr) {
+		if sourceErr, ok := errors.AsType[*secretref.SourceError](err); ok {
 			return "", true, fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
 		}
 		return "", true, fmt.Errorf("%s_FILE: cannot resolve secret", name)

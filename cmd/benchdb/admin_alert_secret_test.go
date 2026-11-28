@@ -107,9 +107,9 @@ func TestAlertDeliverySecretSelection(t *testing.T) {
 			if tc.wantErr != "" || tc.file == "missing" {
 				require.Error(t, err)
 				if tc.wantErr != "" {
-					assert.ErrorContains(t, err, tc.wantErr)
+					require.ErrorContains(t, err, tc.wantErr)
 				}
-				assert.ErrorContains(t, err, "BENCHDB_ALERT_GITHUB_TOKEN_FILE")
+				require.ErrorContains(t, err, "BENCHDB_ALERT_GITHUB_TOKEN_FILE")
 				assert.NotContains(t, err.Error(), path)
 				if tc.file != "missing" {
 					assert.NotContains(t, err.Error(), tc.file)
