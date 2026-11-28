@@ -421,16 +421,16 @@ benchdb admin alerts deliver --channel email --format json
 | Flag | Environment fallback | Default | Description |
 | --- | --- | --- | --- |
 | `--channel` | none | `webhook` | `webhook`, `slack`, `github-check`, `github-comment`, or `email`. |
-| `--webhook-url` | `BENCHDB_ALERT_WEBHOOK_URL` | none | Webhook URL. Required for `webhook`. |
-| `--slack-webhook-url` | `BENCHDB_ALERT_SLACK_WEBHOOK_URL` | none | Slack incoming webhook URL. Required for `slack`. |
+| `--webhook-url` | `BENCHDB_ALERT_WEBHOOK_URL`, `BENCHDB_ALERT_WEBHOOK_URL_FILE` | none | Webhook URL. Required for `webhook`. |
+| `--slack-webhook-url` | `BENCHDB_ALERT_SLACK_WEBHOOK_URL`, `BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE` | none | Slack incoming webhook URL. Required for `slack`. |
 | `--github-repository` | `BENCHDB_ALERT_GITHUB_REPOSITORY` | none | `https://github.com/owner/repo`. Required for both GitHub channels. |
-| `--github-token` | `BENCHDB_ALERT_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GITHUB_API_TOKEN` | none | GitHub token. Required for both GitHub channels. |
+| `--github-token` | `BENCHDB_ALERT_GITHUB_TOKEN`, `BENCHDB_ALERT_GITHUB_TOKEN_FILE`, `GITHUB_TOKEN`, `GITHUB_API_TOKEN` | none | GitHub token. Required for both GitHub channels. |
 | `--github-api-url` | `BENCHDB_ALERT_GITHUB_API_URL` | `https://api.github.com` | GitHub API base URL. |
 | `--email-smtp-addr` | `BENCHDB_ALERT_EMAIL_SMTP_ADDR` | none | SMTP `host:port`. Required for `email`. |
 | `--email-from` | `BENCHDB_ALERT_EMAIL_FROM` | none | Sender address. Required for `email`. |
 | `--email-to` | `BENCHDB_ALERT_EMAIL_TO` | none | Comma-separated recipients. Required for `email`. |
 | `--email-username` | `BENCHDB_ALERT_EMAIL_USERNAME` | none | SMTP username. Set together with the password. |
-| `--email-password` | `BENCHDB_ALERT_EMAIL_PASSWORD` | none | SMTP password. Set together with the username. |
+| `--email-password` | `BENCHDB_ALERT_EMAIL_PASSWORD`, `BENCHDB_ALERT_EMAIL_PASSWORD_FILE` | none | SMTP password. Set together with the username. |
 | `--limit` | none | `100` | Maximum deliveries to queue and attempt. |
 | `--retry-after` | none | `5m0s` | Delay before retrying a failed delivery. Must be greater than `--timeout`. |
 | `--timeout` | none | `10s` | Timeout for each delivery request. |
@@ -438,6 +438,7 @@ benchdb admin alerts deliver --channel email --format json
 
 Webhook, Slack, and GitHub API URLs must be `http` or `https`. See [Alerting](alerting.md)
 for rule evaluation, the delivery outbox, and each channel's message format.
+[Secrets from files](alerting.md#secrets-from-files) covers the `_FILE` forms.
 
 ## Server and schema
 

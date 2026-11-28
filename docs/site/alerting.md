@@ -266,6 +266,27 @@ prints a warning to stderr, and the command exits `1` if any send failed.
 See the [CLI reference](cli-reference.md#benchdb-admin-alerts-deliver) for all
 flags, defaults, and environment variables.
 
+### Secrets from files
+
+Each secret setting has a file form that names a file holding the value.
+
+| Setting | File form |
+| --- | --- |
+| `BENCHDB_ALERT_WEBHOOK_URL` | `BENCHDB_ALERT_WEBHOOK_URL_FILE` |
+| `BENCHDB_ALERT_SLACK_WEBHOOK_URL` | `BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE` |
+| `BENCHDB_ALERT_GITHUB_TOKEN` | `BENCHDB_ALERT_GITHUB_TOKEN_FILE` |
+| `BENCHDB_ALERT_EMAIL_PASSWORD` | `BENCHDB_ALERT_EMAIL_PASSWORD_FILE` |
+
+A matching flag with a value, such as `--webhook-url`, takes precedence, and
+BenchDB then ignores both forms. An empty inline value by itself counts as
+unset. Set at most one form per setting. The command fails when both forms are
+present, even if one is empty. It also fails when the file path is empty.
+
+BenchDB reads the file under the
+[Kit file policy](https://github.com/kenn-io/kit/blob/v0.58.1/docs/secrets.md#file-policy),
+which sets the trusted ownership, mode, and parent directory rules for each
+platform.
+
 ### Webhook
 
 The webhook channel is the default. It sends a `POST` with
@@ -345,8 +366,10 @@ benchdb admin alerts deliver --channel github-check --format json
 ```
 
 The token needs `checks:write` on the repository. The CLI reads
-`--github-token`, then `BENCHDB_ALERT_GITHUB_TOKEN`, `GITHUB_TOKEN`, and
-`GITHUB_API_TOKEN`.
+`--github-token`, then `BENCHDB_ALERT_GITHUB_TOKEN` or
+`BENCHDB_ALERT_GITHUB_TOKEN_FILE`, then `GITHUB_TOKEN`, then
+`GITHUB_API_TOKEN`. A selected token file must hold a usable token. Otherwise
+the command fails without trying `GITHUB_TOKEN` or `GITHUB_API_TOKEN`.
 
 BenchDB creates a completed Check Run named `BenchDB alert` on the event's
 commit. An `opened` event becomes a failing check and a `resolved` event a
@@ -381,14 +404,15 @@ export BENCHDB_ALERT_EMAIL_SMTP_ADDR="smtp.example:587"
 export BENCHDB_ALERT_EMAIL_FROM="BenchDB Alerts <alerts@example.com>"
 export BENCHDB_ALERT_EMAIL_TO="ops@example.com,perf@example.com"
 export BENCHDB_ALERT_EMAIL_USERNAME="smtp-user"
-export BENCHDB_ALERT_EMAIL_PASSWORD="..."
+export BENCHDB_ALERT_EMAIL_PASSWORD_FILE="/run/secrets/smtp-password"
 
 benchdb admin alerts deliver --channel email --format json
 ```
 
-`BENCHDB_ALERT_EMAIL_USERNAME` and `BENCHDB_ALERT_EMAIL_PASSWORD` are
-optional, but you must set both or neither. BenchDB uses STARTTLS when the
-server offers it. If you set credentials, the server must support SMTP AUTH.
+The username and password are optional. Set both or neither. The password comes
+from `BENCHDB_ALERT_EMAIL_PASSWORD` or `BENCHDB_ALERT_EMAIL_PASSWORD_FILE`.
+BenchDB uses STARTTLS when the server offers it. If you set credentials, the
+server must support SMTP AUTH.
 
 The delivery target is the normalized recipient list, with duplicates removed.
 The SMTP server and password are not part of the target, so retries stay

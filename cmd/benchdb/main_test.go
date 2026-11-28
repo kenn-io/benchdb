@@ -827,7 +827,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--webhook-url or BENCHDB_ALERT_WEBHOOK_URL is required",
+			wantStderr:   "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE is required",
 			wantNoStdout: true,
 		},
 		{
@@ -835,7 +835,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--webhook-url", "ftp://hooks.example/benchdb"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--webhook-url must be an http or https URL",
+			wantStderr:   "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE must be an http or https URL",
 			wantNoStdout: true,
 		},
 		{
@@ -893,7 +893,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			emailTo:      "ops@example.com",
 			emailUser:    "smtp-user",
 			wantCode:     2,
-			wantStderr:   "BENCHDB_ALERT_EMAIL_USERNAME and BENCHDB_ALERT_EMAIL_PASSWORD must be set together",
+			wantStderr:   "BENCHDB_ALERT_EMAIL_USERNAME and a password (BENCHDB_ALERT_EMAIL_PASSWORD or BENCHDB_ALERT_EMAIL_PASSWORD_FILE) must be set together",
 			wantNoStdout: true,
 		},
 		{
@@ -910,7 +910,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "github-check", "--github-repository", "https://github.com/org/repo"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--github-token, BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
+			wantStderr:   "--github-token, BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
 			wantNoStdout: true,
 		},
 		{
@@ -927,7 +927,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "slack"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--slack-webhook-url or BENCHDB_ALERT_SLACK_WEBHOOK_URL is required",
+			wantStderr:   "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE is required",
 			wantNoStdout: true,
 		},
 		{
@@ -935,7 +935,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 			args:         []string{"admin", "alerts", "deliver", "--channel", "slack", "--slack-webhook-url", "slack://hooks.example/benchdb"},
 			dbURL:        "postgres://db",
 			wantCode:     2,
-			wantStderr:   "--slack-webhook-url must be an http or https URL",
+			wantStderr:   "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE must be an http or https URL",
 			wantNoStdout: true,
 		},
 		{
@@ -981,6 +981,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			isolateAlertDeliveryEnv(t)
 			runAdminAlertsDeliver = func(
 				_ context.Context,
 				_ adminAlertsDeliverConfig,
@@ -1019,6 +1020,7 @@ func TestAdminAlertsDeliverUsageAndConfigErrors(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverSlackChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1048,6 +1050,7 @@ func TestAdminAlertsDeliverSlackChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCheckChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1082,6 +1085,7 @@ func TestAdminAlertsDeliverGitHubCheckChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCommentChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1116,6 +1120,7 @@ func TestAdminAlertsDeliverGitHubCommentChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverEmailChannelConfig(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1156,6 +1161,7 @@ func TestAdminAlertsDeliverEmailChannelConfig(t *testing.T) {
 }
 
 func TestAdminAlertsDeliverGitHubCheckUsesFirstTokenFromGitHubAPITokenPool(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,
@@ -1185,6 +1191,7 @@ func TestAdminAlertsDeliverGitHubCheckUsesFirstTokenFromGitHubAPITokenPool(t *te
 }
 
 func TestAdminAlertsDeliverRunnerConfigAndJSONOutput(t *testing.T) {
+	isolateAlertDeliveryEnv(t)
 	var got adminAlertsDeliverConfig
 	runAdminAlertsDeliver = func(
 		_ context.Context,

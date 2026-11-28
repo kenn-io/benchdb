@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"go.kenn.io/kit/secretref"
 
 	"go.kenn.io/benchdb/internal/auth"
 	"go.kenn.io/benchdb/internal/columnar"
@@ -277,23 +278,31 @@ func newAdminAlertsDeliverCommand(
 			switch cfg.Channel {
 			case service.AlertDeliveryChannelWebhook:
 				if cfg.WebhookURL == "" {
-					cfg.WebhookURL = os.Getenv("BENCHDB_ALERT_WEBHOOK_URL")
+					var err error
+					cfg.WebhookURL, _, err = alertDeliverySecret("BENCHDB_ALERT_WEBHOOK_URL")
+					if err != nil {
+						return err
+					}
 				}
 				if cfg.WebhookURL == "" {
-					return commandUsageError(cmd, "--webhook-url or BENCHDB_ALERT_WEBHOOK_URL is required")
+					return commandUsageError(cmd, "--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE is required")
 				}
-				if err := validateAdminAlertDeliveryURL("--webhook-url", cfg.WebhookURL); err != nil {
+				if err := validateAdminAlertDeliveryURL("--webhook-url, BENCHDB_ALERT_WEBHOOK_URL, or BENCHDB_ALERT_WEBHOOK_URL_FILE", cfg.WebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
 				}
 				cfg.Target = cfg.WebhookURL
 			case service.AlertDeliveryChannelSlack:
 				if cfg.SlackWebhookURL == "" {
-					cfg.SlackWebhookURL = os.Getenv("BENCHDB_ALERT_SLACK_WEBHOOK_URL")
+					var err error
+					cfg.SlackWebhookURL, _, err = alertDeliverySecret("BENCHDB_ALERT_SLACK_WEBHOOK_URL")
+					if err != nil {
+						return err
+					}
 				}
 				if cfg.SlackWebhookURL == "" {
-					return commandUsageError(cmd, "--slack-webhook-url or BENCHDB_ALERT_SLACK_WEBHOOK_URL is required")
+					return commandUsageError(cmd, "--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE is required")
 				}
-				if err := validateAdminAlertDeliveryURL("--slack-webhook-url", cfg.SlackWebhookURL); err != nil {
+				if err := validateAdminAlertDeliveryURL("--slack-webhook-url, BENCHDB_ALERT_SLACK_WEBHOOK_URL, or BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE", cfg.SlackWebhookURL); err != nil {
 					return commandUsageError(cmd, "%s", err)
 				}
 				cfg.Target = cfg.SlackWebhookURL
@@ -311,18 +320,24 @@ func newAdminAlertsDeliverCommand(
 				cfg.GitHubRepository = repository
 				cfg.Target = repository
 				if cfg.GitHubToken == "" {
-					cfg.GitHubToken = firstUsableGitHubTokenEnv(
-						"BENCHDB_ALERT_GITHUB_TOKEN",
-						"GITHUB_TOKEN",
-						"GITHUB_API_TOKEN",
-					)
+					token, fileSelected, err := alertDeliverySecret("BENCHDB_ALERT_GITHUB_TOKEN")
+					if err != nil {
+						return err
+					}
+					cfg.GitHubToken = commit.FirstUsableGitHubToken(token)
+					if cfg.GitHubToken == "" {
+						if fileSelected {
+							return errors.New("BENCHDB_ALERT_GITHUB_TOKEN_FILE: no usable GitHub token")
+						}
+						cfg.GitHubToken = firstUsableGitHubTokenEnv("GITHUB_TOKEN", "GITHUB_API_TOKEN")
+					}
 				} else {
 					cfg.GitHubToken = commit.FirstUsableGitHubToken(cfg.GitHubToken)
 				}
 				if cfg.GitHubToken == "" {
 					return commandUsageError(
 						cmd,
-						"--github-token, BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
+						"--github-token, BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, or GITHUB_API_TOKEN is required",
 					)
 				}
 				if cfg.GitHubAPIURL == "" {
@@ -370,12 +385,16 @@ func newAdminAlertsDeliverCommand(
 					cfg.EmailUsername = os.Getenv("BENCHDB_ALERT_EMAIL_USERNAME")
 				}
 				if cfg.EmailPassword == "" {
-					cfg.EmailPassword = os.Getenv("BENCHDB_ALERT_EMAIL_PASSWORD")
+					var err error
+					cfg.EmailPassword, _, err = alertDeliverySecret("BENCHDB_ALERT_EMAIL_PASSWORD")
+					if err != nil {
+						return err
+					}
 				}
 				if (cfg.EmailUsername == "") != (cfg.EmailPassword == "") {
 					return commandUsageError(
 						cmd,
-						"BENCHDB_ALERT_EMAIL_USERNAME and BENCHDB_ALERT_EMAIL_PASSWORD must be set together",
+						"BENCHDB_ALERT_EMAIL_USERNAME and a password (BENCHDB_ALERT_EMAIL_PASSWORD or BENCHDB_ALERT_EMAIL_PASSWORD_FILE) must be set together",
 					)
 				}
 			}
@@ -386,16 +405,16 @@ func newAdminAlertsDeliverCommand(
 		},
 	})
 	cmd.Flags().StringVar(&cfg.Channel, "channel", cfg.Channel, "delivery channel: webhook, slack, github-check, github-comment, or email")
-	cmd.Flags().StringVar(&cfg.WebhookURL, "webhook-url", cfg.WebhookURL, "webhook URL for alert delivery (or BENCHDB_ALERT_WEBHOOK_URL)")
-	cmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack incoming webhook URL for alert delivery (or BENCHDB_ALERT_SLACK_WEBHOOK_URL)")
+	cmd.Flags().StringVar(&cfg.WebhookURL, "webhook-url", cfg.WebhookURL, "webhook URL for alert delivery (or BENCHDB_ALERT_WEBHOOK_URL, BENCHDB_ALERT_WEBHOOK_URL_FILE)")
+	cmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack incoming webhook URL for alert delivery (or BENCHDB_ALERT_SLACK_WEBHOOK_URL, BENCHDB_ALERT_SLACK_WEBHOOK_URL_FILE)")
 	cmd.Flags().StringVar(&cfg.GitHubRepository, "github-repository", cfg.GitHubRepository, "GitHub repository URL for check-run delivery (or BENCHDB_ALERT_GITHUB_REPOSITORY)")
-	cmd.Flags().StringVar(&cfg.GitHubToken, "github-token", cfg.GitHubToken, "GitHub token for check-run delivery (or BENCHDB_ALERT_GITHUB_TOKEN, GITHUB_TOKEN, GITHUB_API_TOKEN)")
+	cmd.Flags().StringVar(&cfg.GitHubToken, "github-token", cfg.GitHubToken, "GitHub token for check-run delivery (or BENCHDB_ALERT_GITHUB_TOKEN, BENCHDB_ALERT_GITHUB_TOKEN_FILE, GITHUB_TOKEN, GITHUB_API_TOKEN)")
 	cmd.Flags().StringVar(&cfg.GitHubAPIURL, "github-api-url", cfg.GitHubAPIURL, "GitHub API base URL for check-run delivery (or BENCHDB_ALERT_GITHUB_API_URL)")
 	cmd.Flags().StringVar(&cfg.EmailSMTPAddr, "email-smtp-addr", cfg.EmailSMTPAddr, "SMTP host:port for email alert delivery (or BENCHDB_ALERT_EMAIL_SMTP_ADDR)")
 	cmd.Flags().StringVar(&cfg.EmailFrom, "email-from", cfg.EmailFrom, "from address for email alert delivery (or BENCHDB_ALERT_EMAIL_FROM)")
 	cmd.Flags().StringVar(&cfg.EmailTo, "email-to", cfg.EmailTo, "comma-separated recipient addresses for email alert delivery (or BENCHDB_ALERT_EMAIL_TO)")
 	cmd.Flags().StringVar(&cfg.EmailUsername, "email-username", cfg.EmailUsername, "SMTP username for email alert delivery (or BENCHDB_ALERT_EMAIL_USERNAME)")
-	cmd.Flags().StringVar(&cfg.EmailPassword, "email-password", cfg.EmailPassword, "SMTP password for email alert delivery (or BENCHDB_ALERT_EMAIL_PASSWORD)")
+	cmd.Flags().StringVar(&cfg.EmailPassword, "email-password", cfg.EmailPassword, "SMTP password for email alert delivery (or BENCHDB_ALERT_EMAIL_PASSWORD, BENCHDB_ALERT_EMAIL_PASSWORD_FILE)")
 	cmd.Flags().Int32Var(&cfg.Limit, "limit", cfg.Limit, "maximum deliveries to enqueue and attempt")
 	cmd.Flags().DurationVar(&cfg.RetryAfter, "retry-after", cfg.RetryAfter, "delay before retrying a failed delivery")
 	cmd.Flags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "delivery request timeout")
@@ -422,6 +441,25 @@ func validateAdminAlertGitHubRepository(raw string) (string, error) {
 		return "", errors.New("--github-repository must be a github.com repository URL")
 	}
 	return normalized, nil
+}
+
+// alertDeliverySecret hides Kit's file source, which contains the private path.
+func alertDeliverySecret(name string) (string, bool, error) {
+	ref, err := secretref.FromEnv(name)
+	if err != nil {
+		return "", false, err
+	}
+	if ref.File == "" {
+		return os.Getenv(name), false, nil
+	}
+	secret, err := ref.Resolve()
+	if err != nil {
+		if sourceErr, ok := errors.AsType[*secretref.SourceError](err); ok {
+			return "", true, fmt.Errorf("%s_FILE: %s", name, sourceErr.Reason)
+		}
+		return "", true, fmt.Errorf("%s_FILE: cannot resolve secret", name)
+	}
+	return secret.Value, true, nil
 }
 
 func firstUsableGitHubTokenEnv(names ...string) string {
